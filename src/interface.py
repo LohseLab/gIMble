@@ -1,5 +1,5 @@
 """
-blocktools
+gIMble
 
     Usage:
         ./gIMble <module> [<args>...]         
