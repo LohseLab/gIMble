@@ -34,6 +34,17 @@ from pandas import DataFrame
 
     conda env create -f=gimble.conda.yaml -n gimble
 
+[Problems] 
+    - sage need python2 !?!
+        - hacky compiling with python3 : https://wiki.sagemath.org/Python3-compatible%20code
+        - official version soon: 
+            - https://trac.sagemath.org/ticket/26212
+            - https://trac.sagemath.org/ticket/15530
+    - path computation can be improved using networkit/graph-tools
+    - but bottleneck is NOT path computation but creation of nodes in graph
+        - can be parallelised, but some sort of LOCK needs to be implemented
+        - ancestors are independent, so each node can be "ancestorised" independently and put things to queue
+
 [To do]
 
 plot:

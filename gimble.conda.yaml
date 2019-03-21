@@ -5,7 +5,7 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - python=3.6.8
+  - python=3.6
   - pandas
   - scipy
   - psutil
@@ -19,6 +19,5 @@ dependencies:
   - numpy
   - pygraphviz
   - networkx
-  - sage
   - jupyter
   - ipython

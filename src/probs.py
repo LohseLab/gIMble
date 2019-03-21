@@ -22,13 +22,16 @@ from ast import literal_eval
 from pandas import DataFrame
 
 '''
-[Dependencies]
 
-    conda env create -f=gimble.conda.yaml -n gimble
+[Problems]
+- Ipython notebook does not work on my machine, make general implementation of task
+- sage needs python2 !?!
+    - hacky compiling with python3 : https://wiki.sagemath.org/Python3-compatible%20code
+    - official version soon: 
+        - https://trac.sagemath.org/ticket/26212
+        - https://trac.sagemath.org/ticket/15530
 
 [To do]
-
-- Ipython notebook does not work on my machine, make general implementation of task
 - change path parser to work on source/sink √
 - Datastructure to know which edges have a given sub-state => allows knowing paths on which mutations can be placed
 
