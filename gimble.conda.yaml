@@ -1,0 +1,23 @@
+name: gimble
+channels:
+  - anaconda
+  - bioconda
+  - conda-forge
+  - defaults
+dependencies:
+  - scipy
+  - psutil
+  - pyyaml
+  - bedtools
+  - cyvcf2
+  - docopt
+  - matplotlib
+  - natsort
+  - tqdm
+  - numpy
+  - pandas
+  - pygraphviz
+  - networkx
+  - sage
+  - jupyter
+  - ipython
