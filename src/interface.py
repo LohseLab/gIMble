@@ -1,20 +1,16 @@
 """
-gIMble
+Usage: ./gIMble <module> [<args>...]
 
-    Usage:
-        ./gIMble <module> [<args>...]         
+Modules:
+    graph           Generate a state graph
+    probs           Analyse state graph
 
-    Modules:
-        graph           Generate a state graph
-        probs           Analyse state graph
+Options:
+    -h, --help                         Show this screen.
+    -v, --version                      Show version.
 
-
-    Options:
-        -h, --help                         Show this screen.
-        -v, --version                      Show version.
-
-    Help:
-        https://gimble.readme.io/ (TBA)
+Help:
+    https://gimble.readme.io/ (TBD)
 """
 
 import sys

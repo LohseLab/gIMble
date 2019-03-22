@@ -49,8 +49,6 @@ plot:
     - account for overlapping edges (using width/styles/colours)
     - adjust alpha/colour of edge labels
 
-graph:
-    - label source (sample) / sink (LCA) using special labels so that recognisable when loading file √
     
 
 '''
@@ -227,7 +225,7 @@ def build_state_graph(sampleStateObj, lcaStateObj, parameterObj):
             # build stateObj
             stateObj_by_idx[current_state_idx] = current_stateObj
             state_graph.add_node(current_stateObj.idx, state=current_stateObj.state, meta=meta.get(current_stateObj.state, ''))
-            print("[+]", current_stateObj)
+            #print("[+]", current_stateObj)
         ancestor_states, events, counts = get_ancestors(current_stateObj, parameterObj) # (state, events, counts, child_states)
         for ancestor_state, event, count in zip(ancestor_states, events, counts):
             #print("\t[A]", ancestor_state, event, count)
@@ -235,7 +233,7 @@ def build_state_graph(sampleStateObj, lcaStateObj, parameterObj):
             if not ancestor_state in idx_by_state:
                 ancestor_state_idx = len(state_graph)
                 ancestor_stateObj = StateObj(idx=ancestor_state_idx, state=ancestor_state, res_idx=parameterObj.resident_idx, mig_idx=parameterObj.migrant_idx)
-                print("\t[N]", ancestor_state, event, count, " => ", ancestor_stateObj)
+                #print("\t[N]", ancestor_state, event, count, " => ", ancestor_stateObj)
                 state_graph.add_node(ancestor_state_idx, state=ancestor_state, meta=meta.get(ancestor_state, ''))
                 #print("\t\t[+]", ancestor_state_idx, ancestor_state)
                 idx_by_state[ancestor_state] = ancestor_state_idx
@@ -248,9 +246,9 @@ def build_state_graph(sampleStateObj, lcaStateObj, parameterObj):
             else:
                 ancestor_state_idx = idx_by_state[ancestor_state]
                 ancestor_stateObj = StateObj(idx=ancestor_state_idx, state=ancestor_state, res_idx=parameterObj.resident_idx, mig_idx=parameterObj.migrant_idx)
-                print("\t[E]", ancestor_state, event, count, " => ", ancestor_stateObj)
+                #print("\t[E]", ancestor_state, event, count, " => ", ancestor_stateObj)
             # edges
-            print("\t[Edge]", (current_stateObj.idx, ancestor_stateObj.idx, {'count': count, 'event': event}))
+            #print("\t[Edge]", (current_stateObj.idx, ancestor_stateObj.idx, {'count': count, 'event': event}))
             edges.append((current_stateObj.idx, ancestor_stateObj.idx, {'count': count, 'event': event}))
     state_graph.add_edges_from(edges)
     print("[+] Generated graph with %s states, %s events in %s seconds." % (state_graph.number_of_nodes(), state_graph.number_of_edges(), timer() - start_time))
