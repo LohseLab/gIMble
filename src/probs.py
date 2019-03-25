@@ -1,26 +1,29 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 
-"""usage: gIMble probs -o STR -g FILE [-M FLOAT] [-E FLOAT] [-h|--help]
+"""usage: gIMble probs -o STR [-g FILE] [-p FILE] [-C FLOAT] [-M FLOAT] [-E FLOAT] [-h|--help]
 
     Options:
         -h --help                       show this
         -g, --graph FILE                State graph to analyse
+        -p, --paths FILE                Paths to analyse
         -o, --out_prefix STR            Prefix for output files
         -M, --migration_rate FLOAT      Migration rate [default: 0.5]
-        -E, --exodus_rate FLOAT         Exodus rate [default: 0.75]
+        -C, --coalescence_rate FLOAT    Coalescence rate in [pop] relative to {pop} [default: 0.75]
         
 """
 
 from docopt import docopt
-from collections import Counter, defaultdict
-import networkx as nx
+# from collections import Counter, defaultdict
 import matplotlib as mat
 mat.use("agg")
 from timeit import default_timer as timer
 from sys import stderr, exit
 from ast import literal_eval
-from pandas import DataFrame
+from pandas import DataFrame, read_csv
+from tqdm import tqdm
+from sage.all import *
+
 
 '''
 [Problems]
@@ -30,9 +33,16 @@ from pandas import DataFrame
     - official version soon: 
         - https://trac.sagemath.org/ticket/26212
         - https://trac.sagemath.org/ticket/15530
+    sage 8.6 (?)
+        - Add the conda-forge channel: conda config --add channels conda-forge
+        - Update all packages: conda update --all
+        - Create a new environment containing SageMath: conda create -n sage sage
+        - Enter the new environment: source activate sage
+        - Start SageMath: sage
 
 [To do]
-- change path parser to work on source/sink √
+- remove state graph?
+
 - Datastructure to know which edges have a given sub-state => allows knowing paths on which mutations can be placed
 '''
 
@@ -50,52 +60,6 @@ def pairwise(iterable):
         yield (a, b)
         a = b
 
-class StatePathObj(object):
-    def __init__(self, idx, nodes):
-        self.idx = idx 
-        self.path = [] # node of each step
-
-def get_state_paths(state_graph):
-    '''
-    Networkx documentation : https://networkx.github.io/documentation/stable/index.html
-    '''
-    start_time = timer()
-    # out_edges_counter = Counter([source for source, sink, count in state_graph.edges.data('count') for i in range(count)]) # previous approach
-
-    # Get total outgoing edges by event_type for each node 
-    event_types = {
-        '[C]' : 'C', '{C}' : 'C', 'C' : 'C',
-        'M' : 'M', 'R' : 'R', 'E' : 'E'
-    }
-    total_by_event_by_node_idx = defaultdict(Counter)
-    for source, sink, data in state_graph.edges.data():
-        event = event_types[data['event']]
-        total_by_event_by_node_idx[source][event] += data['count']
-    
-    # Convert to DoD so that can be JSON'ed
-    total_by_event_by_node_idx = {node_idx: dict(total_by_event) for node_idx, total_by_event in total_by_event_by_node_idx.items()}
-    print(total_by_event_by_node_idx)
-    # find source / sink
-    node_idx_by_meta = {meta: node_idx for node_idx, meta in nx.get_node_attributes(state_graph, 'meta').items() if meta}
-
-    header = ['idx', 'path', 'probability', 'events']
-    paths = []
-    for idx, path in enumerate(nx.all_simple_paths(state_graph, source=node_idx_by_meta['source'], target=node_idx_by_meta['sink'])):
-        #print(">> PATH %s %s" % (idx, path))
-        count_sum, total_sum = 1, 1
-        events = []
-        for source, sink in pairwise(path):
-            event = event_types[state_graph[source][sink]['event']]
-            count_sum *= state_graph[source][sink]['count']
-            #print("%s -> %s" % (source, sink), state_graph[source][sink])
-            events.append(state_graph[source][sink]['event'])
-            total_sum *= total_by_event_by_node_idx[source][event]
-            #print("[E] %s : p = %s" % (state_graph[source][sink]['event'], state_graph[source][sink]['count'] / out_edges_counter[source]))
-        #print("[P] P = %s" % (count_sum / total_sum))
-        paths.append([idx, "->".join([str(node) for node in path]), count_sum / total_sum, "->".join(events)])
-    print("[+] Found %s paths (sum(P)=%s) in %s seconds." % (len(paths), sum([path[2] for path in paths]), timer() - start_time))
-    return (header, paths)
-
 ###############################################################################
 
 ################################### Classes ###################################
@@ -103,7 +67,10 @@ def get_state_paths(state_graph):
 class ParameterObj(object):
     def __init__(self, args):
         self.graph_file = args['--graph']
+        self.path_file = args['--paths']
         self.out_prefix = args['--out_prefix']
+        self.coalescence_rate_b = float(args['--coalescence_rate'])
+        self.migration_rate = float(args['--migration_rate'])
         
     def write_paths(self, header, paths):
         start_time = timer()
@@ -111,6 +78,53 @@ class ParameterObj(object):
         create_csv(out_f, header, paths, sep="\t")
         print("[+] Written paths into file %s in %s seconds." % (out_f, timer() - start_time))
 
+    def read_paths(self):
+        start_time = timer()
+        paths_df = read_csv(\
+            self.path_file, \
+            sep="\t", \
+            )
+        seen_paths = set() 
+        # probably doable with defaultdict(1)
+        denominator = 1
+        numerator = 1
+        probs = []
+        T_var = var('T', domain='positive')
+        R_var = var('R')
+        E_var = var('E')
+        for path_idx, path, step_idx, state, event, event_count, C_mig, C_res, Ms, Es, Rs in tqdm(paths_df.values.tolist(), total=len(paths_df.index), desc="[%] ", ncols=200):
+            # setup of symbolic variables
+            if event == 'LCA':
+                continue
+            if path_idx not in seen_paths:
+                if len(seen_paths) > 0:
+                    print((numerator/denominator)/R_var)
+                    print("P(%s)=%s" % (path_idx, inverse_laplace((numerator/denominator)/R_var, R_var, T_var, algorithm='giac'))) # make it figure out which var (E/R) to declare/use
+                    probs.append(inverse_laplace((numerator/denominator)/R_var, R_var, T_var, algorithm='giac'))
+                seen_paths.add(path_idx)
+                denominator = 1
+                numerator = 1
+            #print(path_idx, path, step_idx, state, event, event_count, C_mig, C_res, Ms, Es, Rs)
+            counter = {'{C}': C_mig, '[C]': C_res, 'M': Ms, 'E': Es, 'R': Rs}
+            if event == '{C}':
+                numerator *= event_count 
+            elif event == '[C]':
+                numerator *= event_count * self.coalescence_rate_b
+            elif event == 'M':
+                numerator *= event_count * self.migration_rate
+            elif event == 'E':
+                numerator *= event_count * E_var
+            elif event == 'R':
+                numerator *= event_count * R_var
+            else:
+                exit("[X] Should never happen ...")
+            denominator *= (counter['{C}']) + (counter['[C]'] * self.coalescence_rate_b) + (counter['M'] * self.migration_rate) + counter['E'] * E_var + counter['R'] * R_var
+        print((numerator/denominator)/R_var)
+        print("P(%s)=%s" % (path_idx, inverse_laplace((numerator/denominator)/R_var, R_var, T_var, algorithm='giac'))) # make it figure out which var (E/R) to declare/use
+        probs.append(inverse_laplace((numerator/denominator)/R_var, R_var, T_var, algorithm='giac'))
+        print("[+] Parsed paths in file %s in %s seconds." % (self.path_file, timer() - start_time))
+        print(sum(probs).substitute(T=3.14))
+    
     def write_graph(self, state_graph):
         start_time = timer()
         out_f = "%s.gml" % (self.get_basename())
@@ -142,8 +156,9 @@ def main():
         args = docopt(__doc__)
         print(args)
         parameterObj = ParameterObj(args)
-        state_graph = parameterObj.read_graph()
-        get_state_paths(state_graph)
+        #state_graph = parameterObj.read_graph()
+        path = parameterObj.read_paths()
+
     except KeyboardInterrupt:
         stderr.write("\n[X] Interrupted by user after %s seconds!\n" % (timer() - main_time))
         exit(-1)

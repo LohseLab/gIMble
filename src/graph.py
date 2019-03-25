@@ -18,7 +18,7 @@
 
 from docopt import docopt
 from itertools import combinations
-from collections import Counter
+from collections import Counter, defaultdict
 from networkx.drawing.nx_agraph import graphviz_layout
 import networkx as nx
 import matplotlib as mat
@@ -43,6 +43,9 @@ from pandas import DataFrame
     - ancestors are independent, so each node can be "ancestorised" independently and put things to queue
 
 [To do]
+paths: 
+    - write directly to file
+    - maybe calculate probs ...
 plot:
     - improve setting of figure dimensions based on graph complexity
     - legend with edge types
@@ -255,22 +258,42 @@ def build_state_graph(sampleStateObj, lcaStateObj, parameterObj):
     return state_graph, lcaStateObj
 
 def get_state_paths(state_graph, sampleStateObj, lcaStateObj):
+    '''
+    Networkx documentation : https://networkx.github.io/documentation/stable/index.html
+    '''
     start_time = timer()
-    out_edges_counter = Counter([source for source, sink, count in state_graph.edges.data('count') for i in range(count)])
+    # out_edges_counter = Counter([source for source, sink, count in state_graph.edges.data('count') for i in range(count)]) # previous approach
+
+    # Get total outgoing edges by event_type for each node 
+    event_types = {'[C]' : '[C]', '{C}' : '{C}', 'C' : 'C', 'M' : 'M', 'R' : 'R', 'E' : 'E'}
+    total_by_event_by_node_idx = defaultdict(Counter)
+    for source, sink, data in state_graph.edges.data():
+        total_by_event_by_node_idx[source][event_types[data['event']]] += data['count']
+
+    # find source / sink
+    node_idx_by_meta = {meta: node_idx for node_idx, meta in nx.get_node_attributes(state_graph, 'meta').items() if meta}
+    state_by_node_idx = {node_idx: state for node_idx, state in nx.get_node_attributes(state_graph, 'state').items()}
+
+    header = ['path_idx', 'path', 'step_idx', 'state', 'event', 'event_count', '{C}', '[C]', 'Ms', 'Es', 'Rs']
     paths = []
-    header = ['idx', 'path', 'probability', 'events']
-    for idx, path in enumerate(nx.all_simple_paths(state_graph, source=sampleStateObj.idx, target=lcaStateObj.idx)):
-        #print(">># %s %s" % (idx, path))
-        count_sum, total_sum = 1, 1
-        events = []
+    path_count = 0
+    for path_idx, path in enumerate(nx.all_simple_paths(state_graph, source=node_idx_by_meta['source'], target=node_idx_by_meta['sink'])):
+        path_count += 1
+        step_idx = 0
         for source, sink in pairwise(path):
-            count_sum *= state_graph[source][sink]['count']
-            events.append(state_graph[source][sink]['event'])
-            total_sum *= out_edges_counter[source]
-        #     print("[E] %s : p = %s" % (state_graph[source][sink]['event'], state_graph[source][sink]['count'] / out_edges_counter[source]))
-        # print("[P] P = %s" % (count_sum / total_sum))
-        paths.append([idx, "->".join([str(node) for node in path]), count_sum / total_sum, "->".join(events)])
-    print("[+] Found %s paths (sum(P)=%s) in %s seconds." % (len(paths), sum([path[2] for path in paths]), timer() - start_time))
+            state = state_by_node_idx[source]
+            event = event_types[state_graph[source][sink]['event']]
+            event_count = state_graph[source][sink]['count']
+            events_c_mig = total_by_event_by_node_idx[source]['{C}']
+            events_c_res = total_by_event_by_node_idx[source]['[C]']
+            events_m = total_by_event_by_node_idx[source]['M']
+            events_r = total_by_event_by_node_idx[source]['R']
+            events_e = total_by_event_by_node_idx[source]['E']
+            paths.append([path_idx, path, step_idx, state, event, event_count, events_c_mig, events_c_res, events_m, events_e, events_r])
+            step_idx += 1
+        state = state_by_node_idx[sink]
+        paths.append([path_idx, path, step_idx, state, 'LCA', 0, 0, 0, 0, 0, 0])
+    print("[+] Found %s paths in %s seconds." % (path_count, timer() - start_time))
     return (header, paths)
 
 def state_from_lol(pops, ploidy=1):
