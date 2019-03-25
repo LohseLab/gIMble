@@ -14,13 +14,10 @@
 """
 
 from docopt import docopt
-# from collections import Counter, defaultdict
-import matplotlib as mat
-mat.use("agg")
+from collections import defaultdict
 from timeit import default_timer as timer
 from sys import stderr, exit
-from ast import literal_eval
-from pandas import DataFrame, read_csv
+from pandas import read_csv
 from tqdm import tqdm
 from sage.all import *
 
@@ -41,24 +38,16 @@ from sage.all import *
         - Start SageMath: sage
 
 [To do]
-- remove state graph?
+- Input path table
+    - Is there a need for keeping E and R separate? could be one event? then we would have one 'rate' and no need for if/else's ...
 
+- remove state graph?
 - Datastructure to know which edges have a given sub-state => allows knowing paths on which mutations can be placed
 '''
 
 ################################### Functions #################################
 
-def create_csv(out_f, header, rows, sep):
-    df = DataFrame(rows, columns=header)
-    print(df)
-    df.to_csv(out_f, index=False, sep=sep)
-
-def pairwise(iterable):
-    it = iter(iterable)
-    a = next(it, None)
-    for b in it:
-        yield (a, b)
-        a = b
+# TBD
 
 ###############################################################################
 
@@ -71,12 +60,6 @@ class ParameterObj(object):
         self.out_prefix = args['--out_prefix']
         self.coalescence_rate_b = float(args['--coalescence_rate'])
         self.migration_rate = float(args['--migration_rate'])
-        
-    def write_paths(self, header, paths):
-        start_time = timer()
-        out_f = "%s.paths.txt" % (self.get_basename())
-        create_csv(out_f, header, paths, sep="\t")
-        print("[+] Written paths into file %s in %s seconds." % (out_f, timer() - start_time))
 
     def read_paths(self):
         start_time = timer()
@@ -84,67 +67,26 @@ class ParameterObj(object):
             self.path_file, \
             sep="\t", \
             )
-        seen_paths = set() 
         # probably doable with defaultdict(1)
-        denominator = 1
-        numerator = 1
         probs = []
-        T_var = var('T', domain='positive')
+        T_var = var('T')
+        equation_raw_by_path_idx = defaultdict(lambda: 1)
+        equation_ilt_by_path_idx = {}
         R_var = var('R')
-        E_var = var('E')
+        # E_var = var('E')
+        rates = {'{C}': 1, '[C]': self.coalescence_rate_b, 'M': self.migration_rate, 'E': var('E'), 'R': var('R')}
+        print(rates)
         for path_idx, path, step_idx, state, event, event_count, C_mig, C_res, Ms, Es, Rs in tqdm(paths_df.values.tolist(), total=len(paths_df.index), desc="[%] ", ncols=200):
-            # setup of symbolic variables
             if event == 'LCA':
-                continue
-            if path_idx not in seen_paths:
-                if len(seen_paths) > 0:
-                    print((numerator/denominator)/R_var)
-                    print("P(%s)=%s" % (path_idx, inverse_laplace((numerator/denominator)/R_var, R_var, T_var, algorithm='giac'))) # make it figure out which var (E/R) to declare/use
-                    probs.append(inverse_laplace((numerator/denominator)/R_var, R_var, T_var, algorithm='giac'))
-                seen_paths.add(path_idx)
-                denominator = 1
-                numerator = 1
-            #print(path_idx, path, step_idx, state, event, event_count, C_mig, C_res, Ms, Es, Rs)
-            counter = {'{C}': C_mig, '[C]': C_res, 'M': Ms, 'E': Es, 'R': Rs}
-            if event == '{C}':
-                numerator *= event_count 
-            elif event == '[C]':
-                numerator *= event_count * self.coalescence_rate_b
-            elif event == 'M':
-                numerator *= event_count * self.migration_rate
-            elif event == 'E':
-                numerator *= event_count * E_var
-            elif event == 'R':
-                numerator *= event_count * R_var
+                # LCA is end of path
+                equation_ilt_by_path_idx[path_idx] = inverse_laplace(equation_raw_by_path_idx[path_idx] / R_var, R_var, T_var, algorithm='giac')
+                # print("P(%s)=%s" % (path_idx, equation_ilt_by_path_idx[path_idx])) 
+                probs.append(equation_ilt_by_path_idx[path_idx])
             else:
-                exit("[X] Should never happen ...")
-            denominator *= (counter['{C}']) + (counter['[C]'] * self.coalescence_rate_b) + (counter['M'] * self.migration_rate) + counter['E'] * E_var + counter['R'] * R_var
-        print((numerator/denominator)/R_var)
-        print("P(%s)=%s" % (path_idx, inverse_laplace((numerator/denominator)/R_var, R_var, T_var, algorithm='giac'))) # make it figure out which var (E/R) to declare/use
-        probs.append(inverse_laplace((numerator/denominator)/R_var, R_var, T_var, algorithm='giac'))
+                counter = {'{C}': C_mig, '[C]': C_res, 'M': Ms, 'E': Es, 'R': Rs}
+                equation_raw_by_path_idx[path_idx] *= (event_count * rates[event]) / ((counter['{C}']) + (counter['[C]'] * rates['[C]']) + (counter['M'] * rates['M']) + counter['E'] * rates['E'] + counter['R'] * rates['R'])
         print("[+] Parsed paths in file %s in %s seconds." % (self.path_file, timer() - start_time))
-        print(sum(probs).substitute(T=3.14))
-    
-    def write_graph(self, state_graph):
-        start_time = timer()
-        out_f = "%s.gml" % (self.get_basename())
-        # states have to be stringified ...
-        for idx, node in state_graph.nodes(data=True):
-            # print(idx, node)
-            node['state'] = str(node.get('state', None))
-        nx.write_gml(state_graph, out_f)
-        print("[+] Written graph into file %s in %s seconds." % (out_f, timer() - start_time))
-        return out_f
-
-    def read_graph(self):
-        start_time = timer()
-        state_graph = nx.read_gml(self.graph_file)
-        for idx, node in state_graph.nodes(data=True):
-            node['state'] = literal_eval(node['state'])
-            if 'pos' in node:
-                node['pos'] = tuple(node['pos'])
-        print("[+] Read graph from file %s in %s seconds." % (self.graph_file, timer() - start_time))
-        return state_graph
+        return equation_ilt_by_path_idx
 
 ###############################################################################
 
@@ -156,8 +98,8 @@ def main():
         args = docopt(__doc__)
         print(args)
         parameterObj = ParameterObj(args)
-        #state_graph = parameterObj.read_graph()
-        path = parameterObj.read_paths()
+        equation_ilt_by_path_idx = parameterObj.read_paths()
+        print(sum(equation_ilt_by_path_idx.values()).substitute(T=3.14))
 
     except KeyboardInterrupt:
         stderr.write("\n[X] Interrupted by user after %s seconds!\n" % (timer() - main_time))
