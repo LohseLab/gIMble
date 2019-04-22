@@ -48,6 +48,7 @@ from itertools import product as prod
 [Changes]
 - keep mutation rates symbolic for path/mutation computations
 - save in datastructure/pickle
+- filter paths that can't accomodate mutations
 - iteratively turn off combinations of rates
     - None
     - A, B, AB, fixed
@@ -304,7 +305,6 @@ def main():
         parameterObj = ParameterObj(args)
         pathObj_by_path_id, nodeObj_by_node_id = parameterObj.read_paths()
         data = [
-            Counter({'hetA':3, 'hetB':3, 'fixed':0, 'hetAB':0}),
             Counter({'hetA':2, 'hetB':1, 'fixed':0, 'hetAB':0}),
             Counter({'hetA':0, 'hetB':0, 'fixed':0, 'hetAB':0}),
             Counter({'hetA':0, 'hetB':1, 'fixed':0, 'hetAB':0}),
@@ -351,7 +351,7 @@ def main():
             Counter({'hetA':2, 'hetB':2, 'fixed':2, 'hetAB':0})
         ]
 
-        equation_ilt_by_path_id_by_data_idx = parameterObj.analyse_paths([data[0]], pathObj_by_path_id, nodeObj_by_node_id)
+        equation_ilt_by_path_id_by_data_idx = parameterObj.analyse_paths(data, pathObj_by_path_id, nodeObj_by_node_id)
         ilvs = []
         for data_idx in equation_ilt_by_path_id_by_data_idx.keys():
             ilv = sum(equation_ilt_by_path_id_by_data_idx[data_idx].values())
