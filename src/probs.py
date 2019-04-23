@@ -45,15 +45,17 @@ from itertools import product as prod
         - Enter the new environment: source activate sage
         - Start SageMath: sage
 
-[Changes]
-- keep mutation rates symbolic for path/mutation computations
-- save in datastructure/pickle
+[To do]
 - filter paths that can't accomodate mutations
-- iteratively turn off combinations of rates
-    - None
-    - A, B, AB, fixed
-    - A+B, A+AB, A+fixed
-    - 
+- Marginals
+    - keep mutation rates symbolic for path/mutation computations so that marginals can be calculated
+    - iteratively turn off combinations of rates, None, A, B, AB, fixed, A+B, A+AB, A+fixed, ...A
+    - save results in datastructure/pickle (4D)
+- ILT
+    - progressbar for SUM-ILT
+    - implement switch for doing ILT-SUM vs SUM-ILT
+    - implement interface for ILT-calculations for mpath (http://mpmath.org/) and pygiac (http://www-fourier.ujf-grenoble.fr/~parisse/giac_fr.html#python)
+    - compare sage-giac/sage-sympy/sage-maxima/mpath/pygiac ILTs
 '''
 
 ################################### Functions #################################
