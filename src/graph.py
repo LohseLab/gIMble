@@ -58,18 +58,7 @@ python2 src/probs.py probs -p output/master.2_samples.2_pop.2_ploidy.R.paths.txt
 python2 src/probs.py probs -p output/master.2_samples.2_pop.2_ploidy.M+R.paths.txt -t 1 -A 1.0 -D 1.3 -M 2.34 -T 1.4 && \
 python2 src/probs.py probs -p output/master.2_samples.2_pop.2_ploidy.M+R.paths.txt -t 1 -A 1.0 -D 1.0 -M 2.34 -T 1.4 
 
-[Problems] 
-- stable sage needs python2 !?!
-    - hacky compiling with python3 : https://wiki.sagemath.org/Python3-compatible%20code
-        or https://wiki.sagemath.org/Conda
-    - official version soon: 
-        - https://trac.sagemath.org/ticket/26212
-        - https://trac.sagemath.org/ticket/15530
-- path computation can be improved using networkit/graph-tools
-- but bottleneck is NOT path computation but creation of nodes in graph
-    - can be parallelised, but some sort of LOCK needs to be implemented
-    - ancestors are independent, so each node can be "ancestorised" independently and put things to queue
-                           
+[Problems]                      
 plot:
     - improve setting of figure dimensions based on graph complexity
     - legend with edge types

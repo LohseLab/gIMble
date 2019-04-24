@@ -26,27 +26,10 @@ from sage.all import *
 from multiprocessing import Pool
 from contextlib import contextmanager
 from itertools import combinations_with_replacement as combi_with_replacement 
-from itertools import combinations as combi
 from itertools import product as prod
 from pandas import DataFrame
 
 '''
--m, --mutation_rate FLOAT       Mutation rate [default: 0.1]
-
-[Problems]
-- Ipython notebook does not work on my machine, make general implementation of task
-- sage needs python2 !?!
-    - hacky compiling with python3 : https://wiki.sagemath.org/Python3-compatible%20code
-    - official version soon: 
-        - https://trac.sagemath.org/ticket/26212
-        - https://trac.sagemath.org/ticket/15530
-    sage 8.6 (?)
-        - Add the conda-forge channel: conda config --add channels conda-forge
-        - Update all packages: conda update --all
-        - Create a new environment containing SageMath: conda create -n sage sage
-        - Enter the new environment: source activate sage
-        - Start SageMath: sage
-
 [To do]
 - filter paths that can't accomodate mutations
 - Marginals
@@ -54,9 +37,6 @@ from pandas import DataFrame
     - iteratively turn off combinations of rates, None, A, B, AB, fixed, A+B, A+AB, A+fixed, ...A
     - save results in datastructure/pickle (4D)
 - ILT
-    - progressbar for SUM-ILT
-    - implement switch for doing ILT-SUM vs SUM-ILT
-        - Choose to put all in function (equal to ILT-SUM)
     - implement interface for ILT-calculations for mpath (http://mpmath.org/) and pygiac (http://www-fourier.ujf-grenoble.fr/~parisse/giac_fr.html#python)
     - compare sage-giac/sage-sympy/sage-maxima/mpath/pygiac ILTs
 '''
