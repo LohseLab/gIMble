@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gIMble graph -o STR -s STR [-p INT] [-m] [-e -E] [-P -G] [-h|--help]
+"""usage: gIMble graph -o STR -s STR [-p INT] [-M] [-E -R] [-P -G] [-h|--help]
 
     Options:
         -h --help                       show this
@@ -10,9 +10,9 @@
                                             - [['b'], ['a'] : 2 pops, 1 diploid sample in each
                                             - [['b'], {'a'} : 2 pops, 1 diploid sample in each, migration ({a} -> [b])
                                             - [{'b'}, ['a'] : 2 pops, 1 diploid sample in each, migration ({b} -> [a])
-        -m, --migration                 Allow migration between populations 
-        -e, --exodus                    Allow exodus between populations from {}->[]
-        -E, --reverse_exodus            Allow exodus between populations from []->{}
+        -M, --migration                 Allow migration between populations 
+        -E, --exodus                    Allow exodus between populations from {}->[]
+        -R, --reverse_exodus            Allow exodus between populations from []->{}
         -o, --out_prefix STR            Prefix for output files
         -P, --plot_mutypes              plot mutypes in graph
         -G, --no_graph_labels           Do not plot graphlabels
@@ -20,7 +20,7 @@
 
 from docopt import docopt
 from itertools import combinations
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, OrderedDict
 from networkx.drawing.nx_agraph import graphviz_layout
 import networkx as nx
 import matplotlib as mat
@@ -37,6 +37,27 @@ from ast import literal_eval
 from pandas import DataFrame
 
 '''
+[Testing]
+./gIMble graph -s "[{'a'}, ['b']]" -p 2 -M -o output/master && \
+./gIMble graph -s "[{'a'}, ['b']]" -p 2 -E -o output/master && \
+./gIMble graph -s "[{'a'}, ['b']]" -p 2 -R -o output/master && \
+./gIMble graph -s "[{'a'}, ['b']]" -p 2 -M -E -o output/master && \
+./gIMble graph -s "[{'a'}, ['b']]" -p 2 -M -R -o output/master
+
+python2 src/probs.py probs -p output/master.2_samples.2_pop.2_ploidy.E.paths.txt -t 1 -A 1.0 -D 1.3 -M 2.34 -T 1.4 && \
+python2 src/probs.py probs -p output/master.2_samples.2_pop.2_ploidy.M+E.paths.txt -t 1 -A 1.0 -D 1.3 -M 2.34 -T 1.4 && \
+python2 src/probs.py probs -p output/master.2_samples.2_pop.2_ploidy.M+R.paths.txt -t 1 -A 1.0 -D 1.3 -M 2.34 -T 1.4 && \
+python2 src/probs.py probs -p output/master.2_samples.2_pop.2_ploidy.M.paths.txt -t 1 -A 1.0 -D 1.3 -M 2.34 -T 1.4 && \
+python2 src/probs.py probs -p output/master.2_samples.2_pop.2_ploidy.R.paths.txt -t 1 -A 1.0 -D 1.3 -M 2.34 -T 1.4 && \
+python2 src/probs.py probs -p output/master.2_samples.2_pop.2_ploidy.E.paths.txt -t 1 -A 1.0 -D 1.0 -M 2.34 -T 1.4 && \
+python2 src/probs.py probs -p output/master.2_samples.2_pop.2_ploidy.M+E.paths.txt -t 1 -A 1.0 -D 1.0 -M 2.34 -T 1.4 && \
+python2 src/probs.py probs -p output/master.2_samples.2_pop.2_ploidy.M+R.paths.txt -t 1 -A 1.0 -D 1.0 -M 2.34 -T 1.4 && \
+python2 src/probs.py probs -p output/master.2_samples.2_pop.2_ploidy.M.paths.txt -t 1 -A 1.0 -D 1.0 -M 2.34 -T 1.4 && \
+python2 src/probs.py probs -p output/master.2_samples.2_pop.2_ploidy.R.paths.txt -t 1 -A 1.0 -D 1.0 -M 2.34 -T 1.4
+
+python2 src/probs.py probs -p output/master.2_samples.2_pop.2_ploidy.M+R.paths.txt -t 1 -A 1.0 -D 1.3 -M 2.34 -T 1.4 && \
+python2 src/probs.py probs -p output/master.2_samples.2_pop.2_ploidy.M+R.paths.txt -t 1 -A 1.0 -D 1.0 -M 2.34 -T 1.4 
+
 [Problems] 
 - stable sage needs python2 !?!
     - hacky compiling with python3 : https://wiki.sagemath.org/Python3-compatible%20code
@@ -520,7 +541,13 @@ class ParameterObj(object):
             pass
         
     def get_basename(self):
-        return "%s.%s_samples.%s_pop.%s_ploidy.M_%s.e_%s.E_%s" % (self.out_prefix, self.count_samples, self.count_pops, self.ploidy, int(self.migration), int(self.exodus), int(self.reverse_exodus))
+        models = OrderedDict({
+            'M': self.migration, 
+            'E': self.exodus, 
+            'R': self.reverse_exodus
+        })
+        model_string = "+".join([model_id for model_id, status in models.items() if status])
+        return "%s.%s_samples.%s_pop.%s_ploidy.%s" % (self.out_prefix, self.count_samples, self.count_pops, self.ploidy, model_string)
 
     def write_paths(self, header, paths):
         start_time = timer()
@@ -571,7 +598,6 @@ def main():
     try:
         main_time = timer()
         args = docopt(__doc__)
-        print(args)
         parameterObj = ParameterObj(args)
         sampleStateObj, lcaStateObj = parameterObj.setup_model()
         state_graph, lcaStateObj = build_state_graph(sampleStateObj, lcaStateObj, parameterObj)

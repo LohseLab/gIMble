@@ -1,17 +1,18 @@
 #!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 
-"""usage: gIMble probs -o STR [-g FILE] [-p FILE] [-C FLOAT] [-M FLOAT] [-t INT] [-m FLOAT] [-h|--help]
+"""usage: gIMble probs         -p FILE [-A FLOAT] [-D FLOAT] [-M FLOAT] [-m FLOAT] [-T FLOAT] [-t INT] [-h|--help]
 
     Options:
-        -h --help                       show this
-        -g, --graph FILE                State graph to analyse
-        -p, --paths FILE                Paths to analyse
-        -o, --out_prefix STR            Prefix for output files
-        -M, --migration_rate FLOAT      Migration rate [default: 0.5]
-        -C, --coalescence_rate FLOAT    Coalescence rate in [pop] relative to {pop} [default: 0.75]
-        -t, --threads INT               Threads [default: 1]
-        -m, --mutation_rate FLOAT       Mutation rate [default: 1.0]
+        -h --help                                   show this
+        -p, --paths FILE                            Paths to analyse
+        -A, --ancestor_coalescence_rate FLOAT   Coalescence rate in [ancestor] pop [default: 1.0]
+        -D, --derived_coalescence_rate FLOAT    Coalescence rate in {derived} pop [default: 1.0]
+        -M, --migration_rate FLOAT                  Migration rate per generation [default: 2.35]
+        -m, --mutation_rate FLOAT                   Mutation rate/lineage [default: 0.6]
+        -T, --T_var FLOAT                           T [default: 1.4]
+        -t, --threads INT                           Threads [default: 1]
+        
 """
 
 from __future__ import division
@@ -27,6 +28,7 @@ from contextlib import contextmanager
 from itertools import combinations_with_replacement as combi_with_replacement 
 from itertools import combinations as combi
 from itertools import product as prod
+from pandas import DataFrame
 
 '''
 -m, --mutation_rate FLOAT       Mutation rate [default: 0.1]
@@ -54,13 +56,29 @@ from itertools import product as prod
 - ILT
     - progressbar for SUM-ILT
     - implement switch for doing ILT-SUM vs SUM-ILT
+        - Choose to put all in function (equal to ILT-SUM)
     - implement interface for ILT-calculations for mpath (http://mpmath.org/) and pygiac (http://www-fourier.ujf-grenoble.fr/~parisse/giac_fr.html#python)
     - compare sage-giac/sage-sympy/sage-maxima/mpath/pygiac ILTs
 '''
 
+################################### CONSTANTS #################################
+
+MUTYPES = ['hetA', 'fixed', 'hetB', 'hetAB']
+
+###############################################################################
+
 ################################### Functions #################################
 
+def create_csv(out_f, header, rows, sep):
+    df = DataFrame(rows, columns=header)
+    print(df)
+    df.to_csv(out_f, index=False, sep=sep)
+
 def multinomial(lst):
+    '''
+    function to calculate multinomial coefficient from list, e.g.: [2,1]
+    https://stackoverflow.com/questions/46374185/does-python-have-a-function-which-computes-multinomial-coefficients
+    '''
     res, i = 1, 1
     for a in lst:
         for j in range(1,a+1):
@@ -69,39 +87,17 @@ def multinomial(lst):
             i += 1
     return res
 
-def weak_compositions(n, k):
-    '''
-    https://stackoverflow.com/questions/4647120/next-composition-of-n-into-k-parts-does-anyone-have-a-working-algorithm
-    '''
-    return ([t for t in combinations(range(n + k - 1), k - 1)])
-
-def choose(n, k):
-    """
-    A fast way to calculate binomial coefficients by Andrew Dalke.
-    """
-    if 0 <= k <= n:
-        ntok = 1
-        ktok = 1
-        for t in range(1, min(k, n - k) + 1):
-            ntok *= n
-            ktok *= t
-            n -= 1
-        return ntok // ktok
-    else:
-        return 0
-
-
 @contextmanager
 def poolcontext(*args, **kwargs):
     pool = Pool(*args, **kwargs)
     yield pool
     pool.terminate()
 
-def calculate_equation(params):
+def calculate_ilt(params):
     data_idx, data_point, pathObj, max_by_mutype, rates = params
     mutation_equation = pathObj.infer_mutation_equation(data_point, rates)
     equation = pathObj.multiply_with_path_equation(mutation_equation)
-    equation_ilt = inverse_laplace(equation / rates['E'], var('E'), var('T'), algorithm='giac').substitute(T=1.4)
+    equation_ilt = inverse_laplace(equation / rates['E'], var('E'), var('T'), algorithm='giac').substitute(T=rates['T'])
     return (data_idx, pathObj.path_id, equation_ilt)
 ###############################################################################
 
@@ -145,21 +141,15 @@ class PathObj(object):
 
     def multiply_with_path_equation(self, mutation_equation):
         initial = 1
-        #print("[+] numerators:", self.path_numerators)
-        #print("[+] denominators:", self.path_denominators)
         for numerator, denominator in zip(self.path_numerators, self.path_denominators):
             initial *= (numerator / denominator)
         mutation_equation *= initial
         return mutation_equation
 
     def infer_mutation_equation(self, data_point, rates):
-        #print("#data:", data_point, "at path", self.path_id)
-        MUTYPES = ['hetA', 'fixed', 'hetB', 'hetAB']
-        # theta = {'hetA': var('theta_A'), 'fixed': var('theta_fixed'), 'hetB': var('theta_B'), 'hetAB': var('theta_AB')}
         mutation_equation = 0
         for slots in prod(*[list(combi_with_replacement(self.mutable_nodes_by_mutype[mutype], data_point[mutype])) for mutype in MUTYPES]):
             # each slots is a way of placing data_point on given path
-            #print("[+] Slots", slots)
             mutypes_by_idx = defaultdict(list)
             # mutypes_by_idx is number of ways a mutype can be placed at node
             for mutype, slot in zip(MUTYPES, slots):
@@ -177,9 +167,6 @@ class PathObj(object):
                 nodeObj = self.nodeObjs[node_idx]
                 denominator = self.path_denominators[node_idx]
                 #print("[+] Path equation for node %s" % (node_idx), self.path_denominators[node_idx])
-                #for mutype in mutypes_by_idx[node_idx]:
-                #    denominator += (mutype_counter[mutype] * rates['theta'][mutype])
-                #    print("[+] Denominator of equation for node %s" % (node_idx), denominator)
                 for mutype in mutypes:
                     mutation_part *= ((nodeObj.mutype_counter[mutype] * rates['theta'][mutype]) / denominator)
                     #print("[+] Mutation equation for %s" % (mutype))
@@ -204,21 +191,22 @@ class PathObj(object):
 
 class ParameterObj(object):
     def __init__(self, args):
-        self.graph_file = args['--graph']
         self.path_file = args['--paths']
-        self.out_prefix = args['--out_prefix']
+        self.out_prefix = ".".join(args['--paths'].split(".")[0:-1])
         self.threads = int(args['--threads'])
         self.max_by_mutype = {'hetA': 2, 'hetB': 2, 'hetAB': 2, 'fixed': 2}
         self.rates = {
-            'C_ancestor': 1, 
-            'C_derived': 1.3, 
-            'M': 2.34, 
+            'M': float(args['--migration_rate']),
+            'C_ancestor': float(args['--ancestor_coalescence_rate']),
+            'C_derived': float(args['--derived_coalescence_rate']),
+            'T': float(args['--T_var']),
             'E': var('E'),
+            'm': float(args['--mutation_rate']),
             'theta' : {
-                'hetA': 0.6,
-                'hetB': 0.6,
-                'hetAB': 0.6,
-                'fixed': 0.6
+                'hetA': float(args['--mutation_rate']),
+                'hetB': float(args['--mutation_rate']),
+                'hetAB': float(args['--mutation_rate']),
+                'fixed': float(args['--mutation_rate'])
                 }
             }
         self.symbolic_rates = {
@@ -233,6 +221,18 @@ class ParameterObj(object):
                 'fixed': var('theta_fix'),
                 }
             }
+
+    def write_probs(self, prob_by_data_idx, data):
+        header = MUTYPES + ['probability']
+        rows = []
+        prob_sum = 0
+        for data_idx, prob in prob_by_data_idx.items():
+            rows.append([data[data_idx][mutype] for mutype in MUTYPES] + [prob])
+            prob_sum += prob
+        rows.append(['*', '*', '*', '*',  prob_sum])
+        out_f = "%s.C_anc=%s.C_der=%s.M=%s.theta=%s.T=%s.t=%s.tsv" % (self.out_prefix, self.rates['C_ancestor'], self.rates['C_derived'], self.rates['M'], self.rates['m'], self.rates['T'], self.threads)
+        create_csv(out_f, header, rows, "\t")
+            
 
     def read_paths(self):
         start_time = timer()
@@ -258,10 +258,8 @@ class ParameterObj(object):
 
     def analyse_paths(self, data, pathObj_by_path_id, nodeObj_by_node_id):
         start_time = timer()
-        equation_ilt_by_path_id_by_data_idx = defaultdict(dict)
-        #print("[+] Analysing %s paths and %s data points (%s * %s = %s) with %s threads..." % (len(pathObj_by_idx), len(data), len(pathObj_by_idx), len(data), len(pathObj_by_idx) * len(data), self.threads))
-        params = []
-
+        
+        print("[+] Analysing %s paths and %s data points (%s * %s = %s) with %s threads..." % (len(pathObj_by_path_id), len(data), len(pathObj_by_path_id), len(data), len(pathObj_by_path_id) * len(data), self.threads))
         rates = self.rates
         #rates = self.symbolic_rates
 
@@ -269,11 +267,10 @@ class ParameterObj(object):
         for path_id, pathObj in pathObj_by_path_id.items():
             pathObj.infer_path_probability(rates)
             pathObj.infer_mutable_nodes()
-            #print(pathObj)
         
         # deal with mutations
+        params = []
         for data_idx, data_point in enumerate(data):
-            #print(data_idx, data_point)
             for path_id, pathObj in pathObj_by_path_id.items():
                 # can mutations be placed on path
                 #mutypes_in_data = [mutype for mutype, count in data_point.items() if count > 0]
@@ -282,18 +279,23 @@ class ParameterObj(object):
                 #    else:
                 #        print("[-] Path %s (%s) can't accomodate mutations: %s" % (pathObj.path_id, pathObj.mutable_nodes_by_mutype, data_point))
         #print(len(params))
+        ilt_by_path_id_by_data_idx = defaultdict(dict)
         if self.threads == 1:
             for param in tqdm(params, total=len(params), desc="[%] ", ncols=200):
-                data_idx, path_id, equation_ilt = calculate_equation(param)
-                equation_ilt_by_path_id_by_data_idx[data_idx][path_id] = equation_ilt
+                data_idx, path_id, ilt = calculate_ilt(param)
+                ilt_by_path_id_by_data_idx[data_idx][path_id] = ilt
         else:
             with poolcontext(processes=self.threads) as pool:
                 with tqdm(params, total=len(params), desc="[%] ", ncols=200) as pbar:
-                    for data_idx, path_id, equation_ilt in pool.imap_unordered(calculate_equation, params):
-                        equation_ilt_by_path_id_by_data_idx[data_idx][path_id] = equation_ilt
+                    for data_idx, path_id, ilt in pool.imap_unordered(calculate_ilt, params):
+                        ilt_by_path_id_by_data_idx[data_idx][path_id] = ilt
                         pbar.update()
+        prob_by_data_idx = {}
+        for data_idx in ilt_by_path_id_by_data_idx.keys():
+            prob = sum(ilt_by_path_id_by_data_idx[data_idx].values())
+            prob_by_data_idx[data_idx] = prob
         print("[+] Analysed paths in %s seconds." % (timer() - start_time))
-        return equation_ilt_by_path_id_by_data_idx
+        return prob_by_data_idx
 
 ###############################################################################
 
@@ -303,7 +305,6 @@ def main():
     try:
         main_time = timer()
         args = docopt(__doc__)
-        print(args)
         parameterObj = ParameterObj(args)
         pathObj_by_path_id, nodeObj_by_node_id = parameterObj.read_paths()
         data = [
@@ -352,16 +353,9 @@ def main():
             Counter({'hetA':2, 'hetB':1, 'fixed':2, 'hetAB':0}),
             Counter({'hetA':2, 'hetB':2, 'fixed':2, 'hetAB':0})
         ]
-
-        equation_ilt_by_path_id_by_data_idx = parameterObj.analyse_paths(data, pathObj_by_path_id, nodeObj_by_node_id)
-        ilvs = []
-        for data_idx in equation_ilt_by_path_id_by_data_idx.keys():
-            ilv = sum(equation_ilt_by_path_id_by_data_idx[data_idx].values())
-            # sum_equation = sum(equation_ilt_by_path_id_by_data_idx[data_idx].values())
-            # ilv = inverse_laplace(sum_equation / var('E'), var('E'), var('T'), algorithm='giac').substitute(T=1.4)
-            print(data[data_idx], "P(all)=%s" % ilv)
-            ilvs.append(ilv)
-        print("Total:", sum(ilvs))
+        prob_by_data_idx = parameterObj.analyse_paths(data, pathObj_by_path_id, nodeObj_by_node_id)
+        parameterObj.write_probs(prob_by_data_idx, data)
+        print("[+] Total runtime: %s seconds" % (timer() - main_time))
     except KeyboardInterrupt:
         stderr.write("\n[X] Interrupted by user after %s seconds!\n" % (timer() - main_time))
         exit(-1)
