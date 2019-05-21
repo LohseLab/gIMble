@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gIMble graph -o STR -s STR [-p INT] [-M] [-E -R] [-P -G] [-h|--help]
+"""usage: gIMble graph -o STR -s STR [-p INT] [-M] [-e -E] [-P -G] [-h|--help]
 
     Options:
         -h --help                       show this
@@ -11,25 +11,21 @@
                                             - [['b'], {'a'} : 2 pops, 1 diploid sample in each, migration ({a} -> [b])
                                             - [{'b'}, ['a'] : 2 pops, 1 diploid sample in each, migration ({b} -> [a])
         -M, --migration                 Allow migration between populations 
-        -E, --exodus                    Allow exodus between populations from {}->[]
-        -R, --reverse_exodus            Allow exodus between populations from []->{}
+        -e, --exodus                    Allow exodus between populations from {}->[]
+        -E, --reverse_exodus            Allow exodus between populations from []->{}
         -o, --out_prefix STR            Prefix for output files
         -P, --plot_mutypes              plot mutypes in graph
         -G, --no_graph_labels           Do not plot graphlabels
 """
 
 from docopt import docopt
-from itertools import combinations
+from itertools import combinations, repeat
 from collections import Counter, defaultdict, OrderedDict
 from networkx.drawing.nx_agraph import graphviz_layout
 import networkx as nx
 import matplotlib as mat
 mat.use("agg")
 from matplotlib.lines import Line2D
-from matplotlib.patches import Patch
-from matplotlib.offsetbox import AnchoredOffsetbox, HPacker, TextArea
-import re
-from matplotlib import transforms
 import matplotlib.pyplot as plt
 from timeit import default_timer as timer
 from sys import stderr, exit
@@ -39,26 +35,24 @@ from pandas import DataFrame
 '''
 [Testing]
 ./gIMble graph -s "[{'a'}, ['b']]" -p 2 -M -o output/master && \
+./gIMble graph -s "[{'a'}, ['b']]" -p 2 -e -o output/master && \
 ./gIMble graph -s "[{'a'}, ['b']]" -p 2 -E -o output/master && \
-./gIMble graph -s "[{'a'}, ['b']]" -p 2 -R -o output/master && \
-./gIMble graph -s "[{'a'}, ['b']]" -p 2 -M -E -o output/master && \
-./gIMble graph -s "[{'a'}, ['b']]" -p 2 -M -R -o output/master
+./gIMble graph -s "[{'a'}, ['b']]" -p 2 -M -e -o output/master && \
+./gIMble graph -s "[{'a'}, ['b']]" -p 2 -M -E -o output/master
 
-python2 src/probs.py probs -p output/master.2_samples.2_pop.2_ploidy.E.paths.txt -t 1 -A 1.0 -D 1.3 -M 2.34 -T 1.4 && \
-python2 src/probs.py probs -p output/master.2_samples.2_pop.2_ploidy.M+E.paths.txt -t 1 -A 1.0 -D 1.3 -M 2.34 -T 1.4 && \
-python2 src/probs.py probs -p output/master.2_samples.2_pop.2_ploidy.M+R.paths.txt -t 1 -A 1.0 -D 1.3 -M 2.34 -T 1.4 && \
-python2 src/probs.py probs -p output/master.2_samples.2_pop.2_ploidy.M.paths.txt -t 1 -A 1.0 -D 1.3 -M 2.34 -T 1.4 && \
-python2 src/probs.py probs -p output/master.2_samples.2_pop.2_ploidy.R.paths.txt -t 1 -A 1.0 -D 1.3 -M 2.34 -T 1.4 && \
-python2 src/probs.py probs -p output/master.2_samples.2_pop.2_ploidy.E.paths.txt -t 1 -A 1.0 -D 1.0 -M 2.34 -T 1.4 && \
-python2 src/probs.py probs -p output/master.2_samples.2_pop.2_ploidy.M+E.paths.txt -t 1 -A 1.0 -D 1.0 -M 2.34 -T 1.4 && \
-python2 src/probs.py probs -p output/master.2_samples.2_pop.2_ploidy.M+R.paths.txt -t 1 -A 1.0 -D 1.0 -M 2.34 -T 1.4 && \
-python2 src/probs.py probs -p output/master.2_samples.2_pop.2_ploidy.M.paths.txt -t 1 -A 1.0 -D 1.0 -M 2.34 -T 1.4 && \
-python2 src/probs.py probs -p output/master.2_samples.2_pop.2_ploidy.R.paths.txt -t 1 -A 1.0 -D 1.0 -M 2.34 -T 1.4
 
-python2 src/probs.py probs -p output/master.2_samples.2_pop.2_ploidy.M+R.paths.txt -t 1 -A 1.0 -D 1.3 -M 2.34 -T 1.4 && \
-python2 src/probs.py probs -p output/master.2_samples.2_pop.2_ploidy.M+R.paths.txt -t 1 -A 1.0 -D 1.0 -M 2.34 -T 1.4 
+python2 src/probs.py probs -p output/master.2_pop.2_ploidy.M.paths.txt -t 4 -A 1.0 -D 1.0 -M 2.34 -m 1.2 -T 1.4 -P 30 ; \
+python2 src/probs.py probs -p output/master.2_pop.2_ploidy.E.paths.txt -t 4 -A 1.0 -D 1.0 -M 2.34 -m 1.2 -T 1.4 -P 30 ; \
+python2 src/probs.py probs -p output/master.2_pop.2_ploidy.R.paths.txt -t 4 -A 1.0 -D 1.0 -M 2.34 -m 1.2 -T 1.4 -P 30 ; \
+python2 src/probs.py probs -p output/master.2_pop.2_ploidy.M+E.paths.txt -t 4 -A 1.0 -D 1.0 -M 2.34 -m 1.2 -T 1.4 -P 30 ; \
+python2 src/probs.py probs -p output/master.2_pop.2_ploidy.M+R.paths.txt -t 4 -A 1.0 -D 1.0 -M 2.34 -m 1.2 -T 1.4 -P 30 ; \
+python2 src/probs.py probs -p output/master.2_pop.2_ploidy.M.paths.txt -t 4 -A 1.0 -D 1.3 -M 2.34 -m 1.2 -T 1.4 -P 30 ; \
+python2 src/probs.py probs -p output/master.2_pop.2_ploidy.E.paths.txt -t 4 -A 1.0 -D 1.3 -M 2.34 -m 1.2 -T 1.4 -P 30 ; \
+python2 src/probs.py probs -p output/master.2_pop.2_ploidy.R.paths.txt -t 4 -A 1.0 -D 1.3 -M 2.34 -m 1.2 -T 1.4 -P 30 ; \
+python2 src/probs.py probs -p output/master.2_pop.2_ploidy.M+E.paths.txt -t 4 -A 1.0 -D 1.3 -M 2.34 -m 1.2 -T 1.4 -P 30 ; \
+python2 src/probs.py probs -p output/master.2_pop.2_ploidy.M+R.paths.txt -t 4 -A 1.0 -D 1.3 -M 2.34 -m 1.2 -T 1.4 -P 30 
 
-[Problems]                      
+[To do]                      
 plot:
     - improve setting of figure dimensions based on graph complexity
     - legend with edge types
@@ -79,6 +73,9 @@ mutype_by_lineage = {
     ('b') : 'hetB',
     ('ab') : 'hetAB'
     }
+
+ANCESTOR_STRING = {True: "A:", False: "D:"}
+MIGRANT_BRACKETS = {True: ["{", "}"], False: ["[", "]"]}
 
 label_text_colour = {
     'fixed' : 'purple',
@@ -116,7 +113,7 @@ def pairwise(iterable):
         yield (a, b)
         a = b
 
-def plot_state_graph(state_graph, out_f, mutypes_flag=False, no_graph_labels=False):
+def plot_state_graph(state_graph, out_f, parameterObj):
     edge_colour_by_event = {
         'C_derived' : 'orange',
         'C_ancestor' : 'gold',
@@ -142,267 +139,185 @@ def plot_state_graph(state_graph, out_f, mutypes_flag=False, no_graph_labels=Fal
         'R' : 'dotted'
     }
     legend_by_event = {
-        'C_derived' : '{Coalescence}',
-        'C_ancestor' : '[Coalescence]',
+        'C_derived' : 'C_derived',
+        'C_ancestor' : 'C_ancestor',
         'C' : 'Coalescence',
         'M' : 'Migration',
         'E' : 'Exodus',
-        'R' : 'Exodus'
+        'R' : 'RExodus'
     }
     for idx, (x, y) in graphviz_layout(state_graph, prog='dot',  args="-Grotation=90").items():
         state_graph.node[idx]['pos'] = (x, y)
     node_pos_by_idx = nx.get_node_attributes(state_graph, 'pos')
-    
     edges_by_event = defaultdict(list)
     for sink, source in state_graph.edges():
         event = state_graph[sink][source]['event']
         edges_by_event[event].append((sink, source))
-    number_of_nodes = len(state_graph)
     rows = len(set([y for x, y in node_pos_by_idx.values()]))
     columns = len(set([x for x, y in node_pos_by_idx.values()]))
-    label_font_size = legend_size = 12
-    fig, state_label_y_offset = None, None
-    
-    # graph_labels = False
-    if number_of_nodes >= 30:
-        fig = plt.figure(figsize=(min(columns + 1, 8), min(rows + 1, 7)), dpi=10, frameon=False)
-        state_label_y_offset = 24
-        no_graph_labels = True
-    else:
-        fig = plt.figure(figsize=(columns + 2, rows + 2), dpi=10, frameon=False)
-        state_label_y_offset = 14 + (rows - 4)
+    label_font_size = 12
+    state_label_y_offset = 16
+    fig = plt.figure(figsize=(columns + 2, rows + 2), dpi=10, frameon=False)
     node_size = 150
     ax = fig.add_subplot(111)
     
     event_handles, event_labels = [], []
     for event, edgelist in edges_by_event.items():
         lines = nx.draw_networkx_edges(state_graph, pos=node_pos_by_idx, edge_color=edge_colour_by_event[event], width=edge_width_by_event[event], edgelist=edgelist, alpha=1.0)
-        if not no_graph_labels:
-            edge_labels = {(sink, source): state_graph[sink][source]['count'] for sink, source in edgelist}
-            nx.draw_networkx_edge_labels(state_graph, pos=node_pos_by_idx, edgelist=edgelist, font_color='black', edge_labels=edge_labels, label_pos=0.42, font_size=label_font_size, rotate=False, bbox=dict(facecolor=edge_colour_by_event[event], edgecolor=edge_colour_by_event[event]))
-                #line.set_connectionstyle("bar", angle=90, fraction=0.2)  
+        edge_labels = {(sink, source): state_graph[sink][source]['count'] for sink, source in edgelist}
+        nx.draw_networkx_edge_labels(state_graph, pos=node_pos_by_idx, edgelist=edgelist, font_color='black', edge_labels=edge_labels, label_pos=0.42, font_size=label_font_size, rotate=False, bbox=dict(facecolor=edge_colour_by_event[event], edgecolor='black'))
         for line in lines:
             line.set_linestyle(edge_style_by_event[event])
             line.set_arrowstyle('-|>', head_length=0.7)
         event_handles.append(Line2D([0, 1], [0, 1], lw=edge_width_by_event[event], color=edge_colour_by_event[event], linestyle=edge_style_by_event[event]))
         event_labels.append(legend_by_event[event])
     nx.draw_networkx_nodes(state_graph, node_pos_by_idx, node_color='gainsboro', node_size=node_size)
-    
-    # node labels
     label_pos_by_idx = {}
     label_by_idx = {}
-    state_label_by_idx = nx.get_node_attributes(state_graph, 'state')
-    if no_graph_labels:
-        node_idx_by_meta = {meta: node_idx for node_idx, meta in nx.get_node_attributes(state_graph, 'meta').items() if meta}
-        source_idx = node_idx_by_meta['source']
-        sink_idx = node_idx_by_meta['sink']
-        label_by_idx[source_idx] = state_label_by_idx[source_idx]
-        label_pos_by_idx[source_idx] = (state_graph.nodes[source_idx]['pos'][0], state_graph.nodes[source_idx]['pos'][1] - state_label_y_offset)
-        label_by_idx[sink_idx] = state_label_by_idx[sink_idx]
-        label_pos_by_idx[sink_idx] = (state_graph.nodes[sink_idx]['pos'][0], state_graph.nodes[sink_idx]['pos'][1] - state_label_y_offset)
-    else:
-        label_by_idx = state_label_by_idx
-        label_pos_by_idx = {idx: (pos[0], pos[1] - state_label_y_offset) for idx, pos in node_pos_by_idx.items()}
-        nx.draw_networkx_labels(state_graph, label_pos_by_idx, labels=label_by_idx, horizontalalignment='center', font_size=label_font_size) #, bbox=dict(edgecolor='white', facecolor=state_label_fcs[mutype], boxstyle='round', alpha=0.25))
-        # state_label_handles = nx.draw_networkx_labels(state_graph, label_pos_by_idx, labels=label_by_idx, horizontalalignment='center', font_size=label_font_size) #, bbox=dict(edgecolor='white', facecolor=state_label_fcs[mutype], boxstyle='round', alpha=0.25))
-        #for label in state_label_handles.values():
-        #    pos = label.get_position()
-        #    items, colours = get_colours_text(label)
-        #    children = []
-        #    for item, colour in zip(items, colours):
-        #        children.append(TextArea(items, textprops=dict(color=colour, size=label_font_size)))
-        #    txt = HPacker(children=children, align="baseline", pad=0, sep=0)
-        #    txt.set_offset(ax.transData.transform_point(pos))
-        #    ax.add_artist(txt)    
+    state_label_by_idx = nx.get_node_attributes(state_graph, 'label')    
+    label_by_idx = state_label_by_idx
+    label_pos_by_idx = {idx: (pos[0], pos[1] - state_label_y_offset) for idx, pos in node_pos_by_idx.items()}
+    nx.draw_networkx_labels(state_graph, label_pos_by_idx, labels=label_by_idx, horizontalalignment='center', font_size=label_font_size, bbox=dict(edgecolor='black', facecolor='lightgrey', boxstyle='round', alpha=0.25))
     ax.invert_yaxis()
+    ax.legend(event_handles, event_labels)
     plt.axis('off')
     plt.tight_layout()
     fig.savefig(out_f, dpi=300, orientation='landscape', format="png")
     plt.close(fig)
 
-def coalesce(stateObj, migrant=False, resident=False):
-    ancestor_states, events, counts = [], [], []
-    if migrant:
-        event = 'C_derived'
-        state = stateObj.get_migrant_list()
-        other = stateObj.get_resident_list()
-    elif resident:
-        event = 'C_ancestor'
-        state = stateObj.get_resident_list()
-        other = stateObj.get_migrant_list()
-    else:
-        # single population
-        event = 'C_ancestor'
-        state = stateObj.state[0]
-        other = []
-    _ancestor_states = []
-    for i, j in combinations(range(len(state)), 2):
-        coalescence_state = [s for idx, s in enumerate(state) if not idx == i and not idx == j]
-        coalescence_state.append("".join(sorted(state[i] + state[j])))
-        ancestor_state = [None, None]
-        if migrant:
-            ancestor_state[stateObj.mig_idx] = coalescence_state
-            ancestor_state[stateObj.res_idx] = other
-        elif resident:
-            ancestor_state[stateObj.mig_idx] = other
-            ancestor_state[stateObj.res_idx] = coalescence_state
-        else:
-            ancestor_state = [coalescence_state]
-        _ancestor_states.append(state_from_lol(ancestor_state))
-    for ancestor_state, count in Counter(_ancestor_states).items():
-        ancestor_states.append(ancestor_state)
-        events.append(event)
-        counts.append(count)
-    return ancestor_states, events, counts
-
-def get_coalescence_ancestors(stateObj, migration=False):
-    if migration == True:
-        migrant_ancestor_states, migrant_events, migrant_counts = coalesce(stateObj, migrant=True)
-        resident_ancestor_states, resident_events, resident_counts = coalesce(stateObj, resident=True)
-        ancestor_states = migrant_ancestor_states + resident_ancestor_states
-        events = migrant_events + resident_events
-        counts = migrant_counts + resident_counts
-        return ancestor_states, events, counts    
-    else:
-        ancestor_states, events, counts = coalesce(stateObj)
-        return ancestor_states, events, counts
-
-def get_ancestors(stateObj, parameterObj):
-    results = []
-    if parameterObj.migration_possible:
-        if not stateObj.resident_state == ():
-            if parameterObj.reverse_exodus:
-                results.append(get_reverse_exodus_ancestors(stateObj))
-            if parameterObj.migration:
-                results.append(get_migration_ancestors(stateObj))
-        if not stateObj.migrant_state == ():
-            if parameterObj.exodus:
-                results.append(get_exodus_ancestors(stateObj))
-        results.append(get_coalescence_ancestors(stateObj, migration=True))
-    else:
-        results.append(get_coalescence_ancestors(stateObj, migration=False))
-    ancestor_states, events, counts = [], [], []
-    for result in results:
-        _ancestor_states, _events, _counts = result
-        ancestor_states.extend(_ancestor_states)
-        events.extend(_events)
-        counts.extend(_counts)
-    return ancestor_states, events, counts
-
-def get_migration_ancestors(stateObj):
-    ancestor_states, events, counts, event = [], [], [], 'M'
-    _ancestor_states = []
-    migrants = stateObj.get_migrant_list()
-    for i in range(len(stateObj.migrant_state)):
-        residents = stateObj.get_resident_list()
-        residents.append(migrants[i])
-        ancestor_state = [None, None]
-        ancestor_state[stateObj.mig_idx] = sorted([migrant for j, migrant in enumerate(migrants) if not i == j])
-        ancestor_state[stateObj.res_idx] = sorted(residents)
-        _ancestor_states.append(state_from_lol(ancestor_state))
-    for ancestor_state, count in Counter(_ancestor_states).items():
-        ancestor_states.append(ancestor_state)
-        events.append(event)
-        counts.append(count)
-    return ancestor_states, events, counts
-
-def get_reverse_exodus_ancestors(stateObj):
-    ancestor_state = [None, None]
-    ancestor_state[stateObj.mig_idx] = sorted(stateObj.get_migrant_list() + stateObj.get_resident_list())
-    ancestor_state[stateObj.res_idx] = []
-    ancestor_state = state_from_lol(ancestor_state)
-    return [ancestor_state], ['E'], [1] 
-
-def get_exodus_ancestors(stateObj):
-    ancestor_state = [None, None]
-    ancestor_state[stateObj.mig_idx] = []
-    ancestor_state[stateObj.res_idx] = sorted(stateObj.get_migrant_list() + stateObj.get_resident_list())
-    ancestor_state = state_from_lol(ancestor_state)
-    return [ancestor_state], ['E'], [1] 
-
-def build_state_graph(sampleStateObj, lcaStateObj, parameterObj):
+def build_state_graph(parameterObj):
     start_time = timer()
-    print("[+] Constructing graph backwards in time: Sample %r -----> LCA %r" % (sampleStateObj.state, lcaStateObj.state))
-    state_graph = nx.DiGraph(state='', meta='', mutype='')
+    sampleStateObj = parameterObj.sampleStateObj
+    lcaStateObj = parameterObj.lcaStateObj
+    print("[+] Constructing graph backwards in time: Sample %r -----> LCA %r" % (sampleStateObj.label, lcaStateObj.label))
+    #state_graph = nx.DiGraph(
+    #                label='', \
+    #                meta='', \
+    #                mutype=''\
+    #                )
+    state_graph = nx.MultiDiGraph(
+                    label='', \
+                    meta='', \
+                    mutype='' \
+                    )
     edges = []                                 
-    idx_by_state = {} # {StateObj.state: StateObj.idx}
-    stateObj_by_idx = {} # {StateObj.idx: StateObj}
-    # queue => takes StateObjs and returns (state, events, counts)
+    node_idx_by_label = {sampleStateObj.label: sampleStateObj.idx}
+    stateObj_by_idx = {} 
     queue = [sampleStateObj]
     meta = {
-        sampleStateObj.state : 'source',
-        lcaStateObj.state : 'sink',
+        sampleStateObj.label : 'source',
+        lcaStateObj.label : 'sink',
     }
     while 1:
         if len(queue) == 0:
             break
         current_stateObj = queue.pop(0)
-        # check whether seen before
-        current_state_idx = idx_by_state.get(current_stateObj.idx, None)
-        if current_state_idx is None:
-            # build stateObj
-            stateObj_by_idx[current_state_idx] = current_stateObj
-            mutypes = Counter([mutype_by_lineage.get(lineage, 'None') for lineage in current_stateObj.lineages])
-            state_graph.add_node(current_stateObj.idx, state=str(current_stateObj), mutype=mutypes, meta=meta.get(current_stateObj.state, ''))
-            #print("[+]", current_stateObj)
-        ancestor_states, events, counts = get_ancestors(current_stateObj, parameterObj) # (state, events, counts, child_states)
-        for ancestor_state, event, count in zip(ancestor_states, events, counts):
-            #print("\t[A]", ancestor_state, event, count)
-            # node
-            if not ancestor_state in idx_by_state:
-                ancestor_state_idx = len(state_graph)
-                ancestor_stateObj = StateObj(idx=ancestor_state_idx, state=ancestor_state, res_idx=parameterObj.resident_idx, mig_idx=parameterObj.migrant_idx)
-                #print("\t[N]", ancestor_state, event, count, " => ", ancestor_stateObj)
-                mutypes = Counter([mutype_by_lineage.get(lineage, 'None') for lineage in current_stateObj.lineages])
-                state_graph.add_node(ancestor_state_idx, state=str(ancestor_stateObj), mutype=mutypes, meta=meta.get(ancestor_state, ''))
-                #print("\t\t[+]", ancestor_state_idx, ancestor_state)
-                idx_by_state[ancestor_state] = ancestor_state_idx
-                stateObj_by_idx[ancestor_state_idx] = ancestor_stateObj
-                if ancestor_state == lcaStateObj.state:
-                    lcaStateObj.idx = ancestor_state_idx
+        if not current_stateObj.label == lcaStateObj.label:
+
+            ancestorStateObj_by_label, node_idx_by_label = current_stateObj.get_ancestorStateObjs(\
+                                                                                    node_idx_by_label, \
+                                                                                    migration=parameterObj.migration, \
+                                                                                    exodus=parameterObj.exodus, \
+                                                                                    reverse_exodus=parameterObj.reverse_exodus)
+            for label, ancestorStateObj in ancestorStateObj_by_label.items():
+                if not label == lcaStateObj.label:
+                    queue.append(ancestorStateObj)
                 else:
-                    #print("\t\t[<]", ancestor_stateObj)
-                    queue.append(ancestor_stateObj)
-            else:
-                ancestor_state_idx = idx_by_state[ancestor_state]
-                ancestor_stateObj = StateObj(idx=ancestor_state_idx, state=ancestor_state, res_idx=parameterObj.resident_idx, mig_idx=parameterObj.migrant_idx)
-                #print("\t[E]", ancestor_state, event, count, " => ", ancestor_stateObj)
-            # edges
-            #print("\t[Edge]", (current_stateObj.idx, ancestor_stateObj.idx, {'count': count, 'event': event}))
-            edges.append((current_stateObj.idx, ancestor_stateObj.idx, {'count': count, 'event': event}))
+                    lcaStateObj.idx = ancestorStateObj.idx
+        state_graph.add_node(current_stateObj.idx, label=current_stateObj.label, mutype=current_stateObj.mutypes, meta=meta.get(current_stateObj.label))
+        stateObj_by_idx[current_stateObj.idx] = current_stateObj
+        for node_idx in current_stateObj.count_by_event_by_node_idx:
+            for event, count in current_stateObj.count_by_event_by_node_idx[node_idx].items():
+                edges.append((current_stateObj.idx, node_idx, {'count': count, 'event': event}))
     state_graph.add_edges_from(edges)
     print("[+] Generated graph with %s states, %s events in %s seconds." % (state_graph.number_of_nodes(), state_graph.number_of_edges(), timer() - start_time))
-    return state_graph, lcaStateObj
+    return (state_graph, stateObj_by_idx)
 
-def get_state_paths(state_graph, sampleStateObj):
-    '''
-    Networkx documentation : https://networkx.github.io/documentation/stable/index.html
-    '''
+def get_state_paths(state_graph, parameterObj):
     start_time = timer()
-    # out_edges_counter = Counter([source for source, sink, count in state_graph.edges.data('count') for i in range(count)]) # previous approach
-
     # Get total outgoing edges by event_type for each node 
     total_by_event_by_node_idx = defaultdict(Counter)
     for source, sink, data in state_graph.edges.data():
         total_by_event_by_node_idx[source][data['event']] += data['count']
-    node_idx_by_meta = {meta: node_idx for node_idx, meta in nx.get_node_attributes(state_graph, 'meta').items() if meta}
     mutype_by_node_idx = {node_idx: mutype for node_idx, mutype in nx.get_node_attributes(state_graph, 'mutype').items()}
     header = ['path_idx', 'node', 'event', 'event_count', 'C_ancestor', 'C_derived', 'Ms', 'Es', 'hetA', 'fixed', 'hetB', 'hetAB']
     paths = []
     path_count = 0
-    for path_idx, path in enumerate(nx.all_simple_paths(state_graph, source=node_idx_by_meta['source'], target=node_idx_by_meta['sink'])):
-        path_count += 1
+    # this only works for one (!) M+E event per path (this has to be generalised  if we do >2 pops...)
+    path_counter = Counter()
+    for path_idx, path in enumerate(nx.all_simple_paths(state_graph, source=parameterObj.sampleStateObj.idx, target=parameterObj.lcaStateObj.idx)):
+        path_id = tuple(path)
         step_idx = 0
+        path_count += 1
         for source, sink in pairwise(path):
+            data = state_graph[source][sink].get(path_counter[path_id], state_graph[source][sink][0])
             line = []
             line.append(path_idx)
             line.append(source)
-            line.append(state_graph[source][sink]['event'])
-            line.append(state_graph[source][sink]['count'])
-            line.append(total_by_event_by_node_idx[source].get('C_ancestor', 0))
-            line.append(total_by_event_by_node_idx[source].get('C_derived', 0))
+            if data['event'] == 'R':
+                line.append('E')
+            else:
+                line.append(data['event'])
+            line.append(data['count'])
+            line.append(total_by_event_by_node_idx[source]['C_ancestor'])
+            line.append(total_by_event_by_node_idx[source]['C_derived'])
             line.append(total_by_event_by_node_idx[source]['M'])
-            line.append(total_by_event_by_node_idx[source]['E'])
+            if parameterObj.reverse_exodus:
+                line.append(total_by_event_by_node_idx[source]['R'])
+            else:
+                line.append(total_by_event_by_node_idx[source]['E'])
+            line.append(mutype_by_node_idx[source]['hetA'])
+            line.append(mutype_by_node_idx[source]['fixed'])
+            line.append(mutype_by_node_idx[source]['hetB'])
+            line.append(mutype_by_node_idx[source]['hetAB'])
+            paths.append(line)
+            step_idx += 1
+        path_counter[path_id] += 1
+        paths.append([path_idx, 'LCA', 'LCA', 0, 0, 0, 0, 0, 0, 0, 0, 0])
+    print("[+] Found %s paths in %s seconds." % (sum(path_counter.values()), timer() - start_time))
+    return (header, paths)
+        
+
+
+    #for path_idx, path in enumerate(nx.all_simple_paths(state_graph, source=node_idx_by_meta['source'], target=node_idx_by_meta['sink'])):
+    #unique_single_paths = set([tuple(path) for path in nx.all_simple_paths(state_graph, source=parameterObj.sampleStateObj.idx, target=parameterObj.lcaStateObj.idx)])
+
+    #combined_single_paths = []
+    #for path in unique_single_paths:
+    #    multipaths = [True if len(state_graph[source][sink]) > 1 else False for source, sink in pairwise(path)]
+    #    print(multipaths)
+    #    if any(multipaths):
+    #        multi_path_idxs = [idx for idx, multipath in enumerate(multipaths) if idx == True]
+
+    #        print(multi_path_idxs)
+    #    print(source, sink, state_graph[source][sink])
+            
+
+    exit()
+    for path_idx, path in enumerate(nx.all_simple_paths(state_graph, source=parameterObj.sampleStateObj.idx, target=parameterObj.lcaStateObj.idx)):
+
+        path_count += 1
+        step_idx = 0
+        print(path)
+        for source, sink in pairwise(path):
+            print(source,sink)
+            line = []
+            line.append(path_idx)
+            line.append(source)
+            print(state_graph[source])
+            print(data)
+            if data['event'] == 'R':
+                line.append('E')
+            else:
+                line.append(data['event'])
+            line.append(data['count'])
+            line.append(total_by_event_by_node_idx[source]['C_ancestor'])
+            line.append(total_by_event_by_node_idx[source]['C_derived'])
+            line.append(total_by_event_by_node_idx[source]['M'])
+            if parameterObj.reverse_exodus:
+                line.append(total_by_event_by_node_idx[source]['R'])
+            else:
+                line.append(total_by_event_by_node_idx[source]['E'])
             line.append(mutype_by_node_idx[source]['hetA'])
             line.append(mutype_by_node_idx[source]['fixed'])
             line.append(mutype_by_node_idx[source]['hetB'])
@@ -413,56 +328,179 @@ def get_state_paths(state_graph, sampleStateObj):
     print("[+] Found %s paths in %s seconds." % (path_count, timer() - start_time))
     return (header, paths)
 
-def state_from_lol(pops, ploidy=1):
-    state = []
-    for pop in pops:
-        if len(pop) == 0:
-            state.append((),)
-        else:
-            sub_state = []
-            for s in pop:
-                for p in range(ploidy):
-                    sub_state.append(s)
-            state.append(tuple(sorted(sub_state)))
-    return tuple(state)
-
 ###############################################################################
 
-################################### Classes ###################################
+################################### Classes ##################################
+
 
 class StateObj(object):
-    def __init__(self, idx=None, state='', res_idx=None, mig_idx=None):
+    def __init__(self, popObjs, idx=None):
         self.idx = idx
-        self.state = state   # is a tuple of 'P' tuples (P = Number of populations)
-        self.resident_state = None if res_idx is None else state[res_idx]
-        self.res_idx = res_idx
-        self.migrant_state = None if mig_idx is None else state[mig_idx]
-        self.mig_idx = mig_idx
-        self.lineages = (str(self.state).replace("'", " ").replace("(", " ").replace(")", " ").replace(",", " ").split())
+        self.popObjs = popObjs   
+        self.label = " ".join([popObj.label for popObj in popObjs])
+        self.population_idx_by_type = self.get_population_idx_by_type()
+        self.lineages = self._get_lineages()
+        self.mutypes = Counter([mutype_by_lineage.get(lineage) for lineage in self.lineages])
+        self.count_by_event_by_node_idx = defaultdict(lambda: Counter()) # outgoing edge_weight by idx (target) and event
 
     def __eq__(self, other):
         if isinstance(other, StateObj):
-            return self.state == other.state
+            return self.label == other.label
+    
+    def __str__(self):
+        return self.label
+
+    def get_population_idx_by_type(self):
+        population_idx_by_type = {}
+        for idx, popObj in enumerate(self.popObjs):
+            if popObj.migrant == True:
+                population_idx_by_type['migrant'] = idx
+            else:
+                population_idx_by_type['resident'] = idx
+            if popObj.ancestor == True:
+                population_idx_by_type['ancestor'] = idx
+            else:
+                population_idx_by_type['derived'] = idx
+        return population_idx_by_type
+    
+    def _get_lineages(self):
+        lineages = []
+        for popObj in self.popObjs:
+            for lineage in popObj.lineages:
+                lineages.append(lineage)
+        return lineages
+
+    def get_popObj(self, agent):
+        # only implemented for 1 population per agent...
+        return self.popObjs[self.population_idx_by_type[agent]]
+
+    def get_coalescenceStateObjs(self, node_idx_by_label):
+        ancestorStateObj_by_label = {}
+        for i, popObj in enumerate(self.popObjs):
+            if popObj.lineage_count > 1:
+                coalescedPopObjs = popObj.coalesce()
+                if popObj.ancestor:
+                    event = 'C_ancestor'
+                    otherPopObj = self.get_popObj('derived')
+                    coalesced_pop_idx = self.population_idx_by_type['ancestor']
+                    other_pop_idx = self.population_idx_by_type['derived']
+                else:
+                    event = 'C_derived'
+                    otherPopObj = self.get_popObj('ancestor')
+                    coalesced_pop_idx = self.population_idx_by_type['derived']
+                    other_pop_idx = self.population_idx_by_type['ancestor']
+                for coalescedPopObj in coalescedPopObjs:
+                    ancestorPopObjs = [None, None]
+                    ancestorPopObjs[coalesced_pop_idx] = coalescedPopObj
+                    ancestorPopObjs[other_pop_idx] = otherPopObj
+                    ancestor_state_label = " ".join([ancestorPopObj.label for ancestorPopObj in ancestorPopObjs])
+                    if not ancestor_state_label in node_idx_by_label:
+                        node_idx = max(node_idx_by_label.values()) + 1
+                        ancestorStateObj_by_label[ancestor_state_label] = StateObj(ancestorPopObjs, idx=node_idx)
+                        node_idx_by_label[ancestor_state_label] = node_idx
+                    self.count_by_event_by_node_idx[node_idx_by_label[ancestor_state_label]][event] += 1
+        return (ancestorStateObj_by_label, node_idx_by_label)
+
+    def get_migrationStateObjs(self, node_idx_by_label):
+        ancestorStateObj_by_label = {}
+        migrantPopObj = self.get_popObj('migrant')
+        if migrantPopObj.lineage_count > 0:
+            event = 'M'
+            migrant_idx = self.population_idx_by_type['migrant']
+            residentPopObj = self.get_popObj('resident')
+            resident_idx = self.population_idx_by_type['resident']
+            for i, lineage in enumerate(migrantPopObj.lineages):
+                ancestorPopObjs = [None, None]
+                ancestorPopObjs[migrant_idx] = PopObj(sorted([migrant for j, migrant in enumerate(migrantPopObj.lineages) if not i == j]), migrant=True, ancestor=migrantPopObj.ancestor)
+                ancestorPopObjs[resident_idx] = PopObj(sorted(residentPopObj.lineages + [lineage]), migrant=False, ancestor=residentPopObj.ancestor)
+                ancestor_state_label = " ".join([ancestorPopObj.label for ancestorPopObj in ancestorPopObjs])
+                if not ancestor_state_label in node_idx_by_label:
+                    node_idx = max(node_idx_by_label.values()) + 1
+                    ancestorStateObj = StateObj(ancestorPopObjs, idx=node_idx)
+                    ancestorStateObj_by_label[ancestorStateObj.label] = ancestorStateObj
+                    node_idx_by_label[ancestorStateObj.label] = node_idx
+                self.count_by_event_by_node_idx[node_idx_by_label[ancestor_state_label]][event] += 1
+        return (ancestorStateObj_by_label, node_idx_by_label)
+
+    def get_exodusStateObjs(self, node_idx_by_label, reverse=False):
+        ancestorStateObj_by_label = {}
+        event, exodus_popObj, exodus_idx, empty_popObj, empty_idx = None, None, None, None, None
+        ancestorPopObj = self.get_popObj('ancestor')
+        derivedPopObj = self.get_popObj('derived')
+        if derivedPopObj.lineage_count > 0:
+            if reverse == False:
+                event = 'E'
+            else:
+                event = 'R'
+            exodus_idx = self.population_idx_by_type['ancestor']
+            exodus_popObj = PopObj(sorted(self.lineages), migrant=ancestorPopObj.migrant, ancestor=ancestorPopObj.ancestor)
+            empty_idx = self.population_idx_by_type['derived']
+            empty_popObj = PopObj([], migrant=derivedPopObj.migrant, ancestor=derivedPopObj.ancestor)
+        if not event is None:
+            ancestorStateObj_by_label = {}
+            ancestorPopObjs = [None, None]
+            ancestorPopObjs[exodus_idx] = exodus_popObj
+            ancestorPopObjs[empty_idx] = empty_popObj
+            ancestor_state_label = " ".join([ancestorPopObj.label for ancestorPopObj in ancestorPopObjs])
+            if not ancestor_state_label in node_idx_by_label:
+                node_idx = max(node_idx_by_label.values()) + 1
+                ancestorStateObj = StateObj(ancestorPopObjs, idx=node_idx)
+                ancestorStateObj_by_label[ancestorStateObj.label] = ancestorStateObj
+                node_idx_by_label[ancestorStateObj.label] = node_idx
+            self.count_by_event_by_node_idx[node_idx_by_label[ancestor_state_label]][event] += 1
+        return (ancestorStateObj_by_label, node_idx_by_label)
+
+    def get_ancestorStateObjs(self, node_idx_by_label, migration=False, exodus=False, reverse_exodus=False):
+        ancestorStateObj_by_label, node_idx_by_label = self.get_coalescenceStateObjs(node_idx_by_label)                
+        if migration:
+            if not len(self.get_popObj('derived').lineages) == 0:
+                migrationStateObjs_by_label, node_idx_by_label = self.get_migrationStateObjs(node_idx_by_label)
+                ancestorStateObj_by_label = {**ancestorStateObj_by_label, **migrationStateObjs_by_label}
+        if exodus:
+            exodusStateObjs_by_label, node_idx_by_label = self.get_exodusStateObjs(node_idx_by_label, reverse=False)
+            ancestorStateObj_by_label = {**ancestorStateObj_by_label, **exodusStateObjs_by_label}
+        if reverse_exodus:
+            rexodusStateObjs_by_label, node_idx_by_label = self.get_exodusStateObjs(node_idx_by_label, reverse=True)
+            ancestorStateObj_by_label = {**ancestorStateObj_by_label, **rexodusStateObjs_by_label}
+        return (ancestorStateObj_by_label, node_idx_by_label)
+
+class PopObj(object):
+    def __init__(self, population, ploidy=None, ancestor=bool, migrant=bool):
+        # population must be list
+        self.lineages = population if ploidy is None \
+                else [lineage for lineages in population for lineage in repeat(lineages, ploidy)]
+        self.lineage_count = len(self.lineages)
+        self.ancestor = ancestor
+        self.migrant = migrant
+        if self.lineages:
+            self.label = "".join([\
+                ANCESTOR_STRING[self.ancestor], \
+                MIGRANT_BRACKETS[migrant][0], \
+                ",".join(self.lineages), \
+                MIGRANT_BRACKETS[migrant][1]])
+        else:
+            self.label = "".join([\
+                ANCESTOR_STRING[self.ancestor], \
+                MIGRANT_BRACKETS[migrant][0], 
+                MIGRANT_BRACKETS[migrant][1]])
+    
+    def __hash__(self):
+        return hash(self.label)
+
+    def __eq__(self, other):
+        if isinstance(other, StateObj):
+            return self.label == other.label
 
     def __str__(self):
-        if self.mig_idx is None and self.res_idx is None:
-            return str([list(pop) for pop in self.state]).replace('\'', '')
-        else:
-            mig_string = "{%s}" % ",".join(list(self.migrant_state))
-            res_string = "[%s]" % ",".join(list(self.resident_state))
-            return "[%s, %s]" % (mig_string, res_string)
+        return self.label
 
-    def __hash__(self):
-        return hash(self.state)
-
-    def get_list(self):
-        return [list(state) for state in self.state]
-
-    def get_migrant_list(self):
-        return list(self.migrant_state)    
-
-    def get_resident_list(self):
-        return list(self.resident_state)
+    def coalesce(self):
+        popObjs = []
+        for i, j in combinations(range(len(self.lineages)), 2):
+            lineages = [s for idx, s in enumerate(self.lineages) if not idx == i and not idx == j]
+            lineages.append("".join(sorted(self.lineages[i] + self.lineages[j])))
+            popObjs.append(PopObj(sorted(lineages), ancestor=self.ancestor, migrant=self.migrant))
+        return popObjs
 
 class ParameterObj(object):
     def __init__(self, args):
@@ -473,70 +511,95 @@ class ParameterObj(object):
         self.exodus = args['--exodus']
         self.reverse_exodus = args['--reverse_exodus']
         self.out_prefix = args['--out_prefix']
-        self.samples_input = literal_eval(args['--samples']) # can't be sorted because can be list + set
+        self.sample_input = args['--samples'] 
         self.migration_possible = any([self.migration, self.exodus, self.reverse_exodus])
-        self.count_pops = len(self.samples_input)
-        self.count_samples = sum([len(pop) for pop in self.samples_input])
-        self.migrant_idx = None
-        self.resident_idx = None
+        self.population_count = 0
+        self.model_label = self.get_model_label()
 
-    def setup_model(self):
-        sample = self.samples_input
-        print("[=] Samples =", self.samples_input)
-        if self.migration_possible: # either --migration or --exodus or --reverse_exodus
-            self.polarise_pops()
-        self.sample_state = state_from_lol(sample, ploidy=self.ploidy)
-        print("[=] Sample state =", self.sample_state)
-        sampleStateObj = StateObj(idx=0, state=self.sample_state, res_idx=self.resident_idx, mig_idx=self.migrant_idx)
-        lca_state = self.get_lca_state()
-        print("[=] LCA state =", lca_state)
-        lcaStateObj = StateObj(idx=None, state=lca_state, res_idx=self.resident_idx, mig_idx=self.migrant_idx)
-        return sampleStateObj, lcaStateObj
-    
-    def get_lca_state(self):
-        if not self.migration_possible:
-            # assumes that [[ ... ]]
-            return state_from_lol([["".join(sorted(self.sample_state[0]))]])
-        else:
-            migrants = sorted(self.sample_state[self.migrant_idx])
-            residents = sorted(self.sample_state[self.resident_idx])
-            mrcas = [None, None]
-            if self.reverse_exodus:
-                mrcas[self.migrant_idx] = ["".join(sorted(migrants + residents))]
-                mrcas[self.resident_idx] = []
-            else:
-                mrcas[self.migrant_idx] = []
-                mrcas[self.resident_idx] = ["".join(sorted(migrants + residents))]
-            return state_from_lol(mrcas)
-
-    def polarise_pops(self):
-        if not self.count_pops == 2:
-            exit("[X] '--migration' and/or '--exodus' only implemented for 2 populations. You provided %s population(s)!" % self.count_pops)
-        if not self.count_samples == 2:
-            exit("[X] '--migration' and/or '--exodus' only implemented for 2 samples. You provided %s sample(s)!" % self.count_samples)
-        if not any([isinstance(sample, set) for sample in self.samples_input]):
-            exit("[X] Must specify migrant population using '{}' when using '--migration' and/or '--exodus'!")
-        if isinstance(self.samples_input[0], set):
-            self.migrant_idx, self.resident_idx = 0, 1
-        else:
-            self.migrant_idx, self.resident_idx = 1, 0
-        if self.migration:
-            print("[=] Migration : ", self.samples_input[self.migrant_idx], "->", self.samples_input[self.resident_idx])
-        if self.exodus:
-            print("[=] Exodus    : ", self.samples_input[self.migrant_idx], "->", self.samples_input[self.resident_idx])
-        elif self.reverse_exodus:
-            print("[=] Exodus    : ", self.samples_input[self.migrant_idx], "<-", self.samples_input[self.resident_idx])
-        else:
-            pass
-        
-    def get_basename(self):
+    def get_model_label(self):
         models = OrderedDict({
             'M': self.migration, 
             'E': self.exodus, 
             'R': self.reverse_exodus
         })
-        model_string = "+".join([model_id for model_id, status in models.items() if status])
-        return "%s.%s_samples.%s_pop.%s_ploidy.%s" % (self.out_prefix, self.count_samples, self.count_pops, self.ploidy, model_string)
+        return "+".join([model_id for model_id, status in models.items() if status])
+
+    def setup(self):
+        print("=======================================")
+        print("[+] Sample input: ", self.sample_input)
+        print("=======================================")
+        try:
+            sample_string = literal_eval(self.sample_input)
+        except SyntaxError:
+            exit("[X] Invalid sample (--sample) string: %s" % self.sample_input)
+        # Fail if not sets/lists
+        if not isinstance(sample_string, list) or not all([(type(population) in set([list, set])) for population in sample_string]):
+            exit("[X] Samples (--samples) must list of lists/sets '[['b'], {'a'}]' !")
+        # Fail if migration_possible and only one population 
+        if self.migration_possible:
+            if not any([isinstance(population, set) for population in sample_string]):
+                exit("[X] Must specify migrant population using '{}' when using '--migration' and/or '--exodus'!")
+        # Get migrants (can only be set or list)
+        migrants = [(True if isinstance(population, set) else False) for population in sample_string]
+        # Setting ancestor in samplePopObjs
+        migrants_counter = Counter(migrants)
+        samplePopObjs = []
+        ancestor_idx = None
+        if self.reverse_exodus: 
+            # Fail if more than one ancestor population
+            if not migrants_counter[True] == 1:
+                exit("[X] Coalescing into ancestor state based on this model is only possible for 1 migrant population!")
+            # Set migrant population to ancestor
+            ancestor_idx = migrants.index(True)
+        else:
+            # Fail if no migration and multiple populations
+            if not self.migration_possible:
+                if not len(samplePopObjs) == 1:
+                    exit("[X] Coalescing into ancestor state from %s populations is not possible without '--migration' and/or '--exodus'!" % len(samplePopObjs))
+            # Fail if more than one ancestor population
+            if not migrants_counter[False] == 1:
+                exit("[X] Coalescing into ancestor state based on this model is only possible for 1 resident population!")
+            # Set resident population to ancestor
+            ancestor_idx = migrants.index(False)
+        for idx, (population, migrant) in enumerate(zip(sample_string, migrants)):
+            if idx == ancestor_idx:
+                ancestor = True
+            else:
+                ancestor = False
+            samplePopObjs.append(PopObj(list(population), migrant=migrant, ancestor=ancestor, ploidy=self.ploidy))
+        self.population_count = len(samplePopObjs)
+        # Create lcaPopObjs
+        lcaPopObjs = []
+        for samplePopObj in samplePopObjs:
+            lca_population = []
+            if samplePopObj.ancestor:
+                # get LCA from popObj.lineage strings
+                lca_population = ["".join(sorted(["".join(samplePopObj.lineages) for samplePopObj in samplePopObjs]))]
+            lcaPopObj = PopObj(lca_population, ancestor=samplePopObj.ancestor, migrant=samplePopObj.migrant)
+            lcaPopObjs.append(lcaPopObj)
+        if not self.population_count == 2:
+             exit("[X] Beyond this point only implemented for 2 populations!")
+        # Create sampleStateObj
+        self.sampleStateObj = StateObj(samplePopObjs, idx=0)
+        print("[=] Sample state =", self.sampleStateObj.label)
+        # Create lca_stateObj 
+        self.lcaStateObj = StateObj(lcaPopObjs, idx=None)
+        print("[=] LCA state    =", self.lcaStateObj)
+        # Fail if population count not 2 ... 
+        print("---------------------------------------")
+        
+        print("[=] Model        = %s" % self.model_label)
+        print("---------------------------------------")
+        if self.migration:
+            print("[=] Migration : %s -> %s" % (self.sampleStateObj.get_popObj('migrant'), self.sampleStateObj.get_popObj('resident')))
+        if self.exodus:
+            print("[=] Exodus    : %s -> %s" % (self.sampleStateObj.get_popObj('migrant'), self.sampleStateObj.get_popObj('resident')))
+        if self.reverse_exodus:
+            print("[=] Exodus    : %s <- %s" % (self.sampleStateObj.get_popObj('migrant'), self.sampleStateObj.get_popObj('resident')))
+        print("---------------------------------------")
+        
+    def get_basename(self):
+        return "%s.%s_pop.%s_ploidy.%s" % (self.out_prefix, self.population_count, self.ploidy, self.model_label)
 
     def write_paths(self, header, paths):
         start_time = timer()
@@ -556,7 +619,7 @@ class ParameterObj(object):
         # states have to be stringified ...
         for idx, node in state_graph.nodes(data=True):
             # print(idx, node)
-            node['state'] = str(node.get('state', None))
+            node['label'] = str(node.get('label', None))
         nx.write_gml(state_graph, out_f)
         print("[+] Written graph into file %s in %s seconds." % (out_f, timer() - start_time))
         return out_f
@@ -565,17 +628,17 @@ class ParameterObj(object):
         start_time = timer()
         state_graph = nx.read_gml(infile)
         for idx, node in state_graph.nodes(data=True):
-            node['state'] = literal_eval(node['state'])
+            node['label'] = literal_eval(node['label'])
             if 'pos' in node:
                 node['pos'] = tuple(node['pos'])
             # print(idx, node)
         print("[+] Read graph from file %s in %s seconds." % (infile, timer() - start_time))
         return state_graph
 
-    def plot_graph(self, state_graph):
+    def plot_graph(self, state_graph, parameterObj):
         start_time = timer()
-        out_f = "%s.mutypes_%s.no_graph_labels_%s.graph.png" % (self.get_basename(), self.plot_mutypes, self.no_graph_labels)
-        plot_state_graph(state_graph, out_f, mutypes_flag=self.plot_mutypes, no_graph_labels=self.no_graph_labels)
+        out_f = "%s.graph.png" % self.get_basename()
+        plot_state_graph(state_graph=state_graph, out_f=out_f, parameterObj=parameterObj)
         print("[+] Plotted graph into file %s in %s seconds." % (out_f, timer() - start_time))
         return out_f
 
@@ -588,16 +651,12 @@ def main():
         main_time = timer()
         args = docopt(__doc__)
         parameterObj = ParameterObj(args)
-        sampleStateObj, lcaStateObj = parameterObj.setup_model()
-        state_graph, lcaStateObj = build_state_graph(sampleStateObj, lcaStateObj, parameterObj)
-        header, paths = get_state_paths(state_graph, sampleStateObj)
+        parameterObj.setup()
+        state_graph, stateObj_by_idx = build_state_graph(parameterObj)
+        header, paths = get_state_paths(state_graph, parameterObj)
         parameterObj.write_paths(header, paths)
-        parameterObj.plot_graph(state_graph)
-        # if state_graph.number_of_nodes() < 70:
-        #     parameterObj.plot_graph(state_graph)
-        # else:
-        #     print("[!] Too many nodes (%s). No plot is generated." % state_graph.number_of_nodes())
-        parameterObj.write_graph(state_graph)
+        #parameterObj.plot_graph(state_graph, parameterObj)
+        #parameterObj.write_graph(state_graph)
         #state_graph = parameterObj.read_graph(graph_file)
         
     except KeyboardInterrupt:

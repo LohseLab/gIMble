@@ -1,4 +1,4 @@
-name: gimble
+name: gimble+
 channels:
   - anaconda
   - bioconda

@@ -1,0 +1,132 @@
+Preparation of BED files for blocktools/gIMble
+
+# Housekeeping
+
+# pwd
+/data/lohse/drosophila/analyses/braker
+
+# CONDA ENV
+sconda main_env
+
+## Create mapping from old-names to new-names
+sdiff <(grep -Po '>\S+' ../5_freeze_v0_wtdbg2/monCan3F9.ctg.3rd.v0.fa) <(grep -Po '>\S+' monCan3F9.ctg.3rd.v0.softmasked.fa) | sed 's/|//g' | tr -s [:blank:] "\t" > monCan3F9.name_mapping.txt
+
+## rename repeatmasker gff
+awk 'BEGIN{FS=OFS="\t"} FNR==NR{map[$1]=$2;next} {$1=map[$1]; print}' <(sed 's/>//g' monCan3F9.name_mapping.txt) monCan3F9.ctg.3rd.v0.fa.out.gff > monCan3F9.ctg.3rd.v0.fa.rn.out.gff
+
+## add introns to braker GFF3
+gt gff3 -sort -tidy -retainids -fixregionboundaries -addintrons monCan3F9.braker.gff3 > monCan3F9.braker.gt.gff3
+
+# BED files
+1. generate BED file from braker GFF3
+gff2bed < monCan3F9.braker.gt.gff3 > monCan3F9.braker.gt.bed
+
+2. generate BED file from repeatmasker GFF 
+gff2bed < ../10_freeze_v1/monCan3F9.ctg.3rd.v0.fa.rn.out.gff > monCan3F9.ctg.3rd.v0.repeatmasker.out.bed
+
+3. divide braker BED
+awk '$8=="exon"' monCan3F9.braker.gt.bed > monCan3F9.braker.gt.exons.bed
+awk '$8=="intron"' monCan3F9.braker.gt.bed > monCan3F9.braker.gt.introns.bed
+awk '$8=="gene"' monCan3F9.braker.gt.bed > monCan3F9.braker.gt.genes.bed
+
+4. make genomefile (SEQID\tLENGTH)
+samtools faidx monCan3F9.ctg.3rd.v0.softmasked.rn.fa
+awk -v OFS='\t' {'print $1,$2'} monCan3F9.ctg.3rd.v0.softmasked.rn.fa.fai > monCan3F9.ctg.3rd.v0.softmasked.rn.fa.genomefile
+
+
+5. sanity check: repeatmasked bases in FASTA
+## Repeatmasker-output
+46238181
+
+## Softmasked assembly
+grep -v '^>' monCan3F9.ctg.3rd.v0.softmasked.rn.fa | tr -d  [:upper:] | wc -c
+46238978
+
+grep -v '^>' monCan3F9.ctg.3rd.v0.softmasked.rn.fa | tr -d  [:upper:] | sed 's/\(.\)/\1\n/g' | sort | uniq -c
+    797
+14115093 a
+9086501 c
+9032316 g
+14004271 t
+=> sum = 46238181 √ (difference is 797 which is newlines)
+
+## BED file
+awk -F'\t' 'BEGIN{SUM=0}{ SUM+=$3-$2 }END{print SUM}' monCan3F9.ctg.3rd.v0.repeatmasker.out.bed
+48206064 (most likely uncollapsed neighbouring/overlapping repeats)
+
+### Merge BED file (neighbouring intervals are merged)
+bedtools merge -i monCan3F9.ctg.3rd.v0.repeatmasker.out.bed > monCan3F9.ctg.3rd.v0.repeatmasker.merged.bed
+
+awk -F'\t' 'BEGIN{SUM=0}{ SUM+=$3-$2 }END{print SUM}' monCan3F9.ctg.3rd.v0.repeatmasker.merged.bed
+46238181 √
+
+6. Merge intervals within other BED files
+parallel -j1 'bedtools merge -i {} > {.}.merged.bed' ::: monCan3F9.braker.gt.genes.bed monCan3F9.braker.gt.exons.bed monCan3F9.braker.gt.introns.bed
+
+7. Length of BED intervals 
+for file in *.merged.bed; do echo -n $file " " && awk -F'\t' 'BEGIN{SUM=0}{ SUM+=$3-$2 }END{print SUM}' $file; done
+monCan3F9.braker.gt.exons.merged.bed  21909649
+monCan3F9.braker.gt.genes.merged.bed  61015596
+monCan3F9.braker.gt.introns.merged.bed  39141941
+monCan3F9.ctg.3rd.v0.repeatmasker.merged.bed  46238181
+
+8. Complement repeat BED
+bedtools complement -i monCan3F9.ctg.3rd.v0.repeatmasker.merged.bed -g monCan3F9.ctg.3rd.v0.softmasked.rn.fa.genomefile > monCan3F9.ctg.3rd.v0.non_repeats.bed
+
+## length
+cat monCan3F9.ctg.3rd.v0.non_repeats.bed | awk -F'\t' 'BEGIN{SUM=0}{ SUM+=$3-$2 }END{print SUM}'
+126215456 (Total:172453637 = Non-repeats:126215456 + repeats:46238181 √)
+
+9. non-repeat + genic
+bedtools intersect -a monCan3F9.braker.gt.genes.merged.bed -b monCan3F9.ctg.3rd.v0.non_repeats.bed > monCan3F9.ctg.3rd.v0.non_repeats.genic.bed
+
+## length
+cat monCan3F9.ctg.3rd.v0.non_repeats.genic.bed | awk -F'\t' 'BEGIN{SUM=0}{ SUM+=$3-$2 }END{print SUM}'
+52021161
+
+10. non-repeat + intergenic
+## create intergenic BED
+bedtools complement -i monCan3F9.braker.gt.genes.merged.bed -g monCan3F9.ctg.3rd.v0.softmasked.rn.fa.genomefile > monCan3F9.braker.gt.intergenic.bed
+
+## length
+cat monCan3F9.braker.gt.intergenic.bed | awk -F'\t' 'BEGIN{SUM=0}{ SUM+=$3-$2 }END{print SUM}'
+111438041
+
+## non-repeats + intergenic
+bedtools intersect -a monCan3F9.braker.gt.intergenic.bed -b monCan3F9.ctg.3rd.v0.non_repeats.bed > monCan3F9.ctg.3rd.v0.non_repeats.intergenic.bed
+
+## length
+cat monCan3F9.ctg.3rd.v0.non_repeats.intergenic.bed | awk -F'\t' 'BEGIN{SUM=0}{ SUM+=$3-$2 }END{print SUM}'
+74194295 (74194295 NP-intergenic + 52021161 NP-genic = 126215456 NP)
+
+11. MULTIINTERSECT BED (example)
+# important to specify names of samples (-names) the same way they are named in the VCF file!!!
+bedtools multiinter -i \
+	IF_165.vs.IPODA.haplome.v1.sorted.deduped.callable_loci.CALLABLE.bed \
+	IF_236.vs.IPODA.haplome.v1.sorted.deduped.callable_loci.CALLABLE.bed \
+	IF_RVcoll11F366.vs.IPODA.haplome.v1.sorted.deduped.callable_loci.CALLABLE.bed \
+	IF_RVcoll12N508.vs.IPODA.haplome.v1.sorted.deduped.callable_loci.CALLABLE.bed \
+	IF_RVcoll14B411.vs.IPODA.haplome.v1.sorted.deduped.callable_loci.CALLABLE.bed \
+	IF_RVcoll17B439.vs.IPODA.haplome.v1.sorted.deduped.callable_loci.CALLABLE.bed \
+	IP_502.vs.IPODA.haplome.v1.sorted.deduped.callable_loci.CALLABLE.bed \
+	IP_504.10X.vs.IPODA.haplome.v1.sorted.deduped.callable_loci.CALLABLE.bed \
+	IP_RVcoll12R048.vs.IPODA.haplome.v1.sorted.deduped.callable_loci.CALLABLE.bed \
+	IP_RVcoll14E561.vs.IPODA.haplome.v1.sorted.deduped.callable_loci.CALLABLE.bed \
+	IP_RVcoll14F754.vs.IPODA.haplome.v1.sorted.deduped.callable_loci.CALLABLE.bed \
+	-names 
+	IF_165 \
+	IF_236 \
+	IF_RVcoll11F366 \
+	IF_RVcoll12N508 \
+	IF_RVcoll14B411 \
+	IF_RVcoll17B439 \
+	IP_502 \
+	IP_504 \
+	IP_RVcoll12R048 \
+	IP_RVcoll14E561 \
+	IP_RVcoll14F754 > IPODA.haplome.v1.multiinter.callable.bed
+
+
+
+
+
