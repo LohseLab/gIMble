@@ -33,7 +33,6 @@ awk '$8=="gene"' monCan3F9.braker.gt.bed > monCan3F9.braker.gt.genes.bed
 samtools faidx monCan3F9.ctg.3rd.v0.softmasked.rn.fa
 awk -v OFS='\t' {'print $1,$2'} monCan3F9.ctg.3rd.v0.softmasked.rn.fa.fai > monCan3F9.ctg.3rd.v0.softmasked.rn.fa.genomefile
 
-
 5. sanity check: repeatmasked bases in FASTA
 ## Repeatmasker-output
 46238181
@@ -126,7 +125,8 @@ bedtools multiinter -i \
 	IP_RVcoll14E561 \
 	IP_RVcoll14F754 > IPODA.haplome.v1.multiinter.callable.bed
 
-
+# sort BED file
+sort -k1,1V -k2,2n -k3,3n file.bed > file.sorted.bed
 
 
 
