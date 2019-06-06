@@ -2,13 +2,12 @@
 Usage: ./gIMble <module> [<args>...]
 
 Modules:
-    blocks                Makes blocks (block.bed) from multiinter BED file
-    variants              Fetches and analyses variants based on VCF file and block.bed
-    modify                 Relabels BED file of blocks according to coordinate file
-    windows               Makes windows of blocks based on profile.tsv and    
-    plot                  Makes plots
-    graph                 Generate a state graph
-    probs_sympy           Calculate probabilities
+    blocks                Makes blocks
+    variants              Fetches and analyses variants for blocks 
+    modify                Modifies/filters blocks/variants
+    windows               Constructs windows of blocks
+    graph                 Generate a state graph for a model
+    probs_sympy           Infer likelihood for data given model 
 
 Options:
     -h, --help                         Show this screen.
@@ -18,7 +17,7 @@ Help:
     https://gimble.readme.io/ (TBD)
 
 Dependencies (via conda):
-    conda create -n gimblenv -c conda-forge more-itertools tqdm scipy numpy matplotlib sympy giac networkx psutil pandas docopt
+
 """
 
 '''

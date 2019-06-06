@@ -37,6 +37,8 @@ mat.rcParams['axes.grid'] = False
 # PLOTs
 
 # Histogram of variants (sum of mutype counts) per block
+# distribution of window spans
+# fix offset of genome scan
 
 
 def plot_genome_scan(window_df, out_f, sequenceObjs):
@@ -47,10 +49,11 @@ def plot_genome_scan(window_df, out_f, sequenceObjs):
         offset_by_sequence_id[sequenceObj.id] = offset
         x_boundaries.append(offset)
         offset += sequenceObj.length        
-    fig = plt.figure(figsize=(12,4), dpi=200, frameon=True)
+    fig = plt.figure(figsize=(16,4), dpi=200, frameon=True)
+    #connecting dots
     ax = fig.add_subplot(111)  
     y_lim = (0.0, 1.0)
-    scatter = ax.scatter(window_df['centre'], window_df['fst'], c=window_df['dxy'], alpha=1.0, cmap='spring_r', marker='o', s=2, linewidth=0)
+    scatter = ax.scatter(window_df['centre'], window_df['fst'], c=window_df['dxy'], alpha=1.0, cmap='bone', marker='o', s=2, linewidth=0)
     cbar = fig.colorbar(scatter, ax=ax)
     cbar.ax.set_title('D_xy')
     ax.vlines(x_boundaries, 0.0, 1.0, colors=['lightgrey'], linestyles='dashed', linewidth=1)
@@ -73,7 +76,7 @@ def plot_pi_scatter(window_df, out_f):
     plt.xlabel('Pi')
     print(list(window_df.columns))
     pi_A_key = list(window_df.columns)[5]
-    pi_B_key = list(window_df.columns)[5]
+    pi_B_key = list(window_df.columns)[6]
     ax.plot(window_df['dxy'], window_df[pi_A_key], 'o', alpha=0.5, label=pi_A_key, color='deeppink', markersize=20)
     ax.plot(window_df['dxy'], window_df[pi_B_key], 'o', alpha=0.5, label=pi_B_key, color='dodgerblue', markersize=10)
     plt.legend(frameon=True)
@@ -102,7 +105,7 @@ def plot_histogram(out_f, x_label, _x_values):
     sorted_x_vals = sorted(_x_vals)
     sorted_y_vals = [y for x, y in sorted(zip(_x_vals, _y_vals), key=lambda pair: pair[0])]
     #upper_10perc_x_val = sum(_x_vals) 
-    y_limit = sum(_y_vals) * 0.95
+    y_limit = sum(_y_vals) * 1
     max_y_val = 0
     running_sum = 0
     max_x_val = 1e6

@@ -1,0 +1,4 @@
+chromosome_id	chromosome_start	chromosome_end	sequence_id	start	end	orientation
+chr1	1	1000	toy1	1	1000	-
+chr1	1000	1500	toy1	1000	1500	+
+chr1	1500	2000	toy2	1	1000	-

@@ -1,19 +1,14 @@
 """usage: blocktools blocks -s <FILE> -b <FILE> -g <FILE> [-p <STR> -x <INT> -l <INT> -m <INT> -a <INT> -t <INT> -h]
     
     -h, --help
-    -t, --threads <INT>                         Number of threads to use [default: 1]
     -x, --block_length <INT>                    Block length in bases [default: 64]
-    -p, --prefix <STR>                          Folder for output
     -l, --max_block_length <INT>                Maximum length of block from start to end [default: 80]
     -m, --min_interval_length <INT>             Minimum length in bases of a BED interval to be considered [default: 0]
-    -a, --max_interval_distance <INT>           Maximum distance in bases between BED intervals to be considered [default: 20]
     -s, --sample_file <FILE>                    CSV file ("sample_id,population_id")
-    -b, --bed_file <FILE>                       BED file
-                                                    - Result of multiintersect of callable loci BED
-                                                    - Must include sample IDs in 5th column  
-    -g, --genome_file <FILE>                    Genome file as used in BedTools
-                                                    1. samtools faidx FASTA
-                                                    2. cut -f1 FASTA.fai > FASTA.genomefile
+    -b, --bed_file <FILE>                       multiintersectBED file of 
+    -g, --genome_file <FILE>                    Genome file (as used in BedTools)
+    -t, --threads <INT>                         Number of threads to use [default: 1]
+    -p, --prefix <STR>                          Folder for output
 """
 
 '''
@@ -21,6 +16,10 @@
 - output distribution of distance between blocks
 - output barchart of bases blocked per sample
 - output bases blocked vs per sequence
+
+-a, --max_interval_distance <INT>           Maximum distance in bases between BED intervals to be considered [default: 20] 
+=> make internal only, no need to expose to user
+- gaps
 
 ./gIMble blocks -s input/hmel.samples.csv -b input/hmel.chr18.multiinter.samples_as_string.only_intergenic.bed -g input/hmel.chr18.genomefile -p hmel.chr18
 [#] Parsing parameters ...
