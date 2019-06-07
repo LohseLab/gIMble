@@ -60,7 +60,7 @@ def main():
             import cli.model as model
             model.main()
         elif args['<module>'] == 'likelihood':
-            import lib.likelihood as likelihood
+            import cli.likelihood as likelihood
             likelihood.main()
         else:
             sys.exit("%r is not a gIMble module. See 'gIMble -help'." % args['<module>'])

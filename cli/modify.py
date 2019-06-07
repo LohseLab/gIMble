@@ -12,8 +12,8 @@
     -m, --max_missing INT                       max missing genotypes per pair [default: 4]
     -M, --max_multiallelic INT                  max multiallelic genotypes per pair [default: 4]
 
-    -t, --threads INT                           Number of threads to use [default: 1]
-    -o, --prefix STR                            Folder for output
+    -t, --threads <INT>                         Number of threads to use [default: 1]
+    -o, --prefix <STR>                          Folder/prefix for output
     
     -h, --help
 

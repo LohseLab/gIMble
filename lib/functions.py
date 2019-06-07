@@ -50,6 +50,8 @@ def plot_genome_scan(window_df, out_f, sequenceObjs):
         x_boundaries.append(offset)
         offset += sequenceObj.length
     x_boundaries.append(offset)
+    #print([(sequenceObj.id, sequenceObj.length) for sequenceObj in sequenceObjs])
+    #print(x_boundaries)
     fig = plt.figure(figsize=(16,4), dpi=200, frameon=True)
     #connecting dots
     ax = fig.add_subplot(111)  

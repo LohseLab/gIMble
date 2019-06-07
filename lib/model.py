@@ -134,6 +134,146 @@ def plot_state_graph(state_graph, out_f, parameterObj):
     fig.savefig(out_f, dpi=300, orientation='landscape', format="png")
     plt.close(fig)
 
+class ParameterObj(object):
+    def __init__(self, args):
+        self.ploidy = int(args['--ploidy'])
+        self.migration = args['--migration']
+        self.plot_mutypes = args['--plot_mutypes']
+        self.no_graph_labels = args['--no_graph_labels']
+        self.exodus = args['--exodus']
+        self.reverse_exodus = args['--reverse_exodus']
+        self.out_prefix = args['--out_prefix']
+        self.sample_input = args['--samples'] 
+        self.migration_possible = any([self.migration, self.exodus, self.reverse_exodus])
+        self.population_count = 0
+        self.model_label = self.get_model_label()
+
+    def get_model_label(self):
+        models = OrderedDict({
+            'M': self.migration, 
+            'E': self.exodus, 
+            'R': self.reverse_exodus
+        })
+        return "+".join([model_id for model_id, status in models.items() if status])
+
+    def setup(self):
+        print("=======================================")
+        print("[+] Sample input: ", self.sample_input)
+        print("=======================================")
+        try:
+            sample_string = literal_eval(self.sample_input)
+        except SyntaxError:
+            exit("[X] Invalid sample (--sample) string: %s" % self.sample_input)
+        # Fail if not sets/lists
+        if not isinstance(sample_string, list) or not all([(type(population) in set([list, set])) for population in sample_string]):
+            exit("[X] Samples (--samples) must list of lists/sets '[['b'], {'a'}]' !")
+        # Fail if migration_possible and only one population 
+        if self.migration_possible:
+            if not any([isinstance(population, set) for population in sample_string]):
+                exit("[X] Must specify migrant population using '{}' when using '--migration' and/or '--exodus'!")
+        # Get migrants (can only be set or list)
+        migrants = [(True if isinstance(population, set) else False) for population in sample_string]
+        # Setting ancestor in samplePopObjs
+        migrants_counter = Counter(migrants)
+        samplePopObjs = []
+        ancestor_idx = None
+        if self.reverse_exodus: 
+            # Fail if more than one ancestor population
+            if not migrants_counter[True] == 1:
+                exit("[X] Coalescing into ancestor state based on this model is only possible for 1 migrant population!")
+            # Set migrant population to ancestor
+            ancestor_idx = migrants.index(True)
+        else:
+            # Fail if no migration and multiple populations
+            if not self.migration_possible:
+                if not len(samplePopObjs) == 1:
+                    exit("[X] Coalescing into ancestor state from %s populations is not possible without '--migration' and/or '--exodus'!" % len(samplePopObjs))
+            # Fail if more than one ancestor population
+            if not migrants_counter[False] == 1:
+                exit("[X] Coalescing into ancestor state based on this model is only possible for 1 resident population!")
+            # Set resident population to ancestor
+            ancestor_idx = migrants.index(False)
+        for idx, (population, migrant) in enumerate(zip(sample_string, migrants)):
+            if idx == ancestor_idx:
+                ancestor = True
+            else:
+                ancestor = False
+            samplePopObjs.append(PopObj(list(population), migrant=migrant, ancestor=ancestor, ploidy=self.ploidy))
+        self.population_count = len(samplePopObjs)
+        # Create lcaPopObjs
+        lcaPopObjs = []
+        for samplePopObj in samplePopObjs:
+            lca_population = []
+            if samplePopObj.ancestor:
+                # get LCA from popObj.lineage strings
+                lca_population = ["".join(sorted(["".join(samplePopObj.lineages) for samplePopObj in samplePopObjs]))]
+            lcaPopObj = PopObj(lca_population, ancestor=samplePopObj.ancestor, migrant=samplePopObj.migrant)
+            lcaPopObjs.append(lcaPopObj)
+        if not self.population_count == 2:
+             exit("[X] Beyond this point only implemented for 2 populations!")
+        # Create sampleStateObj
+        self.sampleStateObj = StateObj(samplePopObjs, idx=0)
+        print("[=] Sample state =", self.sampleStateObj.label)
+        # Create lca_stateObj 
+        self.lcaStateObj = StateObj(lcaPopObjs, idx=None)
+        print("[=] LCA state    =", self.lcaStateObj)
+        # Fail if population count not 2 ... 
+        print("---------------------------------------")
+        
+        print("[=] Model        = %s" % self.model_label)
+        print("---------------------------------------")
+        if self.migration:
+            print("[=] Migration\t: %s -> %s" % (self.sampleStateObj.get_popObj('migrant'), self.sampleStateObj.get_popObj('resident')))
+        if self.exodus:
+            print("[=] MassMigration\t: %s -> %s" % (self.sampleStateObj.get_popObj('migrant'), self.sampleStateObj.get_popObj('resident')))
+        if self.reverse_exodus:
+            print("[=] MassMigration\t: %s <- %s" % (self.sampleStateObj.get_popObj('migrant'), self.sampleStateObj.get_popObj('resident')))
+        print("---------------------------------------")
+        
+    def get_basename(self):
+        return "%s.%s_pop.%s_ploidy.%s" % (self.out_prefix, self.population_count, self.ploidy, self.model_label)
+
+    def write_paths(self, header, paths):
+        start_time = timer()
+        out_f = "%s.paths.txt" % (self.get_basename())
+        create_csv(out_f, header, paths, sep="\t")
+        print("[+] Written paths into file %s in %s seconds." % (out_f, timer() - start_time))
+
+    def write_nodes(self, header, nodes):
+        start_time = timer()
+        out_f = "%s.nodes.txt" % (self.get_basename())
+        create_csv(out_f, header, nodes, sep="\t")
+        print("[+] Written paths into file %s in %s seconds." % (out_f, timer() - start_time))
+
+    def write_graph(self, state_graph):
+        start_time = timer()
+        out_f = "%s.gml" % (self.get_basename())
+        # states have to be stringified ...
+        for idx, node in state_graph.nodes(data=True):
+            # print(idx, node)
+            node['label'] = str(node.get('label', None))
+        nx.write_gml(state_graph, out_f)
+        print("[+] Written graph into file %s in %s seconds." % (out_f, timer() - start_time))
+        return out_f
+
+    def read_graph(self, infile):
+        start_time = timer()
+        state_graph = nx.read_gml(infile)
+        for idx, node in state_graph.nodes(data=True):
+            node['label'] = literal_eval(node['label'])
+            if 'pos' in node:
+                node['pos'] = tuple(node['pos'])
+            # print(idx, node)
+        print("[+] Read graph from file %s in %s seconds." % (infile, timer() - start_time))
+        return state_graph
+
+    def plot_graph(self, state_graph, parameterObj):
+        start_time = timer()
+        out_f = "%s.graph.png" % self.get_basename()
+        plot_state_graph(state_graph=state_graph, out_f=out_f, parameterObj=parameterObj)
+        print("[+] Plotted graph into file %s in %s seconds." % (out_f, timer() - start_time))
+        return out_f
+        
 def build_state_graph(parameterObj):
     start_time = timer()
     sampleStateObj = parameterObj.sampleStateObj
@@ -450,143 +590,3 @@ class PopObj(object):
             lineages.append("".join(sorted(self.lineages[i] + self.lineages[j])))
             popObjs.append(PopObj(sorted(lineages), ancestor=self.ancestor, migrant=self.migrant))
         return popObjs
-
-class ParameterObj(object):
-    def __init__(self, args):
-        self.ploidy = int(args['--ploidy'])
-        self.migration = args['--migration']
-        self.plot_mutypes = args['--plot_mutypes']
-        self.no_graph_labels = args['--no_graph_labels']
-        self.exodus = args['--exodus']
-        self.reverse_exodus = args['--reverse_exodus']
-        self.out_prefix = args['--out_prefix']
-        self.sample_input = args['--samples'] 
-        self.migration_possible = any([self.migration, self.exodus, self.reverse_exodus])
-        self.population_count = 0
-        self.model_label = self.get_model_label()
-
-    def get_model_label(self):
-        models = OrderedDict({
-            'M': self.migration, 
-            'E': self.exodus, 
-            'R': self.reverse_exodus
-        })
-        return "+".join([model_id for model_id, status in models.items() if status])
-
-    def setup(self):
-        print("=======================================")
-        print("[+] Sample input: ", self.sample_input)
-        print("=======================================")
-        try:
-            sample_string = literal_eval(self.sample_input)
-        except SyntaxError:
-            exit("[X] Invalid sample (--sample) string: %s" % self.sample_input)
-        # Fail if not sets/lists
-        if not isinstance(sample_string, list) or not all([(type(population) in set([list, set])) for population in sample_string]):
-            exit("[X] Samples (--samples) must list of lists/sets '[['b'], {'a'}]' !")
-        # Fail if migration_possible and only one population 
-        if self.migration_possible:
-            if not any([isinstance(population, set) for population in sample_string]):
-                exit("[X] Must specify migrant population using '{}' when using '--migration' and/or '--exodus'!")
-        # Get migrants (can only be set or list)
-        migrants = [(True if isinstance(population, set) else False) for population in sample_string]
-        # Setting ancestor in samplePopObjs
-        migrants_counter = Counter(migrants)
-        samplePopObjs = []
-        ancestor_idx = None
-        if self.reverse_exodus: 
-            # Fail if more than one ancestor population
-            if not migrants_counter[True] == 1:
-                exit("[X] Coalescing into ancestor state based on this model is only possible for 1 migrant population!")
-            # Set migrant population to ancestor
-            ancestor_idx = migrants.index(True)
-        else:
-            # Fail if no migration and multiple populations
-            if not self.migration_possible:
-                if not len(samplePopObjs) == 1:
-                    exit("[X] Coalescing into ancestor state from %s populations is not possible without '--migration' and/or '--exodus'!" % len(samplePopObjs))
-            # Fail if more than one ancestor population
-            if not migrants_counter[False] == 1:
-                exit("[X] Coalescing into ancestor state based on this model is only possible for 1 resident population!")
-            # Set resident population to ancestor
-            ancestor_idx = migrants.index(False)
-        for idx, (population, migrant) in enumerate(zip(sample_string, migrants)):
-            if idx == ancestor_idx:
-                ancestor = True
-            else:
-                ancestor = False
-            samplePopObjs.append(PopObj(list(population), migrant=migrant, ancestor=ancestor, ploidy=self.ploidy))
-        self.population_count = len(samplePopObjs)
-        # Create lcaPopObjs
-        lcaPopObjs = []
-        for samplePopObj in samplePopObjs:
-            lca_population = []
-            if samplePopObj.ancestor:
-                # get LCA from popObj.lineage strings
-                lca_population = ["".join(sorted(["".join(samplePopObj.lineages) for samplePopObj in samplePopObjs]))]
-            lcaPopObj = PopObj(lca_population, ancestor=samplePopObj.ancestor, migrant=samplePopObj.migrant)
-            lcaPopObjs.append(lcaPopObj)
-        if not self.population_count == 2:
-             exit("[X] Beyond this point only implemented for 2 populations!")
-        # Create sampleStateObj
-        self.sampleStateObj = StateObj(samplePopObjs, idx=0)
-        print("[=] Sample state =", self.sampleStateObj.label)
-        # Create lca_stateObj 
-        self.lcaStateObj = StateObj(lcaPopObjs, idx=None)
-        print("[=] LCA state    =", self.lcaStateObj)
-        # Fail if population count not 2 ... 
-        print("---------------------------------------")
-        
-        print("[=] Model        = %s" % self.model_label)
-        print("---------------------------------------")
-        if self.migration:
-            print("[=] Migration\t: %s -> %s" % (self.sampleStateObj.get_popObj('migrant'), self.sampleStateObj.get_popObj('resident')))
-        if self.exodus:
-            print("[=] MassMigration\t: %s -> %s" % (self.sampleStateObj.get_popObj('migrant'), self.sampleStateObj.get_popObj('resident')))
-        if self.reverse_exodus:
-            print("[=] MassMigration\t: %s <- %s" % (self.sampleStateObj.get_popObj('migrant'), self.sampleStateObj.get_popObj('resident')))
-        print("---------------------------------------")
-        
-    def get_basename(self):
-        return "%s.%s_pop.%s_ploidy.%s" % (self.out_prefix, self.population_count, self.ploidy, self.model_label)
-
-    def write_paths(self, header, paths):
-        start_time = timer()
-        out_f = "%s.paths.txt" % (self.get_basename())
-        create_csv(out_f, header, paths, sep="\t")
-        print("[+] Written paths into file %s in %s seconds." % (out_f, timer() - start_time))
-
-    def write_nodes(self, header, nodes):
-        start_time = timer()
-        out_f = "%s.nodes.txt" % (self.get_basename())
-        create_csv(out_f, header, nodes, sep="\t")
-        print("[+] Written paths into file %s in %s seconds." % (out_f, timer() - start_time))
-
-    def write_graph(self, state_graph):
-        start_time = timer()
-        out_f = "%s.gml" % (self.get_basename())
-        # states have to be stringified ...
-        for idx, node in state_graph.nodes(data=True):
-            # print(idx, node)
-            node['label'] = str(node.get('label', None))
-        nx.write_gml(state_graph, out_f)
-        print("[+] Written graph into file %s in %s seconds." % (out_f, timer() - start_time))
-        return out_f
-
-    def read_graph(self, infile):
-        start_time = timer()
-        state_graph = nx.read_gml(infile)
-        for idx, node in state_graph.nodes(data=True):
-            node['label'] = literal_eval(node['label'])
-            if 'pos' in node:
-                node['pos'] = tuple(node['pos'])
-            # print(idx, node)
-        print("[+] Read graph from file %s in %s seconds." % (infile, timer() - start_time))
-        return state_graph
-
-    def plot_graph(self, state_graph, parameterObj):
-        start_time = timer()
-        out_f = "%s.graph.png" % self.get_basename()
-        plot_state_graph(state_graph=state_graph, out_f=out_f, parameterObj=parameterObj)
-        print("[+] Plotted graph into file %s in %s seconds." % (out_f, timer() - start_time))
-        return out_f
