@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gIMble probs_sympy                      -p FILE [-h|--help]
+"""usage: probs_sympy.py                      -p FILE [-h|--help]
                                                   [-A FLOAT] [-D FLOAT] [-M FLOAT] [-m FLOAT] [-T FLOAT] 
                                                   [-t INT] [-P INT] 
 
