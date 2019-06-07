@@ -114,13 +114,13 @@ def inverse_laplace_transform(params):
         simplifications if the expression contains radicals or algebraically dependent transcendental functions.
     '''
     invlaplace_string = "%s; invlaplace(ratnormal(subst(%s%s)/bigL), bigL, T).subst(T, %s)" % (assumptions, equation_giac, mutation_substitution, float(split_time))
-    print(invlaplace_string)
+    #print(invlaplace_string)
     #start_time = timer()
     try:
         process = subprocess.run(["giac", invlaplace_string], stderr=subprocess.PIPE, stdout=subprocess.PIPE, check=True, encoding='utf-8')
         #print("elapsed: %s" % (timer() - start_time))
-        print(process.stderr)
-        print(process.stdout)
+        #print(process.stderr)
+        #print(process.stdout)
         probability = process.stdout.rstrip("\n").split(",")[1]
 
     except subprocess.CalledProcessError:
