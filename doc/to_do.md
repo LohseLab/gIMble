@@ -1,5 +1,11 @@
 # To do
 
+./gIMble blocks -s test/test.samples.csv -g test/test.genomefile -b test/test.bed -o test_output/
+./gIMble variants -s test/test.samples.csv -g test/test.genomefile -v test/test.vcf.gz -b test_output/gimble.blocks.h5 -o test_output/
+./gIMble modify blocks -s test/test.samples.csv -g test/test.genomefile -b test_output/gimble.blocks.h5 -o test_output/ -c test/test.coord.txt
+./gIMble modify variants -o test_output/ -v test_output/gimble.variants.h5 -m 4
+./gIMble windows -s test/test.samples.csv -g test/test.coord.genomefile -b test_output/gimble.blocks.modified.h5 -v test_output/gimble.variants.modified.h5 -w 3 -l 1 -o test_output/
+
 # [General]
 - Implement central hdf5 storage
 	- Define entry points
@@ -13,8 +19,34 @@
 	from zarr import Blosc
 	compressors = (Blosc(cname='lz4', clevel=9, shuffle=0))
 
+MODIFY:
+- uncouple from blockObj parsing, just dataframes (or avoid plotting distance.png again) 
+VARIANTS:
+- print possible values for k_max and how much would be filtered
+
 - Plots 
 
+Course:
+- What happens if one does not deal with missing data
+- Plot sample coverage of windows
+[To do]                      
+plot:
+    - improve setting of figure dimensions based on graph complexity
+    - legend with edge types
+    - account for overlapping edges (using width/styles/colours)
+    - adjust alpha/colour of edge labels
+
+[To Do]
+- output distribution of distance between blocks
+- output barchart of bases blocked per sample
+- output bases blocked vs per sequence
+[ To Do ]
+ - Variants: filter blocks on 4 missing both for global counts and window counts
+    # PLOTs
+
+# Histogram of variants (sum of mutype counts) per block
+# distribution of window spans
+# fix offset of genome scan
 
 # [META]
 - Command: ./gimble meta -s sample_file -g genome_file -p prefix

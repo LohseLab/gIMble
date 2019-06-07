@@ -1,17 +1,22 @@
 """usage: 
-          gIMble modify blocks -b <FILE> -c <FILE> -g <FILE> -s <FILE> [-t <INT> -p <STR> -h]
-          gIMble modify variants -v <FILE> [-m <INT> -M <INT>] [-t <INT> -p <STR> -h]
+            gIMble modify blocks    -s <FILE> -g <FILE> -b <FILE> -c <FILE> [-t <INT> -o <STR> -h]
+            gIMble modify variants  -v <FILE>             [-m <INT> -M <INT> -t <INT> -o <STR> -h]
+    
+
+    -s, --sample_file <FILE>                    CSV file ("sample_id,population_id")
+    -g, --genome_file <FILE>                    Genome file (as used in BedTools)
+    -b, --blocks FILE                           blocks HDF5 file
+    -c, --coordinates FILE                      Coordinates file
+    
+    -v, --variants_h5 FILE                      variants HDF5 file
+    -m, --max_missing INT                       max missing genotypes per pair [default: 4]
+    -M, --max_multiallelic INT                  max multiallelic genotypes per pair [default: 4]
+
+    -t, --threads INT                           Number of threads to use [default: 1]
+    -o, --prefix STR                            Folder for output
     
     -h, --help
-    -b, --blocks FILE                         blocks HDF5 file
-    -c, --coordinates FILE                    Coordinates file
-    -p, --prefix STR                          Folder for output
-    -t, --threads INT                         Number of threads to use [default: 1]
-    -v, --variants_h5 FILE                    *.variant.h5 [default: None]
-    -m, --max_missing INT                     max missing genotypes per pair [default: 4]
-    -M, --max_multiallelic INT                max multiallelic genotypes per pair [default: 4]
-    -g, --genome_file FILE                    Genome file as used in BedTools
-    -s, --sample_file FILE                    CSV file ("sample_id,population_id")
+
 
 """
 

@@ -2,14 +2,24 @@
 
 ## ENVIRONMENT
 
-conda create -n gimble -c conda-forge -c bioconda
-conda activate gimble
-conda install -c conda-forge more-itertools tqdm scipy numpy matplotlib sympy giac networkx psutil pandas docopt pytables tabulate
+install conda https://docs.conda.io/en/latest/miniconda.html
+conda create -n gimble
+source activate gimble
+conda install -c conda-forge more-itertools tqdm scipy numpy matplotlib sympy giac networkx psutil pandas docopt pytables tabulate git
 conda install -c bioconda pysam
+
+git clone https://github.com/DRL/gIMble.git
+git checkout dev
+
+./gIMble blocks -p hmel.chr18.Hmel218018/ -s input/hmel.samples.csv -b input/hmel.chr18.Hmel218018.multiinter.samples_as_string.only_intergenic.bed -g input/hmel.chr18.Hmel218018.genomefile -t 4
+./gIMble variants -p hmel.chr18.Hmel218018/ -s input/hmel.samples.csv -b hmel.chr18.Hmel218018/gimble.blocks.h5 -g input/hmel.chr18.Hmel218018.genomefile -v input/hmel.chr18.vcf.gz -t 4
+./gIMble modify blocks -p hmel.chr18.Hmel218018/ -s input/hmel.samples.csv -c input/hmel.chr18.Hmel218018.chrom_coordinates.txt -b hmel.chr18.Hmel218018/gimble.blocks.h5  -g input/hmel.chr18.Hmel218018.genomefile
+./gIMble modify variants -v hmel.chr18.Hmel218018/gimble.variants.h5 -p hmel.chr18.Hmel218018/ -m 4 -M 100
+./gIMble windows -p hmel.chr18.Hmel218018/ -s input/hmel.samples.csv -b hmel.chr18.Hmel218018/gimble.blocks.modified.h5 -g input/hmel.chr18.new_coordinates.genomefile -v hmel.chr18.Hmel218018/gimble.variants.modified.h5 -w 50 -l 10 -m 1000000 -t 4
 
 ## 2019-06-02
 
-### minimal
+### minimal test
 ./gIMble blocks -s input/test.minimal.samples.shuffled.csv -b input/test.minimal.bed -g input/test.minimal.genomefile -p minimal
 ./gIMble variants -s input/test.minimal.samples.shuffled.csv -b /Users/dlaetsch/git/gIMble/minimal.blocks.h5 -g input/test.minimal.genomefile -p minimal -v input/test.vcf.gz
 ./gIMble modify -s input/test.minimal.samples.shuffled.csv -b /Users/dlaetsch/git/gIMble/minimal.blocks.h5 -g input/test.minimal.genomefile -p minimal -c input/test.minimal.coordinates.txt
@@ -259,6 +269,6 @@ conda install -c bioconda pysam
 # Hmel hmel.chr18.Hmel218001
 ./gIMble blocks -p hmel.chr18.Hmel218018/ -s input/hmel.samples.csv -b input/hmel.chr18.Hmel218018.multiinter.samples_as_string.only_intergenic.bed -g input/hmel.chr18.Hmel218018.genomefile -t 4
 ./gIMble variants -p hmel.chr18.Hmel218018/ -s input/hmel.samples.csv -b hmel.chr18.Hmel218018/gimble.blocks.h5 -g input/hmel.chr18.Hmel218018.genomefile -v input/hmel.chr18.vcf.gz -t 4
-./gIMble modify blocks -p hmel.chr18.Hmel218018/ -s input/hmel.samples.csv -c input/hmel.chrom_coordinates.txt -b hmel.chr18.Hmel218018/gimble.blocks.h5  -g input/hmel.chr18.Hmel218018.genomefile
+./gIMble modify blocks -p hmel.chr18.Hmel218018/ -s input/hmel.samples.csv -c input/hmel.chr18.Hmel218018.chrom_coordinates.txt -b hmel.chr18.Hmel218018/gimble.blocks.h5  -g input/hmel.chr18.Hmel218018.genomefile
 ./gIMble modify variants -v hmel.chr18.Hmel218018/gimble.variants.h5 -p hmel.chr18.Hmel218018/ -m 4 -M 100
 ./gIMble windows -p hmel.chr18.Hmel218018/ -s input/hmel.samples.csv -b hmel.chr18.Hmel218018/gimble.blocks.modified.h5 -g input/hmel.chr18.new_coordinates.genomefile -v hmel.chr18.Hmel218018/gimble.variants.modified.h5 -w 50 -l 10 -m 1000000 -t 4

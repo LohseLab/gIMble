@@ -6,8 +6,8 @@ Modules:
     variants              Fetches and analyses variants for blocks 
     modify                Modifies/filters blocks/variants
     windows               Constructs windows of blocks
-    graph                 Generate a state graph for a model
-    probs_sympy           Infer likelihood for data given model 
+    model                 Generate a state graph for a model
+    likelihood            Infer likelihood for data given model 
 
 Options:
     -h, --help                         Show this screen.
@@ -56,12 +56,12 @@ def main():
         elif args['<module>'] == 'fixcoordinates':
             import cli.fixcoordinates as fixcoordinates
             fixcoordinates.main()
-        elif args['<module>'] == 'graph':
-            import cli.graph as graph
-            graph.main()
-        elif args['<module>'] == 'probs_sympy':
-            import lib.probs_sympy as probs_sympy
-            probs_sympy.main()
+        elif args['<module>'] == 'model':
+            import cli.model as model
+            model.main()
+        elif args['<module>'] == 'likelihood':
+            import lib.likelihood as likelihood
+            likelihood.main()
         else:
             sys.exit("%r is not a gIMble module. See 'gIMble -help'." % args['<module>'])
     except KeyboardInterrupt:

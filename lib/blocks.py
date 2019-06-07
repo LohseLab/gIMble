@@ -9,6 +9,7 @@ import numpy as np
 from tqdm import tqdm
 #### Entities
 
+import sys
 from lib.functions import memory_usage_psutil, check_file, poolcontext, check_path, check_prefix, format_bases, format_count, format_percentage
 
 '''
@@ -26,13 +27,16 @@ class ParameterObj(object):
         self.sample_file = check_file(args.get('--sample_file', None))
         self.genome_file = check_file(args.get('--genome_file', None))
         self.bed_file = check_file(args.get('--bed_file', None))
-        self.block_length = int(args['--block_length'])
         self.path = check_path(args.get('--prefix', None))
         self.prefix = check_prefix(args.get('--prefix', None))
         self.dataset = self.prefix if self.path is None else (self.path / self.prefix)
+
+        self.block_length = int(args['--block_length'])
         self.min_interval_length = int(args['--min_interval_length'])
-        self.max_interval_distance = int(args['--max_interval_distance'])
-        self.max_block_length = int(args['--max_block_length'])
+        self.max_block_length = int(args['--max_block_span'])
+        if self.max_block_length < self.block_length:
+            sys.exit("[X] '--max_block_length' must be greater or equal to '--block_length'")
+        self.max_interval_distance = (self.max_block_length - self.block_length) + 1 
         self.threads = int(args.get('--threads'))
         self.bed_length_total = 0
 

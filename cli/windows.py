@@ -1,15 +1,20 @@
-"""usage: blocktools windows -b <FILE> -v <FILE> -s <FILE> -g <FILE> [-w <INT> -l <INT> -m <INT> -p <STR> -t <INT> -h]
+"""usage: blocktools windows -s <FILE> -g <FILE> -b <FILE> -v <FILE> [-w <INT> -l <INT> -m <INT> -o <STR> -t <INT> -h]
     
-    -h, --help
-    -b, --blocks_h5 <FILE>                      *.blocks.h5
-    -v, --variants_h5 <FILE>                    *.variant.h5
     -s, --sample_file <FILE>                    CSV file ("sample_id,population_id")
-    -g, --genome_file <FILE>                    Genome file as used in BedTools
+    -g, --genome_file <FILE>                    Genome file (as used in BedTools)
+
+    -b, --blocks_h5 <FILE>                         blocks HDF5 file
+    -v, --variants_h5 <FILE>                    variants HDF5 file
+
     -w, --window_size <INT>                     Window size in blocks [default: 500]
     -l, --overlap <INT>                         Window overlap in blocks [default: 50]
-    -m, --max_block_distance <INT>              Maximum distance in bases between blocks [default: 5000]
-    -p, --prefix <STR>                          Folder for output
+    -m, --max_block_distance <INT>              Maximum distance in bases between blocks in same window [default: 10000]
+
     -t, --threads <INT>                         Number of threads to use [default: 1]
+    -o, --prefix <STR>                          Folder/prefix for output
+    
+    -h, --help
+
 """
 
 from docopt import docopt

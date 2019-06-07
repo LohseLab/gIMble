@@ -3,7 +3,7 @@ import os
 from psutil import Process
 import multiprocessing
 from contextlib import contextmanager
-import numpy as np
+
 import sys
 import collections
 import pandas as pd
@@ -66,20 +66,21 @@ def plot_genome_scan(window_df, out_f, sequenceObjs):
     plt.close(fig)
 
 def plot_pi_scatter(window_df, out_f):
-    fig = plt.figure(figsize=(12,12), dpi=400)
-    fig, axarr = plt.subplots(2, sharey=True)
-    ax = fig.add_subplot(111)
+    fig, ax = plt.subplots(nrows=1, ncols=2, sharey=True, sharex=True, figsize=(12,6))
     #ax.set_ylim((-0.05, 1))
     #ax.set_xlim((0, categories + 1))
     #ax.set_xscale("log")
-    plt.ylabel('D_xy')
-    plt.xlabel('Pi')
     print(list(window_df.columns))
     pi_A_key = list(window_df.columns)[5]
     pi_B_key = list(window_df.columns)[6]
-    ax.plot(window_df['dxy'], window_df[pi_A_key], 'o', alpha=0.5, label=pi_A_key, color='deeppink', markersize=20)
-    ax.plot(window_df['dxy'], window_df[pi_B_key], 'o', alpha=0.5, label=pi_B_key, color='dodgerblue', markersize=10)
-    plt.legend(frameon=True)
+    ax[0].scatter(window_df['dxy'], window_df[pi_A_key], c=window_df['fst'], cmap='Oranges', marker='o', s=100, alpha=0.5, label=pi_A_key)
+    scatter = ax[1].scatter(window_df['dxy'], window_df[pi_B_key], c=window_df['fst'], cmap='Oranges', marker='o', s=100, alpha=0.5, label=pi_B_key)
+    cbar = fig.colorbar(scatter, ax=ax)
+    cbar.ax.set_title('F_st')
+    ax[0].set_ylabel('D_xy')
+    ax[0].set_xlabel(pi_A_key)
+    ax[1].set_xlabel(pi_B_key)
+    #plt.legend(frameon=True)
     #ax.set_aspect(1.)
     #divider = make_axes_locatable(ax)
     #axHistx = divider.append_axes("top", 1.2, pad=0.2, sharex=ax)
@@ -224,21 +225,6 @@ def create_hdf5_store(out_f, path):
 
 def read_h5(h5_file, key=None):
     return pd.read_hdf(h5_file)
-
-# def create_json(out_f, path, data): 
-#     if not path is None:
-#         outfile = path.joinpath(out_f)
-#     else:
-#         outfile = out_f
-#     with open(outfile, 'w') as fh:
-#         simplejson.dump(data, fh)
-#     print("[>]\tCreated: %r" % str(outfile))
-
-# def read_json(infile): 
-#     print(infile)
-#     with open(infile, encoding='utf-8') as fh:
-#         data = simplejson.load(fh)
-#     return data
 
 def create(out_f, path, header, lines):
     if out_f:

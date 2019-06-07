@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 import collections
+
 FULL_MUTYPE_ORDER = ['hetA', 'fixed', 'hetB', 'hetAB', 'missing', 'multiallelic']
 MUTYPE_ORDER = ['hetA', 'fixed', 'hetB', 'hetAB']
 MUTYPE_OTHER = ['missing', 'multiallelic']
