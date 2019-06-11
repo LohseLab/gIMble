@@ -1,10 +1,47 @@
 # To do
 
-./gIMble blocks -s test/test.samples.csv -g test/test.genomefile -b test/test.bed -o test_output/
-./gIMble variants -s test/test.samples.csv -g test/test.genomefile -v test/test.vcf.gz -b test_output/gimble.blocks.h5 -o test_output/
-./gIMble modify blocks -s test/test.samples.csv -g test/test.genomefile -b test_output/gimble.blocks.h5 -o test_output/ -c test/test.coord.txt
-./gIMble modify variants -o test_output/ -v test_output/gimble.variants.h5 -m 4
-./gIMble windows -s test/test.samples.csv -g test/test.coord.genomefile -b test_output/gimble.blocks.modified.h5 -v test_output/gimble.variants.modified.h5 -w 3 -l 1 -o test_output/
+conda create -n gimble -y && source activate gimble && conda install -c conda-forge more-itertools tqdm scipy numpy matplotlib sympy giac networkx psutil pandas docopt pytables tabulate htop git -y && conda install -c bioconda pysam -y
+./gIMble blocks -s test/test.samples.csv -g test/test.genomefile -b test/test.bed -o test_output/ && \
+./gIMble variants -s test/test.samples.csv -g test/test.genomefile -v test/test.vcf.gz -b test_output/gimble.blocks.h5 -o test_output/ && \
+./gIMble modify blocks -s test/test.samples.csv -g test/test.genomefile -b test_output/gimble.blocks.h5 -o test_output/ -c test/test.coord.txt && \
+./gIMble modify variants -o test_output/ -v test_output/gimble.variants.h5 -m 4 && \
+./gIMble windows -s test/test.samples.csv -g test/test.coord.genomefile -b test_output/gimble.blocks.modified.h5 -v test_output/gimble.variants.modified.h5 -w 3 -l 1 -o test_output/ 
+
+conda create -n gimble -y && source activate gimble && conda install -c conda-forge more-itertools tqdm scipy numpy matplotlib sympy giac networkx psutil pandas docopt pytables tabulate htop git -y && conda install -c bioconda pysam -y && cd gIMble/ && python lib/probs_sympy.py -p output/master.2_pop.2_ploidy.E.paths.txt -t 1 -A 1.0 -D 1.0 -M 2.34 -m 1.2 -T 1.4 -P 10
+
+# Hmel hmel.chr18
+./gIMble blocks -o hmel.chr18.min_1_sample/ -s input/hmel.chr18.samples.csv -b input/hmel.chr18.multiinter.samples_as_string.only_intergenic.sorted.bed -g input/hmel.chr18.genomefile -t 4 -a 1
+[+] Made 141,814 blocks covering 9,076,096 b (85.40% of BED intervals, 54.02% of genome)
+./gIMble variants -o hmel.chr18.min_1_sample/ -s input/hmel.samples.csv -b hmel.chr18.min_1_sample/gimble.blocks.h5 -g input/hmel.chr18.genomefile -t 4 -v input/hmel.chr18.vcf.gz
+./gIMble modify blocks -o hmel.chr18.min_1_sample/ -s input/hmel.samples.csv -c input/hmel.chr18.chrom_coordinates.txt -b hmel.chr18.min_1_sample/gimble.blocks.h5 -g input/hmel.chr18.genomefile
+./gIMble modify variants -v hmel.chr18.min_1_sample/gimble.variants.h5 -o hmel.chr18.min_1_sample/ -m 4 -M 100
+./gIMble windows -o hmel.chr18.min_1_sample/ -s input/hmel.samples.csv -b hmel.chr18.min_1_sample/gimble.blocks.modified.h5 -g input/hmel.chr18.new_coordinates.genomefile -v hmel.chr18.min_1_sample/gimble.variants.modified.h5
+
+./gIMble blocks -o hmel.chr18.min_10_sample/ -s input/hmel.samples.csv -b input/hmel.chr18.multiinter.samples_as_string.only_intergenic.sorted.bed -g input/hmel.chr18.genomefile -t 4 -a 10
+[+] Made 71,814 blocks covering 4,596,096 b (43.25% of BED intervals, 27.35% of genome)
+./gIMble variants -o hmel.chr18.min_10_sample/ -s input/hmel.samples.csv -b hmel.chr18.min_10_sample/gimble.blocks.h5 -g input/hmel.chr18.genomefile -t 4 -v input/hmel.chr18.vcf.gz
+./gIMble modify blocks -o hmel.chr18.min_10_sample/ -s input/hmel.samples.csv -c input/hmel.chr18.chrom_coordinates.txt -b hmel.chr18.min_10_sample/gimble.blocks.h5 -g input/hmel.chr18.genomefile
+./gIMble modify variants -v hmel.chr18.min_10_sample/gimble.variants.h5 -o hmel.chr18.min_10_sample/ -m 4 -M 100
+./gIMble windows -o hmel.chr18.min_10_sample/ -s input/hmel.samples.csv -b hmel.chr18.min_10_sample/gimble.blocks.modified.h5 -g input/hmel.chr18.new_coordinates.genomefile -v hmel.chr18.min_10_sample/gimble.variants.modified.h5
+
+./gIMble blocks -o hmel.chr18.min_5_sample/ -s input/hmel.samples.csv -b input/hmel.chr18.multiinter.samples_as_string.only_intergenic.sorted.bed -g input/hmel.chr18.genomefile -t 4 -a 5
+[+] Made 135,078 blocks covering 8,644,992 b (81.34% of BED intervals, 51.45% of genome)
+./gIMble variants -o hmel.chr18.min_5_sample/ -s input/hmel.samples.csv -b hmel.chr18.min_5_sample/gimble.blocks.h5 -g input/hmel.chr18.genomefile -t 4 -v input/hmel.chr18.vcf.gz
+./gIMble modify blocks -o hmel.chr18.min_5_sample/ -s input/hmel.samples.csv -c input/hmel.chr18.chrom_coordinates.txt -b hmel.chr18.min_5_sample/gimble.blocks.h5 -g input/hmel.chr18.genomefile
+./gIMble modify variants -v hmel.chr18.min_5_sample/gimble.variants.h5 -o hmel.chr18.min_5_sample/ -m 4 -M 100
+./gIMble windows -o hmel.chr18.min_5_sample/ -s input/hmel.samples.csv -b hmel.chr18.min_5_sample/gimble.blocks.modified.h5 -g input/hmel.chr18.new_coordinates.genomefile -v hmel.chr18.min_5_sample/gimble.variants.modified.h5
+
+
+# [MAIN]
+- generate sample.h5
+- add number of samples to header
+- implement min interval sample/pair filter 
+	- all samples
+	- one sample in each pop
+	- half
+- overlap in windows always 1/5
+- fix plots
+	- make dots bigger, invert colormap for genomescan
 
 # [General]
 - Implement central hdf5 storage

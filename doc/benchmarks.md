@@ -265,10 +265,19 @@ git checkout dev
 
 ./gIMble windows -p hmel.chr18/ -s input/hmel.samples.csv -b hmel.chr18/gimble.blocks.modified.h5 -g input/hmel.chr18.new_coordinates.genomefile -v hmel.chr18/gimble.variants.modified.h5 -w 300 -l 50 -m 1000000 -t 4
 
+blocks: 1139Mb
+variants: 3464Mb
+modify blocks: 1813Mb
+modify variants: 1504Mb
+windows: 4196Mb
 
-# Hmel hmel.chr18.Hmel218001
-./gIMble blocks -p hmel.chr18.Hmel218018/ -s input/hmel.samples.csv -b input/hmel.chr18.Hmel218018.multiinter.samples_as_string.only_intergenic.bed -g input/hmel.chr18.Hmel218018.genomefile -t 4
-./gIMble variants -p hmel.chr18.Hmel218018/ -s input/hmel.samples.csv -b hmel.chr18.Hmel218018/gimble.blocks.h5 -g input/hmel.chr18.Hmel218018.genomefile -v input/hmel.chr18.vcf.gz -t 4
-./gIMble modify blocks -p hmel.chr18.Hmel218018/ -s input/hmel.samples.csv -c input/hmel.chr18.Hmel218018.chrom_coordinates.txt -b hmel.chr18.Hmel218018/gimble.blocks.h5  -g input/hmel.chr18.Hmel218018.genomefile
-./gIMble modify variants -v hmel.chr18.Hmel218018/gimble.variants.h5 -p hmel.chr18.Hmel218018/ -m 4 -M 100
-./gIMble windows -p hmel.chr18.Hmel218018/ -s input/hmel.samples.csv -b hmel.chr18.Hmel218018/gimble.blocks.modified.h5 -g input/hmel.chr18.new_coordinates.genomefile -v hmel.chr18.Hmel218018/gimble.variants.modified.h5 -w 50 -l 10 -m 1000000 -t 4
+# Hmel hmel.chr18
+./gIMble blocks -o hmel.chr18/ -s input/hmel.chr18.samples.csv -b input/hmel.chr18.multiinter.samples_as_string.only_intergenic.sorted.bed -g input/hmel.chr18.genomefile -t 4
+
+./gIMble variants -o hmel.chr18/ -s input/hmel.chr18.samples.csv -b hmel.chr18/gimble.blocks.h5 -g input/hmel.chr18.genomefile -t 4 -v input/hmel.chr18.vcf.gz
+
+./gIMble modify blocks -o hmel.chr18/ -s input/hmel.chr18.samples.csv -c input/hmel.chr18.chrom_coordinates.txt -b hmel.chr18/gimble.blocks.h5 -g input/hmel.chr18.genomefile
+
+./gIMble modify variants -v hmel.chr18/gimble.variants.h5 -o hmel.chr18/ -m 4 -M 100
+
+./gIMble windows -o hmel.chr18/ -s input/hmel.chr18.samples.csv -b hmel.chr18/gimble.blocks.modified.h5 -g input/hmel.chr18.new_coordinates.genomefile -v hmel.chr18/gimble.variants.modified.h5

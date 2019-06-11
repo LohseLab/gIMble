@@ -125,7 +125,7 @@ def inverse_laplace_transform(params):
 
     except subprocess.CalledProcessError:
         exit("[X] giac could not run.")
-    #print(probability)
+    print(vector, probability)
     return sympy.Rational(str(probability)), vector, marginal_query
 
 @contextmanager
@@ -417,8 +417,8 @@ def infer_composite_likelihood(x0, *args):
         round(split_time, 3), 
         round(mutation_rate, 3),
         round(timer() - start_time, 2)
-        ), end='\r')
-    stdout.flush()
+        ))
+    #stdout.flush()
     return composite_likelihood
 
 def calculate_pods(symbolic_equations_by_data_tuple, parameterObj):

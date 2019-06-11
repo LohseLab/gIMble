@@ -16,48 +16,14 @@ import pandas as pd
 - Add filters 
 - Add windows
 
-# is there an issue with monomorphic mutuples?
-- do we assume nonvariant == monomorphic? (yes?)  [X]
-- by what value do the counts have to be divided? [X]
 
-(1,0,0,0)
 
-# clear up mutype/mutuple confusion ...
-- blocks : 
-        - pairs : mutype counters [MUTYPE_ORDER] summing over bed intervals per pair
-            2: (1,0,0,0)
-            7: (1,0,1,0)
-            8: (1,2,0,0) [hetA: 1, fixed:0, hetB:0, hetAB:0] [hetA: 0, fixed:2, hetB:1 hetAB:0]
-        => mutuple_counter : counter of mutypes (coverage of block is blockObj.pair_count)
-        1: (1,0,0,0)
-        1: (1,0,1,0)
-        1: (1,2,0,0)
-- global: 
-        => mutuple : counter of mutypes 
-
-- samples
-        - gt_counter [GT_ORDER]
-        => TOTAL = (gt_counter['TOTAL']) 
-        => MISS_RATE = gt_counter['MISS] / TOTAL
-        => HET_RATE = gt_counter['HET] / TOTAL
-        - save [TOTAL, MISS_RATE, HET_RATE]
-- populations
-        - sum_gt_counter = sum(gt_counters from samples of pop)
-        => MEAN_TOTAL = (sum_gt_counter['TOTAL'] / num_samples_of_pop) 
-        => MEAN_MISS_RATE = 
-        => MEAN_HET_RATE = 
-
-- global counts:
-    - divide by total number of counts. and the multiply by number of blocks
-        => as if each block contributed one count 
-
-windows
-    - divide by total number of counts in that window
 
 # filtering
 - variants:
     plot distribution of full_mutypes
-- window require -f 'missing <= 1'
+
+- filtering DSL require -f 'missing <= 1'
     >>> a = 'missing <= 1'
     >>> a
     'missing <= 1'
@@ -75,8 +41,6 @@ windows
     label = 'le'
     operator = "<="
     value = 
-
-topo-tuples
 '''
 
 FULL_MUTYPE_ORDER = ['hetA', 'fixed', 'hetB', 'hetAB', 'missing', 'multiallelic']
@@ -160,6 +124,11 @@ class EntityCollection(object):
         if pair_idxs:
             return pair_idxs
         return np.nan
+
+    def count_pair_idxs(self, pair_idxs):
+        if not pair_idxs is np.nan:
+            return len(list(pair_idxs))
+        return 0
 
     def pair_idxs_to_sample_ids(self, pair_idxs):
         return set(itertools.chain.from_iterable([self.pairObjs[pair_idx].id for pair_idx in pair_idxs]))
@@ -419,10 +388,12 @@ class EntityCollection(object):
                 mutuples.append(mutype_counter_to_mutuple(mutype_counter, full=False))
                 block_vals.append([blockObj.id, pair_idx] + list(mutype_counter_to_mutuple(mutype_counter, full=True)))
 
+        global_mutype_counter = collections.Counter(mutuples)
+        print("[+] Monomorphic blocks: %s (%s of blocks)" % (global_mutype_counter[(0, 0, 0, 0)], format_percentage(global_mutype_counter[(0, 0, 0, 0)] / len(mutuples) )))
         print("[#] Creating dataframe of global mutuple tallies...")
         global_mutuple_tally_cols = ['count'] + MUTYPE_ORDER 
         global_mutuple_tally_vals = []
-        for mutype, count in collections.Counter(mutuples).most_common():
+        for mutype, count in global_mutype_counter.most_common():
             global_mutuple_tally_vals.append([count] + list(mutype))
         global_mutuple_tally_df = pd.DataFrame(global_mutuple_tally_vals, columns=global_mutuple_tally_cols)
 
