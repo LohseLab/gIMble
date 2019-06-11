@@ -98,10 +98,49 @@ def plot_pi_scatter(window_df, out_f):
     print("[>] Created: %r" % str(out_f))
     plt.close(fig)
 
+def plot_sample_barchart(out_f, x_label, barchart_y_vals, barchart_x_vals, barchart_labels, barchart_colours, barchart_populations):
+    fig = plt.figure(figsize=(12,10), dpi=200, frameon=True)
+    ax = fig.add_subplot(111)
+    ax.bar(barchart_x_vals, barchart_y_vals, color=barchart_colours)
+    ax.get_yaxis().set_major_formatter(
+        mat.ticker.FuncFormatter(lambda x, p: format(int(x), ',')))
+    plt.xticks(barchart_x_vals, barchart_labels, rotation=45)
+    plt.ylabel('Bases in blocks')
+    plt.xlabel('Sample ID')
+    ax.autoscale_view(tight=False, scalex=True, scaley=True)
+    population_ids = [x for i, x in enumerate(barchart_populations) if i == barchart_populations.index(x)]
+    colours = [x for i, x in enumerate(barchart_colours) if i == barchart_colours.index(x)]
+    legend_markers = [plt.Line2D([0,0],[0,0], color=colour, marker='o', linestyle='') for colour in colours]
+    ax.legend(legend_markers, population_ids, numpoints=1)
+    #plt.tight_layout()
+    fig.savefig(out_f, format="png")
+    print("[>] Created: %r" % str(out_f))
+    plt.close(fig)
+
+def plot_sample_barchart(out_f, x_label, barchart_y_vals, barchart_x_vals, barchart_labels, barchart_colours, barchart_populations):
+    fig = plt.figure(figsize=(12,10), dpi=200, frameon=True)
+    ax = fig.add_subplot(111)
+    ax.bar(barchart_x_vals, barchart_y_vals, color=barchart_colours)
+    ax.get_yaxis().set_major_formatter(
+        mat.ticker.FuncFormatter(lambda x, p: format(int(x), ',')))
+    plt.xticks(barchart_x_vals, barchart_labels, rotation=45)
+    plt.ylabel('Bases in blocks')
+    plt.xlabel('Sample ID')
+    ax.autoscale_view(tight=False, scalex=True, scaley=True)
+    population_ids = [x for i, x in enumerate(barchart_populations) if i == barchart_populations.index(x)]
+    colours = [x for i, x in enumerate(barchart_colours) if i == barchart_colours.index(x)]
+    legend_markers = [plt.Line2D([0,0],[0,0], color=colour, marker='o', linestyle='') for colour in colours]
+    ax.legend(legend_markers, population_ids, numpoints=1)
+    #plt.tight_layout()
+    fig.savefig(out_f, format="png")
+    print("[>] Created: %r" % str(out_f))
+    plt.close(fig)
+
 def plot_distance_scatter(out_f, x_label, _x_values):
     y_label = 'Counts'
     x_counter = collections.Counter([int(x) for x in _x_values])
     x_vals, y_vals = [], []
+
     for _x_val, _y_val in sorted(x_counter.items()):
         x_vals.append(_x_val)
         y_vals.append(_y_val)
@@ -117,11 +156,12 @@ def plot_distance_scatter(out_f, x_label, _x_values):
         marker='o'
         )
     ax.set_yscale("log")
+    ax.set_xscale("log")
+    ax.set_xlim(0.9, max(x_vals))
     plt.ylabel(y_label)
     plt.xlabel(x_label)
-    ax.autoscale_view(tight=None, scalex=True, scaley=True)
-    plt.xticks(rotation=90)
-    plt.tight_layout()
+    ax.autoscale_view(tight=True, scalex=True, scaley=True)
+    #plt.tight_layout()
     fig.savefig(out_f, format="png")
     print("[>] Created: %r" % str(out_f))
     plt.close(fig)

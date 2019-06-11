@@ -9,23 +9,15 @@ Dependencies (via [conda](https://conda.io/miniconda.html))
 git clone https://github.com/DRL/gimble.git
 
 # create conda enviroment with dependencies
-conda env create -f=gimble.conda.yaml -n gimble
-
-# Activate blocktools conda environment
-conda activate gimble
+conda create -n gimble && \
+source activate gimble && \
+conda install -c conda-forge more-itertools tqdm scipy numpy matplotlib sympy giac networkx psutil pandas docopt pytables tabulate git htop && \
+conda install -c bioconda pysam 
 ```
 
 Usage
 -----
 
 ```
-# Two populations of diploid samples + Migration ({} -> [])
-./gIMble graph -s "[{'a'}, ['b']]" -p 2 -o output/test -m
-
-# Two populations of diploid samples + Migration ({} -> []) + Exodus ({} -> [])
-./gIMble graph -s "[{'a'}, ['b']]" -p 2 -o output/test -m -e
-
-# Two populations of diploid samples + Migration ({} -> []) + RExodus ({} <- [])
-./gIMble graph -s "[{'a'}, ['b']]" -p 2 -o output/test -m -E
-
+TBD
 ```

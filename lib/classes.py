@@ -1,7 +1,7 @@
 import collections
 import itertools
 from tqdm import tqdm
-from lib.functions import format_bases, format_fraction, create_hdf5_store, tabulate_df, poolcontext, format_percentage, plot_distance_scatter, plot_genome_scan, plot_pi_scatter
+from lib.functions import format_bases, format_fraction, create_hdf5_store, tabulate_df, poolcontext, format_percentage, plot_distance_scatter, plot_genome_scan, plot_pi_scatter, plot_sample_barchart
 from sys import exit
 
 import numpy as np
@@ -42,7 +42,7 @@ import pandas as pd
     operator = "<="
     value = 
 '''
-
+COLOURS = ['orange', 'dodgerblue']
 FULL_MUTYPE_ORDER = ['hetA', 'fixed', 'hetB', 'hetAB', 'missing', 'multiallelic']
 MUTYPE_ORDER = ['hetA', 'fixed', 'hetB', 'hetAB']
 MUTYPE_OTHER = ['missing', 'multiallelic']
@@ -527,6 +527,23 @@ class EntityCollection(object):
             "Distance between blocks (in b)", 
             block_df['distance'].dropna().tolist()
             )
+        barchart_y_vals, barchart_x_vals, barchart_labels, barchart_colours, barchart_populations = [], [], [], [], []
+        for idx, (sample_id, population_id) in enumerate(self.population_id_by_sample_id.items()):
+            barchart_populations.append(self.populationObjs[self.population_idx_by_population_id[population_id]].id)
+            barchart_colours.append(self.populationObjs[self.population_idx_by_population_id[population_id]].colour)
+            barchart_y_vals.append(bases_blocked_by_sample_id[sample_id])
+            barchart_x_vals.append(idx)
+            barchart_labels.append(sample_id)
+        plot_sample_barchart(
+            '%s.blocks_per_sample.png' % parameterObj.dataset,
+            "Bases in blocks by sample", 
+            barchart_y_vals, barchart_x_vals, barchart_labels, barchart_colours, barchart_populations
+            )
+#        #plot_shared_blocks(
+        #   '%s.shared_blocks_between_samples.png' % parameterObj.dataset,
+        #   "Distance between blocks (in b)", 
+        #   block_df['distance'].dropna().tolist()
+         #  )
         block_df.to_hdf(block_hdf5_store, 'block', append=True)
         block_hdf5_store.close()
         # call plot from here
@@ -717,6 +734,7 @@ class PopulationObj(object):
         self.idx = idx
         self.id = population_id
         self.sample_ids = []
+        self.colour = COLOURS[idx]
         
     def __str__(self):
         return "[Population] %s %s %s" % (self.idx, self.id, ", ".join(self.sample_ids))
