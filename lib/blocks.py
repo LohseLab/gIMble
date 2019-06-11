@@ -30,7 +30,7 @@ class ParameterObj(object):
         self.path = check_path(args.get('--prefix', None))
         self.prefix = check_prefix(args.get('--prefix', None))
         self.dataset = self.prefix if self.path is None else (self.path / self.prefix)
-
+        self.min_samples = int(args['--min_samples'])
         self.block_length = int(args['--block_length'])
         self.min_interval_length = int(args['--min_interval_length'])
         self.max_block_length = int(args['--max_block_span'])
@@ -69,6 +69,8 @@ def generate_region_dfs(parameterObj, entityCollection):
     df = df[df['length'] >= parameterObj.min_interval_length] # filter intervals shorter than MIN_INTERVAL_LEN
     #df['samples_ids'] = df['samples'].apply(entityCollection.sample_string_to_sample_ids) # samples to frozenset
     df['pair_idxs'] = df['samples'].apply(entityCollection.sample_string_to_pair_idxs) # samples to frozenset pairs
+    df['pair_count'] = df['pair_idxs'].apply(entityCollection.count_pair_idxs) 
+    df = df[df['pair_count'] >= parameterObj.min_samples**2] # filter intervals with less than min_samples in both populations
     df = df.dropna() # Drop intervals that don't affect pairs
     df['distance'] = np.where((df['sequence_id'] == df['sequence_id'].shift(-1)), df['start'].shift(-1) - df['end'], parameterObj.max_interval_distance + 1) # compute distance to next interval
     # region_dfs
@@ -76,7 +78,7 @@ def generate_region_dfs(parameterObj, entityCollection):
     region_dfs = []
     for idx, region_df in df.groupby(region_ids):
         if region_df.length.sum() > parameterObj.block_length: # remove regions below block_length
-            region_df = region_df.drop(columns=['distance', 'samples'], axis=1) # remove distance/sample_idsx columns
+            region_df = region_df.drop(columns=['distance', 'samples', 'pair_count'], axis=1) # remove distance/sample_idsx columns
             region_dfs.append(region_df)
     return region_dfs
 

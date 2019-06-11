@@ -1,4 +1,4 @@
-path_idx	node	event	event_count	C_ancestor	C_derived	Migration	BigL	hetA	fixed	hetB	hetAB
+path_idx	node	event	event_count	C_ancestor	C_derived	Ms	BigL	hetA	fixed	hetB	hetAB
 0	0	C_ancestor	1	1	1	0	1	2	0	2	0
 0	1	C_derived	1	0	1	0	1	0	1	2	0
 0	4	BigL	1	0	0	0	1	0	2	0	0

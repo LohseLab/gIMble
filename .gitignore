@@ -21,6 +21,7 @@ eggs/
 input/
 lib64/
 parts/
+hmel*
 sdist/
 var/
 wheels/
