@@ -32,6 +32,18 @@ conda create -n gimble -y && source activate gimble && conda install -c conda-fo
 ./gIMble windows -o hmel.chr18.min_5_sample/ -s input/hmel.samples.csv -b hmel.chr18.min_5_sample/gimble.blocks.modified.h5 -g input/hmel.chr18.new_coordinates.genomefile -v hmel.chr18.min_5_sample/gimble.variants.modified.h5
 
 
+# Hmel all (SORTED BED)
+# 10 samples
+/gIMble blocks -o hmel.min_10_samples -s ../hmel_data/hmel.samples.csv -b ../hmel_data/hmel.multiinter.samples_as_string.only_intergenic.sorted.bed -g ../hmel_data/hmel.autosomes.genomefile -t 60 -a 10
+[+] Made 916,620 blocks covering 58,663,680 b (39.46% of BED intervals, 22.44% of genome) (12304.05MB)
+./gIMble variants -o hmel.min_10_samples -s ../hmel_data/hmel.samples.csv -b hmel.min_10_samples.gimble.blocks.h5 -g ../hmel_data/hmel.chr18.genomefile -t 4 -v ../hmel_data/hmel.chr18.vcf.gz
+# 5 samples
+./gIMble blocks -o hmel.min_5_samples -s ../hmel_data/hmel.samples.csv -b ../hmel_data/hmel.multiinter.samples_as_string.only_intergenic.bed -g ../hmel_data/hmel.autosomes.genomefile -t 60 -a 10
+./gIMble variants -o hmel.chr18.min_5_sample/ -s input/hmel.samples.csv -b hmel.chr18.min_5_sample/gimble.blocks.h5 -g input/hmel.chr18.genomefile -t 4 -v input/hmel.chr18.vcf.gz
+# 1 sample
+./gIMble blocks -o hmel.min_1_sample -s ../hmel_data/hmel.samples.csv -b ../hmel_data/hmel.multiinter.samples_as_string.only_intergenic.bed -g ../hmel_data/hmel.autosomes.genomefile -t 60 -a 10
+./gIMble variants -o hmel.chr18.min_5_sample/ -s input/hmel.samples.csv -b hmel.chr18.min_5_sample/gimble.blocks.h5 -g input/hmel.chr18.genomefile -t 4 -v input/hmel.chr18.vcf.gz
+
 # [MAIN]
 - generate sample.h5
 - add number of samples to header
@@ -110,6 +122,7 @@ create_entityCollection(meta):
 
 - fail if bed samples are not in SAMPLES
 - fail if no blocks are made
+- improve parallelisation, pandas is inefficient
 
 ## HDF5 interactions:
 --------------------

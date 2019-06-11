@@ -1,7 +1,7 @@
 import collections
 import itertools
 from tqdm import tqdm
-from lib.functions import format_bases, format_fraction, create_hdf5_store, tabulate_df, poolcontext, format_percentage, plot_histogram, plot_genome_scan, plot_pi_scatter
+from lib.functions import format_bases, format_fraction, create_hdf5_store, tabulate_df, poolcontext, format_percentage, plot_distance_scatter, plot_genome_scan, plot_pi_scatter
 from sys import exit
 
 import numpy as np
@@ -522,13 +522,11 @@ class EntityCollection(object):
             )
         block_bed_df.to_hdf(block_hdf5_store, 'bed', append=True)
         block_df['distance'] = pd.to_numeric(np.where((block_df['sequence_id'] == block_df['sequence_id'].shift(-1)), block_df['block_start'].shift(-1) - block_df['block_end'], np.nan)) # compute distance to next interval)
-        plot_histogram(
+        plot_distance_scatter(
             '%s.distance.png' % parameterObj.dataset,
             "Distance between blocks (in b)", 
             block_df['distance'].dropna().tolist()
             )
-        out_f = '%s.blocks.distance.h5' % parameterObj.prefix
-        
         block_df.to_hdf(block_hdf5_store, 'block', append=True)
         block_hdf5_store.close()
         # call plot from here

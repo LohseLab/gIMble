@@ -98,50 +98,27 @@ def plot_pi_scatter(window_df, out_f):
     print("[>] Created: %r" % str(out_f))
     plt.close(fig)
 
-def plot_histogram(out_f, x_label, _x_values):
+def plot_distance_scatter(out_f, x_label, _x_values):
     y_label = 'Counts'
     x_counter = collections.Counter([int(x) for x in _x_values])
-    _x_vals, _y_vals = [], []
     x_vals, y_vals = [], []
-    for _x_val, _y_val in x_counter.items():
-        _x_vals.append(_x_val)
-        _y_vals.append(_y_val)
-    sorted_x_vals = sorted(_x_vals)
-    sorted_y_vals = [y for x, y in sorted(zip(_x_vals, _y_vals), key=lambda pair: pair[0])]
-    #upper_10perc_x_val = sum(_x_vals) 
-    y_limit = sum(_y_vals) * 1
-    max_y_val = 0
-    running_sum = 0
-    max_x_val = 1e6
-    for _x_val, _y_val in zip(sorted_x_vals, sorted_y_vals):
-        running_sum += _y_val
-        if running_sum <= y_limit:
-            x_vals.append(_x_val)
-            y_vals.append(_y_val)
-        else:
-            max_x_val = min(max_x_val, _x_val)
-            max_y_val += _y_val
-    x_vals.append(max_x_val)
-    y_vals.append(max_y_val)
+    for _x_val, _y_val in sorted(x_counter.items()):
+        x_vals.append(_x_val)
+        y_vals.append(_y_val)
     fig = plt.figure(figsize=(12,4), dpi=200, frameon=True)
     ax = fig.add_subplot(111)
-    ax.bar(
+    ax.scatter(
         x_vals, 
         y_vals, 
         label=x_label,
-        alpha=0.9, 
-        width=.8,
+        alpha=0.2, 
+        s=5,
         facecolor=COLOR_HISTOGRAM, 
-        align='center'
+        marker='o'
         )
     ax.set_yscale("log")
-    #plt.legend(fontsize=LEGEND_FONTSIZE, frameon=True)
     plt.ylabel(y_label)
     plt.xlabel(x_label)
-    x_tick_labels = [str(int(x)) for x in ax.get_xticks().tolist()]
-    x_tick_labels[-1] = ">=%s" % max_x_val
-    #print(x_tick_labels)
-    ax.set_xticklabels(x_tick_labels)
     ax.autoscale_view(tight=None, scalex=True, scaley=True)
     plt.xticks(rotation=90)
     plt.tight_layout()
