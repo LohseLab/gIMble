@@ -24,6 +24,7 @@ parts/
 hmel*
 sdist/
 var/
+hmel*
 wheels/
 *.egg-info/
 .installed.cfg
