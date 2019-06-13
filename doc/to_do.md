@@ -16,6 +16,8 @@
 
 conda create -n gimble -y && source activate gimble && conda install -c conda-forge more-itertools tqdm scipy numpy matplotlib sympy giac networkx psutil pandas docopt pytables tabulate htop git -y && conda install -c bioconda pysam -y && cd gIMble/ && python lib/probs_sympy.py -p output/master.2_pop.2_ploidy.E.paths.txt -t 1 -A 1.0 -D 1.0 -M 2.34 -m 1.2 -T 1.4 -P 10
 
+./gIMble windows -o hmel.min_5_samples -s ../hmel_data/hmel.samples.csv -g ../hmel_data/hmel.autosomes.new_coordinates.genomefile -b hmel.min_5_samples.blocks.modified.h5 -v ../hmel.min_5_samples.variants.modified.h5 -w 500 -l 100 -t 24 -m 10000
+
 # [VARIANTS]
 - [+] Read parameters in 0.000s (66.26MB) REMOVE
 - [+] Read 20 samples from 2 populations and generated 100 pairs in 0.009s. INDENT
@@ -29,6 +31,7 @@ conda create -n gimble -y && source activate gimble && conda install -c conda-fo
 - [>] Creating dataframe of blocks...
 - [>] Creating dataframe for samples...
 - Missingness -> Missing_Genotypes
+- Plot 20 most common mutypes and their counts as barcharts
 
 # [MODIFY blocks]
 - [+] Read parameters in 0.000s (66.26MB) REMOVE
@@ -65,6 +68,11 @@ conda create -n gimble -y && source activate gimble && conda install -c conda-fo
 # full Hmel
 - run complete to generate window dxy vs pi
 
+# PLOTs
+
+# Histogram of variants (sum of mutype counts) per block
+# distribution of window spans
+# fix offset of genome scan
 
 #### Commands course
 

@@ -1,5 +1,5 @@
 from timeit import default_timer as timer
-from lib.functions import check_path, check_file, check_prefix, memory_usage_psutil, format_count, format_bases, format_percentage, create_hdf5_store
+from lib.functions import plot_mutuple_barchart, check_path, check_file, check_prefix, memory_usage_psutil, format_count, format_bases, format_percentage, create_hdf5_store
 from lib.classes import CoordinateTransformObj, EntityCollection
 import numpy as np
 import pandas as pd
@@ -18,7 +18,7 @@ class BlockParameterObj(object):
         self.coordinates_file = check_file(args.get('--coordinates', None))
         self.path = check_path(args.get('--prefix', None))
         self.prefix = check_prefix(args.get('--prefix', None))
-        self.dataset = self.prefix if self.path is None else (self.path / self.prefix) 
+        self.dataset = "%s.modified" % self.prefix if self.path is None else "%s.modified" % (self.path / self.prefix) 
         self.threads = int(args.get('--threads'))
         self.sample_file = check_file(args.get('--sample_file', None))
         self.genome_file = check_file(args.get('--genome_file', None))
@@ -29,7 +29,7 @@ class VariantParameterObj(object):
         self.args = args
         self.path = check_path(args.get('--prefix', None))
         self.prefix = check_prefix(args.get('--prefix', None))
-        self.dataset = self.prefix if self.path is None else (self.path / self.prefix) 
+        self.dataset = "%s.modified" % self.prefix if self.path is None else "%s.modified" % (self.path / self.prefix) 
         self.threads = int(args.get('--threads'))
         self.variants_file = check_file(args.get('--variants_h5', None))
         self.max_missing = int(args.get('--max_missing'))
@@ -112,15 +112,19 @@ def task_filter_variants(parameterObj):
     print("[#] Creating dataframe of global mutuple tallies...")
     global_mutuple_tally_cols = ['count'] + MUTYPE_ORDER 
     global_mutuple_tally_vals = []
-    for mutype, count in collections.Counter(mutuples).most_common():
+    global_mutype_counter = collections.Counter(mutuples)
+    plot_mutuple_barchart(
+            '%s.mutuple_barchart.png' % parameterObj.dataset,
+            global_mutype_counter
+            )
+    for mutype, count in global_mutype_counter.most_common():
         global_mutuple_tally_vals.append([count] + list(mutype))
-    out_f = '%s.variants.modified.h5' % parameterObj.prefix
+    out_f = '%s.variants.h5' % parameterObj.dataset
     filtered_variants_hdf5_store = create_hdf5_store(
         out_f=out_f, 
         path=parameterObj.path
         )
     filtered_variants_block_df.to_hdf(filtered_variants_hdf5_store, 'blocks', append=True)
-
     global_mutuple_tally_df = pd.DataFrame(global_mutuple_tally_vals, columns=global_mutuple_tally_cols)
     global_mutuple_tally_df.to_hdf(filtered_variants_hdf5_store, 'mutypes', append=True)
     filtered_variants_hdf5_store.close()

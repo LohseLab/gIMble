@@ -14,6 +14,8 @@ import matplotlib.pyplot as plt
 mat.use("agg")
 
 # CONSTANTS
+MUTYPE_ORDER = ['hetA', 'fixed', 'hetB', 'hetAB']
+
 COLOR_HISTOGRAM = 'orange'
 COLORS = ['deeppink', 'dodgerblue']
 COLOR_AXES = 'grey'
@@ -34,17 +36,13 @@ mat.rcParams['ytick.labelsize'] = AXES_LABELS_FONTSIZE
 mat.rcParams['figure.frameon'] = False
 mat.rcParams['axes.grid'] = False
 
-# PLOTs
-
-# Histogram of variants (sum of mutype counts) per block
-# distribution of window spans
-# fix offset of genome scan
-
 
 def plot_genome_scan(window_df, out_f, sequenceObjs):
     offset_by_sequence_id = {}
     offset = 0
     x_boundaries = []
+    # SOLVE ISSUE WITH OFFSET SO THAT THINGS ARE PRINTED CORRECTLY...
+    # CHECK THAT ORDER OF DATAFRAME IS CORRECT
     for sequenceObj in sequenceObjs:
         offset_by_sequence_id[sequenceObj.id] = offset
         x_boundaries.append(offset)
@@ -52,15 +50,20 @@ def plot_genome_scan(window_df, out_f, sequenceObjs):
     x_boundaries.append(offset)
     #print([(sequenceObj.id, sequenceObj.length) for sequenceObj in sequenceObjs])
     #print(x_boundaries)
-    fig = plt.figure(figsize=(16,4), dpi=200, frameon=True)
+    fig = plt.figure(figsize=(18,4), dpi=200, frameon=True)
     #connecting dots
     ax = fig.add_subplot(111)  
     y_lim = (0.0, 1.0)
-    scatter = ax.scatter(window_df['centre'], window_df['fst'], c=window_df['dxy'], alpha=1.0, cmap='bone_r', marker='o', s=20, linewidth=0)
+    print(window_df)
+    window_df['rel_pos'] = window_df['centre'] + window_df['sequence_id'].map(offset_by_sequence_id)
+    ax.plot(window_df['centre'], window_df['fst'], color='lightgrey', alpha=0.5, linestyle='-', linewidth=1)
+    scatter = ax.scatter(window_df['centre'], window_df['fst'], c=window_df['dxy'], alpha=1.0, cmap='PiYG_r', edgecolors='white', marker='o', s=40, linewidth=0.2)
     cbar = fig.colorbar(scatter, ax=ax)
     cbar.ax.set_title('D_xy')
     ax.vlines(x_boundaries, 0.0, 1.0, colors=['lightgrey'], linestyles='dashed', linewidth=1)
     ax.set_ylim(y_lim)
+    ax.spines['right'].set_visible(False)
+    ax.spines['top'].set_visible(False)
     plt.ylabel('F_st')
     plt.xlabel("Genome coordinate")
     print("[>] Created: %r" % str(out_f))
@@ -69,31 +72,17 @@ def plot_genome_scan(window_df, out_f, sequenceObjs):
     plt.close(fig)
 
 def plot_pi_scatter(window_df, out_f):
-    fig, ax = plt.subplots(nrows=1, ncols=2, sharey=True, sharex=True, figsize=(12,6))
-    #ax.set_ylim((-0.05, 1))
-    #ax.set_xlim((0, categories + 1))
-    #ax.set_xscale("log")
-    print(list(window_df.columns))
+    fig, ax = plt.subplots(nrows=1, ncols=2, sharey=True, sharex=True, figsize=(18,6))
+    #print(list(window_df.columns))
     pi_A_key = list(window_df.columns)[5]
     pi_B_key = list(window_df.columns)[6]
-    ax[0].scatter(window_df[pi_A_key], window_df['dxy'], c=window_df['fst'], cmap='Oranges', marker='o', s=20, alpha=0.5, label=pi_A_key)
-    scatter = ax[1].scatter(window_df[pi_B_key], window_df['dxy'], c=window_df['fst'], cmap='Oranges', marker='o', s=20, alpha=0.5, label=pi_B_key)
+    ax[0].scatter(window_df[pi_A_key], window_df['dxy'], c=window_df['fst'], cmap='PiYG_r', marker='o', s=20, alpha=0.9, label=pi_A_key)
+    scatter = ax[1].scatter(window_df[pi_B_key], window_df['dxy'], c=window_df['fst'], cmap='PiYG_r', marker='o', s=20, alpha=0.9, label=pi_B_key)
     cbar = fig.colorbar(scatter, ax=ax)
     cbar.ax.set_title('F_st')
     ax[0].set_ylabel('D_xy')
-    ax[0].set_xlabel(pi_A_key)
-    ax[1].set_xlabel(pi_B_key)
-    #plt.legend(frameon=True)
-    #ax.set_aspect(1.)
-    #divider = make_axes_locatable(ax)
-    #axHistx = divider.append_axes("top", 1.2, pad=0.2, sharex=ax)
-    #axHisty = divider.append_axes("right", 1.2, pad=0.2, sharey=ax)
-    #axHistx.xaxis.set_tick_params(labelbottom=False)
-    #axHisty.yaxis.set_tick_params(labelleft=False)
-    #axHistx.hist(window_df['dxy'], bins=100, color='deeppink')
-    #axHistx.hist(window_df['dxy'], bins=100, color='dodgerblue')
-    #axHisty.hist(window_df[pi_A_key], bins=100, color='deeppink', orientation='horizontal')
-    #axHisty.hist(window_df[pi_B_key], bins=100, color='dodgerblue', orientation='horizontal')
+    ax[0].set_xlabel("%s (Pi)" % pi_A_key.replace('pi_', ''))
+    ax[1].set_xlabel("%s (Pi)" % pi_B_key.replace('pi_', ''))
     fig.savefig(out_f, format="png")
     print("[>] Created: %r" % str(out_f))
     plt.close(fig)
@@ -112,29 +101,60 @@ def plot_sample_barchart(out_f, x_label, barchart_y_vals, barchart_x_vals, barch
     colours = [x for i, x in enumerate(barchart_colours) if i == barchart_colours.index(x)]
     legend_markers = [plt.Line2D([0,0],[0,0], color=colour, marker='o', linestyle='') for colour in colours]
     ax.legend(legend_markers, population_ids, numpoints=1)
+    ax.spines['right'].set_visible(False)
+    ax.spines['top'].set_visible(False)
     #plt.tight_layout()
     fig.savefig(out_f, format="png")
     print("[>] Created: %r" % str(out_f))
     plt.close(fig)
 
-#def plot_sample_barchart(out_f, x_label, barchart_y_vals, barchart_x_vals, barchart_labels, barchart_colours, barchart_populations):
-#    fig = plt.figure(figsize=(12,10), dpi=200, frameon=True)
-#    ax = fig.add_subplot(111)
-#    ax.bar(barchart_x_vals, barchart_y_vals, color=barchart_colours)
-#    ax.get_yaxis().set_major_formatter(
-#        mat.ticker.FuncFormatter(lambda x, p: format(int(x), ',')))
-#    plt.xticks(barchart_x_vals, barchart_labels, rotation=45)
-#    plt.ylabel('Bases in blocks')
-#    plt.xlabel('Sample ID')
-#    ax.autoscale_view(tight=False, scalex=True, scaley=True)
-#    population_ids = [x for i, x in enumerate(barchart_populations) if i == barchart_populations.index(x)]
-#    colours = [x for i, x in enumerate(barchart_colours) if i == barchart_colours.index(x)]
-#    legend_markers = [plt.Line2D([0,0],[0,0], color=colour, marker='o', linestyle='') for colour in colours]
-#    ax.legend(legend_markers, population_ids, numpoints=1)
-#    #plt.tight_layout()
-#    fig.savefig(out_f, format="png")
-#    print("[>] Created: %r" % str(out_f))
-#    plt.close(fig)
+def plot_mutuple_barchart(out_f, global_mutuple_counter):
+    # y axis is percentage of blocks, x axis is mutype, bar label is count
+    
+    total_counts = sum(global_mutuple_counter.values())
+    y_vals = []
+    x_vals = []
+    #bar_labels = []
+    x_labels = []
+    max_idx = 30 
+    for idx, (mutuple, count) in enumerate(global_mutuple_counter.most_common()):
+        if idx < max_idx:
+            x_vals.append(idx)
+            #y_vals.append(count/total_counts)
+            y_vals.append(count)
+            #bar_labels.append(count)
+            x_labels.append("[%s]" % ", ".join([str(count) for count in mutuple]))
+        elif idx == max_idx:
+            x_vals.append(idx)
+            #y_vals.append(count/total_counts)
+            y_vals.append(count)
+            #bar_labels.append(count)
+            x_labels.append('other')
+        else:
+            #y_vals[-1] += count/total_counts
+            y_vals[-1] += count
+            #bar_labels[-1] += count
+
+    fig = plt.figure(figsize=(16, 4), dpi=200, frameon=True)
+    ax = fig.add_subplot(111)
+    ax.bar(x_vals, y_vals, color='orange')
+    for idx, p in enumerate(ax.patches):
+        width, height = p.get_width(), p.get_height()
+        x, y = p.get_xy() 
+        ax.annotate('{:.0%}'.format(height/total_counts), (x + width / 2, y + height + 0.01), ha='center', va='bottom', fontsize=AXES_LABELS_FONTSIZE)
+        #ax.annotate(format_count(bar_labels[idx]), (x + width / 2, y + height + 0.01), ha='center', va='bottom', rotation=45)
+    ax.get_yaxis().set_major_formatter(
+        mat.ticker.FuncFormatter(lambda x, p: format(int(x), ',')))
+    ax.spines['right'].set_visible(False)
+    ax.spines['top'].set_visible(False)
+    plt.xticks(x_vals, x_labels, rotation=45, fontsize=8)
+    plt.xlabel('Mutuples [hetA, fixed, hetB, hetAB]')
+    plt.ylabel('Count')
+    #ax.autoscale_view(tight=False, scalex=True, scaley=True)
+    plt.tight_layout()
+    fig.savefig(out_f, format="png")
+    print("[>] Created: %r" % str(out_f))
+    plt.close(fig)
 
 def plot_distance_scatter(out_f, x_label, _x_values):
     y_label = 'Counts'
@@ -157,11 +177,13 @@ def plot_distance_scatter(out_f, x_label, _x_values):
         )
     ax.set_yscale("log")
     ax.set_xscale("log")
+    ax.spines['right'].set_visible(False)
+    ax.spines['top'].set_visible(False)
     ax.set_xlim(0.9, max(x_vals))
     plt.ylabel(y_label)
     plt.xlabel(x_label)
-    ax.autoscale_view(tight=True, scalex=True, scaley=True)
-    #plt.tight_layout()
+    #ax.autoscale_view(tight=True, scalex=True, scaley=True)
+    plt.tight_layout()
     fig.savefig(out_f, format="png")
     print("[>] Created: %r" % str(out_f))
     plt.close(fig)

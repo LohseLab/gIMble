@@ -1,7 +1,7 @@
 import collections
 import itertools
 from tqdm import tqdm
-from lib.functions import format_bases, format_fraction, create_hdf5_store, tabulate_df, poolcontext, format_percentage, plot_distance_scatter, plot_genome_scan, plot_pi_scatter, plot_sample_barchart
+from lib.functions import plot_mutuple_barchart, format_bases, format_fraction, create_hdf5_store, tabulate_df, poolcontext, format_percentage, plot_distance_scatter, plot_genome_scan, plot_pi_scatter, plot_sample_barchart
 from sys import exit
 
 import numpy as np
@@ -332,7 +332,7 @@ class EntityCollection(object):
             #print(window_df)
             pi_1, pi_2, dxy, fst = self.calculate_variation_from_df(window_df, sites=(len(window_df.index) * parameterObj.block_length))
             mean_sample_fraction = (sum(windowObj.sample_counts) / len(self.population_id_by_sample_id)) / parameterObj.window_size
-            window_vals.append([windowObj.id, windowObj.start, windowObj.end, windowObj.span, windowObj.centre, pi_1, pi_2, dxy, fst, mean_sample_fraction])
+            window_vals.append([windowObj.id, windowObj.sequence_id, windowObj.start, windowObj.end, windowObj.span, windowObj.centre, pi_1, pi_2, dxy, fst, mean_sample_fraction])
         
         print("[#] Creating dataframe of window mutuple tallies...")
         window_mutuple_tally_cols = ['window_id', 'count'] + MUTYPE_ORDER 
@@ -347,6 +347,7 @@ class EntityCollection(object):
         print("[#] Creating dataframe of window metrics...")
         window_cols = [
             'window_id',
+            'sequence_id',
             'start',
             'end', 
             'span',
@@ -396,7 +397,11 @@ class EntityCollection(object):
         for mutype, count in global_mutype_counter.most_common():
             global_mutuple_tally_vals.append([count] + list(mutype))
         global_mutuple_tally_df = pd.DataFrame(global_mutuple_tally_vals, columns=global_mutuple_tally_cols)
-
+        # Mutype plot
+        plot_mutuple_barchart(
+            '%s.mutuple_barchart.png' % parameterObj.dataset,
+            global_mutype_counter
+            )
         print("[#] Creating dataframe of blocks...")
         block_idx = ['block_id', 'pair_idx']
         block_df = pd.DataFrame(block_vals, columns=block_idx + FULL_MUTYPE_ORDER)
@@ -505,7 +510,6 @@ class EntityCollection(object):
         block_bed_df = pd.DataFrame(block_bed_vals, columns=block_bed_cols)
         #tabulate_df(block_bed_df, columns=block_bed_cols, title="Block BED intervals")
         block_df = pd.DataFrame(block_vals, columns=block_cols)
-
         #tabulate_df(block_df, columns=block_cols, title="Blocks")
         out_f = '%s.blocks.h5' % parameterObj.prefix
         if mode == 'modify':
@@ -515,7 +519,7 @@ class EntityCollection(object):
                 (format_percentage((len(self.blockObjs) - void_count) / len(self.blockObjs)))))
             block_bed_df.sort_values(['sequence_id', 'bed_start'], ascending=[False, True], inplace=True)
             block_df.sort_values(['sequence_id', 'block_start'], ascending=[False, True], inplace=True)
-            out_f = '%s.blocks.modified.h5' % parameterObj.prefix
+            out_f = '%s.blocks.h5' % parameterObj.dataset
         block_hdf5_store = create_hdf5_store(
             out_f=out_f, 
             path=parameterObj.path
