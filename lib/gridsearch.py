@@ -15,10 +15,11 @@ import sympy
 from scipy.special import xlogy
 from scipy.optimize import minimize
 from lib.classes import EntityCollection
-from lib.functions import format_percentage
+from lib.functions import format_percentage, create_hdf5_store
 from lib.functions import check_path, check_file, check_prefix, format_count
 import pathlib
-
+import tempfile
+import more_itertools
 
 ################################### CONSTANTS #################################
 
@@ -33,7 +34,7 @@ PARAMETERS_BY_MODEL_NAME = {
            'model.IM.M_D2A.MM_D2A.txt': ['Time', 'theta', 'Migration', 'C_derived']
            }
 
-
+GRID_PARAMETER_ORDER = ['C_ancestor', 'C_derived', 'Migration', 'theta', 'Time']
 
 ###############################################################################
 
@@ -45,198 +46,120 @@ class ParameterObj(object):
         self.mode = None
         self.model_file = check_file(args.get('--model', None))
         self.model_name = pathlib.Path(args['--model']).name
-        self.time = float(args['--time']) if not args['--time'] is None else None
-        self.time_low = float(args['--time_low']) if not args['--time_low'] is None else None
-        self.time_high = float(args['--time_high']) if not args['--time_high'] is None else None
-        self.theta = float(args['--theta']) if not args['--theta'] is None else None
+        self.time_MLE = float(args['--time_MLE']) if not args['--time_MLE'] is None else None
+        #self.migration_MLE = float(args['--migration_MLE']) if not args['--migration_MLE'] is None else None
+        self.mutation_rate = float(args['--mu']) if not args['--mu'] is None else None
+        self.derived_coalescence_MLE = float(args['--derived_MLE']) if not args['--derived_MLE'] is None else None
+
+        self.block_size = float(args['--block_size']) if not args['--block_size'] is None else None
         self.theta_low = float(args['--theta_low']) if not args['--theta_low'] is None else None
         self.theta_high = float(args['--theta_high']) if not args['--theta_high'] is None else None
-        self.migration = float(args['--migration']) if not args['--migration'] is None else None
-        self.migration_low = float(args['--migration_low']) if not args['--migration_low'] is None else None
         self.migration_high = float(args['--migration_high']) if not args['--migration_high'] is None else None
-        self.derived_coalescence = float(args['--derived_Ne']) if not args['--derived_Ne'] is None else None
-        self.derived_coalescence_low = float(args['--derived_low']) if not args['--derived_low'] is None else None
-        self.derived_coalescence_high = float(args['--derived_high']) if not args['--derived_high'] is None else None
+        self.migration_low = float(args['--migration_low']) if not args['--migration_low'] is None else None
+
         self.ancestor_population_id = args['--ancestor_population']
         self.kmax = int(args['--kmax']) 
         self.sample_file = check_file(args.get('--sample_file', None))
         self.genome_file = check_file(args.get('--genome_file', None))
         self.windows_file = check_file(args['--windows_hd5']) if not args['--windows_hd5'] is None else None
-        self.variants_file = check_file(args['--variants_hd5']) if not args['--variants_hd5'] is None else None
         self.threads = int(args['--threads'])
         self.path = check_path(args.get('--prefix', None))
         self.prefix = check_prefix(args.get('--prefix', None))
         self.dataset = self.prefix if self.path is None else (self.path / self.prefix) 
         self.parameters_numeric = {}
         self.parameters_symbolic = {}
-        self.boundaries = {}
         self.check_parameters()
+        self.grid_raw = None
+        self.grid_gimble = None
         ##########################################################
         self.max_by_mutype = {mutype: self.kmax for mutype in MUTYPES}
         self.mutuple_space = []
 
-#        self.user_rate = {
-#            'Mig' : sympy.Rational(float(args['--migration_rate'])),
-#            'C_ancestor' : sympy.Rational(1.0),
-#            'C_derived' : sympy.Rational(float(args['--derived_coalescence_rate'])),
-#            'Time' : sympy.Rational(float(args['--T_var'])),
-#            'theta' : sympy.Rational(float(args['--mutation_rate']))
-#        }
-#        self.C_ancestor = sympy.Symbol('C_ancestor', positive=True)
-#        self.C_derived = sympy.Symbol('C_derived', positive=True)
-#        self.M = sympy.Symbol('Mig', positive=True)
-#        self.bigL = sympy.Symbol('bigL', positive=True)
-#        self.T = sympy.Symbol('Time', positive=True)
-#        self.theta_A = sympy.Symbol('theta_A', positive=True)
-#        self.theta_B = sympy.Symbol('theta_B', positive=True)
-#        self.theta_fix = sympy.Symbol('theta_fix', positive=True)
-#        self.theta_AB = sympy.Symbol('theta_AB', positive=True)
-#        self.base_rate = {
-#            self.M : sympy.Rational(str(float(args['--migration_rate']) / 2)),
-#            self.C_ancestor : sympy.Rational(str(1.0)),
-#            self.C_derived : sympy.Rational(str(float(args['--derived_coalescence_rate'])))
-#        }
-#        self.split_time = sympy.Rational(str(float(args['--T_var'])))
-#        self.mutation_rate = sympy.Rational(str(float(args['--mutation_rate'])/ 2))
-#        self.symbolic_mutation_rate = {
-#            'hetA' : self.theta_A,
-#            'hetB' : self.theta_B,
-#            'hetAB' : self.theta_AB,
-#            'fixed' : self.theta_fix
-#        }
-#
-#        self.symbolic_rate = {
-#            'C_ancestor' : self.C_ancestor,
-#            'C_derived' : self.C_derived, 
-#            'Mig' : self.M,
-#            'bigL' : self.bigL
-#        }
-        #self.data = []
 
-    def get_mutuple_counters(self, entityCollection):
-        if self.mode == 'variants':
-            infile = self.variants_file
-        elif self.mode == 'windows':
-            infile = self.windows_file
-        else:
-            pass
-        mutype_hdf5_store = pd.HDFStore(infile)
+    def setup_grid(self):
+        theta_step = (self.theta_high - self.theta_low) / 8
+        migration_step = (self.migration_high - self.migration_low) / 10
+        grid_raw = []
+        grid_gimble = []
+        # make migration_low/high
+        # c_derived as float
+        test_limit = 4
+        i = 0
+        for migration in np.arange(
+                self.migration_low, 
+                self.migration_high + migration_step, 
+                migration_step):
+            for theta_ancestral in np.arange(self.theta_low, self.theta_high, theta_step):
+                for theta_derived in np.arange(
+                        self.theta_low / self.derived_coalescence_MLE, 
+                        self.theta_high / self.derived_coalescence_MLE, 
+                        theta_step / self.derived_coalescence_MLE):
+                    if i < test_limit:
+                        grid_raw.append((theta_ancestral, theta_derived, migration)) 
+                        i += 1
+        for theta_ancestral, theta_derived, migration in grid_raw:
+            theta = theta_ancestral / 2
+            C_ancestor = 1
+            C_derived = (theta_ancestral / theta_derived)
+            Migration = ((migration * theta_ancestral) / (self.block_size * self.mutation_rate) / 2) # per branch
+            Time = (self.time_MLE * 2 * self.block_size * self.mutation_rate) / theta_ancestral
+            grid_gimble.append((C_ancestor, C_derived, Migration, theta, Time))
+        print(grid_raw)
+        print(grid_gimble)
+        self.grid_raw = grid_raw
+        self.grid_gimble = grid_gimble
+
+    def get_mutuple_count_matrix_by_window_id(self, entityCollection):
+        mutype_hdf5_store = pd.HDFStore(self.windows_file)
         mutype_df = pd.read_hdf(mutype_hdf5_store, key='mutypes')
         mutype_hdf5_store.close()
-        shape = tuple(self.max_by_mutype[mutype] + 2 for mutype in MUTYPES)
-        mutuple_count_matrix = np.zeros(shape, np.float64)
-        #print(self.ancestor_population_id, (entityCollection.populationObjs[0].id, entityCollection.populationObjs[1].id))
-        #print("before")
-        #print(mutype_df)
         if self.ancestor_population_id == entityCollection.populationObjs[0].id:
             # mutuples do not have to be flipped
             print("[+] Ancestor is %s ..." % self.ancestor_population_id)
         elif self.ancestor_population_id == entityCollection.populationObjs[1].id:
             mutype_df.rename(columns={'hetA': 'hetB', 'hetB': 'hetA'}, inplace=True)
             print("[+] Ancestor is %s (hetA and hetB will be flipped)... " % self.ancestor_population_id)
-        #print("before")
-        #print(mutype_df)
-        # this has to be changed if order of mutypes changes
-        FGV_count = 0
-        kmax_binned_count = 0
-        total_count = mutype_df['count'].sum()
-        for count, hetA, fixed, hetB, hetAB in tqdm(mutype_df[['count'] + MUTYPES].values, total=len(mutype_df.index), desc="[%] ", ncols=100):
-            #print(hetA, fixed, hetB, hetAB)
+        mutuple_count_matrix_by_window_id = {}
+        shape = tuple(self.max_by_mutype[mutype] + 2 for mutype in MUTYPES)
+        for window_id, count, hetA, fixed, hetB, hetAB in tqdm(mutype_df[['window_id', 'count'] + MUTYPES].values, total=len(mutype_df.index), desc="[%] ", ncols=100):
+            if not window_id in mutuple_count_matrix_by_window_id:
+                mutuple_count_matrix_by_window_id[window_id] = np.zeros(shape, np.float64)
             mutuple = (hetA, fixed, hetB, hetAB)
-            if mutuple[1] > 0 and mutuple[3] > 0:
-                FGV_count += count  
-            if any([count > self.kmax for count in mutuple]):
-                kmax_binned_count += count
-            mutuple_vector = tuple([count if not count > self.max_by_mutype[mutype] else self.max_by_mutype[mutype] + 1 for count, mutype in zip(mutuple, MUTYPES)])
-            
-            mutuple_count_matrix[mutuple_vector] += count
-            #print(count, hetA, fixed, hetB, hetAB, mutuple_vector, mutuple_count_matrix)
-        print("[=] Total mutuple count = %s" % (format_count(total_count)))
-        print("[=] Counts excluded due to four-gamete-violations = %s (%s)" % (format_count(FGV_count), format_percentage(FGV_count / total_count)))
-        print("[=] Counts binned due to kmax = %s (%s)" % (format_count(kmax_binned_count), format_percentage(kmax_binned_count / total_count)))
-        return mutuple_count_matrix
+            if not mutuple[1] > 0 and mutuple[3] > 0: # exclude FGVs
+                mutuple_vector = tuple([count if not count > self.max_by_mutype[mutype] else self.max_by_mutype[mutype] + 1 for count, mutype in zip(mutuple, MUTYPES)])
+                mutuple_count_matrix_by_window_id[window_id][mutuple_vector] += count
+        return mutuple_count_matrix_by_window_id
 
     def check_parameters(self):
+        # checking params and setting symbols
         required_parameters = PARAMETERS_BY_MODEL_NAME[self.model_name]
         missing_parameters = []
         if 'Migration' in required_parameters:
             # migration rate per lineage (do the bounds also have to be divided?) 
             self.parameters_symbolic['Migration'] = sympy.Symbol('Migration', positive=True)
-            self.parameters_numeric['Migration'] = sympy.Rational(0)
-            if not self.migration is None:
-                self.parameters_numeric['Migration'] = sympy.Rational(str(self.migration / 2))
-            elif (self.migration_low and self.migration_high):
-                if self.migration_low < self.migration_high:
-                    self.boundaries['Migration'] = (sympy.Rational(str(self.migration_low / 2)), sympy.Rational(str(self.migration_high / 2)))
-                else:
-                    sys.exit("[X] Lower bound must be smaller than upper bound: %s" % 'Migration')
-            else:
-                missing_parameters.append('Migration')
-                self.parameters_numeric['Migration'] = sympy.Rational(str(0))
-        else:
-            # set to 0 if no --migration
-            self.parameters_symbolic['Migration'] = sympy.Symbol('Migration', positive=True)
-            self.parameters_numeric['Migration'] = sympy.Rational(0)
         if 'C_derived' in required_parameters:
-            # migration rate per lineage (do the bounds also have to be divided?) 
             self.parameters_symbolic['C_derived'] = sympy.Symbol('C_derived', positive=True)
-            if not self.derived_coalescence is None:
-                self.parameters_numeric['C_derived'] = sympy.Rational(str(self.derived_coalescence))
-            elif (self.derived_coalescence_low and self.derived_coalescence_high):
-                if self.derived_coalescence_low < self.derived_coalescence_high:
-                    self.boundaries['C_derived'] = (sympy.Rational(str(self.derived_coalescence_low)), sympy.Rational(str(self.derived_coalescence_high)))
-                else:
-                    sys.exit("[X] Lower bound must be smaller than upper bound: %s" % 'C_derived')
-            else:
-                missing_parameters.append('C_derived')
-        else:
-            # set to 0 if no --migration
-           pass
         if 'theta' in required_parameters:
-            # mutation rate per lineage (do the bounds also have to be divided?) 
+            if (self.theta_low and self.theta_high):
+                if not self.theta_low < self.theta_high:
+                    sys.exit("[X] Lower bound must be smaller than upper bound: %s" % 'theta')
             self.parameters_symbolic['theta'] = sympy.Symbol('theta', positive=True)
             self.parameters_symbolic['hetA'] = sympy.Symbol('hetA', positive=True)
             self.parameters_symbolic['fixed'] = sympy.Symbol('fixed', positive=True)
             self.parameters_symbolic['hetB'] = sympy.Symbol('hetB', positive=True)
             self.parameters_symbolic['hetAB'] = sympy.Symbol('hetAB', positive=True)
-            if not self.theta is None:
-                self.parameters_numeric['theta'] = sympy.Rational(str(self.theta / 2))
-            elif (self.theta_low and self.theta_high):
-                if self.theta_low < self.theta_high:
-                    self.boundaries['theta'] = (sympy.Rational(str(self.theta_low / 2)), sympy.Rational(str(self.theta_high / 2)))
-                else:
-                    sys.exit("[X] Lower bound must be smaller than upper bound: %s" % 'theta')   
-            else:
-                missing_parameters.append('theta')
         if 'Time' in required_parameters:
             self.parameters_symbolic['Time'] = sympy.Symbol('Time', positive=True)
-            if not self.time is None:
-                self.parameters_numeric['Time'] = sympy.Rational(str(self.time))
-            elif (self.time_low and self.time_high):
-                if self.time_low < self.time_high:
-                    self.boundaries['Time'] = (self.time_low, self.time_high)
-                else:
-                    sys.exit("[X] Lower bound must be smaller than upper bound: %s" % 'Time')      
-            else:
-                missing_parameters.append('Time')
         if missing_parameters:
             sys.exit("[X] Please specify values or lower/upper bounds for parameter(s): %s" % ",".join(missing_parameters))
         if self.ancestor_population_id is None:
             sys.exit("[X] Please specify a population id using '--ancestor_population'.")
-        else:
-            self.parameters_numeric['C_ancestor'] = sympy.Rational(1.0)
-            self.parameters_symbolic['C_ancestor'] = sympy.Symbol('C_ancestor', positive=True)
+        self.parameters_symbolic['C_ancestor'] = sympy.Symbol('C_ancestor', positive=True)
         self.parameters_symbolic['BigL'] = sympy.Symbol('BigL', positive=True)
         self.parameters_numeric['BigL'] = sympy.Symbol('BigL', positive=True)
         if self.windows_file:
             self.mode = 'windows'
-        if self.variants_file:
-            self.mode = 'variants'
-        if self.mode is None:
-            sys.exit("[X] Please provide input files using '--windows_hd5' or '--variants_hd5'")
-        #print("self.parameters_numeric", self.parameters_numeric)
-        #print("self.parameters_symbolic", self.parameters_symbolic)
-
+        
     def generate_mutuple_space(self):
         print("[+] Generating all mutuples for kmax = %s ..." % self.kmax)
         # works only for equal max_mutypes ...
@@ -293,26 +216,23 @@ def multinomial(lst):
 
 def inverse_laplace_transform(params):
     vector, marginal_query, equation, rate_by_mutype, split_time = params
-    equation_giac = str(equation.xreplace(rate_by_mutype)).replace("**", "^")
-    #equation_giac = str(equation).replace("**", "^")
-    #mutation_substitution = ",[%s]" % ",".join(["%s=%s" % (mutype, rate) for mutype, rate in rate_by_mutype.items()])
+    equation_giac = str(equation).replace("**", "^")
+    mutation_substitution = ",[%s]" % ",".join(["%s=%s" % (mutype, rate) for mutype, rate in rate_by_mutype.items()])
     assumptions = "assume(BigL >= 0)"
-    #print()
     '''
     [ratnormal] rewrites an expression using its irreducible representation. The expression is viewed as a multivariate rational fraction with coefficients in Q (or
         Q[i]). The variables are generalized identifiers which are assumed to be algebraically independent. Unlike with normal, an algebraic extension is considered
         as a generalized identifier. Therefore ratnormal is faster but might miss some
         simplifications if the expression contains radicals or algebraically dependent transcendental functions.
     '''
-    #invlaplace_string = "%s; invlaplace(ratnormal(subst(%s%s) / BigL), BigL, T).subst(T, %s)" % (assumptions, equation_giac, mutation_substitution, float(split_time))
-    invlaplace_string = "%s; invlaplace((%s / BigL), BigL, T).subst(T, %s)" % (assumptions, equation_giac, float(split_time))
+    invlaplace_string = "%s; invlaplace(ratnormal(subst(%s%s) / BigL), BigL, T).subst(T, %s)" % (assumptions, equation_giac, mutation_substitution, float(split_time))
     try:
         process = subprocess.run(["giac", invlaplace_string], stderr=subprocess.PIPE, stdout=subprocess.PIPE, check=True, encoding='utf-8')
         probability = process.stdout.rstrip("\n").split(",")[1]
     except subprocess.CalledProcessError:
         exit("[X] giac could not run.")
-    if probability == 'undef':
-        print(invlaplace_string, probability, vector, marginal_query)
+    #if probability == 'undef':
+    #    print(invlaplace_string)
     return sympy.Rational(str(probability)), vector, marginal_query
 
 @contextmanager
@@ -416,6 +336,104 @@ class PathObj(object):
             "\n".join(["%s: %s %s" % (nodeObj.node_id, event_id, str(nodeObj.mutype_counter)) for nodeObj, event_id in zip(self.nodeObjs, self.event_ids)])
             )
 
+def calculate_probability_matrix(params):
+    grid_idx, grid_params, vectors, marginal_queries, equations_by_vector, parameters_symbolic, max_by_mutype = params 
+    numeric_value_by_symbol_for_substitution = {}
+    theta_by_mutype = {}
+    theta = None
+    Time = None
+    for parameter, value in zip(GRID_PARAMETER_ORDER, grid_params):
+        if parameter == 'theta':
+            theta = sympy.Rational(str(value))
+        else:
+            symbol = parameters_symbolic[parameter]
+            numeric_value_by_symbol_for_substitution[symbol] = sympy.Rational(str(value))
+            if parameter == 'Time':
+                Time = str(value)
+    giac_strings = []
+    for vector, marginal_query in zip(vectors, marginal_queries):
+        print(vector)
+        if marginal_query is None:
+            for mutype in MUTYPES:
+                theta_by_mutype[mutype] = theta
+                symbol = parameters_symbolic[mutype]
+                numeric_value_by_symbol_for_substitution[symbol] = theta
+        else:
+            for mutype, value in zip(MUTYPES, marginal_query):
+                if isinstance(value, int):
+                    theta_by_mutype[mutype] = theta
+                    symbol = parameters_symbolic[mutype]
+                    numeric_value_by_symbol_for_substitution[symbol] = theta
+                else:
+                    theta_by_mutype[mutype] = 0
+                    symbol = parameters_symbolic[mutype]
+                    numeric_value_by_symbol_for_substitution[symbol] = 0
+        print(numeric_value_by_symbol_for_substitution)
+        equation = equations_by_vector[vector].xreplace(numeric_value_by_symbol_for_substitution)
+        #print(equation)
+        giac_string = []
+        #giac_string.append("assume(BigL >= 0); evalf(invlaplace(ratnormal(subst(")
+        #giac_string.append("evalf(invlaplace(evalf(subst(")
+        giac_string.append("normal(invlaplace(normal(")
+        equation_giac = str(equation).replace("**", "^")
+        giac_string.append(equation_giac)
+        #substitution_string = ", [%s]" % ",".join(["%s=%s" % (mutype, theta) for mutype, theta in theta_by_mutype.items()])
+        #giac_string.append(substitution_string)
+        giac_string.append(") / BigL, BigL, Time)).subst(Time, ")
+        giac_string.append(Time)
+        giac_string.append(");")
+        giac_strings.append("".join(giac_string))
+    probabilities = None
+    with tempfile.NamedTemporaryFile(mode='w') as temp_fh:
+        temp_fh.write("%s\n" % "\n".join(giac_strings))
+        try:
+            process = subprocess.run(["giac", temp_fh.name], stderr=subprocess.PIPE, stdout=subprocess.PIPE, check=True, encoding='utf-8')
+        except subprocess.CalledProcessError:
+            exit("[X] giac could not run.")
+        probabilities = [np.float64(sympy.Rational(str(probability))) for probability in process.stdout.split(",\n")]
+    shape = tuple(max_by_mutype[mutype] + 2 for mutype in MUTYPES)
+    probability_matrix = np.zeros(shape, np.float64)
+    lines = []
+    for vector, marginal_query, probability in zip(vectors, marginal_queries, probabilities):
+        if probability == 'undef':
+            print(vector, marginal_query, probability)
+        if marginal_query:
+            probability -= sum(probability_matrix[marginal_query].flatten())
+        probability_matrix[vector] = probability
+        lines.append("%s\t%s\t%s" % (grid_idx, vector, probability))
+    return (grid_idx, probability_matrix, lines)
+
+def infer_composite_likelihoods(probability_matrix_by_grid_idx, mutuple_count_matrix_by_window_id):
+    composite_likelihood_by_grid_idx_by_window_id = collections.defaultdict(dict)
+    for window_id in tqdm(mutuple_count_matrix_by_window_id, total=len(mutuple_count_matrix_by_window_id), desc="[%] ", ncols=100):
+        mutuple_count_matrix = mutuple_count_matrix_by_window_id[window_id]
+        for grid_idx, probability_matrix in enumerate(probability_matrix_by_grid_idx):
+            probability_matrix = probability_matrix_by_grid_idx[grid_idx]
+            composite_likelihood = np.sum((xlogy(np.sign(probability_matrix), probability_matrix) * mutuple_count_matrix))
+            composite_likelihood_by_grid_idx_by_window_id[window_id][grid_idx] = composite_likelihood
+    return composite_likelihood_by_grid_idx_by_window_id
+
+def generate_output(composite_likelihood_by_grid_idx_by_window_id, parameterObj):
+    composite_likelihood_cols = ['window_id', 'grid_idx', 'cL', 'raw_params', 'gimble_params', 'ismax']
+    composite_likelihood_vals = []
+    for window_id in tqdm(composite_likelihood_by_grid_idx_by_window_id, total=len(composite_likelihood_by_grid_idx_by_window_id), desc="[%] ", ncols=100):
+        max_grid_idx = max(composite_likelihood_by_grid_idx_by_window_id[window_id], key=composite_likelihood_by_grid_idx_by_window_id[window_id].get)
+        for grid_idx, composite_likelihood in composite_likelihood_by_grid_idx_by_window_id[window_id].items():
+            ismax = False
+            if grid_idx == max_grid_idx:
+                ismax = True
+            raw_string = [str(x) for x in parameterObj.grid_raw[grid_idx]]
+            gimble_string = [str(x) for x in parameterObj.grid_gimble[grid_idx]]
+            composite_likelihood_vals.append([window_id, grid_idx, composite_likelihood, ", ".join(raw_string), ", ".join(gimble_string), ismax])
+    composite_likelihood_df = pd.DataFrame(composite_likelihood_vals, columns=composite_likelihood_cols)
+    print(composite_likelihood_df)
+    out_f = "%s.composite_likelihoods.h5" % parameterObj.prefix
+    composite_likelihood_hdf5_store = create_hdf5_store(out_f=out_f, path=parameterObj.path)
+    composite_likelihood_df.to_hdf(composite_likelihood_hdf5_store, 'likelihood', append=True)
+    composite_likelihood_hdf5_store.close()
+
+
+
 def infer_composite_likelihood(x0, *args):
     simplex_parameters, symbolic_equations_by_mutuple, mutuple_count_matrix, parameterObj = args
     numeric_value_by_symbol_for_substitution = {}
@@ -425,7 +443,7 @@ def infer_composite_likelihood(x0, *args):
     #print(x0[0], type(x0[0]))
     if simplex_parameters:
         # round here? if float too long then causes undef in ILT
-        x0_by_parameter = {parameter: x for parameter, x in zip(simplex_parameters, list(x0))}
+        x0_by_parameter = {parameter: sympy.Rational(str(round(x, 2))) for parameter, x in zip(simplex_parameters, list(x0))}
         #print(x0_by_parameter)
     for parameter, symbol in parameterObj.parameters_symbolic.items():
         if parameter in x0_by_parameter:
@@ -494,13 +512,6 @@ def infer_composite_likelihood(x0, *args):
     print(" " * 100, end='\r'),
     print("[O] L=-%s\t%s" % (composite_likelihood, ", ".join(["%s=%s" % (param, round(value, 4)) for param, value in numeric_value_by_parameter.items() if not param == 'BigL'])))
     return composite_likelihood
-
-def calculate_likelihood(symbolic_equations_by_mutuple, mutuple_count_matrix, parameterObj):
-    start_time = timer()
-    print("[+] Calculating composite Likelihood ...")
-    x0, simplex_parameters = None, None
-    composite_likelihood = infer_composite_likelihood(x0, simplex_parameters, symbolic_equations_by_mutuple, mutuple_count_matrix, parameterObj)
-    print("[=] Calculated composite Likelihood (L=%s) in %s seconds..." % (composite_likelihood, timer() - start_time))
 
 def prepare_paths(parameterObj):
     # infer path_probabilities for each pathObj (only has to be done once) ... 
@@ -594,6 +605,54 @@ def task_generate_entityCollection(parameterObj):
         timer() - start))
     return entityCollection
 
+def vectorise_equations(symbolic_equations_by_mutuple, max_by_mutype):
+    equation_by_mutuple = {mutuple: sum(equations) for mutuple, equations in symbolic_equations_by_mutuple.items()}
+    equations_by_vector = collections.defaultdict(list)
+    marginal_queries = []
+    vectors = []
+    vector_seen = set([])
+    for mutypes in reversed(list(powerset(MUTYPES))):
+        mutypes_masked = set([mutype for mutype in MUTYPES if not mutype in mutypes])
+        if not FOUR_GAMETE_VIOLATION.issubset(mutypes_masked):
+            for data_tuple in sorted(equation_by_mutuple.keys()):               
+                vector = tuple([count if not mutype in mutypes_masked else max_by_mutype[mutype] + 1 for count, mutype in zip(data_tuple, MUTYPES)])
+                if not vector in vector_seen:
+                    vector_seen.add(vector)
+                    if not len([mutype for mutype, count in zip(MUTYPES, vector) if mutype in FOUR_GAMETE_VIOLATION and count > 0]) > 1: 
+                        if not mutypes_masked:
+                            marginal_query = None
+                        else:
+                            marginal_query = tuple(
+                                [(data_tuple[idx] if not mutype in mutypes_masked else slice(0, max_by_mutype[mutype] + 2)) 
+                                    for idx, mutype in enumerate(MUTYPES)])
+                        vectors.append(vector)
+                        marginal_queries.append(marginal_query)
+                        equations_by_vector[vector] = equation_by_mutuple[data_tuple]
+    return (vectors, marginal_queries, equations_by_vector)
+
+def score_grid(symbolic_equations_by_mutuple, mutuple_count_matrix_by_window_id, parameterObj):
+    # (C_ancestor, C_derived, Migration, theta, Time)
+    print("[+] Vectorising equations ...")
+    vectors, marginal_queries, equations_by_vector = vectorise_equations(symbolic_equations_by_mutuple, parameterObj.max_by_mutype)
+    params = [(grid_idx, grid_params, vectors, marginal_queries, equations_by_vector, parameterObj.parameters_symbolic, parameterObj.max_by_mutype) for grid_idx, grid_params in enumerate(parameterObj.grid_gimble)]
+    probability_matrix_by_grid_idx = {}
+    print("[+] Calculating probability matrices ...")
+    if parameterObj.threads < 2:
+        for param in tqdm(params, total=len(params), desc="[%] ", ncols=100):
+            grid_idx, probability_matrix, lines = calculate_probability_matrix(param)
+            probability_matrix_by_grid_idx[grid_idx] = probability_matrix
+            with open("result.%s.%s.txt" % (grid_idx, "_".join(str(param) for param in [parameterObj.grid_raw[grid_idx]])), 'w') as fh:
+                fh.write("%s\n" % "\n".join(lines))
+    else:
+        with poolcontext(processes=parameterObj.threads) as pool:
+            with tqdm(total=len(params), desc="[%] ", ncols=100, unit_scale=True) as pbar:
+                for grid_idx, probability_matrix, lines in pool.imap_unordered(calculate_probability_matrix, params):
+                    with open("result.%s.%s.txt" % (grid_idx, "_".join(str(param) for param in [parameterObj.grid_raw[grid_idx]])), 'w') as fh:
+                        fh.write("%s\n" % "\n".join(lines))
+                    probability_matrix_by_grid_idx[grid_idx] = probability_matrix
+                    pbar.update()
+    return probability_matrix_by_grid_idx
+                
 def estimate_parameters(symbolic_equations_by_mutuple, mutuple_count_matrix, parameterObj, seed):
     print("[+] Optimising parameters: %s ..." % (", ".join(parameterObj.boundaries.keys())))    
     start_time = timer()

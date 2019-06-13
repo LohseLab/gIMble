@@ -8,6 +8,7 @@ Modules:
     windows               Constructs windows of blocks
     model                 Generate a state graph for a model
     likelihood            Infer likelihood for data given model 
+    gridsearch            TBE
 
 Options:
     -h, --help                         Show this screen.
@@ -62,6 +63,9 @@ def main():
         elif args['<module>'] == 'likelihood':
             import cli.likelihood as likelihood
             likelihood.main()
+        elif args['<module>'] == 'gridsearch':
+            import cli.gridsearch as gridsearch
+            gridsearch.main()
         else:
             sys.exit("%r is not a gIMble module. See 'gIMble -help'." % args['<module>'])
     except KeyboardInterrupt:

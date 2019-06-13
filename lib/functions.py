@@ -56,7 +56,7 @@ def plot_genome_scan(window_df, out_f, sequenceObjs):
     #connecting dots
     ax = fig.add_subplot(111)  
     y_lim = (0.0, 1.0)
-    scatter = ax.scatter(window_df['centre'], window_df['fst'], c=window_df['dxy'], alpha=1.0, cmap='bone', marker='o', s=2, linewidth=0)
+    scatter = ax.scatter(window_df['centre'], window_df['fst'], c=window_df['dxy'], alpha=1.0, cmap='bone_r', marker='o', s=20, linewidth=0)
     cbar = fig.colorbar(scatter, ax=ax)
     cbar.ax.set_title('D_xy')
     ax.vlines(x_boundaries, 0.0, 1.0, colors=['lightgrey'], linestyles='dashed', linewidth=1)
@@ -76,8 +76,8 @@ def plot_pi_scatter(window_df, out_f):
     print(list(window_df.columns))
     pi_A_key = list(window_df.columns)[5]
     pi_B_key = list(window_df.columns)[6]
-    ax[0].scatter(window_df['dxy'], window_df[pi_A_key], c=window_df['fst'], cmap='Oranges', marker='o', s=100, alpha=0.5, label=pi_A_key)
-    scatter = ax[1].scatter(window_df['dxy'], window_df[pi_B_key], c=window_df['fst'], cmap='Oranges', marker='o', s=100, alpha=0.5, label=pi_B_key)
+    ax[0].scatter(window_df[pi_A_key], window_df['dxy'], c=window_df['fst'], cmap='Oranges', marker='o', s=20, alpha=0.5, label=pi_A_key)
+    scatter = ax[1].scatter(window_df[pi_B_key], window_df['dxy'], c=window_df['fst'], cmap='Oranges', marker='o', s=20, alpha=0.5, label=pi_B_key)
     cbar = fig.colorbar(scatter, ax=ax)
     cbar.ax.set_title('F_st')
     ax[0].set_ylabel('D_xy')
@@ -117,24 +117,24 @@ def plot_sample_barchart(out_f, x_label, barchart_y_vals, barchart_x_vals, barch
     print("[>] Created: %r" % str(out_f))
     plt.close(fig)
 
-def plot_sample_barchart(out_f, x_label, barchart_y_vals, barchart_x_vals, barchart_labels, barchart_colours, barchart_populations):
-    fig = plt.figure(figsize=(12,10), dpi=200, frameon=True)
-    ax = fig.add_subplot(111)
-    ax.bar(barchart_x_vals, barchart_y_vals, color=barchart_colours)
-    ax.get_yaxis().set_major_formatter(
-        mat.ticker.FuncFormatter(lambda x, p: format(int(x), ',')))
-    plt.xticks(barchart_x_vals, barchart_labels, rotation=45)
-    plt.ylabel('Bases in blocks')
-    plt.xlabel('Sample ID')
-    ax.autoscale_view(tight=False, scalex=True, scaley=True)
-    population_ids = [x for i, x in enumerate(barchart_populations) if i == barchart_populations.index(x)]
-    colours = [x for i, x in enumerate(barchart_colours) if i == barchart_colours.index(x)]
-    legend_markers = [plt.Line2D([0,0],[0,0], color=colour, marker='o', linestyle='') for colour in colours]
-    ax.legend(legend_markers, population_ids, numpoints=1)
-    #plt.tight_layout()
-    fig.savefig(out_f, format="png")
-    print("[>] Created: %r" % str(out_f))
-    plt.close(fig)
+#def plot_sample_barchart(out_f, x_label, barchart_y_vals, barchart_x_vals, barchart_labels, barchart_colours, barchart_populations):
+#    fig = plt.figure(figsize=(12,10), dpi=200, frameon=True)
+#    ax = fig.add_subplot(111)
+#    ax.bar(barchart_x_vals, barchart_y_vals, color=barchart_colours)
+#    ax.get_yaxis().set_major_formatter(
+#        mat.ticker.FuncFormatter(lambda x, p: format(int(x), ',')))
+#    plt.xticks(barchart_x_vals, barchart_labels, rotation=45)
+#    plt.ylabel('Bases in blocks')
+#    plt.xlabel('Sample ID')
+#    ax.autoscale_view(tight=False, scalex=True, scaley=True)
+#    population_ids = [x for i, x in enumerate(barchart_populations) if i == barchart_populations.index(x)]
+#    colours = [x for i, x in enumerate(barchart_colours) if i == barchart_colours.index(x)]
+#    legend_markers = [plt.Line2D([0,0],[0,0], color=colour, marker='o', linestyle='') for colour in colours]
+#    ax.legend(legend_markers, population_ids, numpoints=1)
+#    #plt.tight_layout()
+#    fig.savefig(out_f, format="png")
+#    print("[>] Created: %r" % str(out_f))
+#    plt.close(fig)
 
 def plot_distance_scatter(out_f, x_label, _x_values):
     y_label = 'Counts'

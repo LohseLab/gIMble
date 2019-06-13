@@ -25,6 +25,8 @@ hmel*
 sdist/
 var/
 hmel*
+giac/
+session.tex
 wheels/
 *.egg-info/
 .installed.cfg

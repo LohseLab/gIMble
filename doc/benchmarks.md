@@ -5,7 +5,7 @@
 install conda https://docs.conda.io/en/latest/miniconda.html
 conda create -n gimble
 source activate gimble
-conda install -c conda-forge more-itertools tqdm scipy numpy matplotlib sympy giac networkx psutil pandas docopt pytables tabulate git
+conda install -c conda-forge more-itertools tqdm scipy numpy matplotlib sympy giac networkx psutil pandas docopt pytables tabulate git htop
 conda install -c bioconda pysam
 
 git clone https://github.com/DRL/gIMble.git
@@ -16,6 +16,9 @@ git checkout dev
 ./gIMble modify blocks -p hmel.chr18.Hmel218018/ -s input/hmel.samples.csv -c input/hmel.chr18.Hmel218018.chrom_coordinates.txt -b hmel.chr18.Hmel218018/gimble.blocks.h5  -g input/hmel.chr18.Hmel218018.genomefile
 ./gIMble modify variants -v hmel.chr18.Hmel218018/gimble.variants.h5 -p hmel.chr18.Hmel218018/ -m 4 -M 100
 ./gIMble windows -p hmel.chr18.Hmel218018/ -s input/hmel.samples.csv -b hmel.chr18.Hmel218018/gimble.blocks.modified.h5 -g input/hmel.chr18.new_coordinates.genomefile -v hmel.chr18.Hmel218018/gimble.variants.modified.h5 -w 50 -l 10 -m 1000000 -t 4
+
+./gIMble likelihood -s input/hmel.chr18.samples.csv -g input/hmel.chr18.genomefile -l models/model.divergence.txt -A "chi" -v hmel.chr18/gimble.variants.modified.h5 -k 2 --derived_Ne 1.0 --migration 2.34 --theta 1.2 --time 1.4 -o hmel.chr18/ -t 1
+./gIMble likelihood -s input/hmel.chr18.samples.csv -g input/hmel.chr18.genomefile -l models/model.divergence.txt -A "chi" -v hmel.chr18/gimble.variants.modified.h5 -k 2 --derived_Ne 1.0 --theta_low 0.2 --theta_high 2.0 --time_low 0.1 --time_high 2.0 -o hmel.chr18/ -t 1
 
 ## 2019-06-02
 
@@ -271,13 +274,3 @@ modify blocks: 1813Mb
 modify variants: 1504Mb
 windows: 4196Mb
 
-# Hmel hmel.chr18
-./gIMble blocks -o hmel.chr18/ -s input/hmel.chr18.samples.csv -b input/hmel.chr18.multiinter.samples_as_string.only_intergenic.sorted.bed -g input/hmel.chr18.genomefile -t 4
-
-./gIMble variants -o hmel.chr18/ -s input/hmel.chr18.samples.csv -b hmel.chr18/gimble.blocks.h5 -g input/hmel.chr18.genomefile -t 4 -v input/hmel.chr18.vcf.gz
-
-./gIMble modify blocks -o hmel.chr18/ -s input/hmel.chr18.samples.csv -c input/hmel.chr18.chrom_coordinates.txt -b hmel.chr18/gimble.blocks.h5 -g input/hmel.chr18.genomefile
-
-./gIMble modify variants -v hmel.chr18/gimble.variants.h5 -o hmel.chr18/ -m 4 -M 100
-
-./gIMble windows -o hmel.chr18/ -s input/hmel.chr18.samples.csv -b hmel.chr18/gimble.blocks.modified.h5 -g input/hmel.chr18.new_coordinates.genomefile -v hmel.chr18/gimble.variants.modified.h5
