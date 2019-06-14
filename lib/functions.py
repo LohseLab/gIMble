@@ -55,7 +55,7 @@ def plot_genome_scan(window_df, out_f, sequenceObjs):
     y_lim = (0.0, 1.0)
     window_df['rel_pos'] = window_df['centre'] + window_df['sequence_id'].map(offset_by_sequence_id)
     window_df.sort_values(['rel_pos'], inplace=True)
-    print(window_df)
+    #print(window_df)
     ax.plot(window_df['rel_pos'], window_df['fst'], color='lightgrey', alpha=0.8, linestyle='-', linewidth=1)
     scatter = ax.scatter(window_df['rel_pos'], window_df['fst'], c=window_df['dxy'], alpha=1.0, cmap='PiYG_r', edgecolors='white', marker='o', s=40, linewidth=0.2)
     cbar = fig.colorbar(scatter, ax=ax)
