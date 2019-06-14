@@ -35,10 +35,6 @@
         -o, --prefix <STR>                          Folder/prefix for output
         
 """
-'''
-/gIMble gridsearch -s ../gIMble/input/hmel.samples.csv -g input/hmel.chr18.genomefile -l models/model.IM.M_D2A.MM_D2A.txt -A "chi" -v hmel.chr18.min_5_sample.variants.modified.h5 -k 2 -o hmel.chr18.min_5_sample. -t 4 --mu 1.9*10**(-9) --block_size 64 --migration_MLE 3.8866*10**(-7) --time_MLE 4*10**6 --derived_MLE 0.5 --theta_low 0.4 --theta_high 1.2
-
-'''
 
 from timeit import default_timer as timer
 from docopt import docopt
@@ -47,7 +43,6 @@ import lib.gridsearch
 def main():
     main_time = timer()
     args = docopt(__doc__)
-    print(args)
     parameterObj = lib.gridsearch.ParameterObj(args)
     entityCollection = lib.gridsearch.task_generate_entityCollection(parameterObj)
     parameterObj.parse_window_positions(entityCollection)

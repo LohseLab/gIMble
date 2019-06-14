@@ -12,15 +12,6 @@ from tqdm import tqdm
 import sys
 from lib.functions import memory_usage_psutil, check_file, poolcontext, check_path, check_prefix, format_bases, format_count, format_percentage
 
-'''
-- cli simple
-- setup.py (example https://github.com/tskit-dev/tszip/blob/master/setup.py)
- => entry_points={
-        'console_scripts': [
-            'tszip=tszip.cli:tszip_main',
-            'tsunzip=tszip.cli:tsunzip_main',
-'''
-
 class ParameterObj(object):
     def __init__(self, args):
         self.args = args
@@ -41,9 +32,6 @@ class ParameterObj(object):
         self.bed_length_total = 0
 
 def generate_region_dfs(parameterObj, entityCollection):
-    '''
-    Generates a list of region_dfs 
-    '''
     print("[#] Splitting bed file into chunks for downstream processing (this might take a while) ...")
     df = read_csv( 
         parameterObj.bed_file, 
@@ -131,7 +119,6 @@ def block_algorithm(params):
 def task_generate_parameterObj(args):
     start = timer()
     parameterObj = ParameterObj(args)
-    print("[+] Read parameters in %.3fs (%.2fMB)" % (timer() - start, memory_usage_psutil()))
     return parameterObj
 
 def task_generate_entityCollection(parameterObj):

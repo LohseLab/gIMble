@@ -243,7 +243,7 @@ class ParameterObj(object):
         for mutuple in itertools.product(*[range(0, self.max_by_mutype[mutype] + 1) for mutype in MUTYPES]):
             if not (mutuple[FOUR_GAMETE_VIOLATION_IDX[0]] > 0 and mutuple[FOUR_GAMETE_VIOLATION_IDX[1]] > 0): # FGV
                 self.mutuple_space.append(mutuple)
-        print("[=] Generated %s mutuples (with kmax = %s)" % (len(self.mutuple_space), self.kmax))
+        print("[=] Generated %s mutuples" % (len(self.mutuple_space)))
 
     def write_probs(self, prob_by_data_string, data):
         header = MUTYPES + ['probability']

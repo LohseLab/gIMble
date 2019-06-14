@@ -6,11 +6,6 @@ import collections
 from tqdm import tqdm
 import pysam
 
-'''
-[To Do]
-
-'''
-
 NUCLEOTIDES = set(['A', 'G', 'C', 'T'])
 
 MUTYPE_BY_ZYGOSITY = {
@@ -133,33 +128,6 @@ def infer_mutypes(param):
         blockObj.mutype_counter_by_pair_idx[pair_idx] = collections.Counter(mutypes)
     return blockObj
 
-# def infer_mutypes_cyvcf(param):
-#     from cyvcf2 import VCF
-#     blockObj, pairObjs, vcf_file = param
-#     genotype_by_sample_id = collections.defaultdict(list)    
-#     vcf_reader = VCF(vcf_file, samples=list(blockObj.sample_ids))       
-#     for contig_id, start, end in blockObj.bed_tuples:        
-#         for record in vcf_reader('%s:%s-%s' % (contig_id, start, end)):            
-#             if record.is_snp:                
-#                 for sample_id, genotype in zip(vcf_reader.samples, record.genotypes):                    
-#                     genotype_by_sample_id[sample_id].append([genotype[0], genotype[1]])
-#     mutypes_by_pair_idx = {}
-#     for pair_idx in blockObj.pair_idxs:
-#         mutypes = []
-#         sample_id_1, sample_id_2 = pairObjs[pair_idx].id        
-#         for genotype_1, genotype_2 in zip(genotype_by_sample_id[sample_id_1], genotype_by_sample_id[sample_id_2]):            
-#             genotype_set = set(genotype_1 + genotype_2)
-#             if len(genotype_set) > 2:
-#                 mutypes.append('multiallelic')
-#             elif -1 in genotype_set:
-#                 mutypes.append('missing')
-#             else:
-#                 zygosity_1 = gt_zygosity(genotype_1)
-#                 zygosity_2 = gt_zygosity(genotype_2)
-#                 mutypes.append(MUTYPE_BY_ZYGOSITY[zygosity_1][zygosity_2])
-#         mutypes_by_pair_idx[pair_idx] = collections.Counter(mutypes)
-#     return blockObj.id, mutypes_by_pair_idx
-
 def task_generate_entityCollection(parameterObj):
     start = timer()
     print("[#] Building entities based on samples and sequences...")
@@ -199,7 +167,7 @@ def task_load_blockObjs(parameterObj, entityCollection):
 
 def task_infer_mutypes(parameterObj, entityCollection):
     start = timer()
-    print("[#] Fetching variants ...")
+    print("[#] Fetching variants for blocks...")
     entityCollection = parse_vcf(parameterObj, entityCollection)
     print("[+] VCF parsed in %.3fs (%.2fMB)" % (timer() - start, memory_usage_psutil()))
 
