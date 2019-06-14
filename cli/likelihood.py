@@ -59,7 +59,7 @@ def main():
     symbolic_equations_by_mutuple = lib.likelihood.generate_equations(pathObj_by_path_id, parameterObj)
     mutuple_count_matrix = parameterObj.get_mutuple_counters(entityCollection)
     if parameterObj.boundaries:
-        lib.likelihood.estimate_parameters(symbolic_equations_by_mutuple, mutuple_count_matrix, parameterObj, 11111)
+        lib.likelihood.estimate_parameters(symbolic_equations_by_mutuple, mutuple_count_matrix, parameterObj, 12345)
     else:
         lib.likelihood.calculate_likelihood(symbolic_equations_by_mutuple, mutuple_count_matrix, parameterObj)
     #if test == True:

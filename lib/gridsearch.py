@@ -85,19 +85,14 @@ class ParameterObj(object):
         grid_df = pd.read_csv(
             self.grid_raw_file, 
             sep="\t", 
-            names=['Migration','theta_ancestor','theta_derived','hetA','hetB','fixed','hetAB','probability'], 
+            names=['Migration', 'theta_ancestor', 'theta_derived', 'hetA', 'hetB', 'fixed', 'hetAB','probability'], 
             skiprows=1, 
             header=None)
         shape = tuple(self.max_by_mutype[mutype] + 2 for mutype in MUTYPES)        
         # DO THEY HAVE TO BE FLIPPED?
-        if self.ancestor_population_id == entityCollection.populationObjs[0].id:
-            print("[+] Ancestor is %s ..." % self.ancestor_population_id)
-        elif self.ancestor_population_id == entityCollection.populationObjs[1].id:
-            grid_df.rename(columns={'hetA': 'hetB', 'hetB': 'hetA'}, inplace=True)
-        else:
-            sys.exit("[X] This should never happen ...")
-
-        for migration, theta_ancestor, theta_derived, hetA, hetB, fixed, hetAB, probability in tqdm(grid_df.values.tolist(), total=len(grid_df.index), desc="[%] ", ncols=100):
+        grid_df.rename(columns={'hetA': 'hetB', 'hetB': 'hetA'}, inplace=True)
+        for migration, theta_ancestor, theta_derived, hetA, hetB, fixed, hetAB, probability in tqdm(grid_df[['Migration', 'theta_ancestor', 'theta_derived', 'hetA', 'hetB', 'fixed', 'hetAB','probability']].values.tolist(), total=len(grid_df.index), desc="[%] ", ncols=100):
+            #print(migration, theta_ancestor, theta_derived, hetA, hetB, fixed, hetAB, probability)
             parameter_tuple = (theta_ancestor, theta_derived, migration)
             if not parameter_tuple in self.probability_matrix_by_parameter_tuple:
                 self.probability_matrix_by_parameter_tuple[parameter_tuple] = np.zeros(shape, np.float64)
@@ -169,13 +164,24 @@ class ParameterObj(object):
             print("[+] Ancestor is %s (hetA and hetB will be flipped)... " % self.ancestor_population_id)
         mutuple_count_matrix_by_window_id = {}
         shape = tuple(self.max_by_mutype[mutype] + 2 for mutype in MUTYPES)
+
+        lumped_df_header = ['window_id', 'count', 'hetA', 'fixed', 'hetB', 'hetAB']
+        lumped_df_vals = []
+        mutype_df = mutype_df.drop(mutype_df[(mutype_df.fixed > 0) & (mutype_df.hetAB > 0)].index) # exclude FGVs
+        total_counts_by_window_id = mutype_df[['window_id', 'count']].groupby(['window_id']).sum().to_dict()['count']
+        #print(total_counts_by_window_id)
         for window_id, count, hetA, fixed, hetB, hetAB in tqdm(mutype_df[['window_id', 'count'] + MUTYPES].values, total=len(mutype_df.index), desc="[%] ", ncols=100):
             if not window_id in mutuple_count_matrix_by_window_id:
                 mutuple_count_matrix_by_window_id[window_id] = np.zeros(shape, np.float64)
             mutuple = (hetA, fixed, hetB, hetAB)
-            if not mutuple[1] > 0 and mutuple[3] > 0: # exclude FGVs
-                mutuple_vector = tuple([count if not count > self.max_by_mutype[mutype] else self.max_by_mutype[mutype] + 1 for count, mutype in zip(mutuple, MUTYPES)])
-                mutuple_count_matrix_by_window_id[window_id][mutuple_vector] += count
+            normalised_count = count / total_counts_by_window_id[window_id]
+            mutuple_vector = tuple(
+                    [_count if not _count > self.max_by_mutype[mutype] else self.max_by_mutype[mutype] + 1 for _count, mutype in zip(mutuple, MUTYPES)])
+                #print(mutuple, mutuple_vector)
+            mutuple_count_matrix_by_window_id[window_id][mutuple_vector] += normalised_count
+                #print(mutuple_count_matrix_by_window_id)
+            lumped_df_vals.append([window_id, normalised_count] + list(mutuple_vector))
+        #create_csv('lumped.csv', lumped_df_header, lumped_df_vals, ",")
         return mutuple_count_matrix_by_window_id
 
     def check_parameters(self):
@@ -452,13 +458,13 @@ def calculate_probability_matrix(params):
     return (grid_idx, probability_matrix, lines)
 
 def compute_composite_likelihoods(mutuple_count_matrix_by_window_id, parameterObj):
-    print("[+] Calculating composite likelihoods ...")
+    print("[+] Calculating likelihoods of model parameters ...")
     composite_likelihood_by_parameter_tuple_by_window_id = collections.defaultdict(dict)
     for window_id in tqdm(mutuple_count_matrix_by_window_id, total=len(mutuple_count_matrix_by_window_id), desc="[%] ", ncols=100):
         mutuple_count_matrix = mutuple_count_matrix_by_window_id[window_id]
         for parameter_tuple, probability_matrix in parameterObj.probability_matrix_by_parameter_tuple.items():
             #composite_likelihood = np.sum((xlogy(np.sign(probability_matrix), probability_matrix) * mutuple_count_matrix))
-            composite_likelihood = np.sum(probability_matrix * mutuple_count_matrix)
+            composite_likelihood = np.sum((xlogy(np.sign(probability_matrix), probability_matrix) * mutuple_count_matrix))
             composite_likelihood_by_parameter_tuple_by_window_id[window_id][parameter_tuple] = composite_likelihood
             
     return composite_likelihood_by_parameter_tuple_by_window_id
@@ -481,7 +487,7 @@ def generate_output(composite_likelihood_by_parameter_tuple_by_window_id, parame
         for parameter_tuple, composite_likelihood in composite_likelihood_by_parameter_tuple_by_window_id[window_id].items():
             ismax = False
             if parameter_tuple == max_parameter_tuple:
-                print(window_id, parameter_tuple, composite_likelihood)
+                #print(window_id, parameter_tuple, composite_likelihood)
                 ismax = True
             theta_ancestral = str(parameter_tuple[0])
             theta_derived = str(parameter_tuple[1])

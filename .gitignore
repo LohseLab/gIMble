@@ -26,6 +26,7 @@ sdist/
 var/
 hmel*
 giac/
+*.tmp
 session.tex
 wheels/
 *.egg-info/

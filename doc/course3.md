@@ -9,10 +9,12 @@
 - In reality 
   this is that  is However, this means that all positions not recorded in a VCF files  monomorphic 
 Variation data based on DNA sequencing data is generated via stochastic process. Sequencing success of a particular genomic reads are generated depending on template availability
+
+- Dealing with multiallelic sites properly
 # Running gIMble
 
 [Concepts]
-- interpopulational pair:
+- interspecies pair:
 
 - block = genomic region covered by at least on sample in each population
 	- fixed length (sum of bases) 

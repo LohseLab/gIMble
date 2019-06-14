@@ -54,6 +54,7 @@ def plot_genome_scan(window_df, out_f, sequenceObjs):
     ax = fig.add_subplot(111)  
     y_lim = (0.0, 1.0)
     window_df['rel_pos'] = window_df['centre'] + window_df['sequence_id'].map(offset_by_sequence_id)
+    window_df.sort_values(['rel_pos'], inplace=True)
     print(window_df)
     ax.plot(window_df['rel_pos'], window_df['fst'], color='lightgrey', alpha=0.8, linestyle='-', linewidth=1)
     scatter = ax.scatter(window_df['rel_pos'], window_df['fst'], c=window_df['dxy'], alpha=1.0, cmap='PiYG_r', edgecolors='white', marker='o', s=40, linewidth=0.2)
@@ -72,7 +73,7 @@ def plot_genome_scan(window_df, out_f, sequenceObjs):
 
 def plot_parameter_scan(composite_likelihood_df, parameterObj):
     fig, ax = plt.subplots(nrows=2, ncols=1, sharey=False, sharex=True, figsize=(18,4))
-    y_lim = (0.0, 1.0)
+    #y_lim = (0.0, 1.0)
 
     best_composite_likelihood_df = composite_likelihood_df[composite_likelihood_df['ismax'] == True]
     theta_ancestral_vals = []
@@ -80,26 +81,31 @@ def plot_parameter_scan(composite_likelihood_df, parameterObj):
     migration_vals = []
     position_vals = []
     for window_id, cL, theta_ancestral, theta_derived, migration, ismax in best_composite_likelihood_df.values:
-        theta_ancestral_vals.append(theta_ancestral)
-        theta_derived_vals.append(theta_derived)
-        migration_vals.append(migration)
+        theta_ancestral_vals.append(float(theta_ancestral))
+        theta_derived_vals.append(float(theta_derived))
+        migration_vals.append(float(migration))
         position_vals.append(parameterObj.window_pos_by_window_id[window_id])
-    print(theta_ancestral_vals)
-    ax[0].plot(position_vals, theta_ancestral_vals, color='orange', alpha=0.8, linestyle='-', linewidth=1)
-    ax[0].plot(position_vals, theta_derived_vals, color='dodgerblue', alpha=0.8, linestyle='-', linewidth=1)
+    #print(theta_ancestral_vals)
+    ax[0].plot(position_vals, theta_derived_vals, color='dodgerblue', alpha=0.8, linestyle='-', linewidth=1, label='derived')
+    ax[0].plot(position_vals, theta_ancestral_vals, color='orange', alpha=0.8, linestyle='-', linewidth=1, label='ancestral')
     ax[0].set_ylabel('theta')
     ax[1].plot(position_vals, migration_vals, color='purple', alpha=0.8, linestyle='-', linewidth=1)
     ax[1].set_ylabel('Migration')
     #scatter = ax.scatter(window_df['rel_pos'], window_df['fst'], c=window_df['dxy'], alpha=1.0, cmap='PiYG_r', edgecolors='white', marker='o', s=40, linewidth=0.2)
     #cbar = fig.colorbar(scatter, ax=ax)
     #cbar.ax.set_title('D_xy')
-    ax[0].vlines(parameterObj.x_boundaries, 0.0, 1.0, colors=['lightgrey'], linestyles='dashed', linewidth=1)
-    ax[1].vlines(parameterObj.x_boundaries, 0.0, 1.0, colors=['lightgrey'], linestyles='dashed', linewidth=1)
+    ax[0].vlines(parameterObj.x_boundaries, min(min(theta_ancestral_vals), min(theta_derived_vals)), max(max(theta_derived_vals), max(theta_ancestral_vals)), colors=['lightgrey'], linestyles='dashed', linewidth=1)
+    ax[1].vlines(parameterObj.x_boundaries, min(migration_vals), max(migration_vals), colors=['lightgrey'], linestyles='dashed', linewidth=1)
     #ax.set_ylim(y_lim)
     ax[0].spines['right'].set_visible(False)
     ax[0].spines['top'].set_visible(False)
     ax[1].spines['right'].set_visible(False)
     ax[1].spines['top'].set_visible(False)
+    ax[0].legend(numpoints=1)
+    #ax[0].get_yaxis().set_major_formatter(
+    #    mat.ticker.FormatStrFormatter("%2f"))
+    ax[1].get_yaxis().set_major_formatter(
+        mat.ticker.FormatStrFormatter("%.2e"))
     plt.xlabel("Genome coordinate")
     out_f = "%s.parameter_scan.png" % parameterObj.dataset
     #ax.autoscale_view(tight=None, scalex=True, scaley=True)

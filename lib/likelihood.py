@@ -296,24 +296,25 @@ def inverse_laplace_transform(params):
     equation_giac = str(equation.xreplace(rate_by_mutype)).replace("**", "^")
     #equation_giac = str(equation).replace("**", "^")
     #mutation_substitution = ",[%s]" % ",".join(["%s=%s" % (mutype, rate) for mutype, rate in rate_by_mutype.items()])
-    assumptions = "assume(BigL >= 0)"
-    #print()
-    '''
-    [ratnormal] rewrites an expression using its irreducible representation. The expression is viewed as a multivariate rational fraction with coefficients in Q (or
-        Q[i]). The variables are generalized identifiers which are assumed to be algebraically independent. Unlike with normal, an algebraic extension is considered
-        as a generalized identifier. Therefore ratnormal is faster but might miss some
-        simplifications if the expression contains radicals or algebraically dependent transcendental functions.
-    '''
-    #invlaplace_string = "%s; invlaplace(ratnormal(subst(%s%s) / BigL), BigL, T).subst(T, %s)" % (assumptions, equation_giac, mutation_substitution, float(split_time))
-    invlaplace_string = "%s; invlaplace((%s / BigL), BigL, T).subst(T, %s)" % (assumptions, equation_giac, float(split_time))
+    giac_string = []
+    giac_string.append("normal(invlaplace(subst(")
+    equation_giac = str(equation).replace("**", "^")
+    giac_string.append(equation_giac)
+    giac_string.append(",[%s]" % ",".join(["%s=%s" % (mutype, rate) for mutype, rate in rate_by_mutype.items()]))
+    giac_string.append(") / BigL, BigL, Time)).subst(Time, ")
+    giac_string.append(str(float(split_time)))
+    giac_string.append(");")
+    #print("".join(giac_string))
+    #invlaplace_string = "%s; invlaplace((%s / BigL), BigL, T).subst(T, %s)" % (assumptions, equation_giac, float(split_time))
     try:
-        process = subprocess.run(["giac", invlaplace_string], stderr=subprocess.PIPE, stdout=subprocess.PIPE, check=True, encoding='utf-8')
-        probability = process.stdout.rstrip("\n").split(",")[1]
+        process = subprocess.run(["giac", "".join(giac_string)], stderr=subprocess.PIPE, stdout=subprocess.PIPE, check=True, encoding='utf-8')
+        probability = str(process.stdout)
     except subprocess.CalledProcessError:
         exit("[X] giac could not run.")
+    print(probability)
     if probability == 'undef':
         print(invlaplace_string, probability, vector, marginal_query)
-    return sympy.Rational(str(probability)), vector, marginal_query
+    return np.float64(sympy.Rational(probability)), vector, marginal_query
 
 @contextmanager
 def poolcontext(*args, **kwargs):
