@@ -98,7 +98,7 @@ conda create -n gimble -y && source activate gimble && conda install -c conda-fo
 ./gIMble variants -o hmel.chr18.min_1_sample -s input/hmel.samples.csv -b hmel.chr18.min_1_sample.blocks.h5 -g input/hmel.chr18.genomefile -t 4 -v input/hmel.chr18.vcf.gz && \
 ./gIMble modify blocks -o hmel.chr18.min_1_sample -s input/hmel.samples.csv -c input/hmel.chr18.chrom_coordinates.txt -b hmel.chr18.min_1_sample.blocks.h5 -g input/hmel.chr18.genomefile && \
 ./gIMble modify variants -v hmel.chr18.min_1_sample.variants.h5 -o hmel.chr18.min_1_sample -m 4 -M 100 && \
-./gIMble windows -o hmel.chr18.min_1_sample -s input/hmel.samples.csv -b hmel.chr18.min_1_sample.blocks.modified.h5 -g input/hmel.chr18.new_coordinates.genomefile -v hmel.chr18.min_1_sample.variants.modified.h5 -w 500 -l 100
+./gIMble windows -o hmel.chr18.min_1_sample -s input/hmel.samples.csv -b hmel.chr18.min_1_sample.modified.blocks.h5 -g input/hmel.chr18.new_coordinates.genomefile -v hmel.chr18.min_1_sample.modified.variants.h5 -w 500 -l 100
 
 # min_N = 10 Samples
 ./gIMble blocks -o hmel.chr18.min_10_sample -s input/hmel.samples.csv -b input/hmel.chr18.multiinter.samples_as_string.only_intergenic.sorted.bed -g input/hmel.chr18.genomefile -t 4 -a 10 && \

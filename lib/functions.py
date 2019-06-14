@@ -41,12 +41,8 @@ def plot_genome_scan(window_df, out_f, sequenceObjs):
     offset_by_sequence_id = {}
     offset = 0
     x_boundaries = []
-    # SOLVE ISSUE WITH OFFSET SO THAT THINGS ARE PRINTED CORRECTLY...
-    # CHECK THAT ORDER OF DATAFRAME IS CORRECT
     for sequenceObj in sequenceObjs:
-
         offset_by_sequence_id[sequenceObj.id] = offset
-        print(sequenceObj, offset, x_boundaries)
         x_boundaries.append(offset)
         offset += sequenceObj.length
 
@@ -71,6 +67,44 @@ def plot_genome_scan(window_df, out_f, sequenceObjs):
     plt.xlabel("Genome coordinate")
     print("[>] Created: %r" % str(out_f))
     ax.autoscale_view(tight=None, scalex=True, scaley=True)
+    fig.savefig(out_f, format="png")
+    plt.close(fig)
+
+def plot_parameter_scan(composite_likelihood_df, parameterObj):
+    fig, ax = plt.subplots(nrows=2, ncols=1, sharey=False, sharex=True, figsize=(18,4))
+    y_lim = (0.0, 1.0)
+
+    best_composite_likelihood_df = composite_likelihood_df[composite_likelihood_df['ismax'] == True]
+    theta_ancestral_vals = []
+    theta_derived_vals = []
+    migration_vals = []
+    position_vals = []
+    for window_id, cL, theta_ancestral, theta_derived, migration, ismax in best_composite_likelihood_df.values:
+        theta_ancestral_vals.append(theta_ancestral)
+        theta_derived_vals.append(theta_derived)
+        migration_vals.append(migration)
+        position_vals.append(parameterObj.window_pos_by_window_id[window_id])
+    print(theta_ancestral_vals)
+    ax[0].plot(position_vals, theta_ancestral_vals, color='orange', alpha=0.8, linestyle='-', linewidth=1)
+    ax[0].plot(position_vals, theta_derived_vals, color='dodgerblue', alpha=0.8, linestyle='-', linewidth=1)
+    ax[0].set_ylabel('theta')
+    ax[1].plot(position_vals, migration_vals, color='purple', alpha=0.8, linestyle='-', linewidth=1)
+    ax[1].set_ylabel('Migration')
+    #scatter = ax.scatter(window_df['rel_pos'], window_df['fst'], c=window_df['dxy'], alpha=1.0, cmap='PiYG_r', edgecolors='white', marker='o', s=40, linewidth=0.2)
+    #cbar = fig.colorbar(scatter, ax=ax)
+    #cbar.ax.set_title('D_xy')
+    ax[0].vlines(parameterObj.x_boundaries, 0.0, 1.0, colors=['lightgrey'], linestyles='dashed', linewidth=1)
+    ax[1].vlines(parameterObj.x_boundaries, 0.0, 1.0, colors=['lightgrey'], linestyles='dashed', linewidth=1)
+    #ax.set_ylim(y_lim)
+    ax[0].spines['right'].set_visible(False)
+    ax[0].spines['top'].set_visible(False)
+    ax[1].spines['right'].set_visible(False)
+    ax[1].spines['top'].set_visible(False)
+    plt.xlabel("Genome coordinate")
+    out_f = "%s.parameter_scan.png" % parameterObj.dataset
+    #ax.autoscale_view(tight=None, scalex=True, scaley=True)
+    plt.tight_layout()
+    print("[>] Created: %r" % str(out_f))
     fig.savefig(out_f, format="png")
     plt.close(fig)
 

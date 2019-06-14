@@ -16,7 +16,7 @@ from scipy.special import xlogy
 from scipy.optimize import minimize
 from lib.classes import EntityCollection
 from lib.functions import format_percentage, create_hdf5_store
-from lib.functions import check_path, check_file, check_prefix, format_count
+from lib.functions import check_path, check_file, check_prefix, format_count, plot_parameter_scan
 import pathlib
 import tempfile
 import more_itertools
@@ -57,6 +57,8 @@ class ParameterObj(object):
         self.migration_high = float(args['--migration_high']) if not args['--migration_high'] is None else None
         self.migration_low = float(args['--migration_low']) if not args['--migration_low'] is None else None
 
+        self.grid_raw_file = check_file(args.get('--grid', None))
+
         self.ancestor_population_id = args['--ancestor_population']
         self.kmax = int(args['--kmax']) 
         self.sample_file = check_file(args.get('--sample_file', None))
@@ -74,7 +76,53 @@ class ParameterObj(object):
         ##########################################################
         self.max_by_mutype = {mutype: self.kmax for mutype in MUTYPES}
         self.mutuple_space = []
+        self.probability_matrix_by_parameter_tuple = {}
+        self.window_pos_by_window_id = {}
+        self.x_boundaries = []
 
+    def parse_grid_file(self, entityCollection):
+        print("[+] Parsing grid parameter file: %s ..." % self.grid_raw_file)
+        grid_df = pd.read_csv(
+            self.grid_raw_file, 
+            sep="\t", 
+            names=['Migration','theta_ancestor','theta_derived','hetA','hetB','fixed','hetAB','probability'], 
+            skiprows=1, 
+            header=None)
+        shape = tuple(self.max_by_mutype[mutype] + 2 for mutype in MUTYPES)        
+        # DO THEY HAVE TO BE FLIPPED?
+        if self.ancestor_population_id == entityCollection.populationObjs[0].id:
+            print("[+] Ancestor is %s ..." % self.ancestor_population_id)
+        elif self.ancestor_population_id == entityCollection.populationObjs[1].id:
+            grid_df.rename(columns={'hetA': 'hetB', 'hetB': 'hetA'}, inplace=True)
+        else:
+            sys.exit("[X] This should never happen ...")
+
+        for migration, theta_ancestor, theta_derived, hetA, hetB, fixed, hetAB, probability in tqdm(grid_df.values.tolist(), total=len(grid_df.index), desc="[%] ", ncols=100):
+            parameter_tuple = (theta_ancestor, theta_derived, migration)
+            if not parameter_tuple in self.probability_matrix_by_parameter_tuple:
+                self.probability_matrix_by_parameter_tuple[parameter_tuple] = np.zeros(shape, np.float64)
+            # this could still be source of error
+            vector = tuple([int(hetA), int(fixed), int(hetB), int(hetAB)])
+            self.probability_matrix_by_parameter_tuple[parameter_tuple][vector] = probability
+
+    def parse_window_positions(self, entityCollection):
+        window_hdf5_store = pd.HDFStore(self.windows_file)
+        window_df = pd.read_hdf(window_hdf5_store, key='window_metrics')
+        window_hdf5_store.close()
+        
+        position_by_window_id = {}
+        offset_by_sequence_id = {}
+        offset = 0
+        x_boundaries = []
+        for sequenceObj in entityCollection.sequenceObjs:
+            offset_by_sequence_id[sequenceObj.id] = offset
+            x_boundaries.append(offset)
+            offset += sequenceObj.length
+        x_boundaries.append(offset)
+        window_df['rel_pos'] = window_df['centre'] + window_df['sequence_id'].map(offset_by_sequence_id)
+        for window_id, rel_pos in window_df[['window_id', 'rel_pos']].values:
+            self.window_pos_by_window_id[window_id] = rel_pos
+        self.x_boundaries = x_boundaries
 
     def setup_grid(self):
         theta_step = (self.theta_high - self.theta_low) / 8
@@ -104,8 +152,8 @@ class ParameterObj(object):
             Migration = ((migration * theta_ancestral) / (self.block_size * self.mutation_rate) / 2) # per branch
             Time = (self.time_MLE * 2 * self.block_size * self.mutation_rate) / theta_ancestral
             grid_gimble.append((C_ancestor, C_derived, Migration, theta, Time))
-        print(grid_raw)
-        print(grid_gimble)
+        #print(grid_raw)
+        #print(grid_gimble)
         self.grid_raw = grid_raw
         self.grid_gimble = grid_gimble
 
@@ -214,26 +262,26 @@ def multinomial(lst):
             i += 1
     return res
 
-def inverse_laplace_transform(params):
-    vector, marginal_query, equation, rate_by_mutype, split_time = params
-    equation_giac = str(equation).replace("**", "^")
-    mutation_substitution = ",[%s]" % ",".join(["%s=%s" % (mutype, rate) for mutype, rate in rate_by_mutype.items()])
-    assumptions = "assume(BigL >= 0)"
-    '''
-    [ratnormal] rewrites an expression using its irreducible representation. The expression is viewed as a multivariate rational fraction with coefficients in Q (or
-        Q[i]). The variables are generalized identifiers which are assumed to be algebraically independent. Unlike with normal, an algebraic extension is considered
-        as a generalized identifier. Therefore ratnormal is faster but might miss some
-        simplifications if the expression contains radicals or algebraically dependent transcendental functions.
-    '''
-    invlaplace_string = "%s; invlaplace(ratnormal(subst(%s%s) / BigL), BigL, T).subst(T, %s)" % (assumptions, equation_giac, mutation_substitution, float(split_time))
-    try:
-        process = subprocess.run(["giac", invlaplace_string], stderr=subprocess.PIPE, stdout=subprocess.PIPE, check=True, encoding='utf-8')
-        probability = process.stdout.rstrip("\n").split(",")[1]
-    except subprocess.CalledProcessError:
-        exit("[X] giac could not run.")
-    #if probability == 'undef':
-    #    print(invlaplace_string)
-    return sympy.Rational(str(probability)), vector, marginal_query
+#def inverse_laplace_transform(params):
+#    vector, marginal_query, equation, rate_by_mutype, split_time = params
+#    equation_giac = str(equation).replace("**", "^")
+#    mutation_substitution = ",[%s]" % ",".join(["%s=%s" % (mutype, rate) for mutype, rate in rate_by_mutype.items()])
+#    assumptions = "assume(BigL >= 0)"
+#    '''
+#    [ratnormal] rewrites an expression using its irreducible representation. The expression is viewed as a multivariate rational fraction with coefficients in Q (or
+#        Q[i]). The variables are generalized identifiers which are assumed to be algebraically independent. Unlike with normal, an algebraic extension is considered
+#        as a generalized identifier. Therefore ratnormal is faster but might miss some
+#        simplifications if the expression contains radicals or algebraically dependent transcendental functions.
+#    '''
+#    invlaplace_string = "%s; invlaplace(ratnormal(subst(%s%s) / BigL), BigL, T).subst(T, %s)" % (assumptions, equation_giac, mutation_substitution, float(split_time))
+#    try:
+#        process = subprocess.run(["giac", invlaplace_string], stderr=subprocess.PIPE, stdout=subprocess.PIPE, check=True, encoding='utf-8')
+#        probability = process.stdout.rstrip("\n").split(",")[1]
+#    except subprocess.CalledProcessError:
+#        exit("[X] giac could not run.")
+#    #if probability == 'undef':
+#    #    print(invlaplace_string)
+#    return sympy.Rational(str(probability)), vector, marginal_query
 
 @contextmanager
 def poolcontext(*args, **kwargs):
@@ -403,36 +451,67 @@ def calculate_probability_matrix(params):
         lines.append("%s\t%s\t%s" % (grid_idx, vector, probability))
     return (grid_idx, probability_matrix, lines)
 
-def infer_composite_likelihoods(probability_matrix_by_grid_idx, mutuple_count_matrix_by_window_id):
-    composite_likelihood_by_grid_idx_by_window_id = collections.defaultdict(dict)
+def compute_composite_likelihoods(mutuple_count_matrix_by_window_id, parameterObj):
+    print("[+] Calculating composite likelihoods ...")
+    composite_likelihood_by_parameter_tuple_by_window_id = collections.defaultdict(dict)
+    for window_id in tqdm(mutuple_count_matrix_by_window_id, total=len(mutuple_count_matrix_by_window_id), desc="[%] ", ncols=100):
+        mutuple_count_matrix = mutuple_count_matrix_by_window_id[window_id]
+        for parameter_tuple, probability_matrix in parameterObj.probability_matrix_by_parameter_tuple.items():
+            #composite_likelihood = np.sum((xlogy(np.sign(probability_matrix), probability_matrix) * mutuple_count_matrix))
+            composite_likelihood = np.sum(probability_matrix * mutuple_count_matrix)
+            composite_likelihood_by_parameter_tuple_by_window_id[window_id][parameter_tuple] = composite_likelihood
+            
+    return composite_likelihood_by_parameter_tuple_by_window_id
+
+def infer_composite_likelihoods(mutuple_count_matrix_by_window_id, parameterObj):
+    composite_likelihood_by_parameter_tuple_by_window_id = collections.defaultdict(dict)
     for window_id in tqdm(mutuple_count_matrix_by_window_id, total=len(mutuple_count_matrix_by_window_id), desc="[%] ", ncols=100):
         mutuple_count_matrix = mutuple_count_matrix_by_window_id[window_id]
         for grid_idx, probability_matrix in enumerate(probability_matrix_by_grid_idx):
             probability_matrix = probability_matrix_by_grid_idx[grid_idx]
             composite_likelihood = np.sum((xlogy(np.sign(probability_matrix), probability_matrix) * mutuple_count_matrix))
             composite_likelihood_by_grid_idx_by_window_id[window_id][grid_idx] = composite_likelihood
-    return composite_likelihood_by_grid_idx_by_window_id
 
-def generate_output(composite_likelihood_by_grid_idx_by_window_id, parameterObj):
-    composite_likelihood_cols = ['window_id', 'grid_idx', 'cL', 'raw_params', 'gimble_params', 'ismax']
+def generate_output(composite_likelihood_by_parameter_tuple_by_window_id, parameterObj):
+    composite_likelihood_cols = ['window_id', 'cL', 'theta_ancestral', 'theta_derived', 'migration', 'ismax']
     composite_likelihood_vals = []
-    for window_id in tqdm(composite_likelihood_by_grid_idx_by_window_id, total=len(composite_likelihood_by_grid_idx_by_window_id), desc="[%] ", ncols=100):
-        max_grid_idx = max(composite_likelihood_by_grid_idx_by_window_id[window_id], key=composite_likelihood_by_grid_idx_by_window_id[window_id].get)
-        for grid_idx, composite_likelihood in composite_likelihood_by_grid_idx_by_window_id[window_id].items():
+    print("[+] Generating output ...")
+    for window_id in tqdm(composite_likelihood_by_parameter_tuple_by_window_id, total=len(composite_likelihood_by_parameter_tuple_by_window_id), desc="[%] ", ncols=100):
+        max_parameter_tuple = max(composite_likelihood_by_parameter_tuple_by_window_id[window_id], key=composite_likelihood_by_parameter_tuple_by_window_id[window_id].get)
+        for parameter_tuple, composite_likelihood in composite_likelihood_by_parameter_tuple_by_window_id[window_id].items():
             ismax = False
-            if grid_idx == max_grid_idx:
+            if parameter_tuple == max_parameter_tuple:
+                print(window_id, parameter_tuple, composite_likelihood)
                 ismax = True
-            raw_string = [str(x) for x in parameterObj.grid_raw[grid_idx]]
-            gimble_string = [str(x) for x in parameterObj.grid_gimble[grid_idx]]
-            composite_likelihood_vals.append([window_id, grid_idx, composite_likelihood, ", ".join(raw_string), ", ".join(gimble_string), ismax])
+            theta_ancestral = str(parameter_tuple[0])
+            theta_derived = str(parameter_tuple[1])
+            migration = str(parameter_tuple[2])
+            composite_likelihood_vals.append([window_id, composite_likelihood, theta_ancestral, theta_derived, migration, ismax])
     composite_likelihood_df = pd.DataFrame(composite_likelihood_vals, columns=composite_likelihood_cols)
-    print(composite_likelihood_df)
+    plot_parameter_scan(composite_likelihood_df, parameterObj)
     out_f = "%s.composite_likelihoods.h5" % parameterObj.prefix
     composite_likelihood_hdf5_store = create_hdf5_store(out_f=out_f, path=parameterObj.path)
     composite_likelihood_df.to_hdf(composite_likelihood_hdf5_store, 'likelihood', append=True)
     composite_likelihood_hdf5_store.close()
 
-
+# def generate_output(composite_likelihood_by_parameter_tuple_by_window_id, parameterObj):
+#     composite_likelihood_cols = ['window_id', 'grid_idx', 'cL', 'raw_params', 'gimble_params', 'ismax']
+#     composite_likelihood_vals = []
+#     for window_id in tqdm(composite_likelihood_by_grid_idx_by_window_id, total=len(composite_likelihood_by_grid_idx_by_window_id), desc="[%] ", ncols=100):
+#         max_grid_idx = max(composite_likelihood_by_grid_idx_by_window_id[window_id], key=composite_likelihood_by_grid_idx_by_window_id[window_id].get)
+#         for grid_idx, composite_likelihood in composite_likelihood_by_grid_idx_by_window_id[window_id].items():
+#             ismax = False
+#             if grid_idx == max_grid_idx:
+#                 ismax = True
+#             raw_string = [str(x) for x in parameterObj.grid_raw[grid_idx]]
+#             gimble_string = [str(x) for x in parameterObj.grid_gimble[grid_idx]]
+#             composite_likelihood_vals.append([window_id, grid_idx, composite_likelihood, ", ".join(raw_string), ", ".join(gimble_string), ismax])
+#     composite_likelihood_df = pd.DataFrame(composite_likelihood_vals, columns=composite_likelihood_cols)
+#     print(composite_likelihood_df)
+#     out_f = "%s.composite_likelihoods.h5" % parameterObj.prefix
+#     composite_likelihood_hdf5_store = create_hdf5_store(out_f=out_f, path=parameterObj.path)
+#     composite_likelihood_df.to_hdf(composite_likelihood_hdf5_store, 'likelihood', append=True)
+#     composite_likelihood_hdf5_store.close()
 
 def infer_composite_likelihood(x0, *args):
     simplex_parameters, symbolic_equations_by_mutuple, mutuple_count_matrix, parameterObj = args
