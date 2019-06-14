@@ -297,13 +297,11 @@ def inverse_laplace_transform(params):
     #equation_giac = str(equation).replace("**", "^")
     #mutation_substitution = ",[%s]" % ",".join(["%s=%s" % (mutype, rate) for mutype, rate in rate_by_mutype.items()])
     giac_string = []
-    giac_string.append("normal(invlaplace(subst(")
+    giac_string.append("subst(normal(invlaplace(subst(")
     equation_giac = str(equation).replace("**", "^")
     giac_string.append(equation_giac)
     giac_string.append(",[%s]" % ",".join(["%s=%s" % (mutype, rate) for mutype, rate in rate_by_mutype.items()]))
-    giac_string.append(") / BigL, BigL, Time)).subst(Time, ")
-    giac_string.append(str(float(split_time)))
-    giac_string.append(");")
+    giac_string.append(") / BigL, BigL, Time)), Time=%s);" % str(float(split_time)))
     #print("".join(giac_string))
     #invlaplace_string = "%s; invlaplace((%s / BigL), BigL, T).subst(T, %s)" % (assumptions, equation_giac, float(split_time))
     try:
