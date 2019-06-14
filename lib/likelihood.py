@@ -297,7 +297,7 @@ def inverse_laplace_transform(params):
     #equation_giac = str(equation).replace("**", "^")
     #mutation_substitution = ",[%s]" % ",".join(["%s=%s" % (mutype, rate) for mutype, rate in rate_by_mutype.items()])
     giac_string = []
-    giac_string.append("subst(normal(invlaplace(subst(")
+    giac_string.append("subs(normal(invlaplace(subs(")
     equation_giac = str(equation).replace("**", "^")
     giac_string.append(equation_giac)
     giac_string.append(",[%s]" % ",".join(["%s=%s" % (mutype, rate) for mutype, rate in rate_by_mutype.items()]))
