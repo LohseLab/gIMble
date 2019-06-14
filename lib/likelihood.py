@@ -29,6 +29,7 @@ FOUR_GAMETE_VIOLATION = set(['fixed', 'hetAB'])
 PARAMETERS_BY_MODEL_NAME = {
            #'model.M.txt': ['theta', 'Mig'], 
            'model.divergence.txt': ['Time', 'theta', 'C_derived'], 
+           'model.divergence.1.txt': ['Time', 'theta', 'C_derived'], 
            'model.IM.M_A2D.MM_D2A.txt': ['Time', 'theta', 'Migration', 'C_derived'], 
            'model.IM.M_D2A.MM_D2A.txt': ['Time', 'theta', 'Migration', 'C_derived']
            }
