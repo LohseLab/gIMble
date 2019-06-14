@@ -44,9 +44,12 @@ def plot_genome_scan(window_df, out_f, sequenceObjs):
     # SOLVE ISSUE WITH OFFSET SO THAT THINGS ARE PRINTED CORRECTLY...
     # CHECK THAT ORDER OF DATAFRAME IS CORRECT
     for sequenceObj in sequenceObjs:
+
         offset_by_sequence_id[sequenceObj.id] = offset
+        print(sequenceObj, offset, x_boundaries)
         x_boundaries.append(offset)
         offset += sequenceObj.length
+
     x_boundaries.append(offset)
     #print([(sequenceObj.id, sequenceObj.length) for sequenceObj in sequenceObjs])
     #print(x_boundaries)
@@ -54,10 +57,10 @@ def plot_genome_scan(window_df, out_f, sequenceObjs):
     #connecting dots
     ax = fig.add_subplot(111)  
     y_lim = (0.0, 1.0)
-    print(window_df)
     window_df['rel_pos'] = window_df['centre'] + window_df['sequence_id'].map(offset_by_sequence_id)
-    ax.plot(window_df['centre'], window_df['fst'], color='lightgrey', alpha=0.5, linestyle='-', linewidth=1)
-    scatter = ax.scatter(window_df['centre'], window_df['fst'], c=window_df['dxy'], alpha=1.0, cmap='PiYG_r', edgecolors='white', marker='o', s=40, linewidth=0.2)
+    print(window_df)
+    ax.plot(window_df['rel_pos'], window_df['fst'], color='lightgrey', alpha=0.8, linestyle='-', linewidth=1)
+    scatter = ax.scatter(window_df['rel_pos'], window_df['fst'], c=window_df['dxy'], alpha=1.0, cmap='PiYG_r', edgecolors='white', marker='o', s=40, linewidth=0.2)
     cbar = fig.colorbar(scatter, ax=ax)
     cbar.ax.set_title('D_xy')
     ax.vlines(x_boundaries, 0.0, 1.0, colors=['lightgrey'], linestyles='dashed', linewidth=1)
@@ -74,8 +77,8 @@ def plot_genome_scan(window_df, out_f, sequenceObjs):
 def plot_pi_scatter(window_df, out_f):
     fig, ax = plt.subplots(nrows=1, ncols=2, sharey=True, sharex=True, figsize=(18,6))
     #print(list(window_df.columns))
-    pi_A_key = list(window_df.columns)[5]
-    pi_B_key = list(window_df.columns)[6]
+    pi_A_key = list(window_df.columns)[6]
+    pi_B_key = list(window_df.columns)[7]
     ax[0].scatter(window_df[pi_A_key], window_df['dxy'], c=window_df['fst'], cmap='PiYG_r', marker='o', s=20, alpha=0.9, label=pi_A_key)
     scatter = ax[1].scatter(window_df[pi_B_key], window_df['dxy'], c=window_df['fst'], cmap='PiYG_r', marker='o', s=20, alpha=0.9, label=pi_B_key)
     cbar = fig.colorbar(scatter, ax=ax)
