@@ -311,6 +311,7 @@ def inverse_laplace_transform(params):
         probability = str(process.stdout)
     except subprocess.CalledProcessError:
         exit("[X] giac could not run.")
+    result = None
     if probability == 'undef':
         print(invlaplace_string, probability, vector, marginal_query)
     try:
