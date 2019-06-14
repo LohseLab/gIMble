@@ -311,10 +311,14 @@ def inverse_laplace_transform(params):
         probability = str(process.stdout)
     except subprocess.CalledProcessError:
         exit("[X] giac could not run.")
-    print(probability)
     if probability == 'undef':
         print(invlaplace_string, probability, vector, marginal_query)
-    return np.float64(sympy.Rational(probability)), vector, marginal_query
+    try:
+        result = np.float64(sympy.Rational(probability))
+    except TypeError:
+        print(probability)
+        print("".join(giac_string))
+    return result, vector, marginal_query
 
 @contextmanager
 def poolcontext(*args, **kwargs):
@@ -611,8 +615,8 @@ def estimate_parameters(symbolic_equations_by_mutuple, mutuple_count_matrix, par
             'maxfev' : 200,
             'maxiter': 200,
             'disp': False, 
-            'xatol': 1e-3, 
-            'fatol': 1e-3, # * block_count, # needs to be scaled by number of blocks
+            'xatol': 1e-1, 
+            'fatol': 1e-1, # * block_count, # needs to be scaled by number of blocks
             'adaptive': True})
     print()
     if res.success:

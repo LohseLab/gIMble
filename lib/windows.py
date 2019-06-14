@@ -80,15 +80,15 @@ def task_generate_entityCollection(parameterObj):
     entityCollection.parse_genome_file(parameterObj)
     print("[+] Read %s sequences with total length of %s b in %.3fs" % (\
         entityCollection.count('sequences'), \
-        entityCollection.count('bases'), \
+        format_count(entityCollection.count('bases')), \
         timer() - start))
     return entityCollection
 
 def task_parse_parameters(args):
     start = timer()
-    print("[#] Parsing parameters ...")
+    #print("[#] Parsing parameters ...")
     parameterObj = ParameterObj(args)
-    print("[+] Read parameters in %.3fs (%.2fMB)" % (timer() - start, memory_usage_psutil()))
+    #print("[+] Read parameters in %.3fs (%.2fMB)" % (timer() - start, memory_usage_psutil()))
     return parameterObj
 
 def task_get_block_regions(parameterObj, entityCollection):
