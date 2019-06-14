@@ -27,6 +27,7 @@ var/
 hmel*
 giac/
 *.tmp
+input_other/
 session.tex
 wheels/
 *.egg-info/
