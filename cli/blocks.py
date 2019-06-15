@@ -1,4 +1,4 @@
-"""usage: blocktools blocks -s <FILE> -g <FILE> -b <FILE> [-a <INT> -x <INT> -l <INT> -m <INT> -o <STR> -t <INT> -h]
+"""usage: blocktools blocks -s <FILE> -g <FILE> -b <FILE> [-n <INT> -x <INT> -l <INT> -m <INT> -o <STR> -t <INT> -h]
     
     -s, --sample_file <FILE>                    CSV file ("sample_id,population_id")
     -g, --genome_file <FILE>                    Genome file (as used in BedTools)
@@ -8,7 +8,7 @@
     -x, --block_length <INT>                    Block length in bases [default: 64]
     -l, --max_block_span <INT>                  Maximum span of block (from start to end) [default: 80]
     -m, --min_interval_length <INT>             Minimum length in bases of a BED interval to be considered [default: 0]
-    -a, --min_samples <INT>                     Minimum number of samples per population in interval [default: 1]
+    -n, --min_samples <INT>                     Minimum number of samples per population in interval [default: 1]
     -t, --threads <INT>                         Number of threads to use [default: 1]
     -o, --prefix <STR>                          Folder/prefix for output
     
