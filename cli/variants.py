@@ -1,4 +1,7 @@
-"""usage: blocktools variants -s <FILE> -g <FILE> -v <FILE> -b <FILE> [-o <STR> -t <INT> -h]
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""usage: gIMble variants -s <FILE> -g <FILE> -v <FILE> -b <FILE> [-o <STR> -t <INT> -h]
     
     -s, --sample_file <FILE>                    CSV file ("sample_id,population_id")
     -g, --genome_file <FILE>                    Genome file (as used in BedTools)
@@ -20,6 +23,7 @@ import lib.variants
 def main():
     start_time = timer()
     args = docopt(__doc__)
+    print("[#] ### gIMble VARIANTS ###")
     parameterObj = lib.variants.task_parse_parameters(args)
     entityCollection = lib.variants.task_generate_entityCollection(parameterObj)
     lib.variants.task_load_blockObjs(parameterObj, entityCollection)

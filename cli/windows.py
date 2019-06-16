@@ -1,4 +1,7 @@
-"""usage: blocktools windows -s <FILE> -g <FILE> -b <FILE> -v <FILE> [-w <INT> -l <INT> -m <INT> -o <STR> -t <INT> -h]
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""usage: gIMble windows -s <FILE> -g <FILE> -b <FILE> -v <FILE> [-w <INT> -l <INT> -m <INT> -o <STR> -t <INT> -h]
     
     -s, --sample_file <FILE>                    CSV file ("sample_id,population_id")
     -g, --genome_file <FILE>                    Genome file (as used in BedTools)
@@ -24,6 +27,7 @@ import lib.windows
 def main():
     start_time = timer()
     args = docopt(__doc__)
+    print("[#] ### gIMble WINDOWS ###")
     parameterObj = lib.windows.task_parse_parameters(args)
     entityCollection = lib.windows.task_generate_entityCollection(parameterObj)
     block_id_batches = lib.windows.task_get_block_regions(parameterObj, entityCollection)

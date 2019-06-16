@@ -50,6 +50,7 @@ import lib.likelihood
 def main():
     main_time = timer()
     args = docopt(__doc__)
+    print("[#] ### gIMble LIKELIHOOD ###")
     parameterObj = lib.likelihood.ParameterObj(args)
     entityCollection = lib.likelihood.task_generate_entityCollection(parameterObj)
     #print(parameterObj.boundaries)

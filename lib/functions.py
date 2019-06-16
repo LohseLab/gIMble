@@ -36,8 +36,42 @@ mat.rcParams['ytick.labelsize'] = AXES_LABELS_FONTSIZE
 mat.rcParams['figure.frameon'] = False
 mat.rcParams['axes.grid'] = False
 
+def plot_pi_genome_scan(window_df, out_f, sequenceObjs):
+    offset_by_sequence_id = {}
+    offset = 0
+    x_boundaries = []
+    for sequenceObj in sequenceObjs:
+        offset_by_sequence_id[sequenceObj.id] = offset
+        x_boundaries.append(offset)
+        offset += sequenceObj.length
 
-def plot_genome_scan(window_df, out_f, sequenceObjs):
+    x_boundaries.append(offset)
+    #print([(sequenceObj.id, sequenceObj.length) for sequenceObj in sequenceObjs])
+    #print(x_boundaries)
+    fig = plt.figure(figsize=(18,4), dpi=200, frameon=True)
+    #connecting dots
+    ax = fig.add_subplot(111)  
+    window_df['rel_pos'] = window_df['centre'] + window_df['sequence_id'].map(offset_by_sequence_id)
+    window_df.sort_values(['rel_pos'], inplace=True)
+    #print(window_df)
+    pi_A_key = list(window_df.columns)[6]
+    pi_B_key = list(window_df.columns)[7]
+    ax.plot(window_df['rel_pos'], window_df[pi_A_key], color='orange', alpha=0.8, linestyle='-', linewidth=1, label=pi_A_key.replace('pi_', ''))
+    ax.plot(window_df['rel_pos'], window_df[pi_B_key], color='dodgerblue', alpha=0.8, linestyle='-', linewidth=1, label=pi_B_key.replace('pi_', ''))
+    y_lim = (min(window_df[pi_A_key].min(), window_df[pi_B_key].min()), max(window_df[pi_A_key].max(), window_df[pi_B_key].max()))
+    ax.vlines(x_boundaries, y_lim[0], y_lim[1], colors=['lightgrey'], linestyles='dashed', linewidth=1)
+    ax.set_ylim(y_lim)
+    ax.spines['right'].set_visible(False)
+    ax.spines['top'].set_visible(False)
+    ax.legend(numpoints=1)
+    plt.ylabel('Pi')
+    plt.xlabel("Genome coordinate")
+    print("[>] Created: %r" % str(out_f))
+    plt.tight_layout()
+    fig.savefig(out_f, format="png")
+    plt.close(fig)
+
+def plot_fst_genome_scan(window_df, out_f, sequenceObjs):
     offset_by_sequence_id = {}
     offset = 0
     x_boundaries = []

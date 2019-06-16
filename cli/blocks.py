@@ -1,4 +1,4 @@
-"""usage: blocktools blocks -s <FILE> -g <FILE> -b <FILE> [-n <INT> -x <INT> -l <INT> -m <INT> -o <STR> -t <INT> -h]
+"""usage: gIMble blocks -s <FILE> -g <FILE> -b <FILE> [-n <INT> -x <INT> -l <INT> -m <INT> -o <STR> -t <INT> -h]
     
     -s, --sample_file <FILE>                    CSV file ("sample_id,population_id")
     -g, --genome_file <FILE>                    Genome file (as used in BedTools)
@@ -23,6 +23,7 @@ import lib.blocks
 def main():
     start_time = timer()
     args = docopt(__doc__)
+    print("[#] ### gIMble BLOCKS ###")
     blockParameterObj = lib.blocks.task_generate_parameterObj(args)
     entityCollection = lib.blocks.task_generate_entityCollection(blockParameterObj)
     region_dfs = lib.blocks.task_generate_region_dfs(blockParameterObj, entityCollection)

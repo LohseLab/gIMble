@@ -45,64 +45,64 @@ cd gIMble
 cd gIMble && mkdir -p input && wget https://www.dropbox.com/s/hhz959alniylfpm/hmel.chr18.tar.gz && tar zxvf hmel.chr18.tar.gz -C input/ && rm hmel.chr18.tar.gz
 
 # a = 5
-# blocks (<8 min)
-# variants (<15 min)
+# blocks : 1 min
+# variants : <12 min
 # modify blocks 1 min
 # modify variants 1 min
-# windows 3 min
+# windows 4 min
 # gridsearch 1 min
-# likelihood 17 min
+# likelihood 12 min : 674.1598691130057s using 30 iterations (Composite Likelihood = -502631354.145): theta=0.5623, Time=0.3828
 
 ./gIMble blocks \
 	-s /data/hmel.chr18/hmel.samples.csv \
 	-g /data/hmel.chr18/hmel.chr18.genomefile \
 	-b /data/hmel.chr18/hmel.chr18.bed \
-	-o hmel.chr18.a_5 \
-	-a 5 \
+	-o hmel.chr18.n_5 \
+	-n 5 \
 	-t 4 && \
 ./gIMble variants \
 	-s /data/hmel.chr18/hmel.samples.csv \
 	-g /data/hmel.chr18/hmel.chr18.genomefile \
 	-v /data/hmel.chr18/hmel.chr18.vcf.gz \
-	-o hmel.chr18.a_5 \
-	-b hmel.chr18.a_5.blocks.h5 \
+	-o hmel.chr18.n_5 \
+	-b hmel.chr18.n_5.blocks.h5 \
 	-t 4 && \
 ./gIMble modify blocks \
 	-s /data/hmel.chr18/hmel.samples.csv \
 	-g /data/hmel.chr18/hmel.chr18.genomefile \
 	-c /data/hmel.chr18/hmel.chr18.chrom_coordinates.txt \
-	-o hmel.chr18.a_5 && \
-	-b hmel.chr18.a_5.blocks.h5 
+	-o hmel.chr18.n_5 \
+	-b hmel.chr18.n_5.blocks.h5 && \
 ./gIMble modify variants \
-	-v hmel.chr18.a_5.variants.h5 \
-	-o hmel.chr18.a_5 \
+	-v hmel.chr18.n_5.variants.h5 \
+	-o hmel.chr18.n_5 \
 	-m 4 \
 	-M 64 && \
 ./gIMble windows \
 	-s /data/hmel.chr18/hmel.samples.csv \
 	-g /data/hmel.chr18/hmel.chr18.new_coordinates.genomefile \
-	-b hmel.chr18.a_5.modified.blocks.h5 \
-	-v hmel.chr18.a_5.modified.variants.h5 \
-	-o hmel.chr18.a_5 \
+	-b hmel.chr18.n_5.modified.blocks.h5 \
+	-v hmel.chr18.n_5.modified.variants.h5 \
+	-o hmel.chr18.n_5 \
 	-w 500 \
 	-l 100 \
 	-t 4 && \
 ./gIMble gridsearch \
-	-s input/hmel.samples.csv \
+	-s /data/hmel.chr18/hmel.samples.csv \
 	-g /data/hmel.chr18/hmel.chr18.new_coordinates.genomefile \
-	-o hmel.chr18.a_5 \
-	-w hmel.chr18.a_5.windows.h5 \
+	-o hmel.chr18.n_5 \
+	-w hmel.chr18.n_5.windows.h5 \
 	-l models/model.IM.M_D2A.MM_D2A.txt \
 	--grid grid/grid.csv \
 	-A "chi" \
 	-k 2 \
 	-t 4 && \
 ./gIMble likelihood \
-	-s input/hmel.samples.csv \
-	-g input/hmel.chr18.genomefile \
+	-s /data/hmel.chr18/hmel.samples.csv \
+	-g /data/hmel.chr18/hmel.chr18.genomefile \
+	-v hmel.all_mutype_counts.h5 \
 	-l models/model.divergence.txt \
 	-A "chi" \
-	-v hmel.all_mutype_counts.h5 \
 	-k 2 \
 	--theta_low 0.5 \
 	--theta_high 1.4 \
@@ -125,8 +125,76 @@ cd gIMble && mkdir -p input && wget https://www.dropbox.com/s/hhz959alniylfpm/hm
 #	--derived_high 2.0 \
 #	-t 4
 
-# References
-- Davey, J.W., Barker, S.L., Rastas, P.M., Pinharanda, A., Martin, S.H., Durbin, R., McMillan, W.O., Merrill, R.M. and Jiggins, C.D., 2017. No evidence for maintenance of a sympatric Heliconius species barrier by chromosomal inversions. Evolution Letters, 1(3), pp.138-154.
+
+# n= 10
+# blocks : 1 min
+# variants : <6 min
+# modify blocks 1 min
+# modify variants 1 min
+# windows 2 min
+
+# likelihood 12 min : 674.1598691130057s using 30 iterations (Composite Likelihood = -502631354.145): theta=0.5623, Time=0.3828
+# gridsearch 1 min
+
+677.0936897310021s using 30 iterations (Composite Likelihood = -502631354.145): theta=0.5623, Time=0.3828
+
+./gIMble blocks \
+	-s /data/hmel.chr18/hmel.samples.csv \
+	-g /data/hmel.chr18/hmel.chr18.genomefile \
+	-b /data/hmel.chr18/hmel.chr18.bed \
+	-o hmel.chr18.n_10 \
+	-n 10 \
+	-t 4 && \
+./gIMble variants \
+	-s /data/hmel.chr18/hmel.samples.csv \
+	-g /data/hmel.chr18/hmel.chr18.genomefile \
+	-v /data/hmel.chr18/hmel.chr18.vcf.gz \
+	-o hmel.chr18.n_10 \
+	-b hmel.chr18.n_10.blocks.h5 \
+	-t 4 && \
+./gIMble modify blocks \
+	-s /data/hmel.chr18/hmel.samples.csv \
+	-g /data/hmel.chr18/hmel.chr18.genomefile \
+	-c /data/hmel.chr18/hmel.chr18.chrom_coordinates.txt \
+	-o hmel.chr18.n_10 \
+	-b hmel.chr18.n_10.blocks.h5 && \
+./gIMble modify variants \
+	-v hmel.chr18.n_10.variants.h5 \
+	-o hmel.chr18.n_10 \
+	-m 4 \
+	-M 64 && \
+./gIMble windows \
+	-s /data/hmel.chr18/hmel.samples.csv \
+	-g /data/hmel.chr18/hmel.chr18.new_coordinates.genomefile \
+	-b hmel.chr18.n_10.modified.blocks.h5 \
+	-v hmel.chr18.n_10.modified.variants.h5 \
+	-o hmel.chr18.n_10 \
+	-w 500 \
+	-l 100 \
+	-t 4 && \
+./gIMble gridsearch \
+	-s /data/hmel.chr18/hmel.samples.csv \
+	-g /data/hmel.chr18/hmel.chr18.new_coordinates.genomefile \
+	-o hmel.chr18.n_10 \
+	-w hmel.chr18.n_10.windows.h5 \
+	-l models/model.IM.M_D2A.MM_D2A.txt \
+	--grid grid/grid.csv \
+	-A "chi" \
+	-k 2 \
+	-t 4 && \
+./gIMble likelihood \
+	-s /data/hmel.chr18/hmel.samples.csv \
+	-g /data/hmel.chr18/hmel.chr18.genomefile \
+	-v hmel.all_mutype_counts.h5 \
+	-l models/model.divergence.txt \
+	-A "chi" \
+	-k 2 \
+	--theta_low 0.5 \
+	--theta_high 1.4 \
+	--time_low 0.2 \
+	--time_high 0.6 \
+	--derived_Ne 1.0 \
+	 -t 4
 
 
 Full commands:
@@ -326,3 +394,81 @@ jovyan@jupyter-drl:~/gIMble$ ./gIMble blocks \
 [>] Created: '/home/jovyan/gIMble/hmel.chr18.min_10_sample.parameter_scan.png'
 [>] Created hdf5 store: '/home/jovyan/gIMble/hmel.chr18.min_10_sample.composite_likelihoods.h5'
 [+] Total runtime: 19.83807822699964 seconds
+
+# References
+- Davey, J.W., Barker, S.L., Rastas, P.M., Pinharanda, A., Martin, S.H., Durbin, R., McMillan, W.O., Merrill, R.M. and Jiggins, C.D., 2017. No evidence for maintenance of a sympatric Heliconius species barrier by chromosomal inversions. Evolution Letters, 1(3), pp.138-154.
+
+
+
+########################local
+
+# n = 10
+./gIMble blocks \
+	-o hmel.chr18.n_10 \
+	-s input/hmel.samples.csv \
+	-b input/hmel.chr18.bed \
+	-g input/hmel.chr18.genomefile \
+	-t 4 \
+	-n 10 && \
+./gIMble variants \
+	-o hmel.chr18.n_10 \
+	-s input/hmel.samples.csv \
+	-b hmel.chr18.n_10.blocks.h5 \
+	-g input/hmel.chr18.genomefile \
+	-t 4 \
+	-v input/hmel.chr18.vcf.gz && \
+./gIMble modify blocks \
+	-o hmel.chr18.n_10 \
+	-s input/hmel.samples.csv \
+	-c input/hmel.chr18.chrom_coordinates.txt \
+	-b hmel.chr18.n_10.blocks.h5 \
+	-g input/hmel.chr18.genomefile && \
+./gIMble modify variants \
+	-v hmel.chr18.n_10.variants.h5 \
+	-o hmel.chr18.n_10 \
+	-m 4 \
+	-M 64 && \
+./gIMble windows \
+	-o hmel.chr18.n_10 \
+	-s input/hmel.samples.csv \
+	-b hmel.chr18.n_10.blocks.modified.h5 \
+	-g input/hmel.chr18.new_coordinates.genomefile \
+	-v hmel.chr18.n_10.variants.modified.h5 \
+	-w 500 \
+	-l 100
+
+# n = 5
+
+./gIMble blocks \
+	-o hmel.chr18.n_5 \
+	-s input/hmel.samples.csv \
+	-b input/hmel.chr18.bed \
+	-g input/hmel.chr18.genomefile \
+	-t 4 \
+	-n 5 && \
+./gIMble variants \
+	-o hmel.chr18.n_5 \
+	-s input/hmel.samples.csv \
+	-b hmel.chr18.n_5.blocks.h5 \
+	-g input/hmel.chr18.genomefile \
+	-t 4 \
+	-v input/hmel.chr18.vcf.gz && \
+./gIMble modify blocks \
+	-o hmel.chr18.n_5 \
+	-s input/hmel.samples.csv \
+	-c input/hmel.chr18.chrom_coordinates.txt \
+	-b hmel.chr18.n_5.blocks.h5 \
+	-g input/hmel.chr18.genomefile && \
+./gIMble modify variants \
+	-v hmel.chr18.n_5.variants.h5 \
+	-o hmel.chr18.n_5 \
+	-m 4 \
+	-M 64 && \
+./gIMble windows \
+	-o hmel.chr18.n_5 \
+	-s input/hmel.samples.csv \
+	-b hmel.chr18.n_5.modified.blocks.h5 \
+	-g input/hmel.chr18.new_coordinates.genomefile \
+	-v hmel.chr18.n_5.modified.variants.h5 \
+	-w 500 \
+	-l 100

@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 """usage: 
             gIMble modify blocks    -s <FILE> -g <FILE> -b <FILE> -c <FILE> [-t <INT> -o <STR> -h]
             gIMble modify variants  -v <FILE>             [-m <INT> -M <INT> -t <INT> -o <STR> -h]
@@ -28,6 +31,7 @@ def main():
     start_time = timer()
     args = docopt(__doc__)
     if args['blocks']:
+        print("[#] ### gIMble MODIFY BLOCKS ###")
         parameterObj = lib.modify.task_parse_parameters(args, mode='blocks')
         entityCollection = lib.modify.task_generate_entityCollection(parameterObj)
         coordinateTransformObj = lib.modify.task_parse_coordinates(parameterObj)
@@ -35,6 +39,7 @@ def main():
         lib.modify.task_transform_coordinates(parameterObj, entityCollection, coordinateTransformObj)
         lib.modify.task_write_modify_output(parameterObj, entityCollection)
     elif args['variants']:
+        print("[#] ### gIMble MODIFY VARIANTS ###")
         parameterObj = lib.modify.task_parse_parameters(args, mode='variants')
         lib.modify.task_filter_variants(parameterObj)
     

@@ -1,5 +1,5 @@
 """
-Usage: ./gIMble <module> [<args>...]
+Usage: gIMble <module> [<args>...]
 
 Modules:
     blocks                Makes blocks
@@ -12,9 +12,6 @@ Modules:
 Options:
     -h, --help                         Show this screen.
     -v, --version                      Show version.
-
-Help:
-    https://gimble.readme.io/ (TBD)
 
 """
 import sys

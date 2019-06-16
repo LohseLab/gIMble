@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 """usage: blocktools plot -y <FILE> [-g <FILE> -t <INT> -p <STR> -1 -2 -3 -4 -h]
     
     -h, --help

@@ -1,12 +1,9 @@
-Preparation of BED files for blocktools/gIMble
+Preparation of BED files for gIMble
 
 # Housekeeping
 
 # pwd
 /data/lohse/drosophila/analyses/braker
-
-# CONDA ENV
-sconda main_env
 
 ## Create mapping from old-names to new-names
 sdiff <(grep -Po '>\S+' ../5_freeze_v0_wtdbg2/monCan3F9.ctg.3rd.v0.fa) <(grep -Po '>\S+' monCan3F9.ctg.3rd.v0.softmasked.fa) | sed 's/|//g' | tr -s [:blank:] "\t" > monCan3F9.name_mapping.txt

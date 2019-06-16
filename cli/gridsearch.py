@@ -43,6 +43,7 @@ import lib.gridsearch
 def main():
     main_time = timer()
     args = docopt(__doc__)
+    print("[#] ### gIMble GRIDSEARCH ###")
     parameterObj = lib.gridsearch.ParameterObj(args)
     entityCollection = lib.gridsearch.task_generate_entityCollection(parameterObj)
     parameterObj.parse_window_positions(entityCollection)

@@ -1,7 +1,7 @@
 import collections
 import itertools
 from tqdm import tqdm
-from lib.functions import plot_mutuple_barchart, format_bases, format_fraction, create_hdf5_store, tabulate_df, poolcontext, format_percentage, plot_distance_scatter, plot_genome_scan, plot_pi_scatter, plot_sample_barchart
+from lib.functions import plot_mutuple_barchart, format_bases, format_fraction, create_hdf5_store, tabulate_df, poolcontext, format_percentage, plot_distance_scatter, plot_fst_genome_scan, plot_pi_genome_scan, plot_pi_scatter, plot_sample_barchart
 from sys import exit
 
 import numpy as np
@@ -359,7 +359,8 @@ class EntityCollection(object):
             'sample_cov'
             ]
         window_df = pd.DataFrame(window_vals, columns=window_cols)
-        plot_genome_scan(window_df, '%s.genome_scan.png' % parameterObj.dataset, self.sequenceObjs)
+        plot_fst_genome_scan(window_df, '%s.fst_genome_scan.png' % parameterObj.dataset, self.sequenceObjs)
+        plot_pi_genome_scan(window_df, '%s.pi_genome_scan.png' % parameterObj.dataset, self.sequenceObjs)
         plot_pi_scatter(window_df, '%s.pi_scatter.png' % parameterObj.dataset)
         # storage
         window_hdf5_store = create_hdf5_store(
