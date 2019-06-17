@@ -63,7 +63,8 @@ class ParameterObj(object):
         self.seed = int(args['--seed']) 
         self.sample_file = check_file(args.get('--sample_file', None))
         self.genome_file = check_file(args.get('--genome_file', None))
-        self.windows_file = check_file(args['--windows_hd5']) if not args['--windows_hd5'] is None else None
+        #self.windows_file = check_file(args['--windows_hd5']) if not args['--windows_hd5'] is None else None
+        self.windows_file = None
         self.variants_file = check_file(args['--variants_hd5']) if not args['--variants_hd5'] is None else None
         self.threads = int(args['--threads'])
         self.path = check_path(args.get('--prefix', None))
@@ -492,13 +493,14 @@ def infer_composite_likelihood(x0, *args):
                         if marginal_query:
                             probability -= sum(probability_matrix[marginal_query].flatten())
                         probability_matrix[vector] = probability                            
+    print_params = { (param):(value if not param == 'theta' else value * 2) for param, value in numeric_value_by_parameter.items()}
     if simplex_parameters is None:
         composite_likelihood = -np.sum((xlogy(np.sign(probability_matrix), probability_matrix) * mutuple_count_matrix))
-        print('[+] L=-%s\t%s' % (composite_likelihood, ", ".join(["%s=%s" % (param, round(value, 4)) for param, value in numeric_value_by_parameter.items() if not param == 'BigL'])))
+        print('[+] L=-%s\t%s' % (composite_likelihood, ", ".join(["%s=%s" % (param, round(value, 4)) for param, value in print_params.items() if not param == 'BigL'])))
         return composite_likelihood
     composite_likelihood = -np.sum((xlogy(np.sign(probability_matrix), probability_matrix) * mutuple_count_matrix))
     print(" " * 100, end='\r'),
-    print("[O] L=-%s\t%s" % (composite_likelihood, ", ".join(["%s=%s" % (param, round(value, 4)) for param, value in numeric_value_by_parameter.items() if not param == 'BigL'])))
+    print("[O] L=-%s\t%s" % (composite_likelihood, ", ".join(["%s=%s" % (param, round(value, 4)) for param, value in print_params.items() if not param == 'BigL'])))
     return composite_likelihood
 
 def calculate_likelihood(symbolic_equations_by_mutuple, mutuple_count_matrix, parameterObj):
@@ -622,7 +624,8 @@ def estimate_parameters(symbolic_equations_by_mutuple, mutuple_count_matrix, par
     print()
     if res.success:
         estimated_parameters = collections.OrderedDict({key: value for (key, _), value in zip(parameterObj.boundaries.items(), res.x)})
-        estimated_parameters_string = ", ".join(["%s=%s" % (key, round(value, 4)) for key, value in estimated_parameters.items()])
+        print_params = { (param):(value if not param == 'theta' else value * 2) for param, value in estimated_parameters.items()}
+        estimated_parameters_string = ", ".join(["%s=%s" % (key, round(value, 4)) for key, value in print_params.items()])
         print("[+] Parameters estimated in %ss using %s iterations (Composite Likelihood = -%s): %s" % (timer() - start_time, res.nit, res.fun, estimated_parameters_string))
     else:
         print("[-] No covergence reached after %s iterations (%ss elapsed)" % (res.nit, timer() - start_time))

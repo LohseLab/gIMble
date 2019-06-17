@@ -90,7 +90,7 @@ class ParameterObj(object):
             header=None)
         shape = tuple(self.max_by_mutype[mutype] + 2 for mutype in MUTYPES)        
         # DO THEY HAVE TO BE FLIPPED?
-        grid_df.rename(columns={'hetA': 'hetB', 'hetB': 'hetA'}, inplace=True)
+        #grid_df.rename(columns={'hetA': 'hetB', 'hetB': 'hetA'}, inplace=True)
         for migration, theta_ancestor, theta_derived, hetA, hetB, fixed, hetAB, probability in tqdm(grid_df[['Migration', 'theta_ancestor', 'theta_derived', 'hetA', 'hetB', 'fixed', 'hetAB','probability']].values.tolist(), total=len(grid_df.index), desc="[%] ", ncols=100):
             #print(migration, theta_ancestor, theta_derived, hetA, hetB, fixed, hetAB, probability)
             parameter_tuple = (theta_ancestor, theta_derived, migration)
@@ -220,7 +220,7 @@ class ParameterObj(object):
         for mutuple in itertools.product(*[range(0, self.max_by_mutype[mutype] + 1) for mutype in MUTYPES]):
             if not (mutuple[FOUR_GAMETE_VIOLATION_IDX[0]] > 0 and mutuple[FOUR_GAMETE_VIOLATION_IDX[1]] > 0): # FGV
                 self.mutuple_space.append(mutuple)
-        print("[=] Generated %s mutuples" % (len(self.mutuple_space), self.kmax))
+        print("[=] Generated %s mutuples" % (len(self.mutuple_space)))
 
     def write_probs(self, prob_by_data_string, data):
         header = MUTYPES + ['probability']
@@ -760,6 +760,7 @@ def estimate_parameters(symbolic_equations_by_mutuple, mutuple_count_matrix, par
     print()
     if res.success:
         estimated_parameters = collections.OrderedDict({key: value for (key, _), value in zip(parameterObj.boundaries.items(), res.x)})
+        print_params = { (param):(value if not param == 'theta' else value * 2) for param, value in print_params.items()}
         estimated_parameters_string = ", ".join(["%s=%s" % (key, round(value, 4)) for key, value in estimated_parameters.items()])
         print("[+] Parameters estimated in %ss using %s iterations (Composite Likelihood = -%s): %s" % (timer() - start_time, res.nit, res.fun, estimated_parameters_string))
     else:
