@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gIMble likelihood         -s FILE -g FILE -l FILE -A STR (-w FILE | -v FILE) [-k INT]
+"""usage: gIMble likelihood         -s FILE -g FILE -l FILE -e INT -A STR -v FILE [-k INT]
                                             [--derived_Ne FLOAT --derived_low FLOAT --derived_high FLOAT]
                                             [--migration FLOAT --migration_low FLOAT --migration_high FLOAT]
                                             [--theta FLOAT --theta_low FLOAT --theta_high FLOAT]
@@ -13,13 +13,13 @@
 
         -s, --sample_file <FILE>                    CSV file ("sample_id,population_id")
         -g, --genome_file <FILE>                    Genome file (as used in BedTools)
-        -w, --windows_hd5 FILE                      windows HDF5 file
         -v, --variants_hd5 FILE                     variants HDF5 file
-        -k, --kmax INT                              maximum count per mutation type per block [default: 2]
-                                                     (beyond which counts are combined)
+        -k, --kmax INT                              maximum count per mutation type per block (beyond which 
+                                                        counts are combined) [default: 2]
 
         -l, --model FILE                            Model file
-        
+        -e, --seed INT                              Random seed for heuristic search (Nelder-mead) 
+                                                        simplex algorithm to maximise model support (lnL) [default: 12345]
         -A, --ancestor_population STR               Ancestor population id
         
         --derived_Ne FLOAT                          Coalescence rate scalar for derived population (inverse of Ne)
@@ -37,7 +37,7 @@
         --time FLOAT                                Split time (in 2*N_e*generations) 
         --time_low FLOAT                            Lower bound for split time (will be estimated)
         --time_high FLOAT                           Upper bound for split time (will be estimated)
-
+        
         -t, --threads <INT>                         Number of threads to use [default: 1]
         -o, --prefix <STR>                          Folder/prefix for output
         
@@ -59,7 +59,7 @@ def main():
     symbolic_equations_by_mutuple = lib.likelihood.generate_equations(pathObj_by_path_id, parameterObj)
     mutuple_count_matrix = parameterObj.get_mutuple_counters(entityCollection)
     if parameterObj.boundaries:
-        lib.likelihood.estimate_parameters(symbolic_equations_by_mutuple, mutuple_count_matrix, parameterObj, 12345)
+        lib.likelihood.estimate_parameters(symbolic_equations_by_mutuple, mutuple_count_matrix, parameterObj)
     else:
         lib.likelihood.calculate_likelihood(symbolic_equations_by_mutuple, mutuple_count_matrix, parameterObj)
     #if test == True:

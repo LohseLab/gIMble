@@ -169,8 +169,8 @@ cd gIMble && mkdir -p input && wget https://www.dropbox.com/s/hhz959alniylfpm/hm
 	-b hmel.chr18.n_10.modified.blocks.h5 \
 	-v hmel.chr18.n_10.modified.variants.h5 \
 	-o hmel.chr18.n_10 \
-	-w 500 \
-	-l 100 \
+	-w 1000 \
+	-l 200 \
 	-t 4 && \
 ./gIMble gridsearch \
 	-s /data/hmel.chr18/hmel.samples.csv \
@@ -185,7 +185,7 @@ cd gIMble && mkdir -p input && wget https://www.dropbox.com/s/hhz959alniylfpm/hm
 ./gIMble likelihood \
 	-s /data/hmel.chr18/hmel.samples.csv \
 	-g /data/hmel.chr18/hmel.chr18.genomefile \
-	-v hmel.all_mutype_counts.h5 \
+	-v hmel/hmel.all_mutype_counts.h5 \
 	-l models/model.divergence.txt \
 	-A "chi" \
 	-k 2 \

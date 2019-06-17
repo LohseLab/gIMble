@@ -59,7 +59,8 @@ class ParameterObj(object):
         self.derived_coalescence_low = float(args['--derived_low']) if not args['--derived_low'] is None else None
         self.derived_coalescence_high = float(args['--derived_high']) if not args['--derived_high'] is None else None
         self.ancestor_population_id = args['--ancestor_population']
-        self.kmax = int(args['--kmax']) 
+        self.kmax = int(args['--kmax'])
+        self.seed = int(args['--seed']) 
         self.sample_file = check_file(args.get('--sample_file', None))
         self.genome_file = check_file(args.get('--genome_file', None))
         self.windows_file = check_file(args['--windows_hd5']) if not args['--windows_hd5'] is None else None
@@ -599,10 +600,10 @@ def task_generate_entityCollection(parameterObj):
         timer() - start))
     return entityCollection
 
-def estimate_parameters(symbolic_equations_by_mutuple, mutuple_count_matrix, parameterObj, seed):
+def estimate_parameters(symbolic_equations_by_mutuple, mutuple_count_matrix, parameterObj):
     print("[+] Optimising parameters: %s ..." % (", ".join(parameterObj.boundaries.keys())))    
     start_time = timer()
-    simplex_values, simplex_parameters = generate_initial_simplex(parameterObj.boundaries, seed)
+    simplex_values, simplex_parameters = generate_initial_simplex(parameterObj.boundaries, parameterObj.seed)
     x0 = tuple([0] * len(parameterObj.boundaries.keys()))
     #block_count = mutuple_count_matrix.flatten().sum()
     res = minimize(
