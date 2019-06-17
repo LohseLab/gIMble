@@ -21,10 +21,8 @@ eggs/
 input/
 lib64/
 parts/
-hmel*
 sdist/
 var/
-hmel*
 giac/
 *.tmp
 input_other/
