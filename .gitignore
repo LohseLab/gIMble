@@ -23,7 +23,7 @@ lib64/
 parts/
 sdist/
 var/
-doc/*
+doc*
 giac/
 *.tmp
 input_other/
