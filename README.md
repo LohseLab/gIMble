@@ -28,7 +28,7 @@ Modules:
     modify                Modifies/filters blocks/variants
     windows               Constructs windows of blocks
     likelihood            Infer likelihood for data given model
-    gridsearch            TBE
+    gridsearch            Perform gridsearch on precomputed grid
 
 Options:
     -h, --help                         Show this screen.
