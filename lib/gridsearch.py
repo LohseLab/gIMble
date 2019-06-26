@@ -424,15 +424,10 @@ def calculate_probability_matrix(params):
                     numeric_value_by_symbol_for_substitution[symbol] = 0
         print(numeric_value_by_symbol_for_substitution)
         equation = equations_by_vector[vector].xreplace(numeric_value_by_symbol_for_substitution)
-        #print(equation)
         giac_string = []
-        #giac_string.append("assume(BigL >= 0); evalf(invlaplace(ratnormal(subst(")
-        #giac_string.append("evalf(invlaplace(evalf(subst(")
         giac_string.append("normal(invlaplace(normal(")
         equation_giac = str(equation).replace("**", "^")
         giac_string.append(equation_giac)
-        #substitution_string = ", [%s]" % ",".join(["%s=%s" % (mutype, theta) for mutype, theta in theta_by_mutype.items()])
-        #giac_string.append(substitution_string)
         giac_string.append(") / BigL, BigL, Time)).subst(Time, ")
         giac_string.append(Time)
         giac_string.append(");")
