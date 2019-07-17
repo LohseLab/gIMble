@@ -45,7 +45,7 @@ def generate_region_dfs(parameterObj, entityCollection):
             'start': np.int, 
             'end': np.int, 
             'samples': 'category'})
-    df = df[df['sequence_id'].isin(entityCollection.sequence_idx_by_sequence_id)] # filter rows based on sequence_ids
+    df = df[df['sequence_id'].isin(entityCollection.sequence_idx_by_sequence_id)].sort_values(['sequence_id', 'start'], ascending=[True, True]) # filter rows based on sequence_ids, sort by sequence_id, start
     df['length'] =  df['end'] - df['start'] # compute length column
     parameterObj.bed_length_total = int(df['length'].sum())
     genome_bases_percentage = format_percentage(parameterObj.bed_length_total / entityCollection.count('bases'))
@@ -57,6 +57,7 @@ def generate_region_dfs(parameterObj, entityCollection):
     df = df[df['length'] >= parameterObj.min_interval_length] # filter intervals shorter than MIN_INTERVAL_LEN
     #df['samples_ids'] = df['samples'].apply(entityCollection.sample_string_to_sample_ids) # samples to frozenset
     df['pair_idxs'] = df['samples'].apply(entityCollection.sample_string_to_pair_idxs) # samples to frozenset pairs
+    print(df)
     df['pair_count'] = df['pair_idxs'].apply(entityCollection.count_pair_idxs) 
     df = df[df['pair_count'] >= parameterObj.min_samples**2] # filter intervals with less than min_samples in both populations
     df = df.dropna() # Drop intervals that don't affect pairs

@@ -94,6 +94,7 @@ def infer_mutypes(param):
                 try:
                     if all([alt in NUCLEOTIDES for alt in record.alts]): # is SNP
                         for sample_id in blockObj.sample_ids:
+                            #print("# mutiple", record.samples[sample_id]['GT'])
                             genotypes_by_sample_id[sample_id].append([
                                 record.samples[sample_id]['GT'][0], 
                                 record.samples[sample_id]['GT'][1]
