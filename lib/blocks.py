@@ -3,7 +3,7 @@ from timeit import default_timer as timer
 from lib.classes import BlockObj, BedObj, EntityCollection
 
 import collections
-
+import logging
 from more_itertools import flatten
 import numpy as np 
 from tqdm import tqdm
@@ -32,7 +32,7 @@ class ParameterObj(object):
         self.bed_length_total = 0
 
 def generate_region_dfs(parameterObj, entityCollection):
-    print("[#] Splitting bed file into chunks for downstream processing (this might take a while) ...")
+    logging.info("[#] Splitting bed file into chunks for downstream processing (this might take a while) ...")
     df = read_csv( 
         parameterObj.bed_file, 
         sep="\t", 
@@ -49,7 +49,7 @@ def generate_region_dfs(parameterObj, entityCollection):
     df['length'] =  df['end'] - df['start'] # compute length column
     parameterObj.bed_length_total = int(df['length'].sum())
     genome_bases_percentage = format_percentage(parameterObj.bed_length_total / entityCollection.count('bases'))
-    print("[+] Found %s BED intervals adding up to %s (%s of genome) ..." % (
+    logging.info("[+] Found %s BED intervals adding up to %s (%s of genome) ..." % (
         format_count(len(df)), 
         format_bases(parameterObj.bed_length_total), 
         genome_bases_percentage
@@ -57,7 +57,7 @@ def generate_region_dfs(parameterObj, entityCollection):
     df = df[df['length'] >= parameterObj.min_interval_length] # filter intervals shorter than MIN_INTERVAL_LEN
     #df['samples_ids'] = df['samples'].apply(entityCollection.sample_string_to_sample_ids) # samples to frozenset
     df['pair_idxs'] = df['samples'].apply(entityCollection.sample_string_to_pair_idxs) # samples to frozenset pairs
-    print(df)
+    logging.debug(df)
     df['pair_count'] = df['pair_idxs'].apply(entityCollection.count_pair_idxs) 
     df = df[df['pair_count'] >= parameterObj.min_samples**2] # filter intervals with less than min_samples in both populations
     df = df.dropna() # Drop intervals that don't affect pairs
@@ -73,7 +73,7 @@ def generate_region_dfs(parameterObj, entityCollection):
 
 def make_blocks(parameterObj, region_dfs, entityCollection):
     results = []
-    print("[+] Analysing %s BED regions using %s threads ..." % (len(region_dfs), parameterObj.threads))
+    logging.info("[+] Analysing %s BED regions using %s threads ..." % (len(region_dfs), parameterObj.threads))
     if parameterObj.threads < 2:
         for region_idx, region_df in enumerate(tqdm(region_dfs, total=len(region_dfs), desc="[%] ", ncols=100, unit_scale=True)):
             results.append(block_algorithm((region_df, region_idx, parameterObj, entityCollection)))
@@ -118,7 +118,6 @@ def block_algorithm(params):
 ### TASKS
 
 def task_generate_parameterObj(args):
-    start = timer()
     parameterObj = ParameterObj(args)
     return parameterObj
 
@@ -126,32 +125,32 @@ def task_generate_entityCollection(parameterObj):
     start = timer()
     entityCollection = EntityCollection()
     entityCollection.parse_sample_file(parameterObj)
-    print("[+] Read %s samples from %s populations and generated %s pairs in %.3fs." % (\
+    logging.info("[+] Read %s samples from %s populations and generated %s pairs in %.3fs." % (\
         entityCollection.count('samples'), \
         entityCollection.count('populations'), \
         entityCollection.count('pairs'), \
         timer() - start))
     entityCollection.parse_genome_file(parameterObj)
-    print("[+] Read %s sequences with total length of %s in %.3fs" % (\
+    logging.info("[+] Read %s sequences with total length of %s in %.3fs" % (\
         entityCollection.count('sequences'), \
         format_bases(entityCollection.count('bases')), \
         timer() - start))
     return entityCollection
 
 def task_generate_region_dfs(parameterObj, entityCollection):
-    print("[#] Processing BED file ...")
+    logging.info("[#] Processing BED file ...")
     region_dfs = generate_region_dfs(parameterObj, entityCollection)
-    print("[+] BED intervals processed (%.2fMB)" % (memory_usage_psutil()))
+    logging.info("[+] BED intervals processed (%.2fMB)" % (memory_usage_psutil()))
     return region_dfs
 
 def task_make_blocks(parameterObj, region_dfs, entityCollection):
-    print("[#] Generating blocks ...")
+    logging.info("[#] Generating blocks ...")
     make_blocks(parameterObj, region_dfs, entityCollection)
     block_count = format_count(entityCollection.count('blocks'))
     blocked_bases = entityCollection.count('blocks') * parameterObj.block_length
     bed_bases_percentage = format_percentage(blocked_bases / parameterObj.bed_length_total)
     total_bases_percentage = format_percentage(blocked_bases / entityCollection.count('bases')) 
-    print("[+] Made %s blocks covering %s (%s of BED intervals, %s of genome) (%.2fMB)" % (\
+    logging.info("[+] Made %s blocks covering %s (%s of BED intervals, %s of genome) (%.2fMB)" % (\
         block_count, 
         format_bases(blocked_bases),
         bed_bases_percentage,
@@ -160,5 +159,5 @@ def task_make_blocks(parameterObj, region_dfs, entityCollection):
         ))
 
 def task_write_block_output(parameterObj, entityCollection):
-    print("[#] Generating output ...")
+    logging.info("[#] Generating output ...")
     entityCollection.generate_block_output(parameterObj)

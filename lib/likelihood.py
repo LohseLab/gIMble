@@ -18,11 +18,17 @@ from lib.classes import EntityCollection
 from lib.functions import format_percentage
 from lib.functions import check_path, check_file, check_prefix, format_count
 import pathlib
+import pprint
+pp = pprint.PrettyPrinter(indent=4)
 
 
 ################################### CONSTANTS #################################
 
 MUTYPES = ['hetA', 'fixed', 'hetB', 'hetAB']
+MUTYPE_SET = set(MUTYPES)
+EVENTS = ['C_ancestor', 'C_derived', 'Migration', 'BigL']
+EVENT_SPACE = EVENTS + MUTYPES
+
 FOUR_GAMETE_VIOLATION_IDX = [idx for idx, mutype in enumerate(MUTYPES) if mutype in set(['fixed', 'hetAB'])]
 FOUR_GAMETE_VIOLATION = set(['fixed', 'hetAB'])
 
@@ -77,44 +83,6 @@ class ParameterObj(object):
         ##########################################################
         self.max_by_mutype = {mutype: self.kmax for mutype in MUTYPES}
         self.mutuple_space = []
-
-#        self.user_rate = {
-#            'Mig' : sympy.Rational(float(args['--migration_rate'])),
-#            'C_ancestor' : sympy.Rational(1.0),
-#            'C_derived' : sympy.Rational(float(args['--derived_coalescence_rate'])),
-#            'Time' : sympy.Rational(float(args['--T_var'])),
-#            'theta' : sympy.Rational(float(args['--mutation_rate']))
-#        }
-#        self.C_ancestor = sympy.Symbol('C_ancestor', positive=True)
-#        self.C_derived = sympy.Symbol('C_derived', positive=True)
-#        self.M = sympy.Symbol('Mig', positive=True)
-#        self.bigL = sympy.Symbol('bigL', positive=True)
-#        self.T = sympy.Symbol('Time', positive=True)
-#        self.theta_A = sympy.Symbol('theta_A', positive=True)
-#        self.theta_B = sympy.Symbol('theta_B', positive=True)
-#        self.theta_fix = sympy.Symbol('theta_fix', positive=True)
-#        self.theta_AB = sympy.Symbol('theta_AB', positive=True)
-#        self.base_rate = {
-#            self.M : sympy.Rational(str(float(args['--migration_rate']) / 2)),
-#            self.C_ancestor : sympy.Rational(str(1.0)),
-#            self.C_derived : sympy.Rational(str(float(args['--derived_coalescence_rate'])))
-#        }
-#        self.split_time = sympy.Rational(str(float(args['--T_var'])))
-#        self.mutation_rate = sympy.Rational(str(float(args['--mutation_rate'])/ 2))
-#        self.symbolic_mutation_rate = {
-#            'hetA' : self.theta_A,
-#            'hetB' : self.theta_B,
-#            'hetAB' : self.theta_AB,
-#            'fixed' : self.theta_fix
-#        }
-#
-#        self.symbolic_rate = {
-#            'C_ancestor' : self.C_ancestor,
-#            'C_derived' : self.C_derived, 
-#            'Mig' : self.M,
-#            'bigL' : self.bigL
-#        }
-        #self.data = []
 
     def get_mutuple_counters(self, entityCollection):
         if self.mode == 'variants':
@@ -202,6 +170,10 @@ class ParameterObj(object):
             self.parameters_symbolic['fixed'] = sympy.Symbol('fixed', positive=True)
             self.parameters_symbolic['hetB'] = sympy.Symbol('hetB', positive=True)
             self.parameters_symbolic['hetAB'] = sympy.Symbol('hetAB', positive=True)
+            self.parameters_numeric['hetA'] = sympy.Rational(str(self.theta / 2)) # test
+            self.parameters_numeric['fixed'] = sympy.Rational(str(self.theta / 2)) # test
+            self.parameters_numeric['hetB'] = sympy.Rational(str(self.theta / 2)) # test
+            self.parameters_numeric['hetAB'] = sympy.Rational(str(self.theta / 2)) # test
             if not self.theta is None:
                 self.parameters_numeric['theta'] = sympy.Rational(str(self.theta / 2))
             elif (self.theta_low and self.theta_high):
@@ -294,33 +266,45 @@ def multinomial(lst):
             i += 1
     return res
 
+def giacify_equations(equations, rates=None, split_time=None):
+    '''
+    return equation as GIAC-compatible string
+
+    if rates and split_time 
+        -> symbols are substituted by values
+    else:
+        -> symbolic equation
+    '''
+    giac_equations = []
+    for equation in equations:
+        giac_string = []        
+        giac_string.append("normal(invlaplace(normal(")
+        if not rates is None and split_time is None:
+            giac_string.append(str(equation.xreplace(rates)).replace("**", "^"))
+            giac_string.append(") / BigL, BigL, Time)).subst(Time, %s)" % str(float(split_time)))
+        else:
+            giac_string.append(str(equation).replace("**", "^"))
+            giac_string.append(") / BigL, BigL, Time))")
+        giac_equations.append("".join(giac_string))
+    return " + ".join(giac_equations)
+
 def inverse_laplace_transform(params):
-    vector, marginal_query, equation, rate_by_mutype, split_time = params
-    equation_giac = str(equation.xreplace(rate_by_mutype)).replace("**", "^")
-    #equation_giac = str(equation).replace("**", "^")
-    #mutation_substitution = ",[%s]" % ",".join(["%s=%s" % (mutype, rate) for mutype, rate in rate_by_mutype.items()])
-    giac_string = []
-    giac_string.append("subs(normal(invlaplace(subs(")
-    equation_giac = str(equation).replace("**", "^")
-    giac_string.append(equation_giac)
-    giac_string.append(",[%s]" % ",".join(["%s=%s" % (mutype, rate) for mutype, rate in rate_by_mutype.items()]))
-    giac_string.append(") / BigL, BigL, Time)), Time=%s);" % str(float(split_time)))
-    #print("".join(giac_string))
-    #invlaplace_string = "%s; invlaplace((%s / BigL), BigL, T).subst(T, %s)" % (assumptions, equation_giac, float(split_time))
+    # with tempfile.NamedTemporaryFile(mode='w') as temp_fh:
+    #     temp_fh.write("%s\n" % "\n".join(giac_strings))
+    #     try:
+    #         process = subprocess.run(["giac", temp_fh.name], stderr=subprocess.PIPE, stdout=subprocess.PIPE, check=True, encoding='utf-8')
+    #     except subprocess.CalledProcessError:
+    #         exit("[X] giac could not run.")
+    #     probabilities = [np.float64(sympy.Rational(str(probability))) for probability in process.stdout.split(",\n")]
+    vector, giac_string = params
     try:
-        process = subprocess.run(["giac", "".join(giac_string)], stderr=subprocess.PIPE, stdout=subprocess.PIPE, check=True, encoding='utf-8')
-        probability = str(process.stdout)
+        process = subprocess.run(["giac", giac_string], stderr=subprocess.PIPE, stdout=subprocess.PIPE, check=True, encoding='utf-8')
+        results = str(process.stdout)
     except subprocess.CalledProcessError:
         exit("[X] giac could not run.")
-    result = None
-    if probability == 'undef':
-        print(invlaplace_string, probability, vector, marginal_query)
-    try:
-        result = np.float64(sympy.Rational(probability))
-    except TypeError:
-        print(probability)
-        print("".join(giac_string))
-    return result, vector, marginal_query
+    if results == 'undef':
+        print(giac_string, results)
+    return vector, sum([np.float64(sympy.Rational(result)) for result in results.split(",")])
 
 @contextmanager
 def poolcontext(*args, **kwargs):
@@ -332,85 +316,170 @@ def poolcontext(*args, **kwargs):
 
 ################################### Classes ###################################
 
-class NodeObj(object):
-    def __init__(self, node_id, mutype_counter, event_counter):
-        self.node_id = node_id
-        self.mutype_counter = mutype_counter
-        self.event_counter = event_counter
+def read_model(parameterObj):
+    start_time = timer()
+    print("[+] Reading paths in file %s..." % parameterObj.model_file)
+    paths_df = pd.read_csv(parameterObj.model_file, sep="\t")
+    pathObj_by_path_id = {}
+    for path_id, node_id, event, count, C_ancestor, C_derived, Migration, BigL, hetA, fixed, hetB, hetAB in tqdm(
+            paths_df.values.tolist(), total=len(paths_df.index), desc="[%] ", ncols=100):
+        if not event == 'LCA':
+            event_space = collections.Counter({
+                event_type: event_count for event_type, event_count in zip(
+                    EVENT_SPACE, [C_ancestor, C_derived, Migration, BigL, hetA, fixed, hetB, hetAB]) 
+                        if event_count
+                })
+            event_count = collections.Counter({event: count})
+            if not path_id in pathObj_by_path_id:
+                pathObj_by_path_id[path_id] = PathObj(path_id)
+            pathObj_by_path_id[path_id].add_event(event_count, event_space)
+    print("[=] Parsed %s paths from file %s in %s seconds." % (len(pathObj_by_path_id), parameterObj.model_file, timer() - start_time))
+    #for path_id, pathObj in pathObj_by_path_id.items():
+    #    pp.pprint(pathObj.__dict__)
+    return pathObj_by_path_id 
+
+def generate_event_equations(parameterObj, pathObj_by_path_id):
+    event_equations_by_mutuple = collections.defaultdict(list)
+    for mutuple in parameterObj.mutuple_space:
+        print("## mutuple", mutuple)
+        for path_id, pathObj in pathObj_by_path_id.items():
+            if pathObj.is_compatible_with_data_point(mutuple):
+                eq_numerators, eq_denominators = [], []
+                # path equation
+                for event_counter, event_space in zip(pathObj.event_counters, pathObj.event_spaces):
+                    event_type = list(event_counter.keys())[0]
+                    event_count = list(event_counter.values())[0]
+                    eq_numerators.append(event_count * parameterObj.parameters_symbolic[event_type])
+                    denominator = []
+                    for event_space_type, event_space_count in event_space.items():
+                        denominator.append(event_space_count * parameterObj.parameters_symbolic[event_space_type])
+                    eq_denominators.append(sum(denominator))
+                event_equation = 1
+                for eq_numerator, eq_denominator in zip(eq_numerators, eq_denominators):
+                    event_equation *= eq_numerator / eq_denominator
+                mutation_equation = 0
+                for slots in itertools.product(*[           
+                    list(itertools.combinations_with_replacement(pathObj.slots_by_mutype[mutype], count)) 
+                           for count, mutype in zip(mutuple, MUTYPES)]):
+                    mutypes_by_idx = collections.defaultdict(list)
+                    for _mutype, slot in zip(MUTYPES, slots):
+                        if slot: 
+                            for idx in list(slot):
+                                mutypes_by_idx[idx].append(_mutype) 
+                    mutation_part = 1
+                    for idx, mutypes in mutypes_by_idx.items():
+                        mutype_counter = collections.Counter(mutypes)
+                        mutation_part *= multinomial(mutype_counter.values())
+                        
+                        for mutype in mutypes:
+                            mutation_part *= (pathObj.event_spaces[idx][mutype] * parameterObj.parameters_symbolic[mutype]) / eq_denominators[idx]
+                    mutation_equation += mutation_part
+                mutation_equation *= event_equation 
+                event_equations_by_mutuple[mutuple].append(mutation_equation)
+                
+    return event_equations_by_mutuple
+
+def infer_composite_likelihood(event_equations_by_mutuple, raw_rates, mutuple_count_matrix, parameterObj):
+    # Setting up datastructure
+    shape = tuple(parameterObj.max_by_mutype[mutype] + 2 for mutype in MUTYPES)
+    probability_matrix = np.zeros(shape, np.float64)
+    marginal_query_by_vector = {}
+    params = []
+    vector_space = sorted(list(itertools.product(range(parameterObj.kmax+2), repeat=len(MUTYPES))))
+    for vector in vector_space:
+        # check if not FGV
+        if not all([vector[idx] > 0 for idx in FOUR_GAMETE_VIOLATION_IDX]): 
+            # set mutype rates, marginals ...
+            rates = {k: v for k, v in raw_rates.items()}
+            if not vector in event_equations_by_mutuple:
+                marginal_query = []
+                equation_mutype = []
+                for idx, mutype in enumerate(MUTYPES):
+                    if vector[idx] > parameterObj.kmax:
+                        symbol = parameterObj.parameters_symbolic[mutype]
+                        rates[symbol] = 0
+                        marginal_query.append(slice(0, parameterObj.kmax + 2))
+                        equation_mutype.append(0)
+                    else:
+                        marginal_query.append(vector[idx])
+                        equation_mutype.append(vector[idx])
+                marginal_query_by_vector[vector] = tuple(marginal_query)
+                equations = event_equations_by_mutuple[tuple(equation_mutype)]
+            else:
+                marginal_query_by_vector[vector] = None
+                equations = event_equations_by_mutuple[vector]        
+            giac_string = giacify_equations(equations, rates, parameterObj.parameters_numeric['Time'])
+            params.append([vector, giac_string])
+    probability_by_vector = {}
+    if parameterObj.threads < 2:
+        for param in tqdm(params, total=len(params), desc="[%] ", ncols=100):
+            vector, probability = inverse_laplace_transform(param)
+            probability_by_vector[vector] = probability
+    else:
+        with poolcontext(processes=parameterObj.threads) as pool:
+            with tqdm(params, total=len(params), desc="[%] ", ncols=100) as pbar:
+                for vector, probability in pool.imap_unordered(inverse_laplace_transform, params):
+                    probability_by_vector[vector] = probability
+                    pbar.update()
+    for vector, probability in probability_by_vector.items():
+        if not marginal_query_by_vector[vector] is None:
+            probability_matrix[vector] = probability - sum(probability_matrix[marginal_query_by_vector[vector]].flatten())
+        else:
+            probability_matrix[vector] = probability
+    for vector, _ in params:
+        print(vector, "\t", probability_matrix[vector])
+    print(len(params), sum(probability_matrix.flatten()))
+
+    print_params = { (param):(value if not param == 'theta' else value * 2) for param, value in parameterObj.numeric_value_by_parameter.items()}
+#    #if simplex_parameters is None:
+    #    composite_likelihood = -np.sum((xlogy(np.sign(probability_matrix), probability_matrix) * mutuple_count_matrix))
+    #    print('[+] L=-%s\t%s' % (composite_likelihood, ", ".join(["%s=%s" % (param, round(value, 4)) for param, value in print_params.items() if not param == 'BigL'])))
+    #    return composite_likelihood
+    composite_likelihood = -np.sum((xlogy(np.sign(probability_matrix), probability_matrix) * mutuple_count_matrix))
+    print(" " * 100, end='\r'),
+    print("[O] L=-%s\t%s" % (composite_likelihood, ", ".join(["%s=%s" % (param, round(value, 4)) for param, value in print_params.items() if not param == 'BigL'])))
+    return composite_likelihood
+
+def calculate_likelihood(event_equations_by_mutuple, mutuple_count_matrix, parameterObj):
+    start_time = timer()
+    print("[+] Calculating composite Likelihood ...")
+    rates = {
+        parameterObj.parameters_symbolic['hetA']: parameterObj.parameters_numeric['hetA'],
+        parameterObj.parameters_symbolic['fixed']: parameterObj.parameters_numeric['fixed'],
+        parameterObj.parameters_symbolic['hetB']: parameterObj.parameters_numeric['hetB'],
+        parameterObj.parameters_symbolic['hetAB']: parameterObj.parameters_numeric['hetAB'],
+        parameterObj.parameters_symbolic['C_ancestor']: parameterObj.parameters_numeric['C_ancestor'],
+        parameterObj.parameters_symbolic['C_derived']: parameterObj.parameters_numeric['C_derived'],
+        parameterObj.parameters_symbolic['Migration']: parameterObj.parameters_numeric['Migration']
+        }
+    composite_likelihood = infer_composite_likelihood(event_equations_by_mutuple, rates, mutuple_count_matrix, parameterObj)
+    print("[=] Calculated composite Likelihood (L=%s) in %s seconds..." % (composite_likelihood, timer() - start_time))
 
 class PathObj(object):
     def __init__(self, path_id):
         self.path_id = path_id
-        self.nodeObjs = []
-        self.event_ids = []
-        self.event_counts = []
-        self.mutable_nodes_by_mutype = collections.defaultdict(list)
+        self.steps = 0
+        self.event_counters = []    # list of event:count (what happens)
+        self.event_spaces = []      # list of events:counts (all things that can happen)
+        self.slots_by_mutype = collections.defaultdict(list)
+
         self.path_numerators = []
         self.path_denominators = []
         self.path_equation = 1
 
-    def add_step(self, nodeObj, event_id, event_count):
-        self.nodeObjs.append(nodeObj)
-        self.event_ids.append(event_id)
-        self.event_counts.append(event_count)
-
-    def infer_path_quation(self, parameterObj):
-        self.path_numerators = []
-        self.path_denominators = []
-        for nodeObj, event_id, event_count in self.yield_step():
-            self.path_numerators.append((event_count * parameterObj.parameters_symbolic[event_id]))
-            self.path_denominators.append(
-                        (nodeObj.event_counter['C_ancestor'] * parameterObj.parameters_symbolic['C_ancestor']) + 
-                        (nodeObj.event_counter['C_derived'] * parameterObj.parameters_symbolic['C_derived']) + 
-                        (nodeObj.event_counter['Migration'] * parameterObj.parameters_symbolic['Migration']) + 
-                        (nodeObj.event_counter['BigL'] * parameterObj.parameters_symbolic['BigL']) +
-                        (nodeObj.mutype_counter['hetA'] * parameterObj.parameters_symbolic['hetA']) +
-                        (nodeObj.mutype_counter['hetB'] * parameterObj.parameters_symbolic['hetB']) +
-                        (nodeObj.mutype_counter['hetAB'] * parameterObj.parameters_symbolic['hetAB']) +
-                        (nodeObj.mutype_counter['fixed'] * parameterObj.parameters_symbolic['fixed'])
-                )
-        for numerator, denominator in zip(self.path_numerators, self.path_denominators):
-            self.path_equation *= numerator / denominator
-
-    def multiply_with_path_equation(self, mutation_equation):
-        initial = 1
-        for numerator, denominator in zip(self.path_numerators, self.path_denominators):
-            initial *= numerator / denominator
-        mutation_equation *= initial
-        return mutation_equation
-
-    def infer_mutation_equation(self, mutuple, parameterObj):
-        mutation_equation = 0
-        for slots in itertools.product(*[list(itertools.combinations_with_replacement(self.mutable_nodes_by_mutype[mutype], count)) for count, mutype in zip(mutuple, MUTYPES)]):
-            mutypes_by_idx = collections.defaultdict(list)
-            for mutype, slot in zip(MUTYPES, slots):
-                if slot:
-                    for idx in list(slot):
-                        mutypes_by_idx[idx].append(mutype)
-            mutation_part = 1
-            for node_idx, mutypes in mutypes_by_idx.items():
-                mutype_counter = collections.Counter(mutypes)
-                node_multinomial = multinomial(mutype_counter.values())
-                mutation_part *= node_multinomial
-                nodeObj = self.nodeObjs[node_idx]
-                denominator = self.path_denominators[node_idx]
-                for mutype in mutypes:
-                    mutation_part *= (nodeObj.mutype_counter[mutype] * parameterObj.parameters_symbolic[mutype]) / denominator
-            mutation_equation += mutation_part
-        return mutation_equation
-
-    def infer_mutable_nodes(self):
-        for idx, nodeObj in enumerate(self.nodeObjs):
-            for mutype, count in nodeObj.mutype_counter.items():
-                if count:
-                    self.mutable_nodes_by_mutype[mutype].append(idx)
+    def add_event(self, event_count, event_space):
+        self.event_counters.append(event_count)
+        self.event_spaces.append(event_space)
+        for mutype in MUTYPE_SET.intersection(event_space):
+            self.slots_by_mutype[mutype].append(self.steps)
+        self.steps += 1
 
     def is_compatible_with_data_point(self, mutuple):
         if sum(mutuple) == 0:
             return True
         else:
             mutypes_in_mutuple = set([mutype for mutype, count in zip(MUTYPES, mutuple) if count > 0])
-            if all([(True if mutype in self.mutable_nodes_by_mutype else False) for mutype in mutypes_in_mutuple]):
+            if all([(True if mutype in self.slots_by_mutype else False) for mutype in mutypes_in_mutuple]):
                 return True
         return False
 
@@ -421,157 +490,7 @@ class PathObj(object):
     def __str__(self):
         return "# Path %s:\n%s" % (self.path_id, 
             "\n".join(["%s: %s %s" % (nodeObj.node_id, event_id, str(nodeObj.mutype_counter)) for nodeObj, event_id in zip(self.nodeObjs, self.event_ids)])
-            )
-
-def infer_composite_likelihood(x0, *args):
-    simplex_parameters, symbolic_equations_by_mutuple, mutuple_count_matrix, parameterObj = args
-    numeric_value_by_symbol_for_substitution = {}
-    numeric_value_by_parameter = {}
-    theta_by_symbol = {}
-    x0_by_parameter = {}
-    #print(x0[0], type(x0[0]))
-    if simplex_parameters:
-        # round here? if float too long then causes undef in ILT
-        x0_by_parameter = {parameter: x for parameter, x in zip(simplex_parameters, list(x0))}
-        #print(x0_by_parameter)
-    for parameter, symbol in parameterObj.parameters_symbolic.items():
-        if parameter in x0_by_parameter:
-            numeric_value_by_symbol_for_substitution[symbol] = x0_by_parameter[parameter]
-            numeric_value_by_parameter[parameter] = sympy.Rational(str(x0_by_parameter[parameter]))
-            if parameter == 'theta':
-                theta_by_symbol[symbol] = sympy.Rational(str(x0_by_parameter[parameter]))
-        else:
-            if parameter in set(MUTYPES):
-                theta_by_symbol[symbol] = x0_by_parameter['theta'] if 'theta' in x0_by_parameter else parameterObj.parameters_numeric['theta']
-            else:
-                numeric_value_by_symbol_for_substitution[symbol] = parameterObj.parameters_numeric[parameter]
-                numeric_value_by_parameter[parameter] = parameterObj.parameters_numeric[parameter]             
-    #print(numeric_value_by_parameter)
-    #print(numeric_value_by_symbol_for_substitution)      
-    equation_by_mutuple = {
-        mutuple: sum(equation).xreplace(numeric_value_by_symbol_for_substitution)
-        for mutuple, equation in symbolic_equations_by_mutuple.items()
-        }
-    # Setting up datastructure
-    shape = tuple(parameterObj.max_by_mutype[mutype] + 2 for mutype in MUTYPES)
-    probability_matrix = np.zeros(shape, np.float64)
-    # Generating sets of mutation_rate combinations for marginals
-    vector_seen = set([])
-    for mutypes in reversed(list(powerset(MUTYPES))):
-        mutypes_masked = set([mutype for mutype in MUTYPES if not mutype in mutypes])
-        if not FOUR_GAMETE_VIOLATION.issubset(mutypes_masked):
-            equations_by_vector = collections.defaultdict(list)
-            marginal_queries = []
-            vectors = []
-            rates_by_mutype_by_vector = {}
-            for data_tuple in sorted(equation_by_mutuple.keys()):               
-                vector = tuple([count if not mutype in mutypes_masked else parameterObj.max_by_mutype[mutype] + 1 for count, mutype in zip(data_tuple, MUTYPES)])
-                if not vector in vector_seen:
-                    vector_seen.add(vector)
-                    if not len([mutype for mutype, count in zip(MUTYPES, vector) if mutype in FOUR_GAMETE_VIOLATION and count > 0]) > 1: 
-                        vectors.append(vector)
-                        rates_by_mutype_by_vector[vector] = {parameterObj.parameters_symbolic[mutype]: (numeric_value_by_parameter['theta'] if mutype in mutypes else 0) for mutype in MUTYPES}
-                        if not mutypes_masked:
-                            marginal_query = None
-                        else:
-                            marginal_query = tuple(
-                                [(data_tuple[idx] if not mutype in mutypes_masked else slice(0, parameterObj.max_by_mutype[mutype] + 2)) 
-                                    for idx, mutype in enumerate(MUTYPES)])
-                        marginal_queries.append(marginal_query)
-                        equations_by_vector[vector] = equation_by_mutuple[data_tuple]
-            # can be parallelised 
-            params = [(vector, marginal_query, equations_by_vector[vector], rates_by_mutype_by_vector[vector], numeric_value_by_parameter['Time']) for vector, marginal_query in zip(vectors, marginal_queries)]
-            if parameterObj.threads < 2:
-                for param in params:
-                    probability, vector, marginal_query = inverse_laplace_transform(param)
-                    if marginal_query:
-                        probability -= sum(probability_matrix[marginal_query].flatten())
-                    probability_matrix[vector] = probability
-            else:
-                with poolcontext(processes=parameterObj.threads) as pool:
-                    for probability, vector, marginal_query in pool.imap_unordered(inverse_laplace_transform, params):
-                        if marginal_query:
-                            probability -= sum(probability_matrix[marginal_query].flatten())
-                        probability_matrix[vector] = probability                            
-    print_params = { (param):(value if not param == 'theta' else value * 2) for param, value in numeric_value_by_parameter.items()}
-    if simplex_parameters is None:
-        composite_likelihood = -np.sum((xlogy(np.sign(probability_matrix), probability_matrix) * mutuple_count_matrix))
-        print('[+] L=-%s\t%s' % (composite_likelihood, ", ".join(["%s=%s" % (param, round(value, 4)) for param, value in print_params.items() if not param == 'BigL'])))
-        return composite_likelihood
-    composite_likelihood = -np.sum((xlogy(np.sign(probability_matrix), probability_matrix) * mutuple_count_matrix))
-    print(" " * 100, end='\r'),
-    print("[O] L=-%s\t%s" % (composite_likelihood, ", ".join(["%s=%s" % (param, round(value, 4)) for param, value in print_params.items() if not param == 'BigL'])))
-    return composite_likelihood
-
-def calculate_likelihood(symbolic_equations_by_mutuple, mutuple_count_matrix, parameterObj):
-    start_time = timer()
-    print("[+] Calculating composite Likelihood ...")
-    x0, simplex_parameters = None, None
-    composite_likelihood = infer_composite_likelihood(x0, simplex_parameters, symbolic_equations_by_mutuple, mutuple_count_matrix, parameterObj)
-    print("[=] Calculated composite Likelihood (L=%s) in %s seconds..." % (composite_likelihood, timer() - start_time))
-
-def prepare_paths(parameterObj):
-    # infer path_probabilities for each pathObj (only has to be done once) ... 
-    start_time = timer()
-    pathObj_by_path_id = read_paths(parameterObj)
-    print("[+] Preparing %s paths (path equations and mutable nodes) ..." % (len(pathObj_by_path_id)))
-    for path_id, pathObj in tqdm(pathObj_by_path_id.items(), total=len(pathObj_by_path_id), desc="[%] ", ncols=100):
-        pathObj.infer_mutable_nodes()
-        pathObj.infer_path_quation(parameterObj)
-    print("[=] Prepared paths in %s seconds." % (timer() - start_time))
-    return pathObj_by_path_id
-
-def read_paths(parameterObj):
-    start_time = timer()
-    print("[+] Reading paths in file %s..." % parameterObj.model_file)
-    paths_df = pd.read_csv(parameterObj.model_file, sep="\t")
-    pathObj_by_path_id = {}
-    nodeObj_by_node_id = {}
-    for path_id, node_id, event_id, event_count, C_ancestor, C_derived, Migration, BigL, hetA, fixed, hetB, hetAB in tqdm(paths_df.values.tolist(), total=len(paths_df.index), desc="[%] ", ncols=100):
-        if not event_id == 'LCA':
-            if not node_id in nodeObj_by_node_id:
-                mutype_counter = collections.Counter({'hetA': hetA, 'fixed': fixed, 'hetB': hetB, 'hetAB': hetAB})
-                event_counter = collections.Counter({'C_ancestor': C_ancestor, 'C_derived': C_derived, 'Migration': Migration, 'BigL': BigL})
-                nodeObj_by_node_id[node_id] = NodeObj(node_id, mutype_counter, event_counter)
-            if not path_id in pathObj_by_path_id:
-                pathObj_by_path_id[path_id] = PathObj(path_id)
-            pathObj_by_path_id[path_id].add_step(nodeObj_by_node_id[node_id], event_id, event_count)
-    print("[=] Parsed %s paths from file %s in %s seconds." % (len(pathObj_by_path_id), parameterObj.model_file, timer() - start_time))
-    return pathObj_by_path_id         
-
-def generate_equations(pathObj_by_path_id, parameterObj):
-    start_time = timer()
-    args = []
-    equations_by_data_tuple = collections.defaultdict(list)
-    for mutuple in parameterObj.mutuple_space:
-        for path_id, pathObj in pathObj_by_path_id.items():
-            if pathObj.is_compatible_with_data_point(mutuple):
-                args.append((  
-                    mutuple, 
-                    pathObj, 
-                    parameterObj))
-            else:
-                #equation is 0 if data point can't be placed on path ...
-                equations_by_data_tuple[mutuple].append(0)                            
-    print("[+] Analysing %s combinations of paths and data points with %s threads..." % (len(args), parameterObj.threads))
-    if parameterObj.threads == 1:
-        for param in tqdm(args, total=len(args), desc="[%] ", ncols=100):
-            data_tuple, equation = build_equation(param)
-            equations_by_data_tuple[data_tuple].append(equation)
-    else:
-        with poolcontext(processes=parameterObj.threads) as pool:
-            with tqdm(args, total=len(args), desc="[%] ", ncols=100) as pbar:
-                for data_tuple, equation in pool.imap_unordered(build_equation, args):
-                    equations_by_data_tuple[data_tuple].append(equation)
-                    pbar.update()
-    print("[=] Analysed paths in %s seconds." % (timer() - start_time))
-    return equations_by_data_tuple
-
-def build_equation(args):
-    mutuple, pathObj, parameterObj = args
-    mutation_equation = pathObj.infer_mutation_equation(mutuple, parameterObj)
-    equation = pathObj.multiply_with_path_equation(mutation_equation)
-    return mutuple, equation
+            )    
 
 def generate_initial_simplex(boundaries, seed):
     np.random.seed(seed)

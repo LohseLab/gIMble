@@ -1,4 +1,3 @@
-from docopt import docopt
 from itertools import combinations, repeat
 from collections import Counter, defaultdict, OrderedDict
 from networkx.drawing.nx_agraph import graphviz_layout
@@ -11,7 +10,7 @@ from timeit import default_timer as timer
 from sys import stderr, exit
 from ast import literal_eval
 from pandas import DataFrame
-
+import itertools
 ################################### Constants #################################
 
 mutype_by_lineage = {
@@ -35,10 +34,35 @@ label_text_colour = {
     'None' : 'darkgrey'
     }
 
+MUTYPES = ['hetA', 'fixed', 'hetB', 'hetAB']
+
 ###############################################################################
 
 
 ################################### Functions #################################
+
+def flat_tuple(obj):
+    for x in obj:
+        if isinstance(x, str):
+            yield x
+        elif isinstance(x, tuple):
+            yield from flat_tuple(x)
+        else:
+            raise TypeError
+
+def joins(string, events=None):
+    if events is None:
+        events = []
+    for substring in string:
+        if isinstance(substring, tuple):
+            if len(substring) == 2:
+                joins(substring, events)
+            else:
+                for pop_1, pop_2 in itertools.combinations(sorted(substring), 2):
+                    joins((pop_1, pop_2), events)
+    if string:
+        events.append("%s" % "&".join(sorted(list(flat_tuple(string)))))
+    return events
 
 def create_csv(out_f, header, rows, sep):
     df = DataFrame(rows, columns=header)
@@ -69,7 +93,7 @@ def plot_state_graph(state_graph, out_f, parameterObj):
         'C_ancestor' : 'gold',
         'C' : 'gold',
         'M' : 'deeppink',
-        'MM' : 'lightskyblue',
+        'E' : 'lightskyblue',
         'R' : 'lightskyblue'
     }
     edge_width_by_event = {
@@ -77,7 +101,7 @@ def plot_state_graph(state_graph, out_f, parameterObj):
         'C_ancestor' : 1,
         'C' : 1,
         'M' : 1,
-        'MM' : 1,
+        'E' : 1,
         'R' : 1
     }
     edge_style_by_event = {
@@ -85,7 +109,7 @@ def plot_state_graph(state_graph, out_f, parameterObj):
         'C_ancestor' : 'solid',
         'C' : 'solid',
         'M' : 'dashed',
-        'MM' : 'dotted',
+        'E' : 'dotted',
         'R' : 'dotted'
     }
     legend_by_event = {
@@ -93,15 +117,16 @@ def plot_state_graph(state_graph, out_f, parameterObj):
         'C_ancestor' : 'C_ancestor',
         'C' : 'Coalescence',
         'M' : 'Migration',
-        'MM' : 'MassMigration'
+        'E' : 'MassMigration'
     }
     for idx, (x, y) in graphviz_layout(state_graph, prog='dot',  args="-Grotation=90").items():
         state_graph.node[idx]['pos'] = (x, y)
     node_pos_by_idx = nx.get_node_attributes(state_graph, 'pos')
     edges_by_event = defaultdict(list)
-    for sink, source in state_graph.edges():
-        event = state_graph[sink][source]['event']
-        edges_by_event[event].append((sink, source))
+    for source, sink, data in state_graph.edges.data():
+        event = data['event']
+        edges_by_event[event].append((sink, source, data))
+    print("edges_by_event", edges_by_event)
     rows = len(set([y for x, y in node_pos_by_idx.values()]))
     columns = len(set([x for x, y in node_pos_by_idx.values()]))
     label_font_size = 12
@@ -113,7 +138,7 @@ def plot_state_graph(state_graph, out_f, parameterObj):
     event_handles, event_labels = [], []
     for event, edgelist in edges_by_event.items():
         lines = nx.draw_networkx_edges(state_graph, pos=node_pos_by_idx, edge_color=edge_colour_by_event[event], width=edge_width_by_event[event], edgelist=edgelist, alpha=1.0)
-        edge_labels = {(sink, source): state_graph[sink][source]['count'] for sink, source in edgelist}
+        edge_labels = {(sink, source): data['count'] for (sink, source, data) in edgelist}
         nx.draw_networkx_edge_labels(state_graph, pos=node_pos_by_idx, edgelist=edgelist, font_color='black', edge_labels=edge_labels, label_pos=0.42, font_size=label_font_size, rotate=False, bbox=dict(facecolor=edge_colour_by_event[event], edgecolor='black'))
         for line in lines:
             line.set_linestyle(edge_style_by_event[event])
@@ -138,10 +163,10 @@ class ParameterObj(object):
     def __init__(self, args):
         self.ploidy = int(args['--ploidy'])
         self.migration = args['--migration']
-        self.plot_mutypes = args['--plot_mutypes']
-        self.no_graph_labels = args['--no_graph_labels']
-        self.exodus = args['--exodus']
-        self.reverse_exodus = args['--reverse_exodus']
+        #self.plot_mutypes = args['--plot_mutypes']
+        #self.no_graph_labels = args['--no_graph_labels']
+        self.exodus = args['--mass_migration']
+        self.reverse_exodus = args['--mass_migration_reverse']
         self.out_prefix = args['--out_prefix']
         self.sample_input = args['--samples'] 
         self.migration_possible = any([self.migration, self.exodus, self.reverse_exodus])
@@ -247,12 +272,25 @@ class ParameterObj(object):
 
     def write_graph(self, state_graph):
         start_time = timer()
-        out_f = "%s.gml" % (self.get_basename())
+        out_f = "%s.gexf" % (self.get_basename())
+        print(out_f)
         # states have to be stringified ...
+        #print(list(state_graph.nodes(data=True)))
+        print(list(state_graph.edges(data=True)))
         for idx, node in state_graph.nodes(data=True):
-            # print(idx, node)
-            node['label'] = str(node.get('label', None))
-        nx.write_gml(state_graph, out_f)
+            node['label'] = str(node.get('label', 'sink'))
+            if 'meta' in node:
+                if node['meta'] is None:
+                    node['meta'] = 'none'
+            else:
+                node['meta'] = 'none'
+            if 'mutype' in node:
+                node['mutype'] = ";".join(["%s=%s" % (mutype, node['mutype'][mutype]) for mutype in MUTYPES])
+            node['x'] = node['pos'][0]
+            node['y'] = node['pos'][1]
+            node['pos'] = 'none'
+        print(state_graph.graph)
+        nx.write_gexf(state_graph, out_f)
         print("[+] Written graph into file %s in %s seconds." % (out_f, timer() - start_time))
         return out_f
 
@@ -297,6 +335,7 @@ def build_state_graph(parameterObj):
         sampleStateObj.label : 'source',
         lcaStateObj.label : 'sink',
     }
+    edge_idx = 0
     while 1:
         if len(queue) == 0:
             break
@@ -315,10 +354,14 @@ def build_state_graph(parameterObj):
                     lcaStateObj.idx = ancestorStateObj.idx
         state_graph.add_node(current_stateObj.idx, label=current_stateObj.label, mutype=current_stateObj.mutypes, meta=meta.get(current_stateObj.label))
         stateObj_by_idx[current_stateObj.idx] = current_stateObj
+
         for node_idx in current_stateObj.count_by_event_by_node_idx:
             for event, count in current_stateObj.count_by_event_by_node_idx[node_idx].items():
-                edges.append((current_stateObj.idx, node_idx, {'count': count, 'event': event}))
+                #state_graph.add_edge(current_stateObj.idx, node_idx, data={'id': edge_idx,'count': count, 'event': event})
+                edges.append((current_stateObj.idx, node_idx, {'key': edge_idx, 'count': count, 'event': event}))
+                edge_idx+=1
     state_graph.add_edges_from(edges)
+    print(state_graph.edges(data=True))
     print("[+] Generated graph with %s states, %s events in %s seconds." % (state_graph.number_of_nodes(), state_graph.number_of_edges(), timer() - start_time))
     return (state_graph, stateObj_by_idx)
 
@@ -326,8 +369,9 @@ def get_state_paths(state_graph, parameterObj):
     start_time = timer()
     # Get total outgoing edges by event_type for each node 
     total_by_event_by_node_idx = defaultdict(Counter)
-    for source, sink, data in state_graph.edges.data():
-        total_by_event_by_node_idx[source][data['event']] += data['count']
+    for source, sink, data in state_graph.edges(data=True):
+        print(source, sink, data)
+        total_by_event_by_node_idx[source][sink] += data['count']
     mutype_by_node_idx = {node_idx: mutype for node_idx, mutype in nx.get_node_attributes(state_graph, 'mutype').items()}
     header = ['path_idx', 'node', 'event', 'event_count', 'C_ancestor', 'C_derived', 'Ms', 'Es', 'hetA', 'fixed', 'hetB', 'hetAB']
     paths = []

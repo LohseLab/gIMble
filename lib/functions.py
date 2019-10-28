@@ -7,8 +7,9 @@ from contextlib import contextmanager
 import sys
 import collections
 import pandas as pd
-from tabulate import tabulate
+#from tabulate import tabulate
 
+import logging 
 import matplotlib as mat
 import matplotlib.pyplot as plt
 mat.use("agg")
@@ -35,6 +36,8 @@ mat.rcParams['xtick.labelsize'] = AXES_LABELS_FONTSIZE
 mat.rcParams['ytick.labelsize'] = AXES_LABELS_FONTSIZE
 mat.rcParams['figure.frameon'] = False
 mat.rcParams['axes.grid'] = False
+mpl_logger = logging.getLogger('matplotlib') 
+mpl_logger.setLevel(logging.WARNING) 
 
 def plot_pi_genome_scan(window_df, out_f, sequenceObjs):
     offset_by_sequence_id = {}

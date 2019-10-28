@@ -1,0 +1,443 @@
+<?xml version='1.0' encoding='utf-8'?>
+<gexf version="1.2" xmlns="http://www.gexf.net/1.2draft" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.w3.org/2001/XMLSchema-instance">
+  <graph defaultedgetype="directed" mode="static" name="">
+    <attributes class="edge" mode="static">
+      <attribute id="5" title="networkx_key" type="long" />
+      <attribute id="6" title="count" type="long" />
+      <attribute id="7" title="event" type="string" />
+    </attributes>
+    <attributes class="node" mode="static">
+      <attribute id="0" title="mutype" type="string" />
+      <attribute id="1" title="meta" type="string" />
+      <attribute id="2" title="pos" type="string" />
+      <attribute id="3" title="x" type="double" />
+      <attribute id="4" title="y" type="double" />
+    </attributes>
+    <meta>
+      <creator>NetworkX 2.3</creator>
+      <lastmodified>02/10/2019</lastmodified>
+    </meta>
+    <nodes>
+      <node id="0" label="D:{a,a} A:[b,b]">
+        <attvalues>
+          <attvalue for="0" value="hetA=2;fixed=0;hetB=2;hetAB=0" />
+          <attvalue for="1" value="source" />
+          <attvalue for="2" value="none" />
+          <attvalue for="3" value="330.59" />
+          <attvalue for="4" value="378.0" />
+        </attvalues>
+      </node>
+      <node id="1" label="D:{aa} A:[b,b]">
+        <attvalues>
+          <attvalue for="0" value="hetA=0;fixed=1;hetB=2;hetAB=0" />
+          <attvalue for="1" value="none" />
+          <attvalue for="2" value="none" />
+          <attvalue for="3" value="166.59" />
+          <attvalue for="4" value="234.0" />
+        </attvalues>
+      </node>
+      <node id="2" label="D:{a,a} A:[bb]">
+        <attvalues>
+          <attvalue for="0" value="hetA=2;fixed=1;hetB=0;hetAB=0" />
+          <attvalue for="1" value="none" />
+          <attvalue for="2" value="none" />
+          <attvalue for="3" value="257.59" />
+          <attvalue for="4" value="306.0" />
+        </attvalues>
+      </node>
+      <node id="3" label="D:{a} A:[a,b,b]">
+        <attvalues>
+          <attvalue for="0" value="hetA=2;fixed=0;hetB=2;hetAB=0" />
+          <attvalue for="1" value="none" />
+          <attvalue for="2" value="none" />
+          <attvalue for="3" value="403.59" />
+          <attvalue for="4" value="306.0" />
+        </attvalues>
+      </node>
+      <node id="4" label="D:{} A:[a,a,b,b]">
+        <attvalues>
+          <attvalue for="0" value="hetA=2;fixed=0;hetB=2;hetAB=0" />
+          <attvalue for="1" value="none" />
+          <attvalue for="2" value="none" />
+          <attvalue for="3" value="496.59" />
+          <attvalue for="4" value="234.0" />
+        </attvalues>
+      </node>
+      <node id="5" label="D:{aa} A:[bb]">
+        <attvalues>
+          <attvalue for="0" value="hetA=0;fixed=2;hetB=0;hetAB=0" />
+          <attvalue for="1" value="none" />
+          <attvalue for="2" value="none" />
+          <attvalue for="3" value="60.594" />
+          <attvalue for="4" value="162.0" />
+        </attvalues>
+      </node>
+      <node id="6" label="D:{} A:[aa,b,b]">
+        <attvalues>
+          <attvalue for="0" value="hetA=0;fixed=1;hetB=2;hetAB=0" />
+          <attvalue for="1" value="none" />
+          <attvalue for="2" value="none" />
+          <attvalue for="3" value="204.59" />
+          <attvalue for="4" value="162.0" />
+        </attvalues>
+      </node>
+      <node id="7" label="D:{a} A:[a,bb]">
+        <attvalues>
+          <attvalue for="0" value="hetA=2;fixed=1;hetB=0;hetAB=0" />
+          <attvalue for="1" value="none" />
+          <attvalue for="2" value="none" />
+          <attvalue for="3" value="348.59" />
+          <attvalue for="4" value="234.0" />
+        </attvalues>
+      </node>
+      <node id="8" label="D:{} A:[a,a,bb]">
+        <attvalues>
+          <attvalue for="0" value="hetA=2;fixed=1;hetB=0;hetAB=0" />
+          <attvalue for="1" value="none" />
+          <attvalue for="2" value="none" />
+          <attvalue for="3" value="352.59" />
+          <attvalue for="4" value="162.0" />
+        </attvalues>
+      </node>
+      <node id="9" label="D:{a} A:[ab,b]">
+        <attvalues>
+          <attvalue for="0" value="hetA=1;fixed=0;hetB=1;hetAB=1" />
+          <attvalue for="1" value="none" />
+          <attvalue for="2" value="none" />
+          <attvalue for="3" value="644.59" />
+          <attvalue for="4" value="234.0" />
+        </attvalues>
+      </node>
+      <node id="10" label="D:{} A:[a,ab,b]">
+        <attvalues>
+          <attvalue for="0" value="hetA=1;fixed=0;hetB=1;hetAB=1" />
+          <attvalue for="1" value="none" />
+          <attvalue for="2" value="none" />
+          <attvalue for="3" value="640.59" />
+          <attvalue for="4" value="162.0" />
+        </attvalues>
+      </node>
+      <node id="11" label="D:{} A:[aa,bb]">
+        <attvalues>
+          <attvalue for="0" value="hetA=0;fixed=2;hetB=0;hetAB=0" />
+          <attvalue for="1" value="none" />
+          <attvalue for="2" value="none" />
+          <attvalue for="3" value="204.59" />
+          <attvalue for="4" value="90.0" />
+        </attvalues>
+      </node>
+      <node id="12" label="D:{} A:[aab,b]">
+        <attvalues>
+          <attvalue for="0" value="hetA=0;fixed=0;hetB=2;hetAB=0" />
+          <attvalue for="1" value="none" />
+          <attvalue for="2" value="none" />
+          <attvalue for="3" value="352.59" />
+          <attvalue for="4" value="90.0" />
+        </attvalues>
+      </node>
+      <node id="13" label="D:{a} A:[abb]">
+        <attvalues>
+          <attvalue for="0" value="hetA=2;fixed=0;hetB=0;hetAB=0" />
+          <attvalue for="1" value="none" />
+          <attvalue for="2" value="none" />
+          <attvalue for="3" value="496.59" />
+          <attvalue for="4" value="162.0" />
+        </attvalues>
+      </node>
+      <node id="14" label="D:{} A:[a,abb]">
+        <attvalues>
+          <attvalue for="0" value="hetA=2;fixed=0;hetB=0;hetAB=0" />
+          <attvalue for="1" value="none" />
+          <attvalue for="2" value="none" />
+          <attvalue for="3" value="496.59" />
+          <attvalue for="4" value="90.0" />
+        </attvalues>
+      </node>
+      <node id="15" label="D:{} A:[ab,ab]">
+        <attvalues>
+          <attvalue for="0" value="hetA=0;fixed=0;hetB=0;hetAB=2" />
+          <attvalue for="1" value="none" />
+          <attvalue for="2" value="none" />
+          <attvalue for="3" value="640.59" />
+          <attvalue for="4" value="90.0" />
+        </attvalues>
+      </node>
+      <node id="16" label="sink">
+        <attvalues>
+          <attvalue for="2" value="none" />
+          <attvalue for="1" value="none" />
+          <attvalue for="3" value="424.59" />
+          <attvalue for="4" value="18.0" />
+        </attvalues>
+      </node>
+    </nodes>
+    <edges>
+      <edge id="0" source="0" target="1">
+        <attvalues>
+          <attvalue for="5" value="0" />
+          <attvalue for="6" value="1" />
+          <attvalue for="7" value="C_derived" />
+        </attvalues>
+      </edge>
+      <edge id="1" source="0" target="2">
+        <attvalues>
+          <attvalue for="5" value="0" />
+          <attvalue for="6" value="1" />
+          <attvalue for="7" value="C_ancestor" />
+        </attvalues>
+      </edge>
+      <edge id="2" source="0" target="3">
+        <attvalues>
+          <attvalue for="5" value="0" />
+          <attvalue for="6" value="2" />
+          <attvalue for="7" value="M" />
+        </attvalues>
+      </edge>
+      <edge id="3" source="0" target="4">
+        <attvalues>
+          <attvalue for="5" value="0" />
+          <attvalue for="6" value="1" />
+          <attvalue for="7" value="E" />
+        </attvalues>
+      </edge>
+      <edge id="4" source="1" target="5">
+        <attvalues>
+          <attvalue for="5" value="0" />
+          <attvalue for="6" value="1" />
+          <attvalue for="7" value="C_ancestor" />
+        </attvalues>
+      </edge>
+      <edge id="5" source="1" target="6">
+        <attvalues>
+          <attvalue for="5" value="0" />
+          <attvalue for="6" value="1" />
+          <attvalue for="7" value="M" />
+        </attvalues>
+      </edge>
+      <edge id="6" source="1" target="6">
+        <attvalues>
+          <attvalue for="5" value="1" />
+          <attvalue for="6" value="1" />
+          <attvalue for="7" value="E" />
+        </attvalues>
+      </edge>
+      <edge id="7" source="2" target="5">
+        <attvalues>
+          <attvalue for="5" value="0" />
+          <attvalue for="6" value="1" />
+          <attvalue for="7" value="C_derived" />
+        </attvalues>
+      </edge>
+      <edge id="8" source="2" target="7">
+        <attvalues>
+          <attvalue for="5" value="0" />
+          <attvalue for="6" value="2" />
+          <attvalue for="7" value="M" />
+        </attvalues>
+      </edge>
+      <edge id="9" source="2" target="8">
+        <attvalues>
+          <attvalue for="5" value="0" />
+          <attvalue for="6" value="1" />
+          <attvalue for="7" value="E" />
+        </attvalues>
+      </edge>
+      <edge id="10" source="3" target="9">
+        <attvalues>
+          <attvalue for="5" value="0" />
+          <attvalue for="6" value="2" />
+          <attvalue for="7" value="C_ancestor" />
+        </attvalues>
+      </edge>
+      <edge id="11" source="3" target="7">
+        <attvalues>
+          <attvalue for="5" value="0" />
+          <attvalue for="6" value="1" />
+          <attvalue for="7" value="C_ancestor" />
+        </attvalues>
+      </edge>
+      <edge id="12" source="3" target="4">
+        <attvalues>
+          <attvalue for="5" value="0" />
+          <attvalue for="6" value="1" />
+          <attvalue for="7" value="M" />
+        </attvalues>
+      </edge>
+      <edge id="13" source="3" target="4">
+        <attvalues>
+          <attvalue for="5" value="1" />
+          <attvalue for="6" value="1" />
+          <attvalue for="7" value="E" />
+        </attvalues>
+      </edge>
+      <edge id="14" source="4" target="6">
+        <attvalues>
+          <attvalue for="5" value="0" />
+          <attvalue for="6" value="1" />
+          <attvalue for="7" value="C_ancestor" />
+        </attvalues>
+      </edge>
+      <edge id="15" source="4" target="10">
+        <attvalues>
+          <attvalue for="5" value="0" />
+          <attvalue for="6" value="4" />
+          <attvalue for="7" value="C_ancestor" />
+        </attvalues>
+      </edge>
+      <edge id="16" source="4" target="8">
+        <attvalues>
+          <attvalue for="5" value="0" />
+          <attvalue for="6" value="1" />
+          <attvalue for="7" value="C_ancestor" />
+        </attvalues>
+      </edge>
+      <edge id="17" source="5" target="11">
+        <attvalues>
+          <attvalue for="5" value="0" />
+          <attvalue for="6" value="1" />
+          <attvalue for="7" value="M" />
+        </attvalues>
+      </edge>
+      <edge id="18" source="5" target="11">
+        <attvalues>
+          <attvalue for="5" value="1" />
+          <attvalue for="6" value="1" />
+          <attvalue for="7" value="E" />
+        </attvalues>
+      </edge>
+      <edge id="19" source="6" target="12">
+        <attvalues>
+          <attvalue for="5" value="0" />
+          <attvalue for="6" value="2" />
+          <attvalue for="7" value="C_ancestor" />
+        </attvalues>
+      </edge>
+      <edge id="20" source="6" target="11">
+        <attvalues>
+          <attvalue for="5" value="0" />
+          <attvalue for="6" value="1" />
+          <attvalue for="7" value="C_ancestor" />
+        </attvalues>
+      </edge>
+      <edge id="21" source="7" target="13">
+        <attvalues>
+          <attvalue for="5" value="0" />
+          <attvalue for="6" value="1" />
+          <attvalue for="7" value="C_ancestor" />
+        </attvalues>
+      </edge>
+      <edge id="22" source="7" target="8">
+        <attvalues>
+          <attvalue for="5" value="0" />
+          <attvalue for="6" value="1" />
+          <attvalue for="7" value="M" />
+        </attvalues>
+      </edge>
+      <edge id="23" source="7" target="8">
+        <attvalues>
+          <attvalue for="5" value="1" />
+          <attvalue for="6" value="1" />
+          <attvalue for="7" value="E" />
+        </attvalues>
+      </edge>
+      <edge id="24" source="8" target="11">
+        <attvalues>
+          <attvalue for="5" value="0" />
+          <attvalue for="6" value="1" />
+          <attvalue for="7" value="C_ancestor" />
+        </attvalues>
+      </edge>
+      <edge id="25" source="8" target="14">
+        <attvalues>
+          <attvalue for="5" value="0" />
+          <attvalue for="6" value="2" />
+          <attvalue for="7" value="C_ancestor" />
+        </attvalues>
+      </edge>
+      <edge id="26" source="9" target="13">
+        <attvalues>
+          <attvalue for="5" value="0" />
+          <attvalue for="6" value="1" />
+          <attvalue for="7" value="C_ancestor" />
+        </attvalues>
+      </edge>
+      <edge id="27" source="9" target="10">
+        <attvalues>
+          <attvalue for="5" value="0" />
+          <attvalue for="6" value="1" />
+          <attvalue for="7" value="M" />
+        </attvalues>
+      </edge>
+      <edge id="28" source="9" target="10">
+        <attvalues>
+          <attvalue for="5" value="1" />
+          <attvalue for="6" value="1" />
+          <attvalue for="7" value="E" />
+        </attvalues>
+      </edge>
+      <edge id="29" source="10" target="12">
+        <attvalues>
+          <attvalue for="5" value="0" />
+          <attvalue for="6" value="1" />
+          <attvalue for="7" value="C_ancestor" />
+        </attvalues>
+      </edge>
+      <edge id="30" source="10" target="15">
+        <attvalues>
+          <attvalue for="5" value="0" />
+          <attvalue for="6" value="1" />
+          <attvalue for="7" value="C_ancestor" />
+        </attvalues>
+      </edge>
+      <edge id="31" source="10" target="14">
+        <attvalues>
+          <attvalue for="5" value="0" />
+          <attvalue for="6" value="1" />
+          <attvalue for="7" value="C_ancestor" />
+        </attvalues>
+      </edge>
+      <edge id="32" source="11" target="16">
+        <attvalues>
+          <attvalue for="5" value="0" />
+          <attvalue for="6" value="1" />
+          <attvalue for="7" value="C_ancestor" />
+        </attvalues>
+      </edge>
+      <edge id="33" source="12" target="16">
+        <attvalues>
+          <attvalue for="5" value="0" />
+          <attvalue for="6" value="1" />
+          <attvalue for="7" value="C_ancestor" />
+        </attvalues>
+      </edge>
+      <edge id="34" source="13" target="14">
+        <attvalues>
+          <attvalue for="5" value="0" />
+          <attvalue for="6" value="1" />
+          <attvalue for="7" value="M" />
+        </attvalues>
+      </edge>
+      <edge id="35" source="13" target="14">
+        <attvalues>
+          <attvalue for="5" value="1" />
+          <attvalue for="6" value="1" />
+          <attvalue for="7" value="E" />
+        </attvalues>
+      </edge>
+      <edge id="36" source="14" target="16">
+        <attvalues>
+          <attvalue for="5" value="0" />
+          <attvalue for="6" value="1" />
+          <attvalue for="7" value="C_ancestor" />
+        </attvalues>
+      </edge>
+      <edge id="37" source="15" target="16">
+        <attvalues>
+          <attvalue for="5" value="0" />
+          <attvalue for="6" value="1" />
+          <attvalue for="7" value="C_ancestor" />
+        </attvalues>
+      </edge>
+    </edges>
+  </graph>
+</gexf>
