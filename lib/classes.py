@@ -148,8 +148,8 @@ class EntityCollection(object):
     def add_blockObjs(self, blockObjs):
         blockObjs.sort(key=lambda x: (x.sequence_id, x.start)) 
         for idx, blockObj in enumerate(blockObjs):
-            if blockObj.span < 64 or blockObj.span > 80:
-                print(blockObj.id, blockObj.span)
+            #if blockObj.span < 64 or blockObj.span > 80:
+            #    print(blockObj.id, blockObj.span)
             self.blockObjs.append(blockObj)
             self.block_idx_by_block_id[blockObj.id] = len(self.blockObjs) - 1
     
@@ -228,9 +228,9 @@ class EntityCollection(object):
 
     def transform_coordinates_blockObj(self, params):
         blockObj, coordinateTransformObj = params
-        # print(">", blockObj.sequence_id, blockObj.start, blockObj.end)
+        #print(">", blockObj.sequence_id, blockObj.start, blockObj.end)
         new_sequence_id, new_start, new_end = coordinateTransformObj.transform_coordinates(blockObj.sequence_id, blockObj.start, blockObj.end)
-        # print("<", new_sequence_id, new_start, new_end)
+        #print("<", new_sequence_id, new_start, new_end)
         new_bed_tuples = []
         if new_sequence_id is None:
             blockObj.void = True
@@ -243,6 +243,7 @@ class EntityCollection(object):
                 new_bed_tuples.append((new_bed_sequence_id, new_bed_start, new_bed_end))
             new_bed_tuples.sort(key=lambda i: (i[0], i[1]))
             blockObj.bed_tuples = new_bed_tuples
+        #print(blockObj.bed_tuples)
 
     def parse_sample_file(self, parameterObj):
         if not parameterObj.sample_file:

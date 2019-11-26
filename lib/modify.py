@@ -41,8 +41,7 @@ def parse_coordinates(parameterObj):
         parameterObj.coordinates_file, 
         sep="\t", 
         usecols=[0, 1, 2, 3, 4, 5, 6], 
-        names=['chrom_id', 'chrom_start', 'chrom_end', 'sequence_id', 'sequence_start', 'sequence_end', 'sequence_orientation'], 
-        skiprows=1, 
+        names=['chrom_id', 'chrom_start', 'chrom_end', 'sequence_id', 'sequence_start', 'sequence_end', 'sequence_orientation'],  
         header=None, 
         dtype={ 
             'chrom_id': 'category', 
