@@ -243,7 +243,7 @@ class EntityCollection(object):
                 new_bed_tuples.append((new_bed_sequence_id, new_bed_start, new_bed_end))
             new_bed_tuples.sort(key=lambda i: (i[0], i[1]))
             blockObj.bed_tuples = new_bed_tuples
-        #print(blockObj.bed_tuples)
+        print(blockObj.bed_tuples)
 
     def parse_sample_file(self, parameterObj):
         if not parameterObj.sample_file:
