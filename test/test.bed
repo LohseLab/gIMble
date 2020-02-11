@@ -1,4 +1,3 @@
-chrom	start	end	num	list
 toy1	0	100	6	A,B,C,X,Y,Z
 toy1	100	164	4	A,B,X,Y
 toy1	164	228	4	A,C,X,Z

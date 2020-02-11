@@ -395,6 +395,7 @@ class Store(object):
             for key, data in allel.read_vcf(vcf_file, region=seq_id, samples=sample_ids, fields=['samples', 'calldata/GT', 'variants/POS']).items():
                 if key == 'samples':
                     self.data.attrs['sample_ids_vcf'] = list(data)
+                    print("vcf samples", list(data))
                     self.data.attrs['sample_ids_to_vcf_idx'] = {sample_id: idx for idx, sample_id in enumerate(data)}
                 elif key == 'calldata/GT':
                     zarr_key = "%s/gt" % seq_id

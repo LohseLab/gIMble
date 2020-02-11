@@ -75,7 +75,7 @@ def joins(string, events=None):
                 for pop_1, pop_2 in itertools.combinations(sorted(substring), 2):
                     joins((pop_1, pop_2), events)
     if string:
-        events.append("J_%s" % "&".join(sorted(list(flat_tuple(string)))))
+        events.append("%s" % "&".join(sorted(list(flat_tuple(string)))))
     return events
 
 def pairwise(iterable):
