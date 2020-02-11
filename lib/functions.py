@@ -39,6 +39,9 @@ mat.rcParams['axes.grid'] = False
 mpl_logger = logging.getLogger('matplotlib') 
 mpl_logger.setLevel(logging.WARNING) 
 
+def get_pop_ids_by_sample_ids_from_csv(parameterObj):
+    return pd.read_csv(parameterObj.sample_file, index_col=0, squeeze=True, header=None).to_dict()
+
 def plot_pi_genome_scan(window_df, out_f, sequenceObjs):
     offset_by_sequence_id = {}
     offset = 0

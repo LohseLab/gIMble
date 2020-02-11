@@ -12,8 +12,6 @@ import zarr
 import os
 import logging
 import re
-import sys
-from timeit import default_timer as timer
 '''
 [To do]
 
@@ -25,6 +23,22 @@ from timeit import default_timer as timer
 - Add windows
 
 
+META:
+- pairs = [(0,1), (0,2), ...] # indices (ints) of sample_ids [order matters!!!]
+- pair_ids = ['sample1_sample2', 'sample1_sample3', ...] # concatenated str of sample_ids (sorted)
+- sample_ids = ['sample1', 'sample2', 'sample3', ...]
+- population_ids = ['pop1', 'pop2', 'pop1', ...]
+
+Blocks
+- start
+- end
+- length
+- span
+- mutypes by pairs (same order as in META/Pairs)
+
+Pairs:
+for a, b in itertools.combinations(self.sample_ids_by_pop_id['all'], 2):
+    pair_id = frozenset(a, b)
 
 
 # filtering
@@ -78,311 +92,82 @@ store_meta_by_key = {
 
 def data_key(key):
     if key == 'gt':
-        pass
-         
+
 store_data_by_key = {
     'pos': '/data/variants/POS',
+    'ref': '/data/variants/REF',
+    'alt': '/data/variants/ALT',
+    'is_snp': '/data/variants/is_snp',
+    'numalt': '/data/variants/numalt',
     'gt': '/data/calldata/GT'
 }
 
-np.set_printoptions(threshold=20)
-
-
-import matplotlib.pyplot as plt
-import numpy as np
-
-def plot_histogram(x, out_f):
-    fig, ax = plt.subplots(figsize=(14, 5))
-    hist, bins = np.histogram(x, bins=50)
-    width = 0.7 * (bins[1] - bins[0])
-    center = (bins[:-1] + bins[1:]) / 2
-    ax.bar(center, hist, align='center', width=width)
-    fig.savefig('%s.png' % out_f, format="png")
-
-def is_hom(gts):
-    # print("gts", gts.shape, type(gts), gts[:2])                
-    allele1 = gts[..., 0, np.newaxis]
-    # print("allele1", allele1.shape, type(allele1), allele1[:2])
-    other_alleles = gts[..., 1:]
-    # print("other_alleles", other_alleles.shape, type(other_alleles), other_alleles[:2])
-    tmp = (allele1 >= 0) & (allele1 == other_alleles)
-    out = np.all(tmp, axis=-1)
-    # print("out", out.shape, type(out), out[:2])
-    return out
-
-def is_hom2(gts):
-    print("gts", gts.shape, type(gts), gts[:1])                
-    allele1 = gts[..., 0, np.newaxis]
-    print("allele1", allele1.shape, type(allele1), allele1[:1])
-    other_alleles = gts[..., 1:]
-    print("other_alleles", other_alleles.shape, type(other_alleles), other_alleles[:1])
-    tmp = (allele1 >= 0) & (allele1 == other_alleles)
-    print("tmp", tmp.shape, type(tmp))
-    out = np.all(tmp, axis=-1)
-    print("out", out.shape, type(out), out[:1])
-    return out
-
-def consecutive(data, stepsize=1):
-    return np.split(data, np.where(np.diff(data) != stepsize)[0]+1)
-
-def create_ranges(aranges):
-    # does the transformation form 0-based (BED) to 1-based (VCF) coordinate system 
-    # https://stackoverflow.com/a/47126435
-    l = aranges[:,1] - aranges[:,0]
-    clens = l.cumsum()
-    ids = np.ones(clens[-1], dtype=int)
-    ids[0] = aranges[0,0]
-    ids[clens[:-1]] = aranges[1:, 0] - aranges[:-1, 1]+1
-    return ids.cumsum()
-
-def bool_to_unsigned_int(boolean):
-    return np.sum(2**np.arange(boolean.shape[1])*boolean, axis=-1)
-
-def make_blocks(sample_set_intervals_df, block_length, block_span, block_gap_run):
-    sites = create_ranges(np.array((sample_set_intervals_df.start, sample_set_intervals_df.end)).T)
-    return block(sites, block_length, block_span, block_gap_run)
-
-def block(sites, block_length, block_span, block_gap_run):
-    block_sites = np.concatenate([x[:block_length * (x.shape[0] // block_length)].reshape(-1, block_length) for x in np.split(sites, np.where(np.diff(sites) > block_gap_run)[0]+1)])
-    return block_sites[(((block_sites[:,-1] - block_sites[:,0]) + 1) <= block_span)] # return blocks where ((block_end - block_start) + 1) <= block_span
-
 class Store(object):
     def __init__(self, parameterObj):
-        self.path = None
-        self.data = None
         if parameterObj.module == 'setup':
-            self._from_input(parameterObj)
+            self.path = self._get_path(parameterObj.outprefix)
+            self.data = zarr.open(self.path, mode='w')
+            self._parse_genome_file(parameterObj.genome_file)
+            self._parse_sample_file(parameterObj.sample_file)
+            print(self.tree())
+            self._parse_vcf_file(parameterObj.vcf_file)
+            self._parse_bed_file(parameterObj.bed_file)
         else:
-            self._from_zarr(parameterObj)
+            self.path = parameterObj.zstore
+            self.data = zarr.open(self.path, mode='a')
 
-    def _from_input(self, parameterObj):
-        self.path = self._get_path(parameterObj.outprefix)
-        self.data = zarr.open(self.path, mode='w')
-        self._parse_genome_file(parameterObj.genome_file)
-        self._parse_sample_file(
-            parameterObj.sample_file, 
-            parameterObj.pairedness
-            )
-        self._parse_vcf_file(parameterObj.vcf_file)
-        self._parse_bed_file(
-            parameterObj.bed_file, 
-            parameterObj.block_length, 
-            parameterObj.block_span, 
-            parameterObj.block_gap_run
-        )
-
-    def _from_zarr(self, parameterObj):
-        self.path = parameterObj.zstore
-        self.data = zarr.open(self.path, mode='r')
+    def _yield(self, key):
+        for value in self.data[store_meta_by_key[key]]:
+            yield value
 
     def tree(self):
         return self.data.tree()
 
-    def attrs(self):
-        return "\n".join(["\t".join([k, str(len(v)), str(type(v)), str(v)]) for k, v in self.data.attrs.asdict().items()])
-
     def _parse_genome_file(self, genome_file):
         logging.info("[#] Processing Genome file %r..." % genome_file)
         df = pd.read_csv(genome_file, sep="\t", names=['sequence_id', 'sequence_length'], header=None)
-        self.data.attrs['sequence_ids'] = df['sequence_id'].to_list() #df['sequence_id'].to_numpy(dtype=str)
-        self.data.attrs['sequence_length'] = df['sequence_length'].to_list()
-        logging.info("[+] Found %s sequences of a total length of %s b..." % (len(self.data.attrs['sequence_ids']), sum(self.data.attrs['sequence_length'])))
-        for sequence_id in self.data.attrs['sequence_ids']:
-            self.data.create_group('%s/' % sequence_id)
+        sequence_ids = df['sequence_id'].to_numpy(dtype=str)
+        sequence_lengths = df['sequence_length'].to_numpy()
+        logging.info("[+] Found %s sequences of a total length of %s b..." % (len(sequence_ids), sum(sequence_lengths)))
+        self.data.create_dataset(store_meta_by_key['sequence_ids'], data=sequence_ids)
+        self.data.create_dataset(store_meta_by_key['sequence_lengths'], data=sequence_lengths)
+        for sequence_id in sequence_ids:
+            self.data.create_group('/data/%s' % sequence_id)
         
-    def _parse_sample_file(self, sample_file, pairedness):
+    def _parse_sample_file(self, sample_file):
         logging.info("[#] Processing Sample file %r ..." % sample_file)
         df = pd.read_csv(sample_file, sep=",", names=['sample_id', 'population_id'])
-        self.data.attrs['sample_ids'] = df['sample_id'].to_list() #.to_numpy(dtype=str)
-        self.data.attrs['population_ids'] = df['population_id'].to_list() #.to_numpy(dtype=str)  
-        # self.data.attrs['sample_sets'] = ["_".join(_) for _ in itertools.combinations(sorted(self.data.attrs['sample_ids']), pairedness)]
-        self.data.attrs['sample_sets'] = [_ for _ in itertools.combinations(sorted(self.data.attrs['sample_ids']), pairedness)]
-        logging.info("[+] Found %s samples from %s populations. Generated %s sets of %s samples" % (
-            len(self.data.attrs['sample_ids']), 
-            len(self.data.attrs['population_ids']),
-            len(self.data.attrs['sample_sets']),
-            pairedness
-            ))
+        sample_ids = df['sample_id'].to_numpy(dtype=str)
+        population_ids = df['population_id'].to_numpy(dtype=str)  
+        logging.info("[+] Found %s samples from %s populations" % (len(sample_ids), len(np.unique(population_ids))))
+        self.data.create_dataset(store_meta_by_key['sample_ids'], data=sample_ids)
+        self.data.create_dataset(store_meta_by_key['population_ids'], data=population_ids)
 
-    def get_gts(self, sequence_ids, start, end, sample_ids):
-        pass
-
-    def _parse_bed_file(self, bed_file, block_length, block_span, block_gap_run):
-        '''
-        https://stupidpythonideas.blogspot.com/2014/01/grouping-into-runs-of-adjacent-values.html
-        https://stackoverflow.com/questions/2154249/identify-groups-of-continuous-numbers-in-a-list
-        https://stackoverflow.com/questions/4494404/find-large-number-of-consecutive-values-fulfilling-condition-in-a-numpy-array
-        https://stackoverflow.com/questions/32357823/splitting-a-list-of-integers-by-breaks-in-the-data-when-the-break-size-is-variab
-        '''
-        sample_ids = self.data.attrs['sample_ids']
-        sequence_ids = self.data.attrs['sequence_ids']
-        sample_sets = self.data.attrs['sample_sets']
-
+    def _parse_bed_file(self, bed_file):
+        sample_ids = self._get('sample_ids')
+        sequence_ids = self._get('sequence_ids')
         logging.info("[#] Processing BED file %r ..." % bed_file)
         df = pd.read_csv(bed_file, sep="\t", usecols=[0, 1, 2, 4], names=['sequence_id', 'start', 'end', 'samples'], 
             dtype={'sequence_id': str, 'start': np.int, 'end': np.int, 'samples': str})
         # remove sequence_ids that are not in sequence_names_array, sort, reset index
-        intervals_df = df[df['sequence_id'].isin(sequence_ids)].sort_values(['sequence_id', 'start'], ascending=[True, True]).reset_index(drop=True)
-        # get length column
-        intervals_df['length'] = intervals_df['end'] - intervals_df['start'] 
-        # get distance column
-        # intervals_df['distance'] = np.where((intervals_df['sequence_id'] == intervals_df['sequence_id'].shift(-1)), intervals_df['start'].shift(-1) - intervals_df['end'], block_gap_run + 1).astype(np.int64)
+        df = df[df['sequence_id'].isin(sequence_ids)].sort_values(['sequence_id', 'start'], ascending=[True, True]).reset_index(drop=True)
         # get coverage matrix and drop columns of samples that are not in sample_ids_array
-        intervals_df = pd.concat([intervals_df, intervals_df.samples.str.get_dummies(sep=',').filter(sample_ids)], axis=1).drop(columns=['samples'])
-        #print(intervals_df)
-        # remove those intervals including less than two sample_ids (query sample_id columns : intervals_df[intervals_df.columns.intersection(sample_ids)])
-        intervals_df = intervals_df.loc[(intervals_df[intervals_df.columns.intersection(sample_ids)].sum(axis=1) > 1)]
-        with tqdm(total=(len(sequence_ids) * len(sample_sets)), desc="[%] ", ncols=100, unit_scale=True) as pbar:
-            for seq_id in sequence_ids:
-                _intervals_df = intervals_df[intervals_df['sequence_id'] == seq_id]
-                #print(_intervals_df)
-                
-                interval_spaces = []
-                block_spaces = []
-                
-                _pos = self.data["%s/pos" % seq_id] # zarr.core.array
-                genotypeArray = allel.GenotypeArray(self.data["%s/gt" % seq_id])
-                #print(genotypeArray)
-                #print(len(sample_sets))
-                #for sample_set in tqdm(sample_sets, total=len(sample_sets), desc="[%] ", ncols=100):
-                for sample_set in sample_sets:
-                    #print(sample_set)
-                    # blocks
-                    sample_set_intervals_df = _intervals_df[_intervals_df[sample_set].all(axis='columns')]
-                    interval_spaces.append(sample_set_intervals_df['length'].sum())
-                    block_sites = make_blocks(sample_set_intervals_df, block_length, block_span, block_gap_run)
-                    block_spaces.append(np.sum(((block_sites[:,-1] - block_sites[:,0]) + 1))) # block_space == span !                
-                    # logging.info(f"[+] {block_spaces[-1]:,} b in blocks ({(block_spaces[-1] / interval_spaces[-1]):.1%} of total bases in intervals)")
-    
-                    # variants
-                    sample_selection = [self.data.attrs['sample_ids_to_vcf_idx'][sample_id] for sample_id in sample_set]
-                    print(sample_set, sample_selection)
-                    sample_set_genotype = genotypeArray.subset(None, sample_selection)
-                    #print(sample_set_genotype)
-                    #print(sample_set_genotype.shape)
-                    pbar.update(1)
-                self.data.create_dataset("%s/raw_sites" % seq_id, data=interval_spaces)
-                self.data.create_dataset("%s/block_sites" % seq_id, data=block_spaces)
-            
+        coverages = df.samples.str.get_dummies(sep=',').filter(sample_ids).reset_index(drop=True)
+        print(coverages)
+        # drop samples column (no longer needed)
+        intervals = df.drop(columns=['samples'])
+        # get length column
+        intervals['length'] =  intervals['end'] - intervals['start'] 
+        # remove all intervals/coverages for which the filtered coverages are all zero
+        mask = (coverages!=0).any(1)
+        #for seq_id in tqdm(sequence_ids, total=len(sequence_ids), desc="[%] ", ncols=100):
 
-            
-            
-
-        #    hom_gt = is_hom(_gt)
-        #    #print(hom_gt[:10], hom_gt.shape)
-            
-        #    #print(miss_gt[:10], miss_gt.shape)
-        #    for pair_tuple in itertools.combinations(sorted(sample_ids), 2):
-        #        a_sample_id = pair_tuple[0]
-        #        a_vcf_idx = self.data.attrs['sample_ids_to_vcf_idx'][pair_tuple[0]]
-        #        b_sample_id = pair_tuple[1]
-        #        b_vcf_idx = self.data.attrs['sample_ids_to_vcf_idx'][pair_tuple[1]]
-        #        pair_id = "%s_%s" % (a_sample_id, b_sample_id)
-        #        pair_intervals_df = _intervals_df[_intervals_df[[a_sample_id, b_sample_id]].all(axis='columns')]
-        #        block_sites = make_blocks(pair_intervals_df, max_gap=1, block_length=5)
-        #        #print(block_sites, block_sites.shape)
-        #        block_starts = block_sites[:, 0]
-        #        self.data.create_dataset("%s/blocks/%s/block_starts/" % (seq_id, pair_id), data=block_starts)
-        #        #print('block_starts', block_starts, block_starts.shape)
-        #        block_ends = block_sites[:, -1]
-        #        self.data.create_dataset("%s/blocks/%s/block_ends/" % (seq_id, pair_id), data=block_ends)
-        #        #print('block_ends', block_ends, block_ends.shape)
-        #        #print("----")
-#        #        is_MISS = np.logical_or(miss_gt[:, a_vcf_idx], miss_gt[:, b_vcf_idx])
-        #        #print('is_MISS', is_MISS, is_MISS.shape)
-        #        is_SAME = np.all(_gt[:, a_vcf_idx] == _gt[:, b_vcf_idx], axis=-1)
-        #        #print('is_SAME', is_SAME, is_SAME.shape)
-        #        is_a_HOM = hom_gt[:, a_vcf_idx]
-        #        #print('is_a_HOM', is_a_HOM, is_a_HOM.shape)
-        #        is_b_HOM = hom_gt[:, b_vcf_idx]
-        #        #print('is_b_HOM', is_b_HOM, is_b_HOM.shape)
-        #        boolean = np.concatenate([np.transpose([is_a_HOM]), np.transpose([is_b_HOM]), np.transpose([is_SAME])], axis=1)
-        #        #print('boolean', boolean, boolean.shape)
-        #        unsigned_int = bool_to_unsigned_int(boolean)
-        #        #print('unsigned_int', unsigned_int, unsigned_int.shape)
-        #        #test = np.where(np.in1d(block_sites.ravel(),_pos), unsigned_int, block_sites.ravel())
-        #        #print('np.in1d(block_sites, _pos)', np.in1d(block_sites, _pos), np.in1d(block_sites, _pos).shape)
-        #        #print('np.in1d(_pos, block_sites)', np.in1d(_pos, block_sites), np.in1d(_pos, block_sites).shape)
-        #        # np.in1d(block_sites, _pos) [False False False ... False False False] (29056,)
-        #        # np.in1d(_pos, block_sites) [False False False ... False False False] (2648,)
-        #        block_sites.ravel()[~np.in1d(block_sites, _pos)] = 7
-        #        block_sites.ravel()[np.in1d(block_sites, _pos)] = unsigned_int[np.in1d(_pos, block_sites)]
-        #        uniques, unique_counts = np.unique(block_sites, return_counts=True, axis = 0)
-        #        print(pair_id, "Counts")
-        #        print(uniques, uniques.shape)
-        #        print(unique_counts, unique_counts.shape)
-        #        def count_unique_by_row(a):
-        #            weight = 1j*np.linspace(0, a.shape[1], a.shape[0], endpoint=False)
-        #            b = a + weight[:, np.newaxis]
-        #            u, ind, cnt = np.unique(b, return_index=True, return_counts=True)
-        #            b = np.zeros_like(a)
-        #            np.put(b, ind, cnt)
-        #            return b
-#        #        '''
-        #        >>> x
-        #        array([[0, 0, 0, 1, 1],
-        #               [0, 1, 0, 0, 1],
-        #               [0, 1, 1, 0, 0],
-        #               [1, 0, 0, 0, 1],
-        #               [0, 1, 1, 1, 1]])
-        #        >>> c = count_unique_by_row(x)
-        #        array([[3, 0, 0, 2, 0],
-        #               [3, 2, 0, 0, 0],
-        #               [3, 2, 0, 0, 0],
-        #               [2, 3, 0, 0, 0],
-        #               [1, 4, 0, 0, 0]])
-        #        np.concatenate([x[np.nonzero(count_unique_by_row(x))], x)
-        #        c.non_zero_count()
-#
-        #        '''
-                #print('block_sites', block_sites, block_sites.shape)
-                # print('_pos', _pos, _pos.shape)
-                
-                # mask_pos = np.in1d(block_sites, _pos)
-                # print('mask_pos', mask_pos, mask_pos.shape)
-                # print('block_sites.ravel()[mask_pos]', block_sites.ravel()[mask_pos], block_sites.ravel()[mask_pos].shape)
-                # block_sites[mask_pos] = unsigned_int[mask_pos]
-                
-                
-                
-                #print("----")
-                
-
-
-                # import numpy as np
-                # gt = np.random.randint(-1, 2, (2648, 7, 2))
-                # pos = np.sort(np.random.choice(10000, 2648, replace=False))
-                # interval_range = np.sort(np.random.choice(10000, 6000, replace=False))
-                # def make_blocks(data, max_gap=5, block_length=10):
-                #    return np.concatenate([x[:block_length * (x.shape[0] // block_length)].reshape(-1, block_length) for x in np.split(data, np.where(np.diff(data) > max_gap)[0]+1)])
-                # blocks = make_blocks(interval_range, max_gap=5, block_length=10)
-                # block_span = blocks[:, -1] - blocks[:, 0]
-                # blocks.ravel()[np.in1d(blocks,pos)] = 0
-                # access sample genotypes : gt[np.in1d(pos,blocks),2]
-                
-                # identical genotypes : np.all(gt[:,1] == gt[:,5], axis=-1)[:10]
-                # set blocks to blocks.ravel()[np.in1d(blocks,pos)] = ... 
-                
-                # HOM_MATRIX = is_hom(gt)
-                # MISSING_MATRIX = np.any(gt < 0, axis=-1)
-                # a, b = pair_idx
-                # is_MISS = np.logical_or(MISSING_MATRIX[:,a], MISSING_MATRIX[:,b])
-                # is_SAME = np.all(gt[:,a] == gt[:,b], axis=-1)
-                # is_a_HOM = HOM_MATRIX[a]
-                # is_b_HOM = HOM_MATRIX[b]
-
-
-
-
-                #self.data.create_dataset(store_meta_by_key['coverages'], data=coverages)
-        #    _coverages_df = coverages_df[coverages_df['sequence_id'] == seq_id]
-         #   print(_coverages_df)
-            #coverages_df.loc[mask].reset_index(drop=True).to_numpy()
-            #
-            #print(coverages)
-            #intervals = intervals.loc[mask].reset_index(drop=True).to_numpy()
-            #print(intervals)
-            #self.data.create_dataset(store_meta_by_key['intervals'], data=intervals)
+        coverages = coverages.loc[mask].reset_index(drop=True).to_numpy()
+        self.data.create_dataset(store_meta_by_key['coverages'], data=coverages)
+        print(coverages)
+        intervals = intervals.loc[mask].reset_index(drop=True).to_numpy()
+        print(intervals)
+        self.data.create_dataset(store_meta_by_key['coverages'], data=intervals)
         #store.create_dataset('data/coverages', data=coverages)
 
         #intervals, coverages = parse_intervals(parameterObj.bed_file, sequence_names, sample_ids)
@@ -390,24 +175,43 @@ class Store(object):
         #store.create_dataset('data/coverages', data=coverages)
 
     def _parse_vcf_file(self, vcf_file):
-        sample_ids = self.data.attrs['sample_ids']
-        sequence_ids = self.data.attrs['sequence_ids']
+        sample_ids = self._get('sample_ids')
+        sequence_ids = self._get('sequence_ids')
         for seq_id in tqdm(sequence_ids, total=len(sequence_ids), desc="[%] ", ncols=100):
-            zarr_key = ''
-            for key, data in allel.read_vcf(vcf_file, region=seq_id, samples=sample_ids, fields=['samples', 'calldata/GT', 'variants/POS']).items():
-                if key == 'samples':
-                    self.data.attrs['sample_ids_vcf'] = list(data)
-                    self.data.attrs['sample_ids_to_vcf_idx'] = {sample_id: idx for idx, sample_id in enumerate(data)}
-                elif key == 'calldata/GT':
-                    zarr_key = "%s/gt" % seq_id
-                    #print(key, data.shape)
-                    self.data.create_dataset(zarr_key, data=data)
-                elif key == 'variants/POS':
-                    zarr_key = "%s/pos" % seq_id
-                    self.data.create_dataset(zarr_key, data=data)
-                else:
-                    logging.error("[X] Unknown key %r" % key)
-                    exit()
+            #allel.vcf_to_zarr( 
+            #    vcf_file, 
+            #    self.path, 
+            #    group="/data/%s" % seq_id,
+            #    samples=sample_ids,
+            #    region=seq_id,
+            #    fields=[
+            #        'variants/POS',
+            #        'variants/REF',
+            #        'variants/ALT',
+            #        'variants/is_snp',
+            #        'variants/numalt',
+            #        'calldata/GT'
+            #    ], 
+            #    overwrite=True)
+            query = allel.read_vcf(
+                vcf_file, 
+                region=seq_id,
+                samples=sample_ids,
+                fields=[
+                   'variants/POS',
+                   'variants/REF',
+                   'variants/ALT',
+                   'variants/is_snp',
+                   'variants/numalt',
+                   'calldata/GT'
+                ]    
+                )
+            data_key = "/data/%s" % seq_id
+            self.data.create_dataset(data_key, data=intervals)
+            print()
+
+    def _get(self, key):
+        return self.data[store_meta_by_key[key]]
 
     def _get_path(self, outprefix):
         path = "%s.z" % outprefix
@@ -416,6 +220,20 @@ class Store(object):
             shutil.rmtree(path)
         logging.info("[+] Generating ZARR store %r" % path)
         return path
+        #print(store['data/intervals'])
+        #store.create_group('meta')
+        #store.create_dataset('meta/sequences', data=sequence_names)
+        #store.create_dataset('meta/lengths', data=sequence_lengths)
+        #store.create_dataset('meta/samples', data=sample_ids)
+        #store.create_dataset('meta/pops', data=population_ids)
+        #intervals, coverages = parse_intervals(parameterObj.bed_file, sequence_names, sample_ids)
+        ##store.create_dataset('data/intervals', data=intervals)
+        #store.create_dataset('data/coverages', data=coverages)
+        #print(store.info)
+        #print(store.tree())
+        ##storeObj = StoreObj(zarr.open(zarr_dir, mode='w'))
+        ##storeObj.parse_sample_file(parameterObj)
+        #return store
 
 def parse_genome_file(genome_file):
     logging.info("[#] Processing Genome file %r..." % genome_file)

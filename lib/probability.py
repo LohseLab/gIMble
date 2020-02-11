@@ -17,10 +17,20 @@ from scipy.optimize import minimize
 from lib.classes import EntityCollection
 from lib.functions import format_percentage
 from lib.functions import check_path, check_file, check_prefix, format_count
-import pathlib
 import pprint
 pp = pprint.PrettyPrinter(indent=4)
 
+
+
+'''
+variable definition
+equation building
+    sage
+    giac:   
+        - write to file
+
+
+'''
 
 ################################### CONSTANTS #################################
 
@@ -46,27 +56,46 @@ PARAMETERS_BY_MODEL_NAME = {
 
 ################################### Functions #################################
 
+'''
+
+1. Parse model
+    - based on model check requirements from header
+        [0:4]: path_idx, origin, idx, label
+        - Coalescence rates: one for each C=* in header
+        - Migration rates : one for each M=* in header
+        - Join rates : one for each * in header
+
+    => read paths 
+Goals
+1. Model to equations: needs
+    - paths
+    - values
+2. equations to probabilities
+    - data 
+'''
+
+
 class ParameterObj(object):
     def __init__(self, args):
-        # initial user parameters
-        self.mode = None
         self.model_file = check_file(args.get('--model', None))
-        self.model_name = pathlib.Path(args['--model']).name
+        self.zarr_store = None
+
         self.time = float(args['--time']) if not args['--time'] is None else None
-        self.time_low = float(args['--time_low']) if not args['--time_low'] is None else None
-        self.time_high = float(args['--time_high']) if not args['--time_high'] is None else None
         self.theta = float(args['--theta']) if not args['--theta'] is None else None
-        self.theta_low = float(args['--theta_low']) if not args['--theta_low'] is None else None
-        self.theta_high = float(args['--theta_high']) if not args['--theta_high'] is None else None
         self.migration = float(args['--migration']) if not args['--migration'] is None else None
-        self.migration_low = float(args['--migration_low']) if not args['--migration_low'] is None else None
-        self.migration_high = float(args['--migration_high']) if not args['--migration_high'] is None else None
+        '''
+
+        self.pop_ids = 'A,B,A&B'
+        self.pop_Ns = '1.2,1.2,1.4'
+        slef
+        '''
+
         self.derived_coalescence = float(args['--derived_Ne']) if not args['--derived_Ne'] is None else None
-        self.derived_coalescence_low = float(args['--derived_low']) if not args['--derived_low'] is None else None
-        self.derived_coalescence_high = float(args['--derived_high']) if not args['--derived_high'] is None else None
-        self.ancestor_population_id = args['--ancestor_population']
+
+
         self.kmax = int(args['--kmax'])
         self.seed = int(args['--seed']) 
+
         self.sample_file = check_file(args.get('--sample_file', None))
         self.genome_file = check_file(args.get('--genome_file', None))
         #self.windows_file = check_file(args['--windows_hd5']) if not args['--windows_hd5'] is None else None
@@ -456,7 +485,6 @@ def calculate_likelihood(event_equations_by_mutuple, mutuple_count_matrix, param
     print("[=] Calculated composite Likelihood (L=%s) in %s seconds..." % (composite_likelihood, timer() - start_time))
 
 class PathObj(object):
-    
     def __init__(self, path_id):
         self.path_id = path_id
         self.steps = 0

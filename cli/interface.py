@@ -1,8 +1,9 @@
 """
-Usage: gIMble <module> [<args>...]
+Usage: gIMble <module> [<args>...] [-D -V -h]
 
 Modules:
 
+    setup                 Setup DataStore
     blocks                Makes blocks
     variants              Fetches and analyses variants for blocks 
     varfilter             Filter variants
@@ -20,7 +21,8 @@ Modules:
 
 Options:
     -h, --help                         Show this screen.
-    -v, --version                      Show version.
+    -D, --debug                        Print debug information
+    -V, --version                      Show version
 
 """
 import sys
@@ -32,11 +34,19 @@ def main():
         __version__ = '0.5.0'
         start_time = timer()
         args = docopt(__doc__, version=__version__, options_first=True)
+        # exit if --version
+        if '--version' in args['<args>'] or '-V' in args['<args>']:
+            sys.exit("gIMble v%s" % __version__)
+        # setup run_params
         run_params = {
             'module': args['<module>'],
+            'debug': True if '--debug' in args['<args>'] or '-D' in args['<args>'] else False,
             'version': __version__
         }
-        if args['<module>'] == 'blocks':
+        if args['<module>'] == 'setup':
+            import cli.setup as setup
+            setup.main(run_params)
+        elif args['<module>'] == 'blocks':
             import cli.blocks as blocks
             blocks.main(run_params)
         elif args['<module>'] == 'variants':

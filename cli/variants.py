@@ -16,6 +16,11 @@
 
 """
 
+''' 
+- by default do between all sample combinations
+- if flag: then do within population sample combinations
+'''
+
 from docopt import docopt
 from timeit import default_timer as timer
 import lib.variants

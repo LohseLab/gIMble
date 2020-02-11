@@ -45,23 +45,23 @@
 
 from timeit import default_timer as timer
 from docopt import docopt
-import lib.probability
+import lib.likelihood
 
-def main(run_params):
+def main():
     main_time = timer()
     args = docopt(__doc__)
     print("[#] ### gIMble LIKELIHOOD ###")
-    parameterObj = lib.probability.ParameterObj(args)
-    #entityCollection = lib.likelihood.task_generate_entityCollection(parameterObj)
+    parameterObj = lib.likelihood.ParameterObj(args)
+    entityCollection = lib.likelihood.task_generate_entityCollection(parameterObj)
     #print(parameterObj.boundaries)
-    #parameterObj.generate_mutuple_space()
-    #pathObj_by_path_id = lib.likelihood.read_model(parameterObj)
-    #event_equations_by_mutuple = lib.likelihood.generate_event_equations(parameterObj, pathObj_by_path_id)
-    #mutuple_count_matrix = parameterObj.get_mutuple_counters(entityCollection)
-    #if parameterObj.boundaries:
-    #    lib.likelihood.estimate_parameters(event_equations_by_mutuple, mutuple_count_matrix, parameterObj)
-    #else:
-    #    lib.likelihood.calculate_likelihood(event_equations_by_mutuple, mutuple_count_matrix, parameterObj)
+    parameterObj.generate_mutuple_space()
+    pathObj_by_path_id = lib.likelihood.read_model(parameterObj)
+    event_equations_by_mutuple = lib.likelihood.generate_event_equations(parameterObj, pathObj_by_path_id)
+    mutuple_count_matrix = parameterObj.get_mutuple_counters(entityCollection)
+    if parameterObj.boundaries:
+        lib.likelihood.estimate_parameters(event_equations_by_mutuple, mutuple_count_matrix, parameterObj)
+    else:
+        lib.likelihood.calculate_likelihood(event_equations_by_mutuple, mutuple_count_matrix, parameterObj)
         #parameterObj.write_probs(prob_by_data_string, data)
         #parameterObj.write_path_equations(pathObj_by_path_id)
     #if test == True:
