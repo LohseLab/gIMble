@@ -557,6 +557,7 @@ class EntityCollection(object):
         #print(bases_blocked_by_pair_id)
         #print(bases_blocked_by_sample_count)
         #print(bases_blocked_by_pair_count)
+        # 
 
 class BedObj(object):
     __slots__ = ['sequence_id', 'start', 'end', 'pair_idxs', 'length']
