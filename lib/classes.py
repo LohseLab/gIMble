@@ -264,9 +264,7 @@ class Store(object):
                 self.data.create_dataset("%s/raw_sites" % seq_id, data=interval_spaces)
                 self.data.create_dataset("%s/block_sites" % seq_id, data=block_spaces)
             
-
-            
-            
+        #### 
 
         #    hom_gt = is_hom(_gt)
         #    #print(hom_gt[:10], hom_gt.shape)
