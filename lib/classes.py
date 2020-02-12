@@ -117,8 +117,10 @@ def fold_genotypes(genotypeArray):
     #print("--------------- Map (high/low)")
     non_minor_mask = (major_allele == minor_allele)
     print(non_minor_mask)
-    low_allele = np.amin(np.amin(gt_array, axis =-1), axis=-1)
-    high_allele = np.amax(gt_array[:,0], axis =-1)
+    first_low_allele = np.amin(gt_array[:,0], axis =-1)
+    all_low_allele = np.amin(np.amin(gt_array, axis =-1), axis=-1)
+    first_high_allele = np.amax(gt_array[:,0], axis =-1)
+    all_high_allele = np.amax(gt_array[:,0], axis =-1)
     allele_map[:, high_allele][non_minor_mask] = 0
     allele_map[:, low_allele][non_minor_mask] = 1
     allele_map[monomorphic_rows, monomorphic_cols] = 0
