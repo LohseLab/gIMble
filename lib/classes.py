@@ -99,6 +99,36 @@ def plot_histogram(x, out_f):
     ax.bar(center, hist, align='center', width=width)
     fig.savefig('%s.png' % out_f, format="png")
 
+def fold_genotypes(genotypeArray):
+
+    gt_array = np.array(genotypeArray)
+    max_allele_count = genotypeArray.shape[-1] * genotypeArray.shape[-2]
+    allele_counts = genotypeArray.count_alleles()
+    print("--------------- Map (major/minor)")
+    print(allele_counts)
+    monomorphic_rows, monomorphic_cols = np.where(allele_counts == max_allele_count)
+    allele_map = np.ones((allele_counts.shape), dtype='int8') * np.arange(allele_counts.shape[-1])
+    major_allele = np.argmax(allele_counts, axis=-1)
+    print(major_allele)
+    allele_map[:, major_allele] = 0
+    allele_counts[(allele_counts > 0) == False] = 10
+    minor_allele = np.argmin(allele_counts, axis=-1)
+    allele_map[:, minor_allele] = 1
+    #print("--------------- Map (high/low)")
+    non_minor_mask = (major_allele == minor_allele)
+    print(non_minor_mask)
+    low_allele = np.amin(np.amin(gt_array, axis =-1), axis=-1)
+    high_allele = np.amax(gt_array[:,0], axis =-1)
+    allele_map[:, high_allele][non_minor_mask] = 0
+    allele_map[:, low_allele][non_minor_mask] = 1
+    allele_map[monomorphic_rows, monomorphic_cols] = 0
+    print("map", allele_map)
+    folded_genotypes = genotypeArray.map_alleles(allele_map)
+    print("--------------- Raw")
+    print(genotypeArray.shape, genotypeArray)
+    print("--------------- Folded")
+    print(folded_genotypes.shape, folded_genotypes)
+
 def is_hom(gts):
     # print("gts", gts.shape, type(gts), gts[:2])                
     allele1 = gts[..., 0, np.newaxis]
@@ -246,7 +276,7 @@ class Store(object):
                 #print(len(sample_sets))
                 #for sample_set in tqdm(sample_sets, total=len(sample_sets), desc="[%] ", ncols=100):
                 for sample_set in sample_sets:
-                    #print(sample_set)
+                    print(sample_set)
                     # blocks
                     sample_set_intervals_df = _intervals_df[_intervals_df[sample_set].all(axis='columns')]
                     interval_spaces.append(sample_set_intervals_df['length'].sum())
@@ -255,11 +285,12 @@ class Store(object):
                     # logging.info(f"[+] {block_spaces[-1]:,} b in blocks ({(block_spaces[-1] / interval_spaces[-1]):.1%} of total bases in intervals)")
     
                     # variants
-                    sample_selection = [self.data.attrs['sample_ids_to_vcf_idx'][sample_id] for sample_id in sample_set]
-                    print(sample_set, sample_selection)
-                    sample_set_genotype = genotypeArray.subset(None, sample_selection)
-                    #print(sample_set_genotype)
-                    #print(sample_set_genotype.shape)
+                    sample_selection = [self.data.attrs['sample_ids_to_vcf_idx'][sample_id] for sample_id in sample_set] # list of indices
+                    
+                    sample_set_genotypes = genotypeArray.subset(None, sample_selection)
+                    sample_set_genotypes = fold_genotypes(sample_set_genotypes)
+
+
                     pbar.update(1)
                 self.data.create_dataset("%s/raw_sites" % seq_id, data=interval_spaces)
                 self.data.create_dataset("%s/block_sites" % seq_id, data=block_spaces)
