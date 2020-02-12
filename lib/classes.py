@@ -123,6 +123,7 @@ def fold_genotypes(genotypeArray):
     all_high_allele = np.amax(gt_array[:,0], axis =-1)
     allele_map[:, high_allele][non_minor_mask] = 0
     allele_map[:, low_allele][non_minor_mask] = 1
+    # tets
     allele_map[monomorphic_rows, monomorphic_cols] = 0
     print("map", allele_map)
     folded_genotypes = genotypeArray.map_alleles(allele_map)
