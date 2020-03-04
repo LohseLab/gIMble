@@ -4,13 +4,8 @@ Usage: gIMble <module> [<args>...] [-D -V -h]
 Modules:
 
     setup                 Setup DataStore
-    blocks                Makes blocks
-    variants              Fetches and analyses variants for blocks 
-    varfilter             Filter variants
-    portblocks            Port blocks to new coordinate system
-    
-    windows               Constructs windows of blocks
-    winfilter             Filter windows
+    blocks                Make blocks
+    windows               Make windows
     
     likelihood            Infer likelihood for data given model and parameters
     lsearch               Estimate parameters for data given a model 
@@ -49,9 +44,9 @@ def main():
         elif args['<module>'] == 'blocks':
             import cli.blocks as blocks
             blocks.main(run_params)
-        elif args['<module>'] == 'variants':
-            import cli.variants as variants
-            variants.main(run_params)
+        elif args['<module>'] == 'windows':
+            import cli.windows as windows
+            windows.main(run_params)
         elif args['<module>'] == 'modify':
             import cli.modify as modify
             modify.main(run_params)

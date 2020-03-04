@@ -11,7 +11,7 @@ git clone https://github.com/DRL/gimble.git
 # create conda enviroment with dependencies
 conda create -n gimble && \
 source activate gimble && \
-conda install -c conda-forge more-itertools tqdm scipy numpy matplotlib sympy giac networkx psutil pandas docopt pytables tabulate git htop && \
+conda install -c conda-forge zarr scikit-allel pandas numpy tqdm docopt matplotlib parallel psutil more-itertools networkx scipy tabulate git htop sagelib msprime sparse
 conda install -c bioconda pysam 
 ```
 

@@ -18,7 +18,7 @@ from docopt import docopt
 from tabulate import tabulate
 
 def tabulate_df(df, key):
-    print("[+] Columns of table %r\n\t[%s]" % (key, ", ".join(list(df.columns))))
+    print("[+] Columns of table %r\n\t[%s]" % (key, ", ".join([str(x) for x in list(df.columns)])))
     print("[+] Metrics of numeric columns: ")
     print(tabulate(df.describe(), headers = df.columns, tablefmt="orgtbl", floatfmt=".3f"))
     print()

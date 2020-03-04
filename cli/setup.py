@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gIMble setup  -v <FILE> -b <FILE> -g <FILE> -s <FILE> -o <STR> 
-                        [-l <INT> -m <INT> -r <INT> -p <INT> -D -h]
+"""usage: gimble setup          -v <FILE> -b <FILE> -g <FILE> -s <FILE> -o <STR> 
+                                        [ -p <INT> -D -h]
 
     Options:
         -v, --vcf <FILE>                            VCF file of variants
@@ -10,10 +10,8 @@
         -s, --sample <FILE>                         Sample CSV file
         -g, --genome <FILE>                         Genome file
         -o, --outprefix <STR>                       Outprefix
-        -l, --block_length <INT>                    Successively genotyped sites per block [default: 64] 
-        -m, --block_span <INT>                      Maximum distance between first and last site of a block [default: 80]
-        -r, --block_gap_run <INT>                   Maximum number of consecutive gaps within a block [default: 1]
         -p, --pairedness <INT>                      Number of samples in sample-sets for intervals/GTs [default: 2]
+
         -D, --debug                                 Print debug information
 
         -h --help                                   show this
@@ -23,9 +21,7 @@
 from docopt import docopt
 from timeit import default_timer as timer
 #from sys import stderr, exit
-import lib.setup
-import lib.classes
-import lib.log
+import lib.gimble
 
 
 '''
@@ -41,19 +37,29 @@ Generates ZARR datastore, with
 - Path to BED file
 
 '''
+class ParameterObj(object):
+    def __init__(self, args):
+        print(args)
+        self.vcf_file = args['--vcf']
+        self.bed_file = args['--bed']
+        self.genome_file = args['--genome']
+        self.sample_file = args['--sample'] 
+        self.outprefix = args['--outprefix']
+        self.pairedness = int(args['--pairedness'])
+
 
 def main(run_params):
     try:
         start_time = timer()
         args = docopt(__doc__)
-        log = lib.log.get_logger(run_params)
-        parameterObj = lib.setup.ParameterObj(args)
-        store = lib.classes.Store(parameterObj)
+        #log = lib.log.get_logger(run_params)
+        parameterObj = ParameterObj(args)
+        store = lib.gimble.create_store(parameterObj)
         print(store.tree())
         print(store.attrs())
-        log.info("[*] Total runtime: %.3fs" % (timer() - start_time))
+        #log.info("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
-        log.info("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
+        #log.info("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
         exit(-1)
 
 ###############################################################################

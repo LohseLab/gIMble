@@ -40,6 +40,21 @@ PARAMETERS_BY_MODEL_NAME = {
            'model.IM.M_D2A.MM_D2A.txt': ['Time', 'theta', 'Migration', 'C_derived']
            }
 
+'''
+
+For each mutation-config:
+    for each path:
+        ilv
+
+for each mutation-config:
+    ilv(all_paths)
+
+for each path
+    ilv(all mutation-configs)?
+
+RandomizedSearchCV
+'''
+
 
 
 ###############################################################################

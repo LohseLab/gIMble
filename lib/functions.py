@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 mat.use("agg")
 
 # CONSTANTS
-MUTYPE_ORDER = ['hetA', 'fixed', 'hetB', 'hetAB']
+MUTYPE_ORDER = ['hetA', 'hetB', 'hetAB', 'fixed'] # ideally this comes from reverse
 
 COLOR_HISTOGRAM = 'orange'
 COLORS = ['deeppink', 'dodgerblue']
@@ -231,7 +231,7 @@ def plot_mutuple_barchart(out_f, global_mutuple_counter):
     ax.spines['right'].set_visible(False)
     ax.spines['top'].set_visible(False)
     plt.xticks(x_vals, x_labels, rotation=45, fontsize=8)
-    plt.xlabel('Mutuples [hetA, fixed, hetB, hetAB]')
+    plt.xlabel('Mutuples [%s]' % ",".join(MUTYPE_ORDER)) 
     plt.ylabel('Count')
     #ax.autoscale_view(tight=False, scalex=True, scaley=True)
     plt.tight_layout()
