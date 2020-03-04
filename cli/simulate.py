@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gIMble simulate -v <FILE> -b <FILE> -g <FILE> -s <FILE> -o <STR> [-D -h]
+"""usage: gIMble simulate -o <STR> -s <STR> [-n <STR> -j <STR> -m <STR> -p <INT> -c --nograph --nomodel] [-h|--help]
 
     Options:
-        -v, --vcf <FILE>                            VCF file of variants
-        -b, --bed <FILE>                            BED file of intervals (only defined regions are used)
-        -s, --sample <FILE>                         Sample CSV file
-        -g, --genome <FILE>                         Genome file
-        -o, --outprefix <STR>                       Outprefix
-        -D, --debug                                 Print debug information
-        -h --help                                   show this
+        -h --help                         show this
+        -p, --ploidy <INT>                Ploidy of samples [default: 2]
+        -s, --pop_ids <STR>               User defined samples, e.g. for populations 'A' and 'B'
+        -n, --samples <STR>               Number of samples by populations (same order) [default: 1]
+        -j, --join_string <STR>           Newick string of population-join history (Ne changes)
+        -m, --migration_string <STR>      Migration string
+        -c, --complete_labelling          Complete labelling of StateGraph (as opposed to partial)
+        -o, --out_prefix <STR>            Prefix for output files
+        --nomodel                         No model output
+        --nograph                         No graph output 
 
 """
 
@@ -32,6 +35,7 @@ def main(run_params):
     try:
         start_time = timer()
         args = docopt(__doc__)
+        print(args)
         log = lib.log.get_logger(run_params)
         parameterObj = lib.setup.ParameterObj(args)
         store = lib.classes.Store(parameterObj)

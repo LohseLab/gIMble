@@ -47,9 +47,9 @@ def main():
         elif args['<module>'] == 'windows':
             import cli.windows as windows
             windows.main(run_params)
-        elif args['<module>'] == 'modify':
-            import cli.modify as modify
-            modify.main(run_params)
+        elif args['<module>'] == 'simulate':
+            import cli.simulate as simulate
+            simulate.main(run_params)
         elif args['<module>'] == 'portblocks':
             import cli.portblocks as portblocks
             portblocks.main(run_params)
