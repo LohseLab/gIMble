@@ -57,9 +57,9 @@ def main(run_params):
         store = lib.gimble.create_store(parameterObj)
         print(store.tree())
         print(store.attrs())
-        #log.info("[*] Total runtime: %.3fs" % (timer() - start_time))
+        print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
-        #log.info("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
+        print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
         exit(-1)
 
 ###############################################################################

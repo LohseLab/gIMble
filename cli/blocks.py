@@ -6,15 +6,15 @@
     -m, --block_span <INT>                      Maximum distance between first and last site of a block [default: 80]
     -r, --block_gap_run <INT>                   Maximum number of consecutive gaps within a block [default: 1]
     
-    -u, --max_multiallelic <INT>                Max multiallelics per block
-    -i, --max_missing <INT>                     Max missing per block
+    -u, --max_multiallelic <INT>                Max multiallelics per block [default: 2]
+    -i, --max_missing <INT>                     Max missing per block [default: 2]
     -d, --debug                                 Write debugging logs
     -h, --help
 """
 
 from timeit import default_timer as timer
 from docopt import docopt
-import lib.gimblelog
+#import lib.gimblelog
 import lib.gimble
 
 class ParameterObj(object):
@@ -35,12 +35,12 @@ def main(run_params):
         #log = lib.log.get_logger(run_params)
         parameterObj = ParameterObj(args)
         store = lib.gimble.load_store(parameterObj)
-        print(store, type(store) )
+        #print(store, type(store) )
         store.make_blocks(parameterObj)
         store.dump_blocks(parameterObj)
-        print(store.tree())
-        print(store.attrs())
-        #log.info("[*] Total runtime: %.3fs" % (timer() - start_time))
+        #print(store.tree())
+        #print(store.attrs())
+        print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
-        #log.info("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
+        print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
         exit(-1)

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gIMble simulate -o <STR> -s <STR> [-n <STR> -j <STR> -m <STR> -p <INT> -c --nograph --nomodel] [-h|--help]
+"""usage: gIMble simulate -o <STR> -s <STR> -b <INT> [-n <STR> -j <STR> -m <STR> -p <INT> -c --nograph --nomodel] [-h|--help]
 
     Options:
         -h --help                         show this
         -p, --ploidy <INT>                Ploidy of samples [default: 2]
+        -b, --blocks <INT>
         -s, --pop_ids <STR>               User defined samples, e.g. for populations 'A' and 'B'
         -n, --samples <STR>               Number of samples by populations (same order) [default: 1]
         -j, --join_string <STR>           Newick string of population-join history (Ne changes)

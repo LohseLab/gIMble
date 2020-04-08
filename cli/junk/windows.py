@@ -45,9 +45,10 @@ def main(run_params):
         store.dump_windows(parameterObj)
         #print(store.tree())
         #print(store.attrs())
-        print("[*] Total runtime: %.3fs" % (timer() - start_time))
+        
+        #log.info("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
-        print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
+        #log.info("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
         exit(-1)
 
 ###############################################################################

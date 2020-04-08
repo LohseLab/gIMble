@@ -192,10 +192,10 @@ class StateObj(object):
             sys.exit("[X] value must be 'str' or 'dict', is: %r" % value)
 
     def __str__(self):
-        return self.label
+        return str(self.__dict__)
 
     def __repr__(self):
-        return self.label
+        return str(self.__dict__)
 
     def __hash__(self):
         return hash(self.label)
@@ -266,7 +266,7 @@ class StateGraph(object):
         self.lca_label = None
         self.events_counter = collections.Counter()
         self.events_counter_by_node_idx = collections.defaultdict(collections.Counter)
-        self.edges_by_event = collections.defaultdict(list)
+        self.edges_by_event = collections.defaultdict(list) # for colours when plotting
         self.set_of_lineages = set()
         self.pop_ids = set()
 
@@ -275,31 +275,35 @@ class StateGraph(object):
 
     def write_model(self, parameterObj):
         print("[+] Calculating model ...")
+        #print(self.events_counter)
         events = sorted(self.events_counter.keys())
         lineages = sorted([lineage for lineage in self.set_of_lineages if not lineage == self.lca_label])
-        header = ['path_idx', 'origin', 'label'] + events + lineages 
+        header = ['path_idx', 'node_id', 'LCA', 'label', 'event', 'count'] + ['total'] + events + lineages 
         rows = []
         path_counter_by_origin = collections.Counter()
         max_length_label = max([len(label) for label in self.origin_idx_by_label.keys()])
         path_idx = 0
         for origin_label, origin_idx in sorted(self.origin_idx_by_label.items()):
-            idx_paths = [(path_idx, path) for path_idx, path in enumerate(nx.all_simple_paths(self.graph, source=0, target=origin_idx))]
-            for path_idx, path in tqdm(idx_paths, total=len(idx_paths), desc="[+]\tPaths to %s" % origin_label.rjust(max_length_label), unit='', ncols=100, unit_scale=True):
-                path_idx += 1
+            paths = [path for path in nx.all_simple_paths(self.graph, source=0, target=origin_idx)]
+            #print('idx_paths', idx_paths)
+            for path in tqdm(paths, total=len(paths), desc="[+]\tPaths to %s" % origin_label.rjust(max_length_label), unit='', ncols=100, unit_scale=True):
+                #print("\n############## PATH ", path_idx, path)
                 path_counter_by_origin[origin_label] += 1
                 path_counter_by_origin['all'] += 1
-                for node_idx, _ in pairwise(path):
-                    row = [path_idx, origin_idx, self.label_by_node_idx[node_idx]]
-                    #print(events)
-                    #print(lineages)
+                for source_idx, sink_idx in pairwise(path):
+                    current_event = self.graph[source_idx][sink_idx][0]['event']
+                    current_count = self.graph[source_idx][sink_idx][0]['count']
+                    row = [path_idx, sink_idx, origin_idx, self.label_by_node_idx[source_idx], current_event, current_count, sum(self.events_counter_by_node_idx[source_idx].values())]
                     for event in events:
-                        row.append(self.events_counter_by_node_idx[node_idx][event])
-                    stateObj = self.stateObj_by_node_idx[node_idx]
+                        row.append(self.events_counter_by_node_idx[source_idx][event])
+                    stateObj = self.stateObj_by_node_idx[source_idx]
+                    
                     for lineage in lineages:
                         row.append(stateObj.lineage_counter[lineage])
                     rows.append(row)
-                last_row = [path_idx, origin_idx, self.label_by_node_idx[node_idx]] + ([0] * len(events)) + ([0] * len(lineages))
+                last_row = [path_idx, sink_idx, origin_idx, self.label_by_node_idx[source_idx], 'LCA', 0, 0] + ([0] * len(events)) + ([0] * len(lineages))
                 rows.append(last_row)
+                path_idx += 1
         lib.functions.create_csv("%s.model.tsv" % parameterObj.out_prefix, None, header, rows, sep="\t")
         print("[+] Paths \n[+]\t%s => all\n[+]\t%s" % (
             path_counter_by_origin['all'], 

@@ -6,14 +6,9 @@ Modules:
     setup                 Setup DataStore
     blocks                Make blocks
     windows               Make windows
+    model                 Build new model
+    inference             Make inference
     
-    likelihood            Infer likelihood for data given model and parameters
-    lsearch               Estimate parameters for data given a model 
-    
-    makegrid              Precompute grid
-    gridsearch            Perform gridsearch on precomputed grid
-    
-
 Options:
     -h, --help                         Show this screen.
     -D, --debug                        Print debug information
@@ -47,12 +42,16 @@ def main():
         elif args['<module>'] == 'windows':
             import cli.windows as windows
             windows.main(run_params)
+        elif args['<module>'] == 'model':
+            import cli.model as model
+            model.main(run_params)
+        elif args['<module>'] == 'inference':
+            import cli.inference as inference
+            inference.main(run_params)
         elif args['<module>'] == 'simulate':
             import cli.simulate as simulate
             simulate.main(run_params)
-        elif args['<module>'] == 'portblocks':
-            import cli.portblocks as portblocks
-            portblocks.main(run_params)
+        
         elif args['<module>'] == 'varfilter':
             import cli.varfilter as varfilter
             varfilter.main(run_params)
@@ -65,9 +64,6 @@ def main():
         elif args['<module>'] == 'estimate':
             import cli.estimate as estimate
             estimate.main(run_params)
-        elif args['<module>'] == 'model':
-            import cli.model as model
-            model.main(run_params)
         elif args['<module>'] == 'gridsearch':
             import cli.gridsearch as gridsearch
             gridsearch.main(run_params)
