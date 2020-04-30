@@ -20,41 +20,14 @@ import warnings
 '''
 [To do]
 - write test that errors when no VCF index since it takes ages without
-
-[ QC ]
-- Genotype counts for each sample
-
-[ setup ] 
-- is it possible to run it without population file?
-    - concept of samples has to come from VCF/BED
-
-[ analyse ]
-- parse population file and use it for query set
-
-~/git/gIMble/gIMble setup -s ~/data/heliconius.populations.csv -v ~/data/heliconius.freebayes.autosomes.intergenic_and_nonrepeats.normalized.SnpGap_2.NonSNP.Balance.PASS.decomposed.vcf.gz -b ~/data/heliconius.master.normalised.slop_2.bed -o ~/data/heliconius_full_all -g ~/data/hmel2_5.chromosomes.autosomes.genomefile 
-&& ~/git/gIMble/gIMble blocks -z heliconius_full_all.z -l 64 -r 5 -m 80 
-&& ~/git/gIMble/gIMble windows -z heliconius_full_all.z -w 50000 -s 10000
-
         https://stupidpythonideas.blogspot.com/2014/01/grouping-into-runs-of-adjacent-values.html
         https://stackoverflow.com/questions/2154249/identify-groups-of-continuous-numbers-in-a-list
         https://stackoverflow.com/questions/4494404/find-large-number-of-consecutive-values-fulfilling-condition-in-a-numpy-array
         https://stackoverflow.com/questions/32357823/splitting-a-list-of-integers-by-breaks-in-the-data-when-the-break-size-is-variab
 
-# # to deal with samples n!=2, it 
-# # - needs to know the number of folded mutypes
-# # - or needs to calculate the number of fMiC (folded minor allele counts)
-
-# def genotypes(alleles=2, ploidy=2, samples=2):
-#     return [list(x) for x in itertools.product([u for u in itertools.combinations_with_replacement(range(alleles), ploidy)], repeat=samples)]
-
-# def genotype_count(alleles=2, ploidy=2, samples=2):
-#     return len(genotypes(alleles, ploidy, samples))
-
 
 '''
 COLOURS = ['orange', 'dodgerblue']
-FULL_MUTYPE_ORDER = ['hetA', 'fixed', 'hetB', 'hetAB', 'missing', 'multiallelic']
-MUTYPE_ORDER = ['hetA', 'fixed', 'hetB', 'hetAB']
 MUTYPE_OTHER = ['missing', 'multiallelic']
 GT_ORDER = ['TOTAL', 'MISS', 'HOM', 'HET']
 
@@ -105,11 +78,9 @@ def block_sites_to_variation_arrays(block_sites, max_type_count=4):
     return np.hsplit(np.bincount(temp_sites.ravel(), minlength=(block_count * max_type_count)).reshape(-1, max_type_count), [1, 2, 3])
 
 def calculate_popgen_from_array(mutype_array, sites):
-    # print(df)
-    #print('mutype_array', mutype_array.shape, mutype_array)
-    #print('sites', sites)
-    pi_1 = float("%.8f" % np.divide(np.sum(mutype_array[:, 0]) + np.sum(mutype_array[:, 2]), sites))
-    pi_2 = float("%.8f" % np.divide(np.sum(mutype_array[:, 1]) + np.sum(mutype_array[:, 2]), sites))
+    # print('# Mutypes: 0=MULTI, 1=MISS, 2=MONO, 3=HetB, 4=HetA, 5=HetAB, 6=Fixed')
+    pi_1 = float("%.8f" % np.divide(np.sum(mutype_array[:, 1]) + np.sum(mutype_array[:, 2]), sites))
+    pi_2 = float("%.8f" % np.divide(np.sum(mutype_array[:, 0]) + np.sum(mutype_array[:, 2]), sites))
     d_xy = float("%.8f" % np.divide(np.divide(np.sum(mutype_array[:, 0]) + np.sum(mutype_array[:, 1]) + np.sum(mutype_array[:, 2]), 2.0) + np.sum(mutype_array[:, 3]), sites))
     mean_pi = (pi_1 + pi_2) / 2.0
     total_pi = (d_xy + mean_pi) / 2.0 # special case of pairwise Fst
@@ -119,16 +90,16 @@ def calculate_popgen_from_array(mutype_array, sites):
     fgv = len(mutype_array[(mutype_array[:, 2] > 0) & (mutype_array[:, 3] > 0)])
     return (pi_1, pi_2, d_xy, f_st, fgv)
 
-def genotype_to_mutype_array(genotypeArray):
-    gt_array = np.array(genotypeArray)
-    allele_counts = np.ma.masked_equal(genotypeArray.count_alleles(), 0, copy=False)    
-    allele_map = np.ones((allele_counts.shape), dtype='int8') * np.arange(allele_counts.shape[-1])
-    idx_max_global_allele_count = np.nanargmax(allele_counts, axis=1)
-    idx_min_global_allele_count = np.nanargmin(allele_counts, axis=1)
+def genotype_to_mutype_array(sa_genotype_array, idx_block_sites_in_pos, block_sites, debug=False):
+    np_genotype_array = np.array(sa_genotype_array)
+    np_allele_count_array = np.ma.masked_equal(sa_genotype_array.count_alleles(), 0, copy=False)    
+    allele_map = np.ones((np_allele_count_array.shape), dtype='int8') * np.arange(np_allele_count_array.shape[-1])
+    idx_max_global_allele_count = np.nanargmax(np_allele_count_array, axis=1)
+    idx_min_global_allele_count = np.nanargmin(np_allele_count_array, axis=1)
     has_major_allele = (idx_max_global_allele_count != idx_min_global_allele_count)
-    idx_min_prime_allele = np.amin(gt_array[:,0], axis=1)
-    idx_min_global_allele = np.amin(np.amin(gt_array, axis=1), axis=1)
-    idx_max_global_allele = np.amax(np.amax(gt_array, axis=1), axis=1)
+    idx_min_prime_allele = np.amin(np_genotype_array[:,0], axis=1)
+    idx_min_global_allele = np.amin(np.amin(np_genotype_array, axis=1), axis=1)
+    idx_max_global_allele = np.amax(np.amax(np_genotype_array, axis=1), axis=1)
     idx_major_allele = np.where(
         has_major_allele, 
         idx_max_global_allele_count, 
@@ -140,14 +111,27 @@ def genotype_to_mutype_array(genotypeArray):
             idx_min_global_allele == idx_min_prime_allele),
             np.max((idx_min_global_allele, idx_max_global_allele), axis=0), 
             np.min((idx_min_global_allele, idx_max_global_allele), axis=0)))
-    allele_map[np.arange(allele_map.shape[0]), idx_minor_allele] = 1 # First "minor" allele, so that it gets overwritten if monomorphic
+    # for each genotype (np.arange(allele_map.shape[0])), set minor allele to 1 (1st do minor, so that overwritten if monomorphic)
+    allele_map[np.arange(allele_map.shape[0]), idx_minor_allele] = 1 
+    # for each genotype (np.arange(allele_map.shape[0])), set major allele to 0
     allele_map[np.arange(allele_map.shape[0]), idx_major_allele] = 0
-    folded_genotypes = genotypeArray.map_alleles(allele_map) #allel.GenotypeArray(genotypeArray.map_alleles(allele_map))
-    folded_minor_allele_counts = folded_genotypes.to_n_alt(fill=-1)
-    folded_minor_allele_counts[np.any(genotypeArray.is_missing(), axis=1)] = np.ones(2) * -1    # -1, -1 for missing => -1
-    folded_minor_allele_counts[(allele_counts.count(axis=1) > 2)] = np.ones(2) * (-1, -2)       # -1, -2 for multiallelic => -2
-    mutypes = szudzik_pairing(folded_minor_allele_counts) + 2                                   # add 2 so that not negative for bincount
-    return mutypes
+    folded_minor_allele_counts = sa_genotype_array.map_alleles(allele_map).to_n_alt(fill=-1)
+    folded_minor_allele_counts[np.any(sa_genotype_array.is_missing(), axis=1)] = np.ones(2) * -1    # -1, -1 for missing => -1
+    folded_minor_allele_counts[(np_allele_count_array.count(axis=1) > 2)] = np.ones(2) * (-1, -2)       # -1, -2 for multiallelic => -2
+    block_sites_pos = block_sites.flatten()
+    block_sites[idx_block_sites_in_pos] = szudzik_pairing(folded_minor_allele_counts) + 2       # add 2 so that not negative for bincount
+    block_sites[~idx_block_sites_in_pos] = 2                                                    # monomorphic = 2 (0 = multiallelic, 1 = missing)
+    if debug == True:
+        pos_df = pd.DataFrame(block_sites_pos[idx_block_sites_in_pos.flatten()], dtype='int8', columns=['pos'])
+        genotypes_df = pd.DataFrame(np_genotype_array.reshape(np_genotype_array.shape[0], 4), dtype='i4', columns=['a1', 'a2', 'b1', 'b2'])        
+        block_sites_df = pos_df.join(genotypes_df)
+        folded_minor_allele_count_df = pd.DataFrame(folded_minor_allele_counts, dtype='int8', columns=['fmAC_a', 'fmAC_b'])
+        block_sites_df = block_sites_df.join(folded_minor_allele_count_df)
+        variants = pd.DataFrame(block_sites[idx_block_sites_in_pos], dtype='int8', columns=['SVar'])
+        block_sites_df = block_sites_df.join(variants)
+        print('# Mutypes: 0=MULTI, 1=MISS, 2=MONO, 3=HetB, 4=HetA, 5=HetAB, 6=Fixed')
+        print(block_sites_df)
+    return block_sites
     
 def consecutive(data, stepsize=1):
     return np.split(data, np.where(np.diff(data) != stepsize)[0] + 1)
@@ -179,12 +163,16 @@ def cut_windows(mutype_array, idxs, start_array, end_array, sample_set_array, nu
 
 def cut_blocks(interval_starts, interval_ends, block_length, block_span, block_gap_run):
     sites = create_ranges(np.array((interval_starts, interval_ends)).T)
-    block_sites = np.concatenate([x[:block_length * (x.shape[0] // block_length)].reshape(-1, block_length) for x in np.split(sites, np.where(np.diff(sites) > block_gap_run)[0] + 1)])
+    block_sites = np.concatenate([x[:block_length * (x.shape[0] // block_length)].reshape(-1, block_length) for x in np.split(sites, np.where(np.diff(sites) > block_gap_run)[0] + 1)]) # discriminates based on block_gap_run
+    # block_sites = sites[:(block_length * (sites.shape[0] // block_length))].reshape(-1, block_length) # last block is cut off
     return block_sites[(((block_sites[:, -1] - block_sites[:, 0]) + 1) <= block_span)] # return blocks where ((block_end - block_start) + 1) <= block_span
 
 def create_store(parameterObj):
-    store = Store() 
-    store._from_input(parameterObj)
+    store = Store()
+    if parameterObj.simulated_data:
+        store._from_simulation(parameterObj)    
+    else:
+        store._from_input(parameterObj)
     return store
 
 def load_store(parameterObj):
@@ -198,7 +186,48 @@ class Store(object):
         self.prefix = None
         self.data = None
         self.stages = {}
+        self.mutype_labels = []
 
+    def has_blocks(self):
+        if 'blocks' in self.stages:
+            return True
+        return False
+
+    def has_windows(self):
+        if 'windows' in self.stages:
+            return True
+        return False
+
+    def _from_simulation(self, parameterObj):
+        '''
+        - ideally, simulations are directly written into zarr-store... 
+        - this is just a temporal parsing function 
+        - block_length is needed so that all sites are there 
+        '''
+
+        self.path = parameterObj.zstore
+        self.path = self._get_path(parameterObj.outprefix)
+        self.data = zarr.open(self.path, mode='w')
+        # needs to know pop_ids, sample_ids...
+        self._parse_sample_file(
+            parameterObj.sample_file, 
+            parameterObj.pairedness
+            )
+        sim_data = np.load(parameterObj.simulated_data).astype('int8')
+        genotypes = []
+        BLOCK_LENGTH = 265
+        for genotype in sim_data:
+            padding = np.zeros((BLOCK_LENGTH, genotype.shape[-2], genotype.shape[-1]))
+            padding[:genotype.shape[0],:,:] = genotype
+            genotypes.append(padding)
+        print(len(genotypes))
+        self.data.attrs['sample_ids_vcf'] = ['A', 'B', 'X', 'Y']
+        self.data.attrs['sample_ids_to_vcf_idx'] = {sample_id: idx for idx, sample_id in enumerate(self.data.attrs['sample_ids_vcf'])}
+        np_gt_array = np.concatenate(genotypes)
+        self.data.create_dataset('simulated/gt', data=np_gt_array) 
+        self.data.create_dataset('simulated/pos', data=np.arange(len(genotypes) * BLOCK_LENGTH))
+        print(self.tree)
+        
     def _from_zarr(self, parameterObj):
         self.path = parameterObj.zstore
         self.prefix = parameterObj.zstore.rstrip(".z")
@@ -241,7 +270,7 @@ class Store(object):
         self.data.attrs['population_ids'] = df['population_id'].to_list() 
         self.data.attrs['pop_ids'] = sorted(set(df['population_id'].to_list())) # Sorted pop_ids
         self.data.attrs['pop_ids_by_sample_id'] = {sample_id: pop_id for sample_id, pop_id in zip(self.data.attrs['sample_ids'], self.data.attrs['population_ids'])}
-        self.data.attrs['sample_sets'] = [_ for _ in itertools.combinations(self.data.attrs['sample_ids'], pairedness)] # DO NOT SORT, otherwise there could be erroneously polarised sample sets (pop2, pop1)
+        self.data.attrs['sample_sets'] = [tuple(_) for _ in itertools.combinations(self.data.attrs['sample_ids'], pairedness)] # DO NOT SORT, otherwise there could be erroneously polarised sample sets (pop2, pop1)
         self.data.attrs['idx_cartesian_sample_sets'] = [idx for idx, sample_set in enumerate(self.data.attrs['sample_sets']) if (len(set([self.data.attrs['pop_ids_by_sample_id'][sample_id] for sample_id in sample_set])) == len(self.data.attrs['pop_ids']))]
         # TEST FOR CORRECT SAMPLE_SET POLARISATION
         # _pops = []
@@ -267,40 +296,41 @@ class Store(object):
             warnings.simplefilter("ignore")
             for seq_id in tqdm(sequence_ids, total=len(sequence_ids), desc="[%] Parsing input files ", ncols=100):
                 zarr_key = ''
-                for key, data in allel.read_vcf(vcf_file, region=seq_id, samples=sample_ids, fields=['samples', 'calldata/GT', 'variants/POS']).items():
-                    if key == 'samples':
-                        self.data.attrs['sample_ids_vcf'] = list(data)
-                        #print("vcf samples", list(data))
-                        self.data.attrs['sample_ids_to_vcf_idx'] = {sample_id: idx for idx, sample_id in enumerate(data)}
-                    elif key == 'calldata/GT':
-                        zarr_key = "%s/gt" % seq_id
-                        #print(key, data.shape)
-                        self.data.create_dataset(zarr_key, data=data)
-                        
-                    elif key == 'variants/POS':
-                        zarr_key = "%s/pos" % seq_id
-                        self.data.create_dataset(zarr_key, data=(np.array(data) - 1)) # port to BED (0-based) coordinates
-                    else:
-                        logging.error("[X] Unknown key %r" % key)
-                        exit()
-                unique_pos, counts_pos = np.unique(self.data["%s/pos" % seq_id], return_counts=True)
-                duplicates = unique_pos[counts_pos > 1]
-                if duplicates.any():
-                    sys.exit("\n[X] Non-unique positions along sequence %r\n\tPositions: %s" % (seq_id, ", ".join([str(x) for x in list(duplicates)])))
+                #print(vcf_file)
+                data_by_key = allel.read_vcf(vcf_file, region=seq_id, samples=sample_ids, fields=['samples', 'calldata/GT', 'variants/POS'])
+                if data_by_key:
+                    for key, data in data_by_key.items():
+                        if key == 'samples':
+                            self.data.attrs['sample_ids_vcf'] = list(data)
+                            #print("vcf samples", list(data))
+                            self.data.attrs['sample_ids_to_vcf_idx'] = {sample_id: idx for idx, sample_id in enumerate(data)}
+                        elif key == 'calldata/GT':
+                            zarr_key = "%s/gt" % seq_id
+                            print(key, data.shape, type(data))
+                            self.data.create_dataset(zarr_key, data=data) 
+                        elif key == 'variants/POS':
+                            zarr_key = "%s/pos" % seq_id
+                            self.data.create_dataset(zarr_key, data=(np.array(data) - 1)) # port to BED (0-based) coordinates
+                        else:
+                            logging.error("[X] Unknown key %r" % key)
+                            exit()
+                    unique_pos, counts_pos = np.unique(self.data["%s/pos" % seq_id], return_counts=True)
+                    duplicates = unique_pos[counts_pos > 1]
+                    if duplicates.any():
+                        sys.exit("\n[X] Non-unique positions along sequence %r\n\tPositions: %s" % (seq_id, ", ".join([str(x) for x in list(duplicates)])))
             self.data.attrs['vcf_f'] = vcf_file
 
-    def make_blocks(self, parameterObj):
+    def make_blocks(self, parameterObj, debug=False):
         # if self.has_blocks() and not parameterObj.overwrite:
         #     sys.exit("[X] %s contains %s blocks (-l %s -m %s -r %s -u %s -i %s" % (
         #         store.   
         #         ))
-
         self.data.attrs['block_length'] = parameterObj.block_length
         self.data.attrs['block_gap_run'] = parameterObj.block_gap_run
         self.data.attrs['block_span'] = parameterObj.block_span
         self.data.attrs['mutypes_count'] = 4 # should be calculated from possible folded genotypes and pairedness
 
-        sample_ids = self.data.attrs['sample_ids']
+        sample_ids = self.data.attrs['sample_ids'] # from BED file
         sequence_ids = self.data.attrs['sequence_ids']
         sample_sets = self.data.attrs['sample_sets']
         #print(self.attrs())
@@ -315,57 +345,70 @@ class Store(object):
         intervals_df = pd.concat([intervals_df, intervals_df.samples.str.get_dummies(sep=',').filter(sample_ids)], axis=1).drop(columns=['samples'])
         # remove those intervals including less than two sample_ids (query sample_id columns : intervals_df[intervals_df.columns.intersection(sample_ids)])
         intervals_df = intervals_df.loc[(intervals_df[intervals_df.columns.intersection(sample_ids)].sum(axis=1) > 1)]
-        interval_spans, block_spans = [], []
-        with tqdm(total=(len(sequence_ids) * len(sample_sets)), desc="[%] Calculating bSFSs ", ncols=100, unit_scale=True) as pbar:
+        #interval_sites_by_sample_set_idx = collections.defaultdict(list)
+        #block_sites_by_sample_set_idx = collections.defaultdict(list)
+        with tqdm(total=(len(sequence_ids) * len(sample_sets)), desc="[%] Calculating bSFSs ", ncols=100, unit_scale=True) as pbar:        
             for seq_id in sequence_ids:        
-                interval_span, block_span = [], []
                 _intervals_df = intervals_df[intervals_df['sequence_id'] == seq_id]
-                _pos = self.data["%s/pos" % seq_id] # zarr.core.array
-                genotypeArray = allel.GenotypeArray(self.data["%s/gt" % seq_id])
+                seq_id_key = "%s/pos" % seq_id
+                _pos = np.array([])
+                if seq_id_key in self.data: 
+                    _pos = self.data["%s/pos" % seq_id] # zarr.core.array
+                    sa_genotype_array = allel.GenotypeArray(self.data["%s/gt" % seq_id])
                 for sample_set_idx, sample_set in enumerate(sample_sets):
-                    sample_set_intervals_df = _intervals_df[_intervals_df[sample_set].all(axis='columns')]
-                    interval_span.append(sample_set_intervals_df['length'].sum())
-                    block_sites = cut_blocks(
-                        sample_set_intervals_df.start, 
-                        sample_set_intervals_df.end, 
-                        parameterObj.block_length, 
-                        parameterObj.block_span, 
-                        parameterObj.block_gap_run
-                        )
-                    block_span.append(np.sum(((block_sites[:,-1] - block_sites[:,0]) + 1))) # block_space == span !
-                    self.data.create_dataset("%s/%s/blocks/starts" % (seq_id, sample_set_idx), data=block_sites[:,0])
-                    self.data.create_dataset("%s/%s/blocks/ends" % (seq_id, sample_set_idx), data=(block_sites[:,-1] + 1))  
-                    idx_block_sites_in_pos = np.isin(block_sites, _pos, assume_unique=True) # will crash if non-unique pos
-                    # idx_block_sites_in_pos = np.isin(block_sites, _pos) # will work even if non-unique pos
-                    idx_pos_in_block_sites = np.isin(_pos, block_sites, assume_unique=True) # will crash if non-unique pos
-                    # idx_pos_in_block_sites = np.isin(_pos, block_sites) # will work even if non-unique pos
-                    # make room for reading in array
-                    sample_set_idxs = [self.data.attrs['sample_ids_to_vcf_idx'][sample_id] for sample_id in sample_set] # list of indices
-                    sample_set_genotypes = genotypeArray.subset(idx_pos_in_block_sites, sample_set_idxs)
-                    block_sites[idx_block_sites_in_pos] = genotype_to_mutype_array(sample_set_genotypes)
-                    block_sites[~idx_block_sites_in_pos] = 2 # monomorphic = 2 (0 = multiallelic, 1 = missing)
-                    multiallelic, missing, monomorphic, variation = block_sites_to_variation_arrays(block_sites, self.data.attrs['mutypes_count'])
-
-                    self.data.create_dataset("%s/%s/blocks/variation" % (seq_id, sample_set_idx), data=variation)
-                    self.data.create_dataset("%s/%s/blocks/multiallelic" % (seq_id, sample_set_idx), data=multiallelic.flatten())
-                    self.data.create_dataset("%s/%s/blocks/missing" % (seq_id, sample_set_idx), data=missing.flatten())
+                    if sample_set_idx in self.data.attrs['idx_cartesian_sample_sets']:
+                        sample_set_intervals_df = _intervals_df[_intervals_df[sample_set].all(axis='columns')]
+                        # Cut blocks based on intervals and block-algoritm parameters
+                        block_sites = cut_blocks(
+                            np.array(sample_set_intervals_df.start), 
+                            np.array(sample_set_intervals_df.end), 
+                            parameterObj.block_length, 
+                            parameterObj.block_span, 
+                            parameterObj.block_gap_run
+                            )
+                        # Save positions (start/end) of blocks
+                        self.data.create_dataset("%s/%s/blocks/starts" % (seq_id, sample_set_idx), data=block_sites[:,0])
+                        self.data.create_dataset("%s/%s/blocks/ends" % (seq_id, sample_set_idx), data=(block_sites[:,-1] + 1))
+                        # Save interval/block info for sample set   
+                        interval_space = sample_set_intervals_df['length'].sum()
+                        block_space = np.sum(((block_sites[:,-1] - block_sites[:,0]) + 1)) # block_space == span !
+                        self.data.create_dataset("%s/%s/sites_interval" % (seq_id, sample_set_idx), data=np.array([interval_space]))
+                        self.data.create_dataset("%s/%s/sites_block" % (seq_id, sample_set_idx), data=np.array([block_space]))
+                        if debug:
+                            print("#", seq_id, sample_set_idx, sample_set)
+                            print("# Block_sites 1", block_sites.shape)
+                            print(block_sites)
+                        # Variation
+                        if seq_id_key in self.data: 
+                            # positions inside block_sites that are variant     
+                            idx_block_sites_in_pos = np.isin(block_sites, _pos, assume_unique=True) # will crash if non-unique pos
+                            # variant positions in _pos that are within block_sites 
+                            idx_pos_in_block_sites = np.isin(_pos, block_sites, assume_unique=True) # will crash if non-unique pos
+                            # make room for reading in array
+                            sample_set_vcf_idxs = [self.data.attrs['sample_ids_to_vcf_idx'][sample_id] for sample_id in sample_set] # list of indices
+                            sa_sample_set_genotype_array = sa_genotype_array.subset(idx_pos_in_block_sites, sample_set_vcf_idxs)
+                            block_sites = genotype_to_mutype_array(sa_sample_set_genotype_array, idx_block_sites_in_pos, block_sites, debug)
+                        else:
+                            block_sites[:] = 2 # if no variants, all invariant
+                        multiallelic, missing, monomorphic, variation = block_sites_to_variation_arrays(block_sites, self.data.attrs['mutypes_count'])
+                        pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation, (self.data.attrs['block_length'] * variation.shape[0])) 
+                        if debug:
+                            print("# Block_sites 2")
+                            print(block_sites)
+                            print('# Variation: 0=HetB, 1=HetA, 2=HetAB, 3=Fixed')
+                            print(variation)
+                            print("[+] Pi_%s = %s; Pi_%s = %s; D_xy = %s; F_st = %s; FGV = %s" % (self.data.attrs['pop_ids'][0], pi_1, self.data.attrs['pop_ids'][1], pi_2, d_xy, f_st, fgv)) 
+                        self.data.create_dataset("%s/%s/blocks/variation" % (seq_id, sample_set_idx), data=variation)
+                        self.data.create_dataset("%s/%s/blocks/multiallelic" % (seq_id, sample_set_idx), data=multiallelic.flatten())
+                        self.data.create_dataset("%s/%s/blocks/missing" % (seq_id, sample_set_idx), data=missing.flatten())
                     pbar.update(1)
-                self.data.create_dataset("%s/interval_span" % seq_id, data=interval_span)
-                self.data.create_dataset("%s/block_span" % seq_id, data=block_span)
-                interval_spans.append(interval_span)
-                block_spans.append(block_span)
-        #print("interval_span", interval_span)
-        interval_bases_df = pd.DataFrame(interval_span)
-        #print("interval_bases_df", interval_bases_df)
-        #print("block_span", block_span)
-        blocked_bases_df = pd.DataFrame(block_span)
-        #print("blocked_bases_df", blocked_bases_df)
-        blocked_fraction_df = blocked_bases_df / interval_bases_df
-        blocked_bases_df['sum'] = blocked_bases_df.sum(axis=1)
-        blocked_fraction_df['mean'] = blocked_fraction_df.mean(axis=1)
         self.data.attrs['blocks'] = True
+        #print(self.tree())
 
     def make_windows(self, parameterObj):
+        if self.has_blocks() and not parameterObj.overwrite:
+            sys.exit("[X] %s contains %s blocks (-l %s -m %s -r %s -u %s -i %s" % (self.path))
+
         sample_sets_idxs = self.data.attrs['idx_cartesian_sample_sets']
         with tqdm(total=(len(self.data.attrs['sequence_ids']) * len(sample_sets_idxs)), desc="[%] Making windows ", ncols=100, unit_scale=True) as pbar: 
             for seq_id in self.data.attrs['sequence_ids']: 
@@ -406,41 +449,104 @@ class Store(object):
         pass
 
     def dump_blocks(self, parameterObj):
+        # applies the missing & multiallelic thresholds
         sample_sets_idxs = self.data.attrs['idx_cartesian_sample_sets']
-        starts, ends, mutypes, sample_set = [], [], [], []
+        data_by_key_by_sample_set_idx = collections.defaultdict(lambda: collections.defaultdict(list))
+        variation_global = []
         with tqdm(total=(len(self.data.attrs['sequence_ids']) * len(sample_sets_idxs)), desc="[%] Writing bSFSs ", ncols=100, unit_scale=True) as pbar: 
             for seq_id in self.data.attrs['sequence_ids']: 
                 for sample_set_idx in sample_sets_idxs:
-                    multiallelic = np.array(self.data["%s/%s/blocks/multiallelic" % (seq_id, sample_set_idx)])
+                    # aggregate interval/block sites as determined from BED file and blocking algorithm
+                    data_by_key_by_sample_set_idx[sample_set_idx]['sites_interval'].append(np.array(self.data["%s/%s/sites_interval" % (seq_id, sample_set_idx)]))
+                    data_by_key_by_sample_set_idx[sample_set_idx]['sites_block'].append(np.array(self.data["%s/%s/sites_block" % (seq_id, sample_set_idx)]))
+                    # missing & multiallelic thresholds determine validity of blocks ...
                     missing = np.array(self.data["%s/%s/blocks/missing" % (seq_id, sample_set_idx)])
+                    multiallelic = np.array(self.data["%s/%s/blocks/multiallelic" % (seq_id, sample_set_idx)])
                     valid = np.less_equal(missing, parameterObj.max_missing) & np.less_equal(multiallelic, parameterObj.max_multiallelic)
-                    mutype = np.array(self.data["%s/%s/blocks/variation" % (seq_id, sample_set_idx)])
-                    mutypes.append(mutype[valid])
-                    start = np.array(self.data["%s/%s/blocks/starts" % (seq_id, sample_set_idx)])
-                    starts.append(start[valid])
-                    end = np.array(self.data["%s/%s/blocks/ends" % (seq_id, sample_set_idx)])
-                    sample_set.append(np.full_like(end[valid], sample_set_idx)) 
-                    ends.append(end[valid])
+                    data_by_key_by_sample_set_idx[sample_set_idx]['sites_block_valid'].append(np.array([valid[valid == True].shape[0] * self.data.attrs['block_length']]))
+                    # aggregate variation/location data of valid blocks 
+                    data_by_key_by_sample_set_idx[sample_set_idx]['missing'].append(missing[valid])
+                    data_by_key_by_sample_set_idx[sample_set_idx]['multiallelic'].append(multiallelic[valid])
+                    variation = np.array(self.data["%s/%s/blocks/variation" % (seq_id, sample_set_idx)])[valid]
+                    data_by_key_by_sample_set_idx[sample_set_idx]['variation'].append(variation)
+                    variation_global.append(variation)
+                    data_by_key_by_sample_set_idx[sample_set_idx]['starts'].append(np.array(self.data["%s/%s/blocks/starts" % (seq_id, sample_set_idx)])[valid])
+                    data_by_key_by_sample_set_idx[sample_set_idx]['ends'].append(np.array(self.data["%s/%s/blocks/ends" % (seq_id, sample_set_idx)])[valid])
+                    #sample_set.append(np.full_like(end[valid], sample_set_idx)) 
                     pbar.update()
-        mutypes_array = np.concatenate(mutypes, axis=0)
-        #print("mutypes_array", mutypes_array)
+        variation_global_array = np.concatenate(variation_global, axis=0)
         # popgen
-        pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(mutypes_array, (self.data.attrs['block_length'] * mutypes_array.shape[0]))
-        print("[+] Pi_%s = %s; Pi_%s = %s; D_xy = %s; F_st = %s; FGVs = %s / %s blocks (%s)" % (self.data.attrs['pop_ids'][0], pi_1, self.data.attrs['pop_ids'][1], pi_2, d_xy, f_st, fgv, mutypes_array.shape[0], format_percentage(fgv / mutypes_array.shape[0]))) 
+        variation_global = []
+        metrics_rows = []
+        for sample_set_idx in data_by_key_by_sample_set_idx:
+            sample_set_ids = self.data.attrs['sample_sets'][sample_set_idx]
+            #print(data_by_key_by_sample_set_idx)
+            sites_block = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['sites_block'], axis=0))
+            sites_interval = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['sites_interval'], axis=0))
+            sites_block_valid = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['sites_block_valid'], axis=0))
+            variation_array = np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['variation'], axis=0)
+            missing_count = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['missing'], axis=0))
+            multiallelic_count = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['multiallelic'], axis=0))
+            hetB_count, hetA_count, hetAB_count, fixed_count = np.sum(variation_array, axis=0)
+            #pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation_array, (self.data.attrs['block_length'] * variation_array.shape[0]))    
+            pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation_array, sites_block_valid)    
+            metrics_rows.append([
+                sample_set_ids[0], 
+                sample_set_ids[1],     
+                sites_block,
+                sites_interval,
+                sites_block_valid,
+                np.divide(sites_block_valid, self.data.attrs['block_length']),
+                fgv,
+                missing_count,
+                multiallelic_count,
+                hetA_count, 
+                hetB_count, 
+                hetAB_count, 
+                fixed_count,
+                pi_1, 
+                pi_2, 
+                d_xy, 
+                f_st
+                ])
+        # output metrics 
+        header = [
+            self.data.attrs['pop_ids'][0], 
+            self.data.attrs['pop_ids'][1], 
+            'sites_block', 
+            'sites_interval', 
+            'sites_block_valid', 
+            'blocks', 
+            'fgv', 
+            'missing', 
+            'multiallelic', 
+            'hetA', 
+            'hetB', 
+            'hetAB', 
+            'fixed', 
+            'piA', 
+            'piB', 
+            'dxy', 
+            'fst'
+            ]
+        pd.DataFrame(data=metrics_rows, columns=header, dtype='int64').to_hdf("%s.block_stats.h5" % self.prefix, 'bsfs', format='table')
+
+        pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation_global_array, (self.data.attrs['block_length'] * variation_global_array.shape[0]))
+        print("[+] Pi_%s = %s; Pi_%s = %s; D_xy = %s; F_st = %s; FGVs = %s / %s blocks (%s)" % (self.data.attrs['pop_ids'][0], pi_1, self.data.attrs['pop_ids'][1], pi_2, d_xy, f_st, fgv, variation_global_array.shape[0], format_percentage(fgv / variation_global_array.shape[0]))) 
         
         # mutuple barchart
-        mutypes, counts = np.unique(mutypes_array, return_counts=True, axis=0)
+        mutypes, counts = np.unique(variation_global_array, return_counts=True, axis=0)
         mutype_counter = collections.Counter({tuple(i):j for i,j in zip(mutypes, counts)})
         plot_mutuple_barchart('%s.mutuple_barchart.png' % self.prefix, mutype_counter)
 
         # mutuple tally
         bsfs = np.concatenate([counts[:, np.newaxis], mutypes], axis =-1)
         header = ['count'] + [x+1 for x in range(self.data.attrs['mutypes_count'])]
-        pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.blocks.h5" % self.prefix, 'bsfs', format='table')
+        pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.blocks.h5" % self.prefix, 'tally', format='table')
 
         # block coordinates
         #header = ['block_id', 'start', 'end', 'sample_set', 'multiallelic', 'missing']
-        #pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.blocks.h5" % self.prefix, 'bsfs', format='table')
+        #pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.blocks.h5" % self.prefix, 'bed', format='table')
 
     def dump_windows(self, parameterObj):
         window_info_rows = []
@@ -535,7 +641,3 @@ class Store(object):
         fig.savefig(out_f, format="png")
         plt.close(fig)
         print("[>] Created: %r" % str(out_f))
-
-    def _block_stats(self):
-        pass
-        # logging.info(f"[+] {block_spaces[-1]:,} b in blocks ({(block_spaces[-1] / interval_spaces[-1]):.1%} of total bases in intervals)")

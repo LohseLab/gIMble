@@ -3,8 +3,8 @@
     -z, --zarr <DIR>                            gIMble ZARR directory
     
     -l, --block_length <INT>                    Successively genotyped sites per block [default: 64] 
-    -m, --block_span <INT>                      Maximum distance between first and last site of a block [default: 80]
-    -r, --block_gap_run <INT>                   Maximum number of consecutive gaps within a block [default: 1]
+    -m, --block_span <INT>                      Maximum distance between first and last site of a block [default: '-l' * 2]
+    -r, --block_gap_run <INT>                   Maximum number of consecutive gaps within a block [default: '-l']
     
     -u, --max_multiallelic <INT>                Max multiallelics per block [default: 2]
     -i, --max_missing <INT>                     Max missing per block [default: 2]
@@ -19,7 +19,7 @@ import lib.gimble
 
 class ParameterObj(object):
     def __init__(self, args):
-        print(args)
+        #print(args)
         self.zstore = args['--zarr']
         self.block_length = int(args['--block_length'])
         self.block_span = int(args['--block_span'])
@@ -31,7 +31,7 @@ def main(run_params):
     try:
         start_time = timer()
         args = docopt(__doc__)
-        print(args)
+        #print(args)
         #log = lib.log.get_logger(run_params)
         parameterObj = ParameterObj(args)
         store = lib.gimble.load_store(parameterObj)

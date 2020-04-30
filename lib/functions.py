@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 mat.use("agg")
 
 # CONSTANTS
-MUTYPE_ORDER = ['hetA', 'hetB', 'hetAB', 'fixed'] # ideally this comes from reverse
+MUTYPE_ORDER = ['hetB', 'hetA', 'hetAB', 'fixed'] # ideally this comes from reverse
 
 COLOR_HISTOGRAM = 'orange'
 COLORS = ['deeppink', 'dodgerblue']
