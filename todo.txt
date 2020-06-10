@@ -1,0 +1,168 @@
+# Timing 
+- why is building equations so slow all of a sudden? Has to do with summing by mutuple?
+- which are the 2-3 fastest ones to keep as automated tests?
+# Features
+- write test of (0,0,0,0) with mutypes to 0 and check that equals 1
+- identify dataflow for count-data
+- write incorporate zarr counter? move math over to gimble.py
+- keep model.py separate from gimble.py. Clean up? Only change if writing tests for it...
+
+
+# optimization
+./gimble inference -m graph.s_A_B.p2.n_1_1.m_AtoB.j_A_B.model.tsv -c graph.s_A_B.p2.n_1_1.m_AtoB.j_A_B.model.config.yaml
+[%] Solving equations... : 100%|██████████████████████████████████| 225/225 [06:40<00:00,  1.78s/it]
+225 0.9999999999999998
+[*] Total runtime: 808.964s
+
+graph.s_A_B.p2.n_0_2.m_BtoA         [ 65.301s]
+graph.s_A_B.p2.n_1_1.m_AtoB.j_A_B   [805.795s]        
+graph.s_A_B.p2.n_1_1.m_BtoA.j_A_B   [843.110s]        
+graph.s_A_B.p2.n_1_1.m_AtoB         [ 54.635s]
+graph.s_A_B.p2.n_1_1.m_BtoA         [ 57.220s]
+graph.s_A_B.p2.n_2_0.m_AtoB         [ 64.737s]
+graph.s_A_B.p2.n_1_1.j_A_B          [ 15.926s]
+
+# models
+./gIMble model -s A,B -p 2 -n 0,2 -m 'B>A' -o graph.s_A_B.p2.n_0_2.m_BtoA
+./gIMble model -s A,B -p 2 -n 1,1 -m 'A>B' -j 'A,B' -o graph.s_A_B.p2.n_1_1.m_AtoB.j_A_B
+./gIMble model -s A,B -p 2 -n 1,1 -m 'A<B' -j 'A,B' -o graph.s_A_B.p2.n_1_1.m_BtoA.j_A_B
+./gIMble model -s A,B -p 2 -n 1,1 -m 'A>B' -o graph.s_A_B.p2.n_1_1.m_AtoB
+./gIMble model -s A,B -p 2 -n 1,1 -m 'B>A' -o graph.s_A_B.p2.n_1_1.m_BtoA
+./gIMble model -s A,B -p 2 -n 2,0 -m 'A>B' -o graph.s_A_B.p2.n_2_0.m_AtoB
+./gIMble model -s A,B -p 2 -n 1,1 -j 'A,B' -o graph.s_A_B.p2.n_1_1.j_A_B
+
+for model in *.model.tsv; do echo $model; ./gimble inference -m $model; done
+# manual setup
+
+./gimble inference -m graph.s_A_B.p2.n_0_2.m_BtoA.model.tsv -c graph.s_A_B.p2.n_0_2.m_BtoA.model.config.yaml
+[+] Reading config '/Users/dlaetsch/git/gIMble/graph.s_A_B.p2.n_0_2.m_BtoA.model.config.yaml'
+[+] Reading model '/Users/dlaetsch/git/gIMble/graph.s_A_B.p2.n_0_2.m_BtoA.model.tsv'
+[=] ==================================================
+[+] Solving equations with the following parameters:
+[+] K_max := {'m_1': 3, 'm_4': 3}
+[+] Count of mutation profiles := 16
+[+] User-provided rates := {'C_A': 1, 'C_B': 1, 'M_B_A': 1, 'T': 7/5, 'theta': 6/5}
+[+] Event rates := {C_A: 1, C_B: 1, M_B_A: 1/2}
+[+] Mutation rates := {m_1: 3/5, m_4: 3/5}
+[+] Split time (T) := 7/5
+[+] Dummy variable := J
+[=] ==================================================
+[+] Generated 225 demography equations based on provided model
+[%] Building equations... : 100%|███████████████████████████████████| 16/16 [01:01<00:00,  3.86s/it]
+[%] Solving equations... : 100%|████████████████████████████████████| 25/25 [00:01<00:00, 16.63it/s]
+25 1.0
+[*] Total runtime: 65.301s
+
+./gimble inference -m graph.s_A_B.p2.n_1_1.m_AtoB.j_A_B.model.tsv -c graph.s_A_B.p2.n_1_1.m_AtoB.j_A_B.model.config.yaml
+[+] Reading config '/Users/dlaetsch/git/gIMble/graph.s_A_B.p2.n_1_1.m_AtoB.j_A_B.model.config.yaml'
+[+] Reading model '/Users/dlaetsch/git/gIMble/graph.s_A_B.p2.n_1_1.m_AtoB.j_A_B.model.tsv'
+[=] ==================================================
+[+] Solving equations with the following parameters:
+[+] K_max := {'m_1': 3, 'm_2': 3, 'm_3': 3, 'm_4': 3}
+[+] Count of mutation profiles := 112
+[+] User-provided rates := {'C_A': 1, 'C_A_B': 1, 'C_B': 1, 'M_A_B': 117/50, 'T': 7/5, 'theta': 6/5}
+[+] Event rates := {C_A: 1, C_A_B: 1, C_B: 1, M_A_B: 117/100}
+[+] Mutation rates := {m_1: 3/5, m_2: 3/5, m_3: 3/5, m_4: 3/5}
+[+] Split time (T) := 7/5
+[+] Dummy variable := J_A_B
+[=] ==================================================
+[+] Generated 95 demography equations based on provided model
+[%] Building equations... : 100%|█████████████████████████████████| 112/112 [06:45<00:00,  3.62s/it]
+[%] Solving equations... : 100%|██████████████████████████████████| 225/225 [05:38<00:00,  1.50s/it]
+225 0.9999999999999998
+[*] Total runtime: 805.795s
+
+./gimble inference -m graph.s_A_B.p2.n_1_1.m_BtoA.j_A_B.model.tsv -c graph.s_A_B.p2.n_1_1.m_BtoA.j_A_B.model.config.yaml
+[+] Reading config '/Users/dlaetsch/git/gIMble/graph.s_A_B.p2.n_1_1.m_BtoA.j_A_B.model.config.yaml'
+[+] Reading model '/Users/dlaetsch/git/gIMble/graph.s_A_B.p2.n_1_1.m_BtoA.j_A_B.model.tsv'
+[=] ==================================================
+[+] Solving equations with the following parameters:
+[+] K_max := {'m_1': 3, 'm_2': 3, 'm_3': 3, 'm_4': 3}
+[+] Count of mutation profiles := 112
+[+] User-provided rates := {'C_A': 1, 'C_A_B': 1, 'C_B': 1, 'M_B_A': 117/50, 'T': 7/5, 'theta': 6/5}
+[+] Event rates := {C_A: 1, C_A_B: 1, C_B: 1, M_B_A: 117/100}
+[+] Mutation rates := {m_1: 3/5, m_2: 3/5, m_3: 3/5, m_4: 3/5}
+[+] Split time (T) := 7/5
+[+] Dummy variable := J_A_B
+[=] ==================================================
+[+] Generated 95 demography equations based on provided model
+[%] Building equations... : 100%|█████████████████████████████████| 112/112 [07:26<00:00,  3.99s/it]
+[%] Solving equations... : 100%|██████████████████████████████████| 225/225 [05:31<00:00,  1.48s/it]
+225 0.9999999999999997
+[*] Total runtime: 843.110s
+
+./gimble inference -m graph.s_A_B.p2.n_1_1.m_AtoB.model.tsv -c graph.s_A_B.p2.n_1_1.m_AtoB.model.config.yaml 
+[+] Reading config '/Users/dlaetsch/git/gIMble/graph.s_A_B.p2.n_1_1.m_AtoB.model.config.yaml'
+[+] Reading model '/Users/dlaetsch/git/gIMble/graph.s_A_B.p2.n_1_1.m_AtoB.model.tsv'
+[=] ==================================================
+[+] Solving equations with the following parameters:
+[+] K_max := {'m_1': 3, 'm_2': 3, 'm_3': 3, 'm_4': 3}
+[+] Count of mutation profiles := 112
+[+] User-provided rates := {'C_A': 1, 'C_B': 1, 'M_A_B': 117/50, 'T': 7/5, 'theta': 6/5}
+[+] Event rates := {C_A: 1, C_B: 1, M_A_B: 117/100}
+[+] Mutation rates := {m_1: 3/5, m_2: 3/5, m_3: 3/5, m_4: 3/5}
+[+] Split time (T) := 7/5
+[+] Dummy variable := J
+[=] ==================================================
+[+] Generated 21 demography equations based on provided model
+[%] Building equations... : 100%|█████████████████████████████████| 112/112 [00:44<00:00,  2.50it/s]
+[%] Solving equations... : 100%|██████████████████████████████████| 225/225 [00:04<00:00, 47.01it/s]
+225 1.0
+[*] Total runtime: 54.635s
+
+./gimble inference -m graph.s_A_B.p2.n_1_1.m_BtoA.model.tsv -c graph.s_A_B.p2.n_1_1.m_BtoA.model.config.yaml
+[+] Reading config '/Users/dlaetsch/git/gIMble/graph.s_A_B.p2.n_1_1.m_BtoA.model.config.yaml'
+[+] Reading model '/Users/dlaetsch/git/gIMble/graph.s_A_B.p2.n_1_1.m_BtoA.model.tsv'
+[=] ==================================================
+[+] Solving equations with the following parameters:
+[+] K_max := {'m_1': 3, 'm_2': 3, 'm_3': 3, 'm_4': 3}
+[+] Count of mutation profiles := 112
+[+] User-provided rates := {'C_A': 1, 'C_B': 1, 'M_B_A': 117/50, 'T': 7/5, 'theta': 6/5}
+[+] Event rates := {C_A: 1, C_B: 1, M_B_A: 117/100}
+[+] Mutation rates := {m_1: 3/5, m_2: 3/5, m_3: 3/5, m_4: 3/5}
+[+] Split time (T) := 7/5
+[+] Dummy variable := J
+[=] ==================================================
+[+] Generated 21 demography equations based on provided model
+[%] Building equations... : 100%|█████████████████████████████████| 112/112 [00:46<00:00,  2.39it/s]
+[%] Solving equations... : 100%|██████████████████████████████████| 225/225 [00:05<00:00, 39.20it/s]
+225 1.0
+[*] Total runtime: 57.220s
+
+./gimble inference -m graph.s_A_B.p2.n_2_0.m_AtoB.model.tsv -c graph.s_A_B.p2.n_2_0.m_AtoB.model.config.yaml 
+[+] Reading config '/Users/dlaetsch/git/gIMble/graph.s_A_B.p2.n_2_0.m_AtoB.model.config.yaml'
+[+] Reading model '/Users/dlaetsch/git/gIMble/graph.s_A_B.p2.n_2_0.m_AtoB.model.tsv'
+[=] ==================================================
+[+] Solving equations with the following parameters:
+[+] K_max := {'m_2': 3, 'm_4': 3}
+[+] Count of mutation profiles := 16
+[+] User-provided rates := {'C_A': 1, 'C_B': 1, 'M_A_B': 117/50, 'T': 7/5, 'theta': 6/5}
+[+] Event rates := {C_A: 1, C_B: 1, M_A_B: 117/100}
+[+] Mutation rates := {m_2: 3/5, m_4: 3/5}
+[+] Split time (T) := 7/5
+[+] Dummy variable := J
+[=] ==================================================
+[+] Generated 225 demography equations based on provided model
+[%] Building equations... : 100%|███████████████████████████████████| 16/16 [01:01<00:00,  3.84s/it]
+[%] Solving equations... : 100%|████████████████████████████████████| 25/25 [00:01<00:00, 18.71it/s]
+25 1.0
+[*] Total runtime: 64.737s
+
+./gimble inference -m graph.s_A_B.p2.n_1_1.j_A_B.model.tsv -c graph.s_A_B.p2.n_1_1.j_A_B.model.config.yaml 
+[+] Reading config '/Users/dlaetsch/git/gIMble/graph.s_A_B.p2.n_1_1.j_A_B.model.config.yaml'
+[+] Reading model '/Users/dlaetsch/git/gIMble/graph.s_A_B.p2.n_1_1.j_A_B.model.tsv'
+[=] ==================================================
+[+] Solving equations with the following parameters:
+[+] K_max := {'m_1': 3, 'm_2': 3, 'm_3': 3, 'm_4': 3}
+[+] Count of mutation profiles := 112
+[+] User-provided rates := {'C_A': 1, 'C_A_B': 1, 'C_B': 1, 'T': 7/5, 'theta': 6/5}
+[+] Event rates := {C_A: 1, C_A_B: 1, C_B: 1}
+[+] Mutation rates := {m_1: 3/5, m_2: 3/5, m_3: 3/5, m_4: 3/5}
+[+] Split time (T) := 7/5
+[+] Dummy variable := J_A_B
+[=] ==================================================
+[+] Generated 13 demography equations based on provided model
+[%] Building equations... : 100%|█████████████████████████████████| 112/112 [00:05<00:00, 18.73it/s]
+[%] Solving equations... : 100%|██████████████████████████████████| 225/225 [00:08<00:00, 27.12it/s]
+225 0.9999999999999996
+[*] Total runtime: 15.926s

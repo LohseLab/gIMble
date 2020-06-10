@@ -3,59 +3,63 @@ Usage: gimble <module> [<args>...] [-D -V -h]
 
   [Modules]
     setup                 Setup DataStore
-    blocks                Make blocks
-    windows               Make windows
+    info                  Print information about DataStore
+    blocks                Generate blocks from data in DataStore
+    windows               Generate windows from blocks in DataStore
     model                 Build new model
     inference             Make inference [TBI]
     simulate              Simulate [TBI]
     
   [Options]
     -h, --help                         Show this screen.
-    -D, --debug                        Print debug information
-    -V, --version                      Show version
+    -D, --debug                        Print debug information.
+    -V, --version                      Show version.
 
-    ------------------------------------------------------------------------------
-    | $ conda install -c conda-forge networkx pandas docopt tqdm ete3 pygraphviz |
-    ------------------------------------------------------------------------------
+  [Dependencies] 
+    -------------------------------------------------------------------------------------------------------------------------------------------------------
+    | $ conda install -c conda-forge oyaml zarr scikit-allel pandas numpy tqdm docopt parallel more-itertools networkx scipy sagelib networkx pygraphviz sparse |
+    -------------------------------------------------------------------------------------------------------------------------------------------------------
 
 """
 
 import sys
+import os
 from docopt import docopt
 from timeit import default_timer as timer
 
-def main():
+def main(gimble_dir):
     try:
         __version__ = '0.5.0'
+        version = "gimble v%s" % __version__
         start_time = timer()
-        args = docopt(__doc__, version=__version__, options_first=True)
-        # exit if --version
+        args = docopt(__doc__, version=version, options_first=True)
         if '--version' in args['<args>'] or '-V' in args['<args>']:
-            sys.exit("gIMble v%s" % __version__)
-        # setup run_params
-        run_params = {
+            sys.exit(version)
+        params = {
             'module': args['<module>'],
+            'path': gimble_dir,
+            'cwd': os.getcwd(),
             'debug': True if '--debug' in args['<args>'] or '-D' in args['<args>'] else False,
-            'version': __version__
+            'version': version
         }
         if args['<module>'] == 'setup':
             import cli.setup as setup
-            setup.main(run_params)
+            setup.main(params)
         elif args['<module>'] == 'blocks':
             import cli.blocks as blocks
-            blocks.main(run_params)
+            blocks.main(params)
         elif args['<module>'] == 'windows':
             import cli.windows as windows
-            windows.main(run_params)
+            windows.main(params)
         elif args['<module>'] == 'model':
             import cli.model as model
-            model.main(run_params)
+            model.main(params)
         elif args['<module>'] == 'inference':
             import cli.inference as inference
-            inference.main(run_params)
+            inference.main(params)
         elif args['<module>'] == 'simulate':
             import cli.simulate as simulate
-            simulate.main(run_params)
+            simulate.main(params)
         else:
             sys.exit("%r is not a gimble module. See 'gimble -help'." % args['<module>'])
     except KeyboardInterrupt:

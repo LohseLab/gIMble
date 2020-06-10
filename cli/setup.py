@@ -1,68 +1,65 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gimble setup          [-v <FILE> -b <FILE> -g <FILE> -s <FILE> -o <STR> -p <INT> -D -h]
+"""usage: gimble setup          [-v <FILE> -b <FILE> -g <FILE> -s <FILE> -o <STR> -D -h]
 
+    [Input]
+        -g, --genome_file <FILE>        Genome file (TSV) of sequence IDs for filtering BED file. 
+                                          Lists the names of the genomic sequences and their length.
+        -b, --bed_file <FILE>           BED file for filtering VCF file.  
+                                          Lists BedTools multiinter intervals from mosdepth 
+                                          'Callable regions' output based on BAM files used in 
+                                          VCF file. Fifth column must contain sample 
+                                          names as in VCF file.  
+        -s, --sample_file <FILE>        Sample file (CSV) for filtering VCF file. 
+                                          Lists sample names as in VCF file and their populations.
+                                          Only two populations are supported.                                              
+        -v, --vcf_file <FILE>           VCF file of variants. Indexed.
+    
     [Options]
-        -v, --vcf <FILE>                            VCF file of variants
-        -b, --bed <FILE>                            BED file of intervals (only defined regions are used)
-        -s, --sample <FILE>                         Sample CSV file
-        -g, --genome <FILE>                         Genome file
-        -o, --outprefix <STR>                       Outprefix
-        -d, --simulated_data <FILE>                 simulated_data
-        -h --help                                   show this
-
+        -o, --outprefix <STR>           Prefix to use in output files [default: test]
+        -h --help                       show this
+    
 """
-
-from docopt import docopt
 from timeit import default_timer as timer
-#from sys import stderr, exit
-import lib.gimble
+import sys
+from docopt import docopt
+from lib.gimble import RunObj
+import lib.gimble 
 
+class ParameterObj(RunObj):
+    '''Sanitises command line arguments and stores parameters.'''
 
-'''
-
-conda install -c conda-forge zarr scikit-allel pandas numpy tqdm docopt parallel more-itertools networkx scipy sagelib networkx pygraphviz sparse
-
-- GOAL is to store BED/VCF file in minimal arrays by CHROMs
-- should allow creation of diagnostic plots
-
-Generates ZARR datastore, with
-- Sample/Population information
-- Path to VCF file
-- Path to BED file
-
-'''
-class ParameterObj(object):
-    def __init__(self, args):
-        self.vcf_file = args['--vcf']
-        self.bed_file = args['--bed']
-        self.genome_file = args['--genome']
-        self.sample_file = args['--sample']
+    def __init__(self, params, args):
+        super().__init__(params)
+        self.vcf_file = self._get_path(args['--vcf_file'])
+        self.bed_file = self._get_path(args['--bed_file'])
+        self.genome_file = self._get_path(args['--genome_file'])
+        self.sample_file = self._get_path(args['--sample_file'])
         self.outprefix = args['--outprefix']
-        self.pairedness = 2 # once everything is adapted for any size of sample-sets => int(args['--pairedness'])
-        self.simulated_data = args['--simulated_data']
-        self.check_valid()
+        self._pairedness = 2
+        self._check()
 
-    def check(self):
-        if self.simulated_data and self.sample_file:
-            pass
+    def _check(self):
+        required_values_by_arg = {
+            '--vcf_file': self.vcf_file,
+            '--bed_file': self.bed_file,
+            '--genome_file': self.genome_file,
+            '--sample_file': self.sample_file
+        }
+        missing_args = [k for k,v in required_values_by_arg.items() if v is None]
+        if missing_args:
+            sys.exit("[X] Please provide arguments for %s" % (", ".join(missing_args)))
 
-def main(run_params):
+
+def main(params):
     try:
         start_time = timer()
         args = docopt(__doc__)
-        #log = lib.log.get_logger(run_params)
-        parameterObj = ParameterObj(args)
+        parameterObj = ParameterObj(params, args)
         gimbleStore = lib.gimble.create_store(parameterObj)
-        # print(gimbleStore.tree())
-        # print(gimbleStore.attrs())
+        gimbleStore.info()
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
         print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
         exit(-1)
-
-###############################################################################
-
-if __name__ == '__main__':
-    main()

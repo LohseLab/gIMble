@@ -10,8 +10,8 @@ import pandas as pd
 #from tabulate import tabulate
 
 import logging 
-import matplotlib as mat
 import matplotlib.pyplot as plt
+import matplotlib as mat
 mat.use("agg")
 
 # CONSTANTS
@@ -368,15 +368,3 @@ def poolcontext(*args, **kwargs):
     pool = multiprocessing.Pool(*args, **kwargs)
     yield pool
     pool.terminate()
-
-def format_bases(bases):
-    return "%s b" % format(bases, ',d')
-
-def format_percentage(fraction, precision=2):
-    return "{:.{}%}".format(fraction, precision)
-
-def format_fraction(fraction, precision=2):
-    return "{:.{}}".format(fraction, precision)
-
-def format_count(count):
-    return "%s" % str(format(count, ',d'))

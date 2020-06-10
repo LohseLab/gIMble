@@ -11,49 +11,46 @@ import lib.functions
 
 ################################### Constants #################################
 
-mutype_by_lineage = {
-    ('aa') : 'fixed',
-    ('bb') : 'fixed',
-    ('a') : 'hetA',
-    ('abb') : 'hetA',
-    ('aab') : 'hetB',
-    ('b') : 'hetB',
-    ('ab') : 'hetAB'
-    }
+# mutype_by_lineage = {
+#     ('aa') : 'fixed',
+#     ('bb') : 'fixed',
+#     ('a') : 'hetA',
+#     ('abb') : 'hetA',
+#     ('aab') : 'hetB',
+#     ('b') : 'hetB',
+#     ('ab') : 'hetAB'
+#     }
 
+AGGREGATE_BY_LINEAGE = {
+    ('a') : 2,      # 'a'   = m_2 = hetA 
+    ('abb') : 2,    # 'abb' = m_2 = hetA 
+    ('b') : 1,      # 'b'   = m_1 = hetB 
+    ('aab') : 1,    # 'aab' = m_1 = hetB
+    ('aa') : 4,     # 'aa'  = m_4 = fixed
+    ('bb') : 4,     # 'bb'  = m_4 = fixed
+    ('ab') : 3      # 'ab'  = m_3 = hetAB
+}
+
+def lineage_to_mutype(lineage):
+    print('lineage', lineage)
+    mutype = AGGREGATE_BY_LINEAGE.get("".join([char for char in lineage if not char.isdigit()]), None)
+    print('mutype', mutype)
+    return mutype
 '''
-
-'a' = 'a1' 
-'a' = 'a2'
-'b' = 'b1'
-'b' = 'b2'
-'aa' = 'a1a2'
-'bb' = 'b1b2'
-'ab' = 'a1b1'
-'ab' = 'a1b2'
-'ab' = 'a2b1'
-'ab' = 'a2b2'
-'aab' = 'a1a2b1'
-'aab' = 'a1a2b2'
-'abb' = 'a1b1b2'
-'abb' = 'a2b1b2'
-'aabb' = 'a1a2b1b2'
-
+[ToDo]
+- incorportate szudzik_pairing for 'lineage' columns ... only way to make it work! 
+- column names of events have to be changed!!!
 
 Needs debugging output as in:
 
 Event_label: event_type + populations
 
-State: {'A': [], 'B': ['a1','a1','b1+b1']}
-    [J_A&B] 
-    [M_A>B]
-    [C_A]
-    [C_B]
-    [C_A&B]
 '''
 MUTYPES = ['hetA', 'fixed', 'hetB', 'hetAB']
 
 ###############################################################################
+
+CM = set(['C_', 'M_'])
 
 def flat_tuple(obj):
     for x in obj:
@@ -75,7 +72,7 @@ def joins(string, events=None):
                 for pop_1, pop_2 in itertools.combinations(sorted(substring), 2):
                     joins((pop_1, pop_2), events)
     if string:
-        events.append("%s" % "&".join(sorted(list(flat_tuple(string)))))
+        events.append("%s" % "_".join(sorted(list(flat_tuple(string)))))
     return events
 
 def pairwise(iterable):
@@ -171,7 +168,6 @@ class StateObj(object):
             sys.exit("[X] value must be 'str' or 'dict', is: %r" % value)
 
     def _get_dict(self, value):
-        print(value, type(value))
         if isinstance(value, dict):
             if all([isinstance(popObj, PopObj) for pop_id, popObj in value.items()]) == True:
                 return value
@@ -218,7 +214,7 @@ class StateObj(object):
 
     def _get_join_ancestors(self, event):
         print("# join...")
-        pop_1_id, pop_2_id = event.replace("J=", "").split("&") 
+        pop_1_id, pop_2_id = event.replace("J_", "").split("_") 
         if pop_1_id in self.popObj_by_pop_id and pop_2_id in self.popObj_by_pop_id:
             ancestor_popObj_by_pop_id = {pop_id: popObj for pop_id, popObj in self.popObj_by_pop_id.items() if pop_id not in set([pop_1_id, pop_2_id])}
             ancestor_popObj_by_pop_id[event] = self.popObj_by_pop_id[pop_1_id] + self.popObj_by_pop_id[pop_2_id] # summation of PopObjs
@@ -229,7 +225,7 @@ class StateObj(object):
     
     def _get_coalescence_ancestors(self, event):
         print("# coalesce...")
-        pop_id = event.replace("C=", "")
+        pop_id = event.replace("C_", "")
         popObj = self.popObj_by_pop_id.get(pop_id, None)
         if not popObj is None:
             other_popObj_by_pop_id = {other_pop_id: other_popObj for other_pop_id, other_popObj in self.popObj_by_pop_id.items() if not other_pop_id == pop_id}
@@ -242,7 +238,7 @@ class StateObj(object):
     
     def _get_migration_ancestors(self, event):
         print("# migrate...")
-        pop_1_id, pop_2_id = event.replace("M=", "").split(">")
+        pop_1_id, pop_2_id = event.replace("M_", "").split("_")
         if all([pop_id in self.popObj_by_pop_id for pop_id in [pop_1_id, pop_2_id]]) == True:
             print(event, pop_1_id, pop_2_id, self.popObj_by_pop_id[pop_1_id])
             if len(self.popObj_by_pop_id[pop_1_id]):
@@ -278,7 +274,11 @@ class StateGraph(object):
         #print(self.events_counter)
         events = sorted(self.events_counter.keys())
         lineages = sorted([lineage for lineage in self.set_of_lineages if not lineage == self.lca_label])
-        header = ['path_idx', 'node_id', 'LCA', 'label', 'event', 'count'] + ['total'] + events + lineages 
+        mutypes = sorted(set([mutype for mutype in [lineage_to_mutype(lineage) for lineage in lineages] if not mutype is None]))
+        #header = ['path_idx', 'node_id', 'LCA', 'label', 'event', 'count'] + ['total'] + events + mutypes #lineages 
+        header = ['path_idx', 'node_id', 'LCA', 'label', 'event', 'count'] + \
+                    [(event if event[0:2] in CM else "J_%s" % event) for event in events] + \
+                    ["m_%s" % mutype for mutype in mutypes] #lineages 
         rows = []
         path_counter_by_origin = collections.Counter()
         max_length_label = max([len(label) for label in self.origin_idx_by_label.keys()])
@@ -291,19 +291,27 @@ class StateGraph(object):
                 path_counter_by_origin[origin_label] += 1
                 path_counter_by_origin['all'] += 1
                 for source_idx, sink_idx in pairwise(path):
+                    print('self.graph[source_idx][sink_idx]', self.graph[source_idx][sink_idx])
                     current_event = self.graph[source_idx][sink_idx][0]['event']
                     current_count = self.graph[source_idx][sink_idx][0]['count']
-                    row = [path_idx, sink_idx, origin_idx, self.label_by_node_idx[source_idx], current_event, current_count, sum(self.events_counter_by_node_idx[source_idx].values())]
+                    row = [path_idx, sink_idx, origin_idx, self.label_by_node_idx[source_idx]]
+                    if current_event[0:2] in CM:
+                        row.append(current_event)
+                    else:
+                        row.append("J_%s" % current_event)
+                    row.append(current_count)
                     for event in events:
                         row.append(self.events_counter_by_node_idx[source_idx][event])
                     stateObj = self.stateObj_by_node_idx[source_idx]
-                    
+                    count_by_mutype = collections.Counter()
                     for lineage in lineages:
-                        row.append(stateObj.lineage_counter[lineage])
+                        count_by_mutype[lineage_to_mutype(lineage)] += stateObj.lineage_counter[lineage]
+                    for mutype in mutypes:
+                        row.append(count_by_mutype[mutype])
                     rows.append(row)
-                last_row = [path_idx, sink_idx, origin_idx, self.label_by_node_idx[source_idx], 'LCA', 0, 0] + ([0] * len(events)) + ([0] * len(lineages))
-                rows.append(last_row)
+
                 path_idx += 1
+        print(rows)
         lib.functions.create_csv("%s.model.tsv" % parameterObj.out_prefix, None, header, rows, sep="\t")
         print("[+] Paths \n[+]\t%s => all\n[+]\t%s" % (
             path_counter_by_origin['all'], 
@@ -420,7 +428,7 @@ class ParameterObj(object):
         print(self.__dict__) 
 
     def _get_set_of_events(self):
-        return set(["C=%s" % pop_id for pop_id in self.pop_ids + self.join_events] + self.join_events + self.migration_events)
+        return set(["C_%s" % pop_id for pop_id in self.pop_ids + self.join_events] + self.join_events + self.migration_events)
 
     def _get_sample_stateObj(self):
         pop_dict = {}
@@ -444,10 +452,10 @@ class ParameterObj(object):
         for m in migration_string.split(','):
            if '>' in m:
                a, b = m.split('>')
-               events.append("M=%s>%s" % (a, b))
+               events.append("M_%s_%s" % (a, b))
            elif '<' in m:
                a, b = m.split('<')
-               events.append("M=%s>%s" % (b, a))
+               events.append("M_%s_%s" % (b, a))
            else:
                sys.exit("[X] %r is not a valid migration parameter.")
         return events
