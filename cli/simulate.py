@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """usage: gIMble simulate                  -m FILE [-c FILE -z FILE] 
-                                            [-b | -w]
+                                            [-b INT] [-w INT] [-r INT]
                                             [-t INT] [-h|--help]
                                             
     Options:
@@ -11,8 +11,9 @@
         -z, --zarr_file FILE                        ZARR datastore
         -c, --config_file FILE                      Config file with parameters (if not present, empty config file is created)
         -P, --precision INT                         Floating point precision of probabilities [default: 25]
-        -b, --blocks                                
-        -w, --windows
+        -b, --blocks INT                            Number of blocks per window
+        -w, --windows INT                           Number of windows
+        -r, --replicates INT                        Number of replicates per parametercombo
         -t, --threads INT                           Threads [default: 1]
         
 """
@@ -33,7 +34,7 @@ gIMble simulate -m
 
 ./gIMble simulate -m output/s_A_B.p2.n_1_1.m_AtoB.j_A_B.model.tsv
 
- ./gIMble simulate -m output/s_A_B.p2.n_1_1.m_AtoB.j_A_B.model.tsv -c /Users/s1854903/git/gIMble/output/s_A_B.p2.n_1_1.m_AtoB.j_A_B.model.config.yaml
+./gIMble simulate -m output/s_A_B.p2.n_1_1.m_AtoB.j_A_B.model.tsv -c /Users/s1854903/git/gIMble/output/s_A_B.p2.n_1_1.m_AtoB.j_A_B.model.config.yaml
 
 """
 
@@ -47,10 +48,11 @@ class ParameterObj(RunObj):
         self.model_file = self._get_path(args["--model_file"])
         self.config_file = self._get_path(args["--config_file"])
         self.threads = self._get_int(args["--threads"])
-        self._config = self._get_or_write_config()
-        self.data_type = self._get_datatype([args["--blocks"], args["--windows"]])
-
+        self._config = self._get_or_write_config(args["--blocks"], args["--windows"], args["--replicates"])
+        self.data_type = self._get_datatype([args["--blocks"], args["--windows"]]) #adapt to simulations.py
+        
     def _get_datatype(self, args):
+        #needs to be adapted for simulation.py
         if not any(args):
             return None
         elif args[0]:
@@ -60,19 +62,29 @@ class ParameterObj(RunObj):
         else:
             sys.exit("[X] This should not have happend.")
 
-    def _get_or_write_config(self):
+    def _get_or_write_config(self, blocks, windows, replicates):
         if self.config_file is None:
             print("[-] No config file found.")
             print("[+] Generating config file for model %r" % self.model_file)
             """for now we use the following dict until columns are fixed in gimble model"""
+            if blocks is None:
+                blocks = 1
+            if windows is None:
+                windows = 0
+            if replicates is None:
+                replicates = 1
+            if windows == 0 and blocks>1:
+                blocks=1
+                print(f"[X] specified 0 windows, {config['replicates']} independent block(s) will be simulated")
             config = {
                 "version": self._VERSION,
                 "model": self.model_file,
                 "random_seed": 12345,
                 "precision": 25,
-                "blocks": 500,
+                "blocks": int(blocks),
                 "blocklength": 1000,
-                "windows": 0,
+                "replicates": int(replicates),
+                "windows": int(windows),
                 #'k_max': collections.defaultdict(dict),
                 "parameters": collections.defaultdict(dict),
                 "boundaries": collections.defaultdict(list),
@@ -87,7 +99,7 @@ class ParameterObj(RunObj):
                     config["parameters"][column] = "FLOAT"
             config["parameters"]["T"] = "FLOAT"
             for parameter in config["parameters"]:
-                config["boundaries"][parameter] = ["MIN", "MAX"]
+                config["boundaries"][parameter] = ["MIN", "MAX","STEPSIZE"]
             config_file = pathlib.Path(self.model_file).with_suffix(".config.yaml")
             yaml.add_representer(
                 collections.defaultdict, yaml.representer.Representer.represent_dict
@@ -113,7 +125,7 @@ class ParameterObj(RunObj):
                         % (k, v)
                     )
                 elif k == "parameters":
-                    config["parameters"], config["boundaries"] = {}, {}
+                    config["parameters"] = {}
                     for v_k, v_v in config_raw[k].items():
                         if isinstance(v_v, str):  # parameter not set
                             if any(
@@ -127,15 +139,21 @@ class ParameterObj(RunObj):
                                     % (v_k, v_v)
                                 )
                             else:
-                                config["boundaries"][v_k] = config_raw["boundaries"][
+                                config["parameters"][v_k] = config_raw["boundaries"][
                                     v_k
                                 ]
                         else:
-                            config[k][v_k] = v_v
+                            config[k][v_k] = [v_v,]
                 elif k == "boundaries":
                     pass
                 else:
                     config[k] = v
+            for k, name in zip([blocks, windows, replicates], ['blocks', 'windows', 'replicates']):
+                if k:
+                    config[name] = int(k)
+            if config['windows'] == 0 and config['blocks']>1:
+                config['blocks']=1
+                print(f"[X] specified 0 windows, {config['replicates']} independent block(s) will be simulated")
             return config
 
     def _parse_model_file(self):
