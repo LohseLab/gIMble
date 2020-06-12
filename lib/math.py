@@ -29,13 +29,18 @@ def poolcontext(*args, **kwargs):
 def get_data_array(parameterObj):
     store = lib.gimble.load_store(parameterObj)
     print('[++]')
-    store.info()
+    store.tree()
+    '''
+    check that 
+    '''
     if parameterObj.data_type == 'blocks':
+        '''sum all block counts across all pairs'''
+        '''visualise somehow'''
         pass
     elif parameterObj.data_type == 'windows':
-        pass
+        '''sum all block counts across all pairs'''
     else:
-        sys.exit("[X] This should never happen.")
+        sys.exit("[X2] This should never happen.")
 
     mutype_hdf5_store = pd.HDFStore(infile)
     mutype_df = pd.read_hdf(mutype_hdf5_store, key='mutypes')

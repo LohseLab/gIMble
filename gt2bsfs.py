@@ -87,7 +87,7 @@ if __name__ == '__main__':
                                     - shape = block_sites
                                     - accounts for monomorphic sites are not recorded in VCF
     '''
-    run = 'test'
+    run = 'basic'
 
     if run == 'basic':
         gts = np.array(

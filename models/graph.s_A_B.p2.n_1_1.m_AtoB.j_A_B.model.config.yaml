@@ -1,19 +1,22 @@
 version: gimble v0.5.0
-model: /Users/dlaetsch/git/gIMble/graph.s_A_B.p2.n_1_1.m_AtoB.j_A_B.model.tsv
 random_seed: 12345
 precision: 25
+model: /Users/dlaetsch/git/gIMble/models/graph.s_A_B.p2.n_1_1.m_AtoB.j_A_B.model.tsv
+population_ids:
+  A: STRING
+  B: STRING
 k_max:
-  m_1: 3
-  m_2: 3
-  m_3: 3
-  m_4: 3
+  m_1: INT
+  m_2: INT
+  m_3: INT
+  m_4: INT
 parameters:
-  C_A: 1
-  C_A_B: 1
-  C_B: 1
-  M_A_B: 2.34
-  T: 1.4
-  theta: 1.2
+  C_A: FLOAT
+  C_A_B: FLOAT
+  C_B: FLOAT
+  M_A_B: FLOAT
+  T: FLOAT
+  theta: FLOAT
 boundaries:
   C_A:
   - MIN

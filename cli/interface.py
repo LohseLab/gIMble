@@ -4,11 +4,14 @@ Usage: gimble <module> [<args>...] [-D -V -h]
   [Modules]
     setup                 Setup DataStore
     info                  Print information about DataStore
-    blocks                Generate blocks from data in DataStore
-    windows               Generate windows from blocks in DataStore
-    model                 Build new model
-    inference             Make inference [TBI]
-    simulate              Simulate [TBI]
+    blocks                Generate blocks from data in DataStore 
+    windows               Generate windows from blocks in DataStore (requires blocks)
+    model                 Build demographic model
+    simulate              Simulate data [TBI] 
+    inference             Make inference [TBI] (requires blocks)
+    grid                  Make grid [TBI]
+    scan                  Scan using grid [TBI] (requires windows)
+    
     
   [Options]
     -h, --help                         Show this screen.
@@ -17,7 +20,7 @@ Usage: gimble <module> [<args>...] [-D -V -h]
 
   [Dependencies] 
     -------------------------------------------------------------------------------------------------------------------------------------------------------
-    | $ conda install -c conda-forge oyaml zarr scikit-allel pandas numpy tqdm docopt parallel more-itertools networkx scipy sagelib networkx pygraphviz sparse |
+    | $ conda install -c conda-forge oyaml zarr scikit-allel pandas numpy tqdm docopt parallel more-itertools networkx scipy sagelib networkx pygraphviz  |
     -------------------------------------------------------------------------------------------------------------------------------------------------------
 
 """
@@ -54,6 +57,9 @@ def main(gimble_dir):
         elif args['<module>'] == 'model':
             import cli.model as model
             model.main(params)
+        elif args['<module>'] == 'info':
+            import cli.info as info
+            info.main(params)
         elif args['<module>'] == 'inference':
             import cli.inference as inference
             inference.main(params)

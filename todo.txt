@@ -13,9 +13,9 @@
 [%] Solving equations... : 100%|██████████████████████████████████| 225/225 [06:40<00:00,  1.78s/it]
 225 0.9999999999999998
 [*] Total runtime: 808.964s
-
+                                      kmax=3    kmax=2
 graph.s_A_B.p2.n_0_2.m_BtoA         [ 65.301s]
-graph.s_A_B.p2.n_1_1.m_AtoB.j_A_B   [805.795s]        
+graph.s_A_B.p2.n_1_1.m_AtoB.j_A_B   [805.795s]  [90.697s]    
 graph.s_A_B.p2.n_1_1.m_BtoA.j_A_B   [843.110s]        
 graph.s_A_B.p2.n_1_1.m_AtoB         [ 54.635s]
 graph.s_A_B.p2.n_1_1.m_BtoA         [ 57.220s]

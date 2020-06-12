@@ -14,6 +14,13 @@ import scipy
 [Truths]
 - All things concerning inference are done here for now. Partition code into input/gimble.py later on ...
 
+
+
+'''
+'''
+
+'''
+'''
 [To Do]
     - Events
         C_A

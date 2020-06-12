@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gIMble inference                  -m FILE [-c FILE -z FILE] 
-                                            [-b | -w]
+"""usage: gIMble inference                  -z FILE -m FILE [-c FILE] (-b|-w)
                                             [-t INT] [-P INT] [-h|--help]
                                             
     Options:
@@ -11,7 +10,7 @@
         -z, --zarr_file FILE                        ZARR datastore
         -c, --config_file FILE                      Config file with parameters (if not present, empty config file is created)
         -P, --precision INT                         Floating point precision of probabilities [default: 30]
-        -b, --blocks                                
+        -b, --blocks                                                               
         -w, --windows
         -t, --threads INT                           Threads [default: 1]
         
@@ -35,6 +34,51 @@ import lib.math
     ~/git/gIMble/gIMble model -s A,B -p 2 -n 1,1 -j '(A,B)' -m 'A>B' -C 'A=B' -o test
 
 - what happens if we don't have a bed file? only intergenic/no coverage
+
+Grid:
+- which gridpoint gives highes Likelihood
+    - overall
+    - conditional, when Me is set to 0
+
+# bootstrapping
+after running simulations
+- for each grid points, do simulation replicates
+- somehow use rembination rate
+
+0. documentation
+0. Simon data
+0. run new VCF with old BED
+    -> konrad needs
+1. reading in data
+    - best fitting parameter combination
+2. read in mathematic grid
+    - plot Me/Ne
+3. simulations  
+    - checking probabilities
+    - parametric bootstraps
+        - recombination map or just single value
+        
+gimble inference (based on blocks)
+    => makes config for inference
+    => writes a new config file to be used in grid/simulation
+
+gimble grid (just likelihood calculation)
+    => uses 'centre' of grid in config file 
+
+gimble simulate
+    => replicates 
+    => simulates windows
+    (=> simulate blocks for internal benchmarking)
+        - simulate replicates for each of the points in the grid 
+    * parsers need checks based on shape
+
+gimble scan (combininig windows data with likelihoods)
+
+
+
+
+
+
 '''
 
 class ParameterObj(RunObj):
@@ -57,7 +101,7 @@ class ParameterObj(RunObj):
         elif args[1]:
             return 'windows'
         else:
-            sys.exit("[X] This should not have happend.")
+            sys.exit("[X1] This should not have happened.")
 
     def _get_or_write_config(self):
         if self.config_file is None:
@@ -66,16 +110,22 @@ class ParameterObj(RunObj):
             '''for now we use the following dict until columns are fixed in gimble model''' 
             config = {
                 'version': self._VERSION,
-                'model' : self.model_file,
                 'random_seed' : 12345,
                 'precision': 25,
+                'model' : self.model_file,
+                'population_ids': collections.defaultdict(dict),
                 'k_max': collections.defaultdict(dict),
                 'parameters': collections.defaultdict(dict), 
                 'boundaries': collections.defaultdict(list),
                 }
             config['parameters']['theta'] = 'FLOAT'
             for column in self._parse_model_file(target='header'):
-                if column.startswith('C_') or column.startswith('M_'):
+                if column.startswith('C_'): 
+                    config['parameters'][column] = 'FLOAT'
+                    population_id = column.replace('C_', '') 
+                    if len(population_id) == 1:
+                        config['population_ids'][population_id] = 'STRING'
+                if column.startswith('M_'):
                     config['parameters'][column] = 'FLOAT'
                 elif column.startswith('m_'):
                     config['k_max'][column] = 'INT'
@@ -94,6 +144,8 @@ class ParameterObj(RunObj):
             config = {}
             for k, v in config_raw.items():
                 if k == 'version':
+                    config[k] = v
+                elif k == 'population_ids':
                     config[k] = v
                 elif k == 'model':
                     config[k] = v
@@ -139,12 +191,13 @@ def main(params):
         args = docopt(__doc__)
         #log = lib.log.get_logger(params)
         parameterObj = ParameterObj(params, args)
+        print(parameterObj.__dict__)
         data = lib.math.get_data_array(parameterObj)
-        print(data)
-        # equationSystem = lib.math.EquationSystemObj(parameterObj)
-        # equationSystem.info()
-        # equationSystem.initiate_model()
-        # equationSystem.calculate_PODs()
+        #print(data)
+        #equationSystem = lib.math.EquationSystemObj(parameterObj)
+        #equationSystem.info()
+        #equationSystem.initiate_model()
+        #equationSystem.calculate_PODs()
 
         
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
