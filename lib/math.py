@@ -29,54 +29,54 @@ def poolcontext(*args, **kwargs):
 def get_data_array(parameterObj):
     store = lib.gimble.load_store(parameterObj)
     print('[++]')
-    store.tree()
-    '''
-    check that 
-    '''
+    print(store.tree())
+    store.check_existing_data(parameterObj, 'blocks', fail=True)
     if parameterObj.data_type == 'blocks':
+        store.check_existing_data(parameterObj, 'blocks', fail=True)
         '''sum all block counts across all pairs'''
         '''visualise somehow'''
         pass
     elif parameterObj.data_type == 'windows':
+        store.check_existing_data(parameterObj, 'windows', fail=True)
         '''sum all block counts across all pairs'''
     else:
         sys.exit("[X2] This should never happen.")
 
-    mutype_hdf5_store = pd.HDFStore(infile)
-    mutype_df = pd.read_hdf(mutype_hdf5_store, key='mutypes')
-    mutype_hdf5_store.close()
-    shape = tuple(self.max_by_mutype[mutype] + 2 for mutype in MUTYPES)
-    mutuple_count_matrix = np.zeros(shape, np.float64)
-    #print(self.ancestor_population_id, (entityCollection.populationObjs[0].id, entityCollection.populationObjs[1].id))
-    #print("before")
-    #print(mutype_df)
-    if self.ancestor_population_id == entityCollection.populationObjs[0].id:
-        # mutuples do not have to be flipped
-        print("[+] Ancestor is %s ..." % self.ancestor_population_id)
-    elif self.ancestor_population_id == entityCollection.populationObjs[1].id:
-        mutype_df.rename(columns={'hetA': 'hetB', 'hetB': 'hetA'}, inplace=True)
-        print("[+] Ancestor is %s (hetA and hetB will be flipped)... " % self.ancestor_population_id)
-    #print("before")
-    #print(mutype_df)
-    # this has to be changed if order of mutypes changes
-    FGV_count = 0
-    kmax_binned_count = 0
-    total_count = mutype_df['count'].sum()
-    for count, hetA, fixed, hetB, hetAB in tqdm(mutype_df[['count'] + MUTYPES].values, total=len(mutype_df.index), desc="[%] ", ncols=100):
-        #print(hetA, fixed, hetB, hetAB)
-        mutuple = (hetA, fixed, hetB, hetAB)
-        if mutuple[1] > 0 and mutuple[3] > 0:
-            FGV_count += count  
-        if any([count > self.kmax for count in mutuple]):
-            kmax_binned_count += count
-        mutuple_vector = tuple([count if not count > self.max_by_mutype[mutype] else self.max_by_mutype[mutype] + 1 for count, mutype in zip(mutuple, MUTYPES)])
-        
-        mutuple_count_matrix[mutuple_vector] += count
-        #print(count, hetA, fixed, hetB, hetAB, mutuple_vector, mutuple_count_matrix)
-    print("[=] Total mutuple count = %s" % (format_count(total_count)))
-    print("[=] Counts excluded due to four-gamete-violations = %s (%s)" % (format_count(FGV_count), format_percentage(FGV_count / total_count)))
-    print("[=] Counts binned due to kmax = %s (%s)" % (format_count(kmax_binned_count), format_percentage(kmax_binned_count / total_count)))
-    return mutuple_count_matrix
+    #mutype_hdf5_store = pd.HDFStore(infile)
+    #mutype_df = pd.read_hdf(mutype_hdf5_store, key='mutypes')
+    #mutype_hdf5_store.close()
+    #shape = tuple(self.max_by_mutype[mutype] + 2 for mutype in MUTYPES)
+    #mutuple_count_matrix = np.zeros(shape, np.float64)
+    ##print(self.ancestor_population_id, (entityCollection.populationObjs[0].id, entityCollection.populationObjs[1].id))
+    ##print("before")
+    ##print(mutype_df)
+    #if self.ancestor_population_id == entityCollection.populationObjs[0].id:
+    #    # mutuples do not have to be flipped
+    #    print("[+] Ancestor is %s ..." % self.ancestor_population_id)
+    #elif self.ancestor_population_id == entityCollection.populationObjs[1].id:
+    #    mutype_df.rename(columns={'hetA': 'hetB', 'hetB': 'hetA'}, inplace=True)
+    #    print("[+] Ancestor is %s (hetA and hetB will be flipped)... " % self.ancestor_population_id)
+    ##print("before")
+    ##print(mutype_df)
+    ## this has to be changed if order of mutypes changes
+    #FGV_count = 0
+    #kmax_binned_count = 0
+    #total_count = mutype_df['count'].sum()
+    #for count, hetA, fixed, hetB, hetAB in tqdm(mutype_df[['count'] + MUTYPES].values, total=len(mutype_df.index), desc="[%] ", ncols=100):
+    #    #print(hetA, fixed, hetB, hetAB)
+    #    mutuple = (hetA, fixed, hetB, hetAB)
+    #    if mutuple[1] > 0 and mutuple[3] > 0:
+    #        FGV_count += count  
+    #    if any([count > self.kmax for count in mutuple]):
+    #        kmax_binned_count += count
+    #    mutuple_vector = tuple([count if not count > self.max_by_mutype[mutype] else self.max_by_mutype[mutype] + 1 for count, mutype in zip(mutuple, MUTYPES)])
+    #    
+    #    mutuple_count_matrix[mutuple_vector] += count
+    #    #print(count, hetA, fixed, hetB, hetAB, mutuple_vector, mutuple_count_matrix)
+    #print("[=] Total mutuple count = %s" % (format_count(total_count)))
+    #print("[=] Counts excluded due to four-gamete-violations = %s (%s)" % (format_count(FGV_count), format_percentage(FGV_count / total_count)))
+    #print("[=] Counts binned due to kmax = %s (%s)" % (format_count(kmax_binned_count), format_percentage(kmax_binned_count / total_count)))
+    #return mutuple_count_matrix
 
 
 def multinomial(lst):

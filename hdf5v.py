@@ -30,13 +30,6 @@ def tabulate_df(df, key):
 def open_store(store_f):
     store = pd.HDFStore(store_f, 'r')
     #print(pd.read_hdf(store_f))
-    df = pd.read_hdf(store, key='1')
-    print(df)
-    print("store.info()", "{", store.info(), "}\n")
-    print("store.groups()", store.groups())
-    print("store.keys()", store.keys())
-    for path, groups, leaves in store.walk("/1"):
-        print('path, groups, leaves', path, groups, leaves)
     return store, [key.lstrip("/") for key in store.keys()]
 
 def write(df, out_f, key, mode='5'):
@@ -58,8 +51,6 @@ if __name__ == '__main__':
     args = docopt(__doc__)
     store_f = args['--file']
     store, keys = open_store(store_f)
-    print("[+] Store %r contains the following tables:\n\t%s" % (store_f, [key.lstrip("/") for key in store.keys()]))
-    
     modes = [label for fmt_flag, label in zip([args['--csv'], args['--tsv'], args['--hdf5']], ['csv', 'tsv', 'h5']) if fmt_flag]
     prefix = args['--prefix']
     table = args['--table']

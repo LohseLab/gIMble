@@ -23,8 +23,7 @@ class ParameterObj(RunObj):
     '''Sanitises command line arguments and stores parameters'''
     def __init__(self, params, args):
         super().__init__(params)
-        self.stage = 'windows'
-        self.zstore = args['--zarr']
+        self.zstore = self._get_path(args['--zarr'])
         self.window_size = int(args['--blocks'])
         self.window_step = int(args['--steps'])
         self.overwrite = True if args['--force'] else False

@@ -32,9 +32,9 @@ AGGREGATE_BY_LINEAGE = {
 }
 
 def lineage_to_mutype(lineage):
-    print('lineage', lineage)
+    #print('lineage', lineage)
     mutype = AGGREGATE_BY_LINEAGE.get("".join([char for char in lineage if not char.isdigit()]), None)
-    print('mutype', mutype)
+    #print('mutype', mutype)
     return mutype
 '''
 [ToDo]
@@ -133,7 +133,7 @@ class PopObj(object):
 
 class StateObj(object):
     def __init__(self, value):
-        print("[INIT] %s" % value)
+        #print("[INIT] %s" % value)
         self.popObj_by_pop_id = self._get_dict(value)
         self.label = self._get_label(value)
         self.graph_label = self._get_graph_label()
@@ -213,7 +213,7 @@ class StateObj(object):
                     self._get_join_ancestors(event)
 
     def _get_join_ancestors(self, event):
-        print("# join...")
+        #print("# join...")
         pop_1_id, pop_2_id = event.replace("J_", "").split("_") 
         if pop_1_id in self.popObj_by_pop_id and pop_2_id in self.popObj_by_pop_id:
             ancestor_popObj_by_pop_id = {pop_id: popObj for pop_id, popObj in self.popObj_by_pop_id.items() if pop_id not in set([pop_1_id, pop_2_id])}
@@ -224,7 +224,7 @@ class StateObj(object):
             self.count_by_ancestor_labels_by_event[event][ancestor_stateObj.label] += 1
     
     def _get_coalescence_ancestors(self, event):
-        print("# coalesce...")
+        #print("# coalesce...")
         pop_id = event.replace("C_", "")
         popObj = self.popObj_by_pop_id.get(pop_id, None)
         if not popObj is None:
@@ -237,10 +237,10 @@ class StateObj(object):
                 self.count_by_ancestor_labels_by_event[event][ancestor_stateObj.label] += 1
     
     def _get_migration_ancestors(self, event):
-        print("# migrate...")
+        #print("# migrate...")
         pop_1_id, pop_2_id = event.replace("M_", "").split("_")
         if all([pop_id in self.popObj_by_pop_id for pop_id in [pop_1_id, pop_2_id]]) == True:
-            print(event, pop_1_id, pop_2_id, self.popObj_by_pop_id[pop_1_id])
+            #print(event, pop_1_id, pop_2_id, self.popObj_by_pop_id[pop_1_id])
             if len(self.popObj_by_pop_id[pop_1_id]):
                 for i, allele in enumerate(self.popObj_by_pop_id[pop_1_id]):
                     ancestor_popObj_by_pop_id = {pop_id: popObj for pop_id, popObj in self.popObj_by_pop_id.items() if pop_id not in set([pop_1_id, pop_2_id])}
@@ -270,7 +270,7 @@ class StateGraph(object):
         self.origin_idx_by_label = {self.graph.nodes[node_idx]['label']: node_idx for node_idx, out_degree in self.graph.out_degree() if out_degree == 0}
 
     def write_model(self, parameterObj):
-        print("[+] Calculating model ...")
+        #print("[+] Calculating model ...")
         #print(self.events_counter)
         events = sorted(self.events_counter.keys())
         lineages = sorted([lineage for lineage in self.set_of_lineages if not lineage == self.lca_label])
@@ -291,7 +291,7 @@ class StateGraph(object):
                 path_counter_by_origin[origin_label] += 1
                 path_counter_by_origin['all'] += 1
                 for source_idx, sink_idx in pairwise(path):
-                    print('self.graph[source_idx][sink_idx]', self.graph[source_idx][sink_idx])
+                    #print('self.graph[source_idx][sink_idx]', self.graph[source_idx][sink_idx])
                     current_event = self.graph[source_idx][sink_idx][0]['event']
                     current_count = self.graph[source_idx][sink_idx][0]['count']
                     row = [path_idx, sink_idx, origin_idx, self.label_by_node_idx[source_idx]]
@@ -311,7 +311,7 @@ class StateGraph(object):
                     rows.append(row)
 
                 path_idx += 1
-        print(rows)
+        #print(rows)
         lib.functions.create_csv("%s.model.tsv" % parameterObj.out_prefix, None, header, rows, sep="\t")
         print("[+] Paths \n[+]\t%s => all\n[+]\t%s" % (
             path_counter_by_origin['all'], 
@@ -425,7 +425,7 @@ class ParameterObj(object):
         self.set_of_events = self._get_set_of_events() 
         self.model_output = False if args['--nomodel'] else True 
         self.graph_output = False if args['--nograph'] else True
-        print(self.__dict__) 
+        #print(self.__dict__) 
 
     def _get_set_of_events(self):
         return set(["C_%s" % pop_id for pop_id in self.pop_ids + self.join_events] + self.join_events + self.migration_events)

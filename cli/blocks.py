@@ -24,7 +24,7 @@ class ParameterObj(RunObj):
 
     def __init__(self, params, args):
         super().__init__(params)
-        self.zstore = args['--zarr']
+        self.zstore = self._get_path(args['--zarr'])
         self.block_length = int(args['--block_length'])
         self.block_span = int(args['--block_span']) if not args['--block_span'] is None else 2*self.block_length
         self.block_gap_run = int(args['--block_gap_run']) if not args['--block_gap_run'] is None else self.block_length

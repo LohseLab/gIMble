@@ -90,6 +90,9 @@ Preparation of input files
     + Multiallelicity of SNPs is not a problem.
 
 4. BED file
+    + lists the regions that are accessible to analysis for each of the samples. 
+        => Only variants within those regions are considered
+        => All sites within those regions that are not variant (listed in VCF), are considered invariant
     + as produced by BEDTOOLS multiinter, based on output of mosdepth's Callable loci
         ```
         chr01   79      93      1       sample_1
@@ -98,9 +101,6 @@ Preparation of input files
         chr01   106     111     4       sample_1,sample_2, sample_3, sample_4
         [...]
         ```
-    + lists the regions that are accessible to analysis for each of the samples. 
-        => Only variants within those regions are considered
-        => All sites within those regions that are not variant (listed in VCF), are considered invariant
     + can be intersected with BED regions of certain genomic features (i.e. intergenic regions) ...
     
 ### 1. Make genomefile from assembly FASTA 
@@ -132,17 +132,18 @@ vt normalize -r assembly.fasta raw.vcf.gz | bgzip -c > normalised.vcf.gz
 - breaks MNPs into SNPs
 
 ```
-bcftools view normalised.vcf.gz | vcfallelicprimitives --keep-info --keep-geno -t decomposed | sed '/^##/! s/|/\//g' | sed 's/\.:\.:\.:\.:\.:\.:\.:\./\.\/\.:\.:\.:\.:\.:\.:\.:\./g' | bcftools sort -O z > normalised.decomposed.vcf.gz
+
+bcftools view normalised.vcf.gz | vcfallelicprimitives --keep-info --keep-geno -t decomposed | sed '/^##/! s/|/\//g' | perl -plne 's|\t(\.(:\.){7})\t|\t./$1\t|' | bcftools sort -O z > normalised.decomposed.vcf.gz
 ```
 
 #### 3.3 Filter variants based on read balance/SNPGap/NonSnps
 
 - Read Balance: `-e RPL<1 | RPR<1 | SAF<1 | SAR<1`
-- SNPGap: filter SNPs within `$SNPGAP` base pairs of an indel or other other variant type (`INT[:'indel',mnp,bnd,other,overlap]`)
+- SNPGap: filter SNPs within `$SNPGAP` base pairs of an indel
 - NonSnps: `TYPE!="snp"`
 
 ```
-bcftools filter -Oz -s Balance -m+ -e 'RPL<1 | RPR<1 | SAF<1 | SAR<1' normalised.decomposed.vcf.gz | bcftools filter -Oz -m+ -s+ --SnpGap $SNPGAP:indel,other | bcftools filter -Oz -e 'TYPE!="snp"' -s NonSnp -m+ > normalised.decomposed.Balance.SnpGap.NonSnp.vcf.gz
+bcftools filter -Oz -s Balance -m+ -e 'RPL<1 | RPR<1 | SAF<1 | SAR<1' normalised.decomposed.vcf.gz | bcftools filter -Oz -m+ -s+ --SnpGap $SNPGAP | bcftools filter -Oz -e 'TYPE!="snp"' -s NonSnp -m+ > normalised.decomposed.Balance.SnpGap.NonSnp.vcf.gz
 ```
 
 #### 3.4 Subset variants that PASS filters 
@@ -161,7 +162,7 @@ bcftools index -t normalised.decomposed.Balance.SnpGap.NonSnp.PASS.vcf.gz
 - the resulting BED file is later intersected with the BED file of CALLABLE regions below
 
 ```
-bcftools view -H -f SnpGap,NonSNP,Balance normalised.decomposed.Balance.SnpGap.vcf.gz | perl -lane '$pad=0; print($F[0]."\t".($F[1]-1)."\t".(($F[1]-1)+length($F[3]))."\t".$F[6])' > normalised.decomposed.Balance.SnpGap.NonSnp.FAIL.bed
+bcftools view -H -f SnpGap,NonSNP,Balance normalised.decomposed.Balance.SnpGap.NonSnp.vcf.gz | perl -lane '$pad=0; print($F[0]."\t".($F[1]-1)."\t".(($F[1]-1)+length($F[3]))."\t".$F[6])' > normalised.decomposed.Balance.SnpGap.NonSnp.FAIL.bed
 ```
 
 ### 4. Generate Multintersect BED file of Callable sites across all samples
@@ -243,6 +244,8 @@ gff2bed < annotation.braker.gt.gff3 > annotation.braker.gt.bed
 awk '$8=="gene"' annotation.braker.gt.bed | bedtools merge -i - | sort -k1,1V -k2,2n -k3,3n > annotation.braker.gt.genic.bed
 
 # Generate intergenic BED (complement of genic features)
+bedtools subtract ...
+
 bedtools complement -i annotation.braker.gt.genic.bed -g assembly.genomefile | sort -k1,1V -k2,2n -k3,3n > annotation.braker.gt.intergenic.bed
 
 # Intersect intergenic BED with CALLABLE BED

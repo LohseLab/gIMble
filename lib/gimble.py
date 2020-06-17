@@ -16,7 +16,78 @@ import matplotlib.pyplot as plt
 np.set_printoptions(threshold=sys.maxsize)
 
 '''
+[Glossary]
+- datatypes = ['blocks', 'windows', 'simblocks', 'simwindows']
+
+- mutypes?
+    + n=2, p=2 => e.g. [[0,0], [0,1]]  ...          =>  4 mutypes
+    - n=4, p=1 => e.g. [[0],[0],[0],[1]]            =>  4 mutypes ?
+    - n=2, p=3 => e.g. [[0,0,0], [0,1,1]] ...       =>  8 mutypes ?
+    - n=3, p=2 => e.g. [[0,0], [0,1], [0,1]], ...   => 15 mutypes ?
+
+# better datastructure?
+
+setup
+    - genome_f
+    - sample_f
+    - bed_f
+    - vcf_f
+
+each stage needs:
+    - evidence for completion of stage
+    - command
+    - meaningful parameters
+
+meta
+    - sequence_ids
+    - sequence_lengths
+    - sample_ids
+    - population_ids
+    - sample_ids_by_population_id
+    - population_id_by_sample_id
+    - idx_cartesian_sample_sets => get rid of this!
+    - pairedness
+
+variants
+    - sample_ids_vcf
+    - mutypes_count
+
+blocks
+    - block_length
+    - block_span
+    - block_max_missing
+    - block_max_multiallelic
+
+by sample_set
+- block_sites
+- interval_sites
+- starts
+- ends
+- variation
+- multiallelic
+- missing
+
+windows
+    - variation
+    - starts
+    - end
+    - window_id
+    - midpoint_mean
+    - midpoint_median
+
+sim_windows
+    - variation
+    - starts
+    - end
+    - window_id
+    - midpoint_mean
+    - midpoint_median
+
+np.ones(clens[-1], dtype=int)
+
 [To do]
+- make final block-metrics show average number of variants per block in addition to FGV
+
 - write test that errors when no VCF index since it takes ages without
 - query module
     - writing BED file of blocks with associated metrics
@@ -25,8 +96,8 @@ np.set_printoptions(threshold=sys.maxsize)
 ./gimble setup -s ~/git/gIMble/data/test.samples.csv -v ~/git/gIMble/data/test.vcf -b ~/git/gIMble/data/test.bed -o gimble_testdb -g ~/git/gIMble/data/test.genomefile
 ./gimble blocks -z gimble_testdb.z -l 10 -r 2 -m 10
 ./gimble windows -w 3 -s 1 -z gimble_testdb.z
-
 '''
+
 # Formatting functions
 
 def format_bases(bases):
@@ -189,15 +260,18 @@ def cut_windows(mutype_array, idxs, start_array, end_array, sample_set_array, nu
     mutype_array_sorted = mutype_array.take(coordinate_sorted_idx, axis=0)
     window_idxs = np.arange(mutype_array_sorted.shape[0] - num_blocks + 1)[::num_steps, None] + np.arange(num_blocks)
     window_mutypes = mutype_array_sorted.take(window_idxs, axis=0)
-    window_starts = start_array.take(coordinate_sorted_idx, axis=0).take(window_idxs, axis=0)
-    window_min = np.min(start_array.take(coordinate_sorted_idx, axis=0).take(window_idxs, axis=0), axis=1).T
-    window_ends = end_array.take(coordinate_sorted_idx, axis=0).take(window_idxs, axis=0)#[:,-1]
-    window_max = np.max(end_array.take(coordinate_sorted_idx, axis=0).take(window_idxs, axis=0), axis=1).T
-    window_midpoints = (window_starts / 2) + (window_ends / 2)
-    window_mean = np.mean(window_midpoints, axis=1).T
-    window_median = np.median(window_midpoints, axis=1).T
+    #print("window_mutypes", window_mutypes[:])
+    block_starts = start_array.take(coordinate_sorted_idx, axis=0).take(window_idxs, axis=0)
+    #print("block_starts", block_starts[:])
+    window_starts = np.min(start_array.take(coordinate_sorted_idx, axis=0).take(window_idxs, axis=0), axis=1).T
+    #print("window_starts", window_starts[:])
+    block_ends = end_array.take(coordinate_sorted_idx, axis=0).take(window_idxs, axis=0)#[:,-1]
+    window_ends = np.max(end_array.take(coordinate_sorted_idx, axis=0).take(window_idxs, axis=0), axis=1).T
+    window_midpoints = (block_starts / 2) + (block_ends / 2)
+    window_pos_mean = np.mean(window_midpoints, axis=1).T
+    window_pos_median = np.median(window_midpoints, axis=1).T
     # coverages = get_coverage_counts(sample_set_array.take(window_idxs, axis=0), idxs, num_blocks)
-    return window_mutypes, window_min, window_max, window_mean, window_median
+    return window_mutypes, window_starts, window_ends, window_pos_mean, window_pos_median
 
 def cut_blocks(interval_starts, interval_ends, block_length, block_span, block_gap_run):
     sites = create_ranges(np.array((interval_starts, interval_ends)).T)
@@ -267,6 +341,8 @@ class Store(object):
         self.data.attrs[parameterObj._MODULE] = parameterObj._get_cmd()
 
     def get_stage_cmd(self, stage):
+        print("stage", stage)
+        print("self.data.attrs", self.data.attrs.__dict__)
         return self.data.attrs[stage]
 
     def _from_zarr(self, parameterObj):
@@ -310,12 +386,12 @@ class Store(object):
         pop_ids_by_sample_id = self.get_pop_ids_by_sample_id()
         pop_ids = self.data.attrs['pop_ids']
         print("[=] ==========================================")
-        print("[+] [  DataStore ]\t%s" % self.path)
-        print("[+] [  Genome    ] %s in %s sequence(s)" % (format_bases(self.get_base_count(kind='total')), len(self.data.attrs['sequence_ids'])))
-        print("[+] [  Samples   ] %s in %s populations" % (len(pop_ids_by_sample_id), len(pop_ids)))
+        print("[+] [DataStore   ] %s" % self.path)
+        print("[+] [Genome      ] %s in %s sequence(s)" % (format_bases(self.get_base_count(kind='total')), len(self.data.attrs['sequence_ids'])))
+        print("[+] [Samples     ] %s in %s populations" % (len(pop_ids_by_sample_id), len(pop_ids)))
         if verbose:
             print("%s" % "\n".join(["[+] \t %s [%s]" % (sample_id, pop_id) for sample_id, pop_id in pop_ids_by_sample_id.items()]))
-        print("[+] [Sample sets] size = %s: %s" % (self.data.attrs['pairedness'], len(self.data.attrs['idx_cartesian_sample_sets'])))
+        print("[+] [Sample-sets ] %s" % (len(self.data.attrs['idx_cartesian_sample_sets'])))
         
         #self.data.attrs['block_length']
         #self.data.attrs['block_span']
@@ -434,18 +510,16 @@ class Store(object):
             self.data.attrs['variants'] = variant_counts
             self.data.attrs['vcf_f'] = vcf_file
 
-    def check_existing_data(self, parameterObj, datatype, fail=False):
+    def has_data(self, datatype):
         if datatype in self.data.attrs:
-            if fail:
-                if not parameterObj.overwrite:
-                    sys.exit("[X] Store %r already contains %s.\n[X] Existing %s => %r\n[X] Please specify '--force' to overwrite." % (self.path, datatype, datatype, self.get_stage_cmd('blocks')))
-                else:
-                    print('[-] Store %r already contains %s. But these will be overwritten...' % (self.path, datatype))
             return True
         return False
 
     def make_blocks(self, parameterObj, debug=False):
-        self.check_existing_data(parameterObj, 'blocks', fail=True)
+        if self.has_data('blocks'):
+            if not parameterObj.overwrite:
+                sys.exit("[X] Store %r already contains blocks.\n[X] These blocks => %r\n[X] Please specify '--force' to overwrite." % (self.path, self.get_stage_cmd('blocks')))
+            print('[-] Store %r already contains blocks. But these will be overwritten...' % (self.path))
         self.data.attrs['block_length'] = parameterObj.block_length
         self.data.attrs['block_gap_run'] = parameterObj.block_gap_run
         self.data.attrs['block_span'] = parameterObj.block_span
@@ -472,6 +546,7 @@ class Store(object):
         with tqdm(total=(len(sequence_ids) * len(sample_sets)), desc="[%] Calculating bSFSs ", ncols=100, unit_scale=True) as pbar:        
             for seq_id in sequence_ids:        
                 _intervals_df = intervals_df[intervals_df['sequence_id'] == seq_id]
+                # To Do: put a check in so that it only progresses if there ARE intervals in the BED file for that sequence_id ... 
                 seq_id_key = "%s/pos" % seq_id
                 _pos = np.array([])
                 if seq_id_key in self.data: 
@@ -491,6 +566,8 @@ class Store(object):
                             parameterObj.block_span, 
                             parameterObj.block_gap_run
                             )
+                        block_starts = np.array(block_sites[:,0])           # has to be np.array() !
+                        block_ends = np.array(block_sites[:,-1] + 1)        # has to be np.array() !
                         interval_space = sample_set_intervals_df['length'].sum()
                         block_space = np.sum(((block_sites[:,-1] - block_sites[:,0]) + 1)) # block_space == span !
                         if debug:
@@ -517,10 +594,11 @@ class Store(object):
                             print('# Variation: 0=HetB, 1=HetA, 2=HetAB, 3=Fixed')
                             print(variation)
                             print("[+] Pi_%s = %s; Pi_%s = %s; D_xy = %s; F_st = %s; FGV = %s" % (self.data.attrs['pop_ids'][0], pi_1, self.data.attrs['pop_ids'][1], pi_2, d_xy, f_st, fgv)) 
+                        # To Do: put explicit datatypes when saving stuff in ZARR (it might otherwise estimate it wrongly!)
                         self.data.create_dataset("%s/%s/interval_sites" % (seq_id, sample_set_idx), data=np.array([interval_space]), overwrite=True)
                         self.data.create_dataset("%s/%s/block_sites" % (seq_id, sample_set_idx), data=np.array([block_space]), overwrite=True)
-                        self.data.create_dataset("%s/%s/blocks/starts" % (seq_id, sample_set_idx), data=block_sites[:,0], overwrite=True)
-                        self.data.create_dataset("%s/%s/blocks/ends" % (seq_id, sample_set_idx), data=(block_sites[:,-1] + 1), overwrite=True)
+                        self.data.create_dataset("%s/%s/blocks/starts" % (seq_id, sample_set_idx), data=block_starts, overwrite=True)
+                        self.data.create_dataset("%s/%s/blocks/ends" % (seq_id, sample_set_idx), data=block_ends, overwrite=True)
                         self.data.create_dataset("%s/%s/blocks/variation" % (seq_id, sample_set_idx), data=variation, overwrite=True)
                         self.data.create_dataset("%s/%s/blocks/multiallelic" % (seq_id, sample_set_idx), data=multiallelic.flatten(), overwrite=True)
                         self.data.create_dataset("%s/%s/blocks/missing" % (seq_id, sample_set_idx), data=missing.flatten(), overwrite=True)
@@ -528,38 +606,43 @@ class Store(object):
         self.add_stage(parameterObj)
 
     def make_windows(self, parameterObj):
-        block_status = self.check_existing_data(parameterObj, 'blocks', fail=False)
+        block_status = self.has_data('blocks')
         if not block_status:
             sys.exit("[X] No blocks found. Please make blocks first.")
-        window_status = self.check_existing_data(parameterObj, 'windows', fail=True)
-        self.data.attrs['window_size'] = parameterObj.window_size
-        self.data.attrs['window_step'] = parameterObj.window_step
+        if self.has_data('windows'):
+            if not parameterObj.overwrite:
+                sys.exit("[X] Store %r already contains windows.\n[X] These windows => %r\n[X] Please specify '--force' to overwrite." % (self.path, self.get_stage_cmd('windows')))
+            print('[-] Store %r already contains windows. But these will be overwritten...' % (self.path))
         sample_sets_idxs = self.data.attrs['idx_cartesian_sample_sets']
         with tqdm(total=(len(self.data.attrs['sequence_ids']) * len(sample_sets_idxs)), desc="[%] Making windows ", ncols=100, unit_scale=True) as pbar: 
             for seq_id in self.data.attrs['sequence_ids']: 
+                #print("# seq_id", seq_id)
                 mutypes, sample_set_covs, starts, ends = [], [], [], []
                 for sample_set_idx in sample_sets_idxs:
-                    multiallelic = np.array(self.data["%s/%s/blocks/multiallelic" % (seq_id, sample_set_idx)])
-                    missing = np.array(self.data["%s/%s/blocks/missing" % (seq_id, sample_set_idx)])
                     mutype = np.array(self.data["%s/%s/blocks/variation" % (seq_id, sample_set_idx)])
-                    mutypes.append(mutype)
                     start = np.array(self.data["%s/%s/blocks/starts" % (seq_id, sample_set_idx)])
-                    starts.append(start)
                     end = np.array(self.data["%s/%s/blocks/ends" % (seq_id, sample_set_idx)])
+                    starts.append(start)
                     ends.append(end)
+                    mutypes.append(mutype)
                     sample_set_covs.append(np.full_like(end, sample_set_idx)) 
                     pbar.update()
                 mutype_array = np.concatenate(mutypes, axis=0)
-                start_array = np.concatenate(starts, axis=0)
+                #print('mutype_array', mutype_array.shape, mutype_array[:])
+                start_array = np.concatenate(starts[:], axis=0)
+                #print('starts', starts)
                 end_array = np.concatenate(ends, axis=0)
+                #print('end_array', end_array.shape, end_array[:])
                 sample_set_array = np.concatenate(sample_set_covs, axis=0)
-                window_mutypes, window_min, window_max, window_mean, window_median = cut_windows(mutype_array, sample_sets_idxs, start_array, end_array, sample_set_array, num_blocks=parameterObj.window_size, num_steps=parameterObj.window_step)
-                window_id = np.array(["_".join([seq_id, _start, _end]) for (_start, _end) in zip(window_min.astype(str), window_max.astype(str))])
-                self.data.create_dataset("%s/windows/variation" % seq_id, data=window_mutypes, overwrite=True)
-                self.data.create_dataset("%s/windows/window_id" % seq_id, data=window_id, overwrite=True)
-                self.data.create_dataset("%s/windows/midpoint_mean" % seq_id, data=window_mean, overwrite=True)
-                self.data.create_dataset("%s/windows/midpoint_median" % seq_id, data=window_median, overwrite=True)
+                window_variation, window_starts, window_ends, window_pos_mean, window_pos_median = cut_windows(mutype_array, sample_sets_idxs, start_array, end_array, sample_set_array, num_blocks=parameterObj.window_size, num_steps=parameterObj.window_step)
+                self.data.create_dataset("%s/windows/variation" % seq_id, data=window_variation, overwrite=True)
+                self.data.create_dataset("%s/windows/starts" % seq_id, data=window_starts, overwrite=True)
+                self.data.create_dataset("%s/windows/ends" % seq_id, data=window_ends, overwrite=True)
+                self.data.create_dataset("%s/windows/pos_mean" % seq_id, data=window_pos_mean, overwrite=True)
+                self.data.create_dataset("%s/windows/pos_median" % seq_id, data=window_pos_median, overwrite=True)
         self.add_stage(parameterObj)
+        self.data.attrs['window_size'] = parameterObj.window_size
+        self.data.attrs['window_step'] = parameterObj.window_step
 
     def _get_path(self, outprefix):
         path = "%s.z" % outprefix
@@ -602,6 +685,7 @@ class Store(object):
         # popgen
         variation_global = []
         metrics_rows = []
+        # is order (pi_1, pi_2, d_xy, f_st, fgv) correct?
         for sample_set_idx in data_by_key_by_sample_set_idx:
             sample_set_ids = self.data.attrs['sample_sets'][sample_set_idx]
             #print(data_by_key_by_sample_set_idx)
@@ -673,13 +757,22 @@ class Store(object):
         #pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.blocks.h5" % self.prefix, 'bed', format='table')
 
     def dump_windows(self, parameterObj):
+        # To do
+        # Print stats on how many windows, etc ... helps when debugging
+
         window_info_rows = []
         window_mutuple_tally = []
         for sequence_id in tqdm(self.data.attrs['sequence_ids'], total=len(self.data.attrs['sequence_ids']), desc="[%] Generating output ", ncols=100):
             variations = self.data["%s/windows/variation" % sequence_id]
-            window_ids = self.data["%s/windows/window_id" % sequence_id]
-            midpoint_means = self.data["%s/windows/midpoint_mean" % sequence_id]
-            midpoint_medians = self.data["%s/windows/midpoint_median" % sequence_id]
+            #print(self.data["%s/windows/starts" % sequence_id][:])
+            #print(self.data["%s/windows/pos_mean" % sequence_id][:])
+            #print(self.data["%s/windows/pos_median" % sequence_id][:])
+            window_ids = np.array(["_".join([sequence_id, _start, _end]) for (_start, _end) in zip(
+                np.array(self.data["%s/windows/starts" % sequence_id]).astype(str), 
+                np.array(self.data["%s/windows/ends" % sequence_id]).astype(str))])
+            #window_ids = self.data["%s/windows/window_id" % sequence_id]
+            midpoint_means = self.data["%s/windows/pos_mean" % sequence_id]
+            midpoint_medians = self.data["%s/windows/pos_median" % sequence_id]
             for window_id, variation, midpoint_mean, midpoint_median in zip(window_ids, variations, midpoint_means, midpoint_medians):
                 pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation, (self.data.attrs['block_length'] * variation.shape[0]))
                 window_info_rows.append([window_id, sequence_id, midpoint_mean, midpoint_median, pi_1, pi_2, d_xy, f_st, fgv/variation.shape[0]])

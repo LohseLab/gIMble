@@ -2,6 +2,7 @@
 Usage: gimble <module> [<args>...] [-D -V -h]
 
   [Modules]
+    preprocess            Preprocess input files
     setup                 Setup DataStore
     info                  Print information about DataStore
     blocks                Generate blocks from data in DataStore 
@@ -48,6 +49,9 @@ def main(gimble_dir):
         if args['<module>'] == 'setup':
             import cli.setup as setup
             setup.main(params)
+        elif args['<module>'] == 'preprocess':
+            import cli.preprocess as preprocess
+            preprocess.main(params)
         elif args['<module>'] == 'blocks':
             import cli.blocks as blocks
             blocks.main(params)

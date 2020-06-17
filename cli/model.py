@@ -41,7 +41,6 @@ def main(run_params):
     try:
         main_time = timer()
         args = docopt(__doc__)
-        print(args)
         parameterObj = lib.model.ParameterObj(args)
         stateGraph = lib.model.graph_generator(parameterObj)
         if parameterObj.model_output:

@@ -7,6 +7,8 @@ __pycache__/
 .literature/
 
 .simulation
+.test
+test.*
 
 # C extensions
 *.so
