@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gIMble simulate                  -m FILE [-c FILE -z FILE] 
-                                            [-b INT] [-w INT] [-r INT]
+"""usage: gIMble simulate                  -m FILE [-c FILE] 
+                                            [-b INT] [-r INT]
                                             [-t INT] [-h|--help]
+                                            [-o STR] [-z --zarr_store]
                                             
     Options:
         -h --help                                   show this
         -m, --model_file FILE                       Model file to analyse
-        -z, --zarr_file FILE                        ZARR datastore
         -c, --config_file FILE                      Config file with parameters (if not present, empty config file is created)
         -P, --precision INT                         Floating point precision of probabilities [default: 25]
         -b, --blocks INT                            Number of blocks per window
-        -w, --windows INT                           Number of windows
         -r, --replicates INT                        Number of replicates per parametercombo
         -t, --threads INT                           Threads [default: 1]
+        -o, --out_prefix <STR>                      Prefix for output files
+        -z, --zarr_store <STR>                      Name of zarr store (output)
         
 """
 import pathlib
@@ -22,7 +23,7 @@ import oyaml as yaml
 import collections
 from timeit import default_timer as timer
 from docopt import docopt
-import sys
+import sys, os
 from lib.gimble import RunObj
 import lib.simulate
 import numpy as np
@@ -30,12 +31,14 @@ import numpy as np
 """
 test command:
 gIMble simulate -m 
-./gIMble model -s A,B -p 2 -n 1,1 -m 'A>B' -j 'A,B' -o output/s_A_B.p2.n_1_1.m_AtoB.j_A_B
+./gIMble model -s A,B -p 2 -n 1,1 -m 'A>B' -j 'A,B' -o output/test
+./gIMble model -s A,B -p 2 -n 2,1 -j 'A,B' -o output/test
 
 ./gIMble simulate -m output/s_A_B.p2.n_1_1.m_AtoB.j_A_B.model.tsv
+./gIMble simulate -m output/test.model.tsv
 
 ./gIMble simulate -m output/s_A_B.p2.n_1_1.m_AtoB.j_A_B.model.tsv -c /Users/s1854903/git/gIMble/output/s_A_B.p2.n_1_1.m_AtoB.j_A_B.model.config.yaml
-
+./gIMble simulate -m output/test.model.tsv -c output/test.model.config.yaml -o output/sims_test
 """
 
 
@@ -44,16 +47,18 @@ class ParameterObj(RunObj):
 
     def __init__(self, params, args):
         super().__init__(params)
-        self.zstore = self._get_path(args["--zarr_file"])
+        # self.zstore = self._get_path(args["--zarr_file"])
         self.model_file = self._get_path(args["--model_file"])
         self.config_file = self._get_path(args["--config_file"])
         self.threads = self._get_int(args["--threads"])
-        self._config = self._get_or_write_config(
-            args["--blocks"], args["--windows"], args["--replicates"]
-        )
+        self._config = self._get_or_write_config(args["--blocks"], args["--replicates"])
         self.data_type = self._get_datatype(
-            [args["--blocks"], args["--windows"]]
+            [args["--blocks"]]
         )  # adapt to simulations.py
+        self.outprefix = args["--out_prefix"] if args["--out_prefix"] else os.getcwd()
+        self.zarr_store = (
+            args["--zarr_store"] if args["--zarr_store"] else "simulations.zarr"
+        )
 
     def _get_datatype(self, args):
         # needs to be adapted for simulation.py
@@ -66,22 +71,15 @@ class ParameterObj(RunObj):
         else:
             sys.exit("[X] This should not have happend.")
 
-    def _get_or_write_config(self, blocks, windows, replicates):
+    def _get_or_write_config(self, blocks, replicates):
         if self.config_file is None:
             print("[-] No config file found.")
             print("[+] Generating config file for model %r" % self.model_file)
             """for now we use the following dict until columns are fixed in gimble model"""
             if blocks is None:
                 blocks = 1
-            if windows is None:
-                windows = 0
             if replicates is None:
                 replicates = 1
-            if windows == 0 and blocks > 1:
-                blocks = 1
-                print(
-                    f"[X] specified 0 windows, {config['replicates']} independent block(s) will be simulated"
-                )
             config = {
                 "version": self._VERSION,
                 "model": self.model_file,
@@ -90,7 +88,6 @@ class ParameterObj(RunObj):
                 "blocks": int(blocks),
                 "blocklength": 1000,
                 "replicates": int(replicates),
-                "windows": int(windows),
                 #'k_max': collections.defaultdict(dict),
                 "parameters": collections.defaultdict(dict),
                 "boundaries": collections.defaultdict(list),
@@ -105,7 +102,8 @@ class ParameterObj(RunObj):
                     config["parameters"][column] = "FLOAT"
             config["parameters"]["T"] = "FLOAT"
             for parameter in config["parameters"]:
-                config["boundaries"][parameter] = ["MIN", "MAX", "STEPSIZE"]
+                if parameter not in ["sample_size_A", "sample_size_B"]:
+                    config["boundaries"][parameter] = ["MIN", "MAX", "STEPSIZE"]
             config_file = pathlib.Path(self.model_file).with_suffix(".config.yaml")
             yaml.add_representer(
                 collections.defaultdict, yaml.representer.Representer.represent_dict
@@ -156,16 +154,14 @@ class ParameterObj(RunObj):
                     pass
                 else:
                     config[k] = v
-            for k, name in zip(
-                [blocks, windows, replicates], ["blocks", "windows", "replicates"]
-            ):
+            for k, name in zip([blocks, replicates], ["blocks", "replicates"]):
                 if k:
                     config[name] = int(k)
-            if config["windows"] == 0 and config["blocks"] > 1:
-                config["blocks"] = 1
-                print(
-                    f"[X] specified 0 windows, {config['replicates']} independent block(s) will be simulated"
-                )
+            (pop_configs, columns) = self._parse_model_file()
+            assert (
+                config["parameters"]["sample_size_A"][0] == pop_configs["A"]
+                and config["parameters"]["sample_size_B"][0] == pop_configs["B"]
+            ), "sample size does not match model sample size"
             return config
 
     def _parse_model_file(self):
@@ -194,8 +190,6 @@ def main(params):
         args = docopt(__doc__)
         # log = lib.log.get_logger(params)
         parameterObj = ParameterObj(params, args)
-
-        print(parameterObj._config)
         lib.simulate.run_sim(parameterObj)
 
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
