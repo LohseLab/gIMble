@@ -30,7 +30,7 @@ def run_sim(parameterObj):
         params["sample_size_A"][0], params["sample_size_B"][0]
     )
     print(f"[+] simulating {replicates} replicate(s) of {blocks} block(s)")
-    root = store.data.create_group('sims')
+    root = store.data.create_group('sims', overwrite=True)
     for idx, (config, zarr_attrs) in enumerate(zip(msprime_configs, sim_configs)):
         seeds = np.random.randint(1, 2 ** 32, replicates)
 

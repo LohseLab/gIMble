@@ -24,8 +24,10 @@ from timeit import default_timer as timer
 from docopt import docopt
 import sys, os
 from lib.gimble import RunObj
+from lib.gimble import Store
 import lib.simulate
 import numpy as np
+import zarr
 
 """
 test command:
@@ -74,6 +76,11 @@ class ParameterObj(RunObj):
                 self.zstore = z
             else:
                 sys.exit("[X] Specify the path to a zarr file ending in .z .")
+        else:
+            self.path = os.path.join(os.getcwd(), 'sims.z')
+            self.prefix = 'sims'
+            self.zstore = self.path
+            self.data = zarr.open(self.path, mode='w')
 
     def _get_or_write_config(self, blocks, replicates):
         if self.config_file is None:
