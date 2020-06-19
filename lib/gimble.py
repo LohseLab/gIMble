@@ -310,12 +310,14 @@ class RunObj(object):
             self._MODULE, 
             "".join(["--%s " % " ".join((k, str(v))) for k,v in self.__dict__.items() if not k.startswith("_")]))
 
-    def _get_path(self, infile):
+    def _get_path(self, infile, path=False):
         if infile is None:
             return None
         path = pathlib.Path(infile).resolve()
         if not path.exists():
             sys.exit("[X] File not found: %r" % str(infile))
+        if path:
+            return path
         return str(path)
 
     def _get_int(self, string):
@@ -347,8 +349,8 @@ class Store(object):
 
     def _from_zarr(self, parameterObj):
         '''should be made more explicit'''
-        self.path = parameterObj.zstore
-        self.prefix = parameterObj.zstore.rstrip(".z")
+        self.path = str(parameterObj.zstore)
+        self.prefix = str(parameterObj.zstore).rstrip(".z")
         self.data = zarr.open(self.path, mode='r+')
 
     def _from_input(self, parameterObj):
@@ -360,8 +362,8 @@ class Store(object):
             parameterObj.sample_file, 
             parameterObj._pairedness
             )
-        self._parse_vcf_file(parameterObj.vcf_file)
-        self.data.attrs['bed_f'] = parameterObj.bed_file
+        self._parse_vcf_file(str(parameterObj.vcf_file))
+        self.data.attrs['bed_f'] = str(parameterObj.bed_file)
         self.add_stage(parameterObj)
         
     def get_base_count(self, sequence_id=None, kind='total'):
@@ -446,7 +448,7 @@ class Store(object):
         logging.info("[+] Found %s sequences of a total length of %s b..." % (len(self.data.attrs['sequence_ids']), sum(self.data.attrs['sequence_length'])))
         for sequence_id in self.data.attrs['sequence_ids']:
             self.data.create_group('%s/' % sequence_id)
-        self.data.attrs['genome_f'] = genome_file
+        self.data.attrs['genome_f'] = str(genome_file)
         
     def _parse_sample_file(self, sample_file, pairedness):
         logging.info("[#] Processing Sample file %r ..." % sample_file)
@@ -471,7 +473,7 @@ class Store(object):
             len(self.data.attrs['sample_sets']),
             pairedness
             ))
-        self.data.attrs['sample_f'] = sample_file
+        self.data.attrs['sample_f'] = str(sample_file)
         self.data.attrs['pairedness'] = pairedness
 
     def _parse_vcf_file(self, vcf_file):
@@ -508,7 +510,7 @@ class Store(object):
                             logging.error("[X] Unknown key %r" % key)
                             sys.exit()
             self.data.attrs['variants'] = variant_counts
-            self.data.attrs['vcf_f'] = vcf_file
+            self.data.attrs['vcf_f'] = str(vcf_file)
 
     def has_data(self, datatype):
         if datatype in self.data.attrs:

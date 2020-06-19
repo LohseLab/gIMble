@@ -9,6 +9,7 @@ __pycache__/
 .simulation
 .test
 test.*
+.test/
 
 # C extensions
 *.so

@@ -104,6 +104,11 @@ class ParameterObj(RunObj):
             sys.exit("[X1] This should not have happened.")
 
     def _get_or_write_config(self):
+        '''
+        [To Do] 
+            - numerical params: equal values mean equality (simplifies equation).
+            - boundary params: need equality list, parameters in equality list MUST have equal values and are then collapsed.
+        '''
         if self.config_file is None:
             print("[-] No config file found.")
             print("[+] Generating config file for model %r" % self.model_file)

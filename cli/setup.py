@@ -17,7 +17,7 @@
         -v, --vcf_file <FILE>           VCF file of variants. Indexed.
     
     [Options]
-        -o, --outprefix <STR>           Prefix to use in output files [default: test]
+        -o, --outprefix <STR>           Prefix to use in output files [default: gimble]
         -h --help                       show this
     
 """

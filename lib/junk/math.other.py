@@ -1050,6 +1050,10 @@ def task_generate_entityCollection(parameterObj):
         timer() - start))
     return entityCollection
 
+scaling_dict=
+{
+    'mutation_rate': 
+}
 def estimate_parameters(symbolic_equations_by_mutuple, mutuple_count_matrix, parameterObj):
     print("[+] Optimising parameters: %s ..." % (", ".join(parameterObj.boundaries.keys())))    
     start_time = timer()

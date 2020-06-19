@@ -34,6 +34,7 @@ conda install -c conda-forge networkx matplotlib docopt tqdm pandas numpy psutil
 [ To Do ]
 - Output config file for simulation/inference based on model
 - add header to model file : -s A,B -p 2 -n 1,1
+
 '''
 
 

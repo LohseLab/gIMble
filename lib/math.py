@@ -258,6 +258,8 @@ class EquationSystemObj(object):
                 base_rate_by_variable[sage.all.SR.var(event)] = sage.all.SR.var(event)
         return base_rate_by_variable
 
+    def _
+
     def initiate_model(self, check_monomorphic=True):
         print("[=] ==================================================")
         print("[+] Initiating model ...")
