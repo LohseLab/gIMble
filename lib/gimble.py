@@ -325,7 +325,10 @@ class Store(object):
         '''should be made more explicit'''
         self.path = parameterObj.zstore
         self.prefix = parameterObj.zstore.rstrip(".z")
-        self.data = zarr.open(self.path, mode='r+')
+        if pathlib.Path(self.path).is_file():
+            self.data = zarr.open(self.path, mode='r+')
+        else:
+            self.data = zarr.open(self.path, mode='w')
 
     def _from_input(self, parameterObj):
         self.prefix = parameterObj.outprefix

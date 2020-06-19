@@ -4,7 +4,7 @@
 """usage: gIMble simulate                  -m FILE [-c FILE] 
                                             [-b INT] [-r INT]
                                             [-t INT] [-h|--help]
-                                            [-o STR] [-z --zarr_store]
+                                            [-z --zarr]
                                             
     Options:
         -h --help                                   show this
@@ -14,8 +14,7 @@
         -b, --blocks INT                            Number of blocks per window
         -r, --replicates INT                        Number of replicates per parametercombo
         -t, --threads INT                           Threads [default: 1]
-        -o, --out_prefix <STR>                      Prefix for output files
-        -z, --zarr_store <STR>                      Name of zarr store (output)
+        -z, --zarr <STR>                      path to zarr store
         
 """
 import pathlib
@@ -55,10 +54,7 @@ class ParameterObj(RunObj):
         self.data_type = self._get_datatype(
             [args["--blocks"]]
         )  # adapt to simulations.py
-        self.outprefix = args["--out_prefix"] if args["--out_prefix"] else os.getcwd()
-        self.zarr_store = (
-            args["--zarr_store"] if args["--zarr_store"] else "simulations.zarr"
-        )
+        self._get_zarr_store(args)
 
     def _get_datatype(self, args):
         # needs to be adapted for simulation.py
@@ -70,6 +66,14 @@ class ParameterObj(RunObj):
             return "windows"
         else:
             sys.exit("[X] This should not have happend.")
+
+    def _get_zarr_store(self, args):
+        z = args['--zarr']
+        if z:
+            if z.endswith('.z'):
+                self.zstore = z
+            else:
+                sys.exit("[X] Specify the path to a zarr file ending in .z .")
 
     def _get_or_write_config(self, blocks, replicates):
         if self.config_file is None:

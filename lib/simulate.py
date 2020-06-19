@@ -20,21 +20,17 @@ def run_sim(parameterObj):
     blocks = parameterObj._config["blocks"]
     blocklength = parameterObj._config["blocklength"]
     replicates = parameterObj._config["replicates"]
-    outdir = parameterObj.outprefix
-    zarr_name = parameterObj.zarr_store
-    params_output_name = zarr_name.rstrip(".zarr") + "parameter_combinations.tsv"
-
+    zarr_store = parameterObj.zstore
+    store = lib.gimble.load_store(parameterObj)
+    
     expand_params(params)
     sim_configs = dict_product(params)
-    df = pd.DataFrame(sim_configs)
-    df.to_csv(os.path.join(outdir, params_output_name), sep="\t")
     msprime_configs = (make_sim_configs(config, ploidy) for config in sim_configs)
     all_interpop_comparisons = all_interpopulation_comparisons(
         params["sample_size_A"][0], params["sample_size_B"][0]
     )
     print(f"[+] simulating {replicates} replicate(s) of {blocks} block(s)")
-    parameterObj.store = lib.gimble.Store()
-    parameterObj.store.data = zarr.open_group(os.path.join(outdir, zarr_name), mode="w")
+    root = store.data.create_group('sims')
     for idx, (config, zarr_attrs) in enumerate(zip(msprime_configs, sim_configs)):
         seeds = np.random.randint(1, 2 ** 32, replicates)
 
@@ -67,10 +63,10 @@ def run_sim(parameterObj):
                 )
 
         name = f"parameter_combination_{idx}"
-        g = parameterObj.store.data.create_group(name)
+        g = root.create_group(name)
         g.attrs.put(zarr_attrs)
         for idx2, (d, s) in enumerate(zip(result_list, seeds)):
-            g.create_dataset(f"replicate_{idx2}", data=d)
+            g.create_dataset(f"replicate_{idx2}", data=d, overwrite=True)
             g[f"replicate_{idx2}"].attrs["seed"] = str(s)
 
 
