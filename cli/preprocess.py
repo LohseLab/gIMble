@@ -143,10 +143,9 @@ class ParameterObj(RunObj):
         print("[+] Deleting temporary folder %r ..." % self.tmp_dir)
         shutil.rmtree(self.tmp_dir)
 
-    #def write_log(self):
-    #    print(self.commands)
-    #    with open(self.gimble_log_file, 'w') as fh:
-    #        fh.write("%s\n" % "\n".join(self.commands))
+    def write_log(self):
+        with open(self.gimble_log_file, 'w') as fh:
+            fh.write("%s\n" % "\n".join(self.commands))
 
 def run_command(args):
     try:
@@ -174,7 +173,7 @@ def get_coverage_data_from_bam(parameterObj):
                 if not readgroup_id:
                     sys.exit("[X] BAM file %r has no readgroup id set.")
                 tmp_prefix = pathlib.Path(pathlib.Path(parameterObj.tmp_dir), pathlib.Path(bam_file.stem))
-                cmd = [f"mosdepth --fast-mode -t {parameterObj.threads} {tmp_prefix} {bam_file}"] # --no-per-base
+                cmd = f"mosdepth --fast-mode -t {parameterObj.threads} {tmp_prefix} {bam_file}" # --no-per-base
                 _stdout, _stderr = run_command(cmd)
                 parameterObj.commands.append(cmd)
                 bed_f = '%s.per-base.bed.gz' % tmp_prefix
@@ -198,8 +197,7 @@ def get_multi_callable_f(parameterObj):
     for bam_f, read_group_id, mean, sd, min_depth, max_depth in tqdm(parameterObj.coverage_data, desc="[%] Inferring callable regions...", ncols=100):
         tmp_prefix = pathlib.Path(parameterObj.tmp_dir, pathlib.Path(bam_f).stem)
         bam_path = pathlib.Path(parameterObj.bam_dir, pathlib.Path(bam_f))
-        cmd = f"export MOSDEPTH_Q0=NULL; export MOSDEPTH_Q1=LOW; export MOSDEPTH_Q2=CALLABLE; export MOSDEPTH_Q3=HIGH && \
-                mosdepth -t {parameterObj.threads} -n --quantize 0:1:{min_depth}:{max_depth}: {tmp_prefix} {bam_path}"
+        cmd = f"export MOSDEPTH_Q0=NULL; export MOSDEPTH_Q1=LOW; export MOSDEPTH_Q2=CALLABLE; export MOSDEPTH_Q3=HIGH && mosdepth -t {parameterObj.threads} -n --quantize 0:1:{min_depth}:{max_depth}: {tmp_prefix} {bam_path}"
         _stdout, _stderr = run_command(cmd)
         parameterObj.commands.append(cmd)
         bed_path = tmp_prefix.parent / (tmp_prefix.name + '.quantized.bed.gz')
@@ -213,6 +211,7 @@ def get_multi_callable_f(parameterObj):
     parameterObj.bed_multi_callable_file = parameterObj.tmp_dir / pathlib.Path('multi_callable.bed')
     cmd = f"bedtools multiinter -i {' '.join(bed_callable_fs)} -names {' '.join(read_group_ids)} | cut -f1-5 > {parameterObj.bed_multi_callable_file}"
     _stdout, _stderr = run_command(cmd)
+    parameterObj.commands.append(cmd)
     return parameterObj
 
 def process_vcf_f(parameterObj):
@@ -279,8 +278,6 @@ def main(params):
         parameterObj = ParameterObj(params, args)
         #print(parameterObj.__dict__)
         preprocess(parameterObj)
-        parameterObj.clean_up()
-        parameterObj.clean_up()
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
         print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))

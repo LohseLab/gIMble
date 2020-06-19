@@ -359,7 +359,7 @@ class Store(object):
         self.data = zarr.open(self.path, mode='w')
         self._parse_genome_file(parameterObj.genome_file)
         self._parse_sample_file(
-            parameterObj.sample_file, 
+            str(parameterObj.sample_file), 
             parameterObj._pairedness
             )
         self._parse_vcf_file(str(parameterObj.vcf_file))
@@ -453,6 +453,8 @@ class Store(object):
     def _parse_sample_file(self, sample_file, pairedness):
         logging.info("[#] Processing Sample file %r ..." % sample_file)
         df = pd.read_csv(sample_file, sep=",", names=['sample_id', 'population_id'])
+        if df.isnull().values.any():
+            sys.exit("[X] Sample IDs are missing population IDs in %r." % sample_file)
         self.data.attrs['sample_ids'] = df['sample_id'].to_list() # Order as they appear in file
         self.data.attrs['population_ids'] = df['population_id'].to_list() 
         self.data.attrs['pop_ids'] = sorted(set(df['population_id'].to_list())) # Sorted pop_ids
