@@ -88,3 +88,15 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+gimble.bed
+
+gimble.coverage_summary.csv
+
+gimble.genomefile
+
+gimble.log.txt
+
+gimble.samples.csv
+
+gimble.vcf.gz

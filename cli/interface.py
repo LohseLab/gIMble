@@ -20,13 +20,10 @@ Usage: gimble <module> [<args>...] [-D -V -h]
     -V, --version                      Show version.
 
   [Dependencies] 
-    -------------------------------------------------------------------------------------------------------------------------------------------------------
-    | $ conda install -c conda-forge oyaml zarr scikit-allel pandas numpy tqdm docopt parallel more-itertools networkx scipy sagelib networkx pygraphviz  |
-    -------------------------------------------------------------------------------------------------------------------------------------------------------
     
-    ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-    | $ conda install bcftools samtools vcflib mosdepth pysam numpy docopt tqdm pandas tabulate oyaml zarr scikit-allel parallel more-itertools networkx sagelib networkx pygraphviz -c conda-forge -c bioconda|
-    ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    | $  conda install bcftools samtools vcflib mosdepth pysam numpy docopt tqdm pandas tabulate oyaml zarr scikit-allel parallel more-itertools networkx sagelib matplotlib msprime networkx pygraphviz -c conda-forge -c bioconda|
+    --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 """
 
 import sys

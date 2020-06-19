@@ -140,8 +140,9 @@ class ParameterObj(RunObj):
     def clean_up(self):        
         if self.keep_tmp:
             print("[+] Not deleting Temporary folder %r since '--keep_tmp' was specified." % self.tmp_dir)
-        print("[+] Deleting temporary folder %r ..." % self.tmp_dir)
-        shutil.rmtree(self.tmp_dir)
+        else:
+            print("[+] Deleting temporary folder %r ..." % self.tmp_dir)
+            shutil.rmtree(self.tmp_dir)
 
     def write_log(self):
         with open(self.gimble_log_file, 'w') as fh:
@@ -158,7 +159,7 @@ def run_command(args):
         sys.exit('[X] The command following command failed with error code %r:\n[X] => %s\n[X] (STDERR): %r' % (cpe.returncode, cpe.cmd, cpe.stderr.rstrip("\n")))
 
 def generate_genome_file(parameterObj):
-    print("[+] Generating genome file...")
+    print("[+] Parsing FASTA file...")
     cmd = f"""samtools dict {parameterObj.fasta_file} | grep '^@SQ' | cut -f2-3 | sed 's/[SN:|LN:]//g' > {parameterObj.gimble_genome_file}"""
     _stdout, _stderr = run_command(cmd)
     parameterObj.commands.append(cmd)
@@ -166,6 +167,7 @@ def generate_genome_file(parameterObj):
     return parameterObj
 
 def get_coverage_data_from_bam(parameterObj):
+    print("[+] Parsing BAM files...")
     for bam_file in tqdm(parameterObj.bam_files, desc="[%] Infer coverage levels from BAM files...", ncols=100):
         try:
             with pysam.AlignmentFile(bam_file, require_index=True) as bam:
@@ -208,7 +210,6 @@ def get_multi_callable_f(parameterObj):
         write_df(bed_callable_df, out_f=bed_callable_f, sep='\t', header=False, status=False)
         read_group_ids.append(read_group_id)
         bed_callable_fs.append(str(bed_callable_f))
-    parameterObj.bed_multi_callable_file = parameterObj.tmp_dir / pathlib.Path('multi_callable.bed')
     cmd = f"bedtools multiinter -i {' '.join(bed_callable_fs)} -names {' '.join(read_group_ids)} | cut -f1-5 > {parameterObj.bed_multi_callable_file}"
     _stdout, _stderr = run_command(cmd)
     parameterObj.commands.append(cmd)
