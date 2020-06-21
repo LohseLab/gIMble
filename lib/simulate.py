@@ -29,7 +29,7 @@ def run_sim(parameterObj):
     all_interpop_comparisons = all_interpopulation_comparisons(
         params["sample_size_A"][0], params["sample_size_B"][0]
     )
-    print(f"[+] simulating {replicates} replicate(s) of {blocks} block(s)")
+    print(f"[+] simulating {replicates} replicate(s) of {blocks} block(s) for {len(sim_configs)} parameter combinations")
     root = store.data.create_group('sims', overwrite=True)
     for idx, (config, zarr_attrs) in enumerate(zip(msprime_configs, sim_configs)):
         seeds = np.random.randint(1, 2 ** 32, replicates)
@@ -43,7 +43,6 @@ def run_sim(parameterObj):
                     ploidy=ploidy,
                     blocks=blocks,
                     blocklength=blocklength,
-                    recombination_rate=0.0,
                     comparisons=all_interpop_comparisons,
                 )
                 result_list = pool.map(run_sims_specified, seeds)
@@ -57,7 +56,6 @@ def run_sim(parameterObj):
                         ploidy=ploidy,
                         blocks=blocks,
                         blocklength=blocklength,
-                        recombination_rate=0.0,
                         comparisons=all_interpop_comparisons,
                     )
                 )
@@ -77,6 +75,7 @@ def make_sim_configs(params, ploidy):
     C_A = params["C_A"]
     C_B = params["C_B"]
     mutation_rate = params["theta"]
+    rec_rate = params["recombination"]
 
     demographic_events = None
     population_configurations = [
@@ -116,6 +115,7 @@ def make_sim_configs(params, ploidy):
         migration_matrix,
         mutation_rate,
         num_samples,
+        rec_rate,
     )
 
 
@@ -126,7 +126,6 @@ def run_ind_sim(
     blocks,
     blocklength,
     comparisons,
-    recombination_rate=0.0,
 ):
     (
         population_configurations,
@@ -134,11 +133,12 @@ def run_ind_sim(
         migration_matrix,
         theta,
         num_samples,
+        rec_rate
     ) = msprime_config
     total_length = blocks * blocklength
     ts = msprime.simulate(
         length=total_length,
-        recombination_rate=recombination_rate,
+        recombination_rate=rec_rate,
         population_configurations=population_configurations,
         demographic_events=demographic_events,
         migration_matrix=migration_matrix,
@@ -161,14 +161,14 @@ def run_ind_sim(
     """
     # with infinite sites = pre-msprime 1.0
     positions = np.array([int(site.position) for site in ts.sites()])
-    print(f"[+] {ts.num_sites} mutation(s) along the simulated sequence")
+    #print(f"[+] {ts.num_sites} mutation(s) along the simulated sequence")
     new_positions = fix_pos_array(positions, total_length)
-    print("[+] finished simulations")
+    #print(seed)
     genotype_matrix = get_genotypes(ts, ploidy, num_samples)
     sa_genotype_array = allel.GenotypeArray(genotype_matrix)
     # always the same for all pairwise comparisons
     block_sites = np.arange(total_length).reshape(blocks, blocklength)
-    print("[+] generated genotype matrix")
+    #print("[+] generated genotype matrix")
     # generate all comparisons
     num_comparisons = len(comparisons)
     result = np.zeros((num_comparisons, blocks, blocklength), dtype="int8")
@@ -180,7 +180,7 @@ def run_ind_sim(
             block_sites, new_positions, assume_unique=True
         )
         block_sites = lib.gimble.genotype_to_mutype_array(
-            subset_genotype_array, block_sites_variant_bool, block_sites, debug=True
+            subset_genotype_array, block_sites_variant_bool, block_sites, debug=False
         )
         result[idx] = block_sites
 
@@ -224,7 +224,7 @@ def dict_product(d):
 
 def expand_params(d):
     for key, value in d.items():
-        if len(value) > 1:
+        if len(value) > 1 and key!="recombination":
             assert len(value) == 3, "MIN, MAX and STEPSIZE need to be specified"
             d[key] = np.arange(value[0], value[1], value[2], dtype=float)
 
