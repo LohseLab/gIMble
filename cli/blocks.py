@@ -35,6 +35,7 @@ class ParameterObj(RunObj):
 def main(params):
     try:
         start_time = timer()
+        print("[+] Running 'gimble blocks'")
         args = docopt(__doc__)
         #print(args)
         #log = lib.log.get_logger(run_params)

@@ -55,6 +55,7 @@ class ParameterObj(RunObj):
 def main(params):
     try:
         start_time = timer()
+        print("[+] Running 'gimble setup'")
         args = docopt(__doc__)
         parameterObj = ParameterObj(params, args)
         gimbleStore = lib.gimble.create_store(parameterObj)

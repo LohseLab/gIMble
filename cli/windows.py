@@ -31,6 +31,7 @@ class ParameterObj(RunObj):
 def main(params):
     try:
         start_time = timer()
+        print("[+] Running 'gimble windows'")
         args = docopt(__doc__)
         #log = lib.log.get_logger(run_params)
         parameterObj = ParameterObj(params, args)
