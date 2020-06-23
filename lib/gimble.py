@@ -343,8 +343,6 @@ class Store(object):
         self.data.attrs[parameterObj._MODULE] = parameterObj._get_cmd()
 
     def get_stage_cmd(self, stage):
-        print("stage", stage)
-        print("self.data.attrs", self.data.attrs.__dict__)
         return self.data.attrs[stage]
 
     def _from_zarr(self, parameterObj):
