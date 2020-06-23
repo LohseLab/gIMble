@@ -620,15 +620,18 @@ class Store(object):
         sample_sets_idxs = self.data.attrs['idx_cartesian_sample_sets']
         with tqdm(total=(len(self.data.attrs['sequence_ids']) * len(sample_sets_idxs)), desc="[%] Making windows ", ncols=100, unit_scale=True) as pbar: 
             for seq_id in self.data.attrs['sequence_ids']: 
-                #print("# seq_id", seq_id)
                 mutypes, sample_set_covs, starts, ends = [], [], [], []
                 for sample_set_idx in sample_sets_idxs:
-                    mutype = np.array(self.data["%s/%s/blocks/variation" % (seq_id, sample_set_idx)])
-                    start = np.array(self.data["%s/%s/blocks/starts" % (seq_id, sample_set_idx)])
-                    end = np.array(self.data["%s/%s/blocks/ends" % (seq_id, sample_set_idx)])
-                    starts.append(start)
-                    ends.append(end)
+                    # first determine valid block mask
+                    missing = np.array(self.data["%s/%s/blocks/missing" % (seq_id, sample_set_idx)])
+                    multiallelic = np.array(self.data["%s/%s/blocks/multiallelic" % (seq_id, sample_set_idx)])
+                    valid = np.less_equal(missing, self.data.attrs['block_max_missing']) & np.less_equal(multiallelic, self.data.attrs['block_max_multiallelic'])
+                    mutype = np.array(self.data["%s/%s/blocks/variation" % (seq_id, sample_set_idx)])[valid]
                     mutypes.append(mutype)
+                    start = np.array(self.data["%s/%s/blocks/starts" % (seq_id, sample_set_idx)])[valid]
+                    starts.append(start)
+                    end = np.array(self.data["%s/%s/blocks/ends" % (seq_id, sample_set_idx)])[valid]
+                    ends.append(end)
                     sample_set_covs.append(np.full_like(end, sample_set_idx)) 
                     pbar.update()
                 mutype_array = np.concatenate(mutypes, axis=0)
@@ -761,9 +764,6 @@ class Store(object):
         #pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.blocks.h5" % self.prefix, 'bed', format='table')
 
     def dump_windows(self, parameterObj):
-        # To do
-        # Print stats on how many windows, etc ... helps when debugging
-
         window_info_rows = []
         window_mutuple_tally = []
         for sequence_id in tqdm(self.data.attrs['sequence_ids'], total=len(self.data.attrs['sequence_ids']), desc="[%] Generating output ", ncols=100):
@@ -788,11 +788,16 @@ class Store(object):
         
         window_bsfs_cols = ['window_id', 'count'] + [x+1 for x in range(self.data.attrs['mutypes_count'])]
         window_bsfs_df = pd.DataFrame(np.vstack(window_mutuple_tally), columns=window_bsfs_cols)
-        window_bsfs_df.to_hdf("%s.window_bsfs.h5" % self.prefix, 'bsfs', format='table')
-        
+        print("[+] Made %s windows" % window_bsfs_df['window_id'].nunique()) 
+        window_bsfs_f = "%s.window_bsfs.tsv" % self.prefix
+        window_bsfs_df.to_csv(window_bsfs_f, sep='\t', index=False)
+        print("[>] Created: %r" % str(window_bsfs_f))
+
         window_info_cols = ['window_id', 'sequence_id', 'midpoint_mean', 'midpoint_median', 'pi_%s' % self.data.attrs['pop_ids'][0], 'pi_%s' % self.data.attrs['pop_ids'][1], 'd_xy', 'f_st', 'fgv']
         window_info_df = pd.DataFrame(window_info_rows, columns=window_info_cols)
-        window_info_df.to_hdf("%s.windows_info.h5" % self.prefix, 'info', format='table')
+        window_info_f = "%s.window_info.tsv" % self.prefix
+        window_info_df.to_csv(window_info_f, sep='\t', index=False)
+        print("[>] Created: %r" % str(window_info_f))        
         self.plot_fst_genome_scan(window_info_df)
         self.plot_pi_genome_scan(window_info_df)
         #     plot_pi_scatter(window_df, '%s.pi_scatter.png' % parameterObj.dataset)
