@@ -231,6 +231,7 @@ def genotype_to_mutype_array(sa_genotype_array, idx_block_sites_in_pos, block_si
     folded_minor_allele_counts[np.any(sa_genotype_array.is_missing(), axis=1)] = np.ones(2) * -1        # -1, -1 for missing => -1
     folded_minor_allele_counts[(np_allele_count_array.count(axis=1) > 2)] = np.ones(2) * (-1, -2)       # -1, -2 for multiallelic => -2
     block_sites_pos = block_sites.flatten()
+    test = szudzik_pairing(folded_minor_allele_counts)+2
     block_sites[idx_block_sites_in_pos] = szudzik_pairing(folded_minor_allele_counts) + 2               # add 2 so that not negative for bincount
     block_sites[~idx_block_sites_in_pos] = 2                                                            # monomorphic = 2 (0 = multiallelic, 1 = missing)
     if debug == True:
