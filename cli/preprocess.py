@@ -60,7 +60,7 @@ class ParameterObj(RunObj):
         self.bam_files = list(self.bam_dir.glob('*.bam'))
         self.snpgap = self._get_int(args['--snpgap'])
         self.min_depth = self._get_int(args['--min_depth'])
-        self.max_depth = self._get_int(args['--max_depth'])
+        self.max_depth = self._get_float(args['--max_depth'])
         self.tmp_dir = tempfile.mkdtemp(prefix='.tmp_gimble_', dir=".")
         self.threads = self._get_int(args['--threads'])
         self.outprefix = args['--outprefix']
