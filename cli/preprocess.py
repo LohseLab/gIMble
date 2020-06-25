@@ -16,69 +16,6 @@
         -k, --keep_tmp                              Do not delete temporary files [default: False]
 """
 
-'''
-preprocess 
-- arguments
-    + BAM_DIR
-    + FASTA
-    + SNP_GAP [2]
-    + MIN_DEPTH [8]
-    + MAX_DEPTH_AS_SD_MULTIPLICATOR [3]
-
-- output
-    + genome_file
-    + samples.csv (not including POPULATION_IDs)
-    + filtered VCF file
-        * PASS
-        * DP-Fails to missing GTs
-    + BED file
-        * Multiinter CALLABLE w/ filter-FAILs subtracted
-- steps
-    + 1. Parse FASTA, write genomefile          
-        * Validates FASTA
-    + 2. Parse BAMs
-
-- BAM
-    + mosdepth -> min (8) / max (MEAN+3SD) depth for filtering
-    + modepth quantize -> CALLABLE BED
-- CALLABLE BEDs
-    + BEDTOOLS multiinter    
-- VCF
-    + VT normalize
-    + BCFTOOLS view | vcfallelicprimitives | regex | BCFTOOLS SORT
-    + 
-
-
-# Test Files
-## BAMs
-parallel -j4 'samtools view -h {} | head -100000 | samtools view -b > ~/heliconius/{.}.10K.bam && samtools index ~/heliconius/{.}.10K.bam' ::: *sorted.MD.bam
-## VCF
-head -75000 heliconius.freebayes.raw.no_pop_priors.vcf > ~/heliconius/heliconius.freebayes.raw.no_pop_priors.75K.vcf
-bgzip -c heliconius.freebayes.raw.no_pop_priors.75K.vcf > heliconius.freebayes.raw.no_pop_priors.75K.vcf.gz && bcftools index -t heliconius.freebayes.raw.no_pop_priors.75K.vcf.gz
-
-mosdepth -b 9_bed_files/hmel2_5.chromosomes.autosomes.intergenic_and_nonrepeats.bed -t 10 chi.CAM25091.f 6_mapping/chi.CAM25091.f.vs.hmel2_5.sorted.MD.bam
-mosdepth -b 9_bed_files/hmel2_5.chromosomes.autosomes.intergenic_and_nonrepeats.bed -t 10 chi.CAM25137.f 6_mapping/chi.CAM25137.f.vs.hmel2_5.sorted.MD.bam
-mosdepth -b 9_bed_files/hmel2_5.chromosomes.autosomes.intergenic_and_nonrepeats.bed -t 10 chi.CAM580.m 6_mapping/chi.CAM580.m.vs.hmel2_5.sorted.MD.bam
-mosdepth -b 9_bed_files/hmel2_5.chromosomes.autosomes.intergenic_and_nonrepeats.bed -t 10 chi.CAM582.m 6_mapping/chi.CAM582.m.vs.hmel2_5.sorted.MD.bam
-mosdepth -b 9_bed_files/hmel2_5.chromosomes.autosomes.intergenic_and_nonrepeats.bed -t 10 chi.CAM585.m 6_mapping/chi.CAM585.m.vs.hmel2_5.sorted.MD.bam
-mosdepth -b 9_bed_files/hmel2_5.chromosomes.autosomes.intergenic_and_nonrepeats.bed -t 10 chi.CAM586.m 6_mapping/chi.CAM586.m.vs.hmel2_5.sorted.MD.bam
-mosdepth -b 9_bed_files/hmel2_5.chromosomes.autosomes.intergenic_and_nonrepeats.bed -t 10 chi.CJ553.m 6_mapping/chi.CJ553.m.vs.hmel2_5.sorted.MD.bam
-mosdepth -b 9_bed_files/hmel2_5.chromosomes.autosomes.intergenic_and_nonrepeats.bed -t 10 chi.CJ560.m 6_mapping/chi.CJ560.m.vs.hmel2_5.sorted.MD.bam
-mosdepth -b 9_bed_files/hmel2_5.chromosomes.autosomes.intergenic_and_nonrepeats.bed -t 10 chi.CJ564.m 6_mapping/chi.CJ564.m.vs.hmel2_5.sorted.MD.bam
-mosdepth -b 9_bed_files/hmel2_5.chromosomes.autosomes.intergenic_and_nonrepeats.bed -t 10 chi.CJ565.m 6_mapping/chi.CJ565.m.vs.hmel2_5.sorted.MD.bam
-mosdepth -b 9_bed_files/hmel2_5.chromosomes.autosomes.intergenic_and_nonrepeats.bed -t 10 ros.CAM1841.m 6_mapping/ros.CAM1841.m.vs.hmel2_5.sorted.MD.bam
-mosdepth -b 9_bed_files/hmel2_5.chromosomes.autosomes.intergenic_and_nonrepeats.bed -t 10 ros.CAM1880.m 6_mapping/ros.CAM1880.m.vs.hmel2_5.sorted.MD.bam
-mosdepth -b 9_bed_files/hmel2_5.chromosomes.autosomes.intergenic_and_nonrepeats.bed -t 10 ros.CAM2045.m 6_mapping/ros.CAM2045.m.vs.hmel2_5.sorted.MD.bam
-mosdepth -b 9_bed_files/hmel2_5.chromosomes.autosomes.intergenic_and_nonrepeats.bed -t 10 ros.CAM2059.m 6_mapping/ros.CAM2059.m.vs.hmel2_5.sorted.MD.bam
-mosdepth -b 9_bed_files/hmel2_5.chromosomes.autosomes.intergenic_and_nonrepeats.bed -t 10 ros.CAM2519.m 6_mapping/ros.CAM2519.m.vs.hmel2_5.sorted.MD.bam
-mosdepth -b 9_bed_files/hmel2_5.chromosomes.autosomes.intergenic_and_nonrepeats.bed -t 10 ros.CAM2552.m 6_mapping/ros.CAM2552.m.vs.hmel2_5.sorted.MD.bam
-mosdepth -b 9_bed_files/hmel2_5.chromosomes.autosomes.intergenic_and_nonrepeats.bed -t 10 ros.CJ2071.m 6_mapping/ros.CJ2071.m.vs.hmel2_5.sorted.MD.bam
-mosdepth -b 9_bed_files/hmel2_5.chromosomes.autosomes.intergenic_and_nonrepeats.bed -t 10 ros.CJ531.m 6_mapping/ros.CJ531.m.vs.hmel2_5.sorted.MD.bam
-mosdepth -b 9_bed_files/hmel2_5.chromosomes.autosomes.intergenic_and_nonrepeats.bed -t 10 ros.CJ533.m 6_mapping/ros.CJ533.m.vs.hmel2_5.sorted.MD.bam
-mosdepth -b 9_bed_files/hmel2_5.chromosomes.autosomes.intergenic_and_nonrepeats.bed -t 10 ros.CJ546.m 6_mapping/ros.CJ546.m.vs.hmel2_5.sorted.MD.bam
-
-'''
-
 from timeit import default_timer as timer
 from docopt import docopt
 #import lib.gimblelog
@@ -171,7 +108,7 @@ def get_coverage_data_from_bam(parameterObj):
     for bam_file in tqdm(parameterObj.bam_files, desc="[%] Infer coverage levels from BAM files...", ncols=100):
         try:
             with pysam.AlignmentFile(bam_file, require_index=True) as bam:
-                readgroup_id = [line.split("\t")[1] for line in str(bam.header).split("\n") if line.startswith("@RG")][0].lstrip("ID:")
+                readgroup_id = [line.split("\t")[1] for line in str(bam.header).split("\n") if line.startswith("@RG")][0].replace("ID:", "")
                 if not readgroup_id:
                     sys.exit("[X] BAM file %r has no readgroup id set.")
                 tmp_prefix = pathlib.Path(pathlib.Path(parameterObj.tmp_dir), pathlib.Path(bam_file.stem))
