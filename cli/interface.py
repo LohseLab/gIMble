@@ -13,6 +13,7 @@ Usage: gimble <module> [<args>...] [-D -V -h]
     grid                  Make grid [TBI]
     scan                  Scan using grid [TBI] (requires windows)
     
+    partitioncds          Partition CDS sites in BED file by degeneracy in sample GTs 
     
   [Options]
     -h, --help                         Show this screen.
@@ -52,6 +53,9 @@ def main(gimble_dir):
         elif args['<module>'] == 'preprocess':
             import cli.preprocess as preprocess
             preprocess.main(params)
+        elif args['<module>'] == 'partitioncds':
+            import cli.partitioncds as partitioncds
+            partitioncds.main(params)
         elif args['<module>'] == 'blocks':
             import cli.blocks as blocks
             blocks.main(params)

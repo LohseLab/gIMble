@@ -13,7 +13,7 @@ import sys
 import warnings
 import pathlib
 import matplotlib.pyplot as plt
-np.set_printoptions(threshold=sys.maxsize)
+# np.set_printoptions(threshold=sys.maxsize)
 
 '''
 [Glossary]
