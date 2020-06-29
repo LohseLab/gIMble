@@ -151,10 +151,6 @@ class TranscriptObj(object):
         self.end = None
         self.degeneracy_by_sample = collections.defaultdict(list)
 
-    def add_sample(self, sample, sequences):
-        self.sample_sequences_by_sample[sample].append(sequences)
-
-
     def add_cds_from_df(self, transcript_df, sequence_by_id):
         if not transcript_df['orientation'].nunique():
             sys.exit("[X] More than one orientation found in CDSs of transcript %s\n%s" % (self.transcript_id, transcript_df))
@@ -361,7 +357,7 @@ def infer_degeneracy(transcriptObjs, samples, variant_arrays_by_seq_id):
             np.concatenate(degeneracy_arrays_by_sample[sample]),
         ]).T
         df = pd.DataFrame(data=data, columns=['sequence_id', 'start', 'end', 'degeneracy'])
-        write_df(df, out_f="%s.tsv" % sample, sep='\t', header=False, status=False)
+        write_df(df, out_f="%s.bed" % sample, sep='\t', header=False, status=False)
 
 def get_query_regions(transcriptObjs):
     _query_regions_by_sequence_id = collections.defaultdict(list)
