@@ -48,7 +48,7 @@ def write_df(df, out_f='', sep='\t', header=True, status=True):
     else:
         df.to_csv(out_f, index=False, sep=sep, header=False)
     if status == True:
-        print("[+] => Wrote %r" % str(out_f))
+        print("[+] \t=> Wrote %r" % str(out_f))
 
 class ParameterObj(RunObj):
     '''Sanitises command line arguments and stores parameters'''
@@ -100,7 +100,7 @@ def generate_genome_file(parameterObj):
     cmd = f"""samtools dict {parameterObj.fasta_file} | grep '^@SQ' | cut -f2-3 | sed 's/[SN:|LN:]//g' > {parameterObj.gimble_genome_file}"""
     _stdout, _stderr = run_command(cmd)
     parameterObj.commands.append(cmd)
-    print("[+] => Wrote %r" % str(parameterObj.gimble_genome_file))
+    print("[+] \t=> Wrote %r" % str(parameterObj.gimble_genome_file))
     return parameterObj
 
 def get_coverage_data_from_bam(parameterObj):
@@ -169,9 +169,11 @@ def process_vcf_f(parameterObj):
     print("[+] Filtering VCF file ...")
     cmd = f"""bcftools norm --threads {parameterObj.threads} -Ov -f {parameterObj.fasta_file} {parameterObj.vcf_file} | \
             vcfallelicprimitives --keep-info --keep-geno -t decomposed | \
+            bcftools plugin fill-AN-AC --threads {parameterObj.threads} -Oz | \
             bcftools filter --threads {parameterObj.threads} -Oz -s Balance -m+ -e 'RPL<1 | RPR<1 | SAF<1 | SAR<1' | \
             bcftools filter --threads {parameterObj.threads} -Oz -m+ -s+ --SnpGap 2 | \
             bcftools filter --threads {parameterObj.threads} -Oz -e 'TYPE!="snp"' -s NonSnp -m+ > {vcf_tmp}"""
+    # other alternative is fixing AC/AN with vcffixup (hopefully bcftools is faster/better)
     _stdout, _stderr = run_command(cmd)
     parameterObj.commands.append(cmd)
     print("[+] Subsetting VCF file ...")
@@ -188,7 +190,7 @@ def process_vcf_f(parameterObj):
     cmd = f"bedtools subtract -a {parameterObj.bed_multi_callable_file} -b {bed_fail_f} > {gimble_bed_f}"
     _stdout, _stderr = run_command(cmd)
     parameterObj.commands.append(cmd)
-    print("[+] => Wrote %r ..." % str(gimble_bed_f))
+    print("[+]\t => Wrote %r ..." % str(gimble_bed_f))
     print("[+] Adjust genotypes in uncallable regions...")
     filter_string = " | ".join(["(FMT/DP[%s]<%s | FMT/DP[%s]>%s)" % (
         idx, depth_filter_by_sample_id[vcf_sample_id][0], 
@@ -196,7 +198,7 @@ def process_vcf_f(parameterObj):
     cmd = f"""bcftools filter --threads {parameterObj.threads} -Oz -S . -e '{filter_string}' {vcf_tmp_pass} > {parameterObj.gimble_vcf_file} && bcftools index -t {parameterObj.gimble_vcf_file}"""
     _stdout, _stderr = run_command(cmd)
     parameterObj.commands.append(cmd)
-    print("[+] => Wrote %r ..." % str(parameterObj.gimble_vcf_file))
+    print("[+]\t => Wrote %r ..." % str(parameterObj.gimble_vcf_file))
     return parameterObj
 
 def preprocess(parameterObj):
