@@ -12,7 +12,7 @@
     -d, --debug                                 Write debugging logs
     -h, --help
 """
-
+import sys
 from timeit import default_timer as timer
 from docopt import docopt
 #import lib.gimblelog
@@ -25,12 +25,22 @@ class ParameterObj(RunObj):
     def __init__(self, params, args):
         super().__init__(params)
         self.zstore = self._get_path(args['--zarr'])
-        self.block_length = int(args['--block_length'])
-        self.block_span = int(args['--block_span']) if not args['--block_span'] is None else 2*self.block_length
+        self.block_length = self._get_int(args['--block_length'])
+        self.block_span = self._get_block_span(args['--block_span'])
         self.block_gap_run = int(args['--block_gap_run']) if not args['--block_gap_run'] is None else self.block_length
         self.block_max_multiallelic = int(args['--max_multiallelic'])
         self.block_max_missing = int(args['--max_missing'])
         self.overwrite = True if args['--force'] else False
+
+    def _get_block_span(self, block_span):
+        if block_span is None:
+            return 2*self.block_length
+        else:
+            block_span = self._get_int(block_span)
+            if block_span >= self.block_length:
+                return block_span
+            else:
+                sys.exit("[X] Block span ('-m') must be greater than block length '-l'")
 
 def main(params):
     try:
