@@ -97,7 +97,7 @@ def run_command(args):
 
 def generate_genome_file(parameterObj):
     print("[+] Parsing FASTA file...")
-    cmd = f"""samtools dict {parameterObj.fasta_file} | grep '^@SQ' | cut -f2-3 | sed 's/[SN:|LN:]//g' > {parameterObj.gimble_genome_file}"""
+    cmd = f"""samtools dict {parameterObj.fasta_file} | grep '^@SQ' | cut -f2-3 | perl -lpe 's/SN:|LN://g' > {parameterObj.gimble_genome_file}"""
     _stdout, _stderr = run_command(cmd)
     parameterObj.commands.append(cmd)
     print("[+] \t=> Wrote %r" % str(parameterObj.gimble_genome_file))
