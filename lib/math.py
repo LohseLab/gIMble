@@ -318,7 +318,8 @@ class EquationSystemObj(object):
                 constructor.denominators.append(sum([(sage.all.SR.var(e) * c) for e, c in {**demography_counter, **mutation_counter}.items()]))
                 for mutation_event in mutation_counter:
                     constructor.placements_by_mutation[mutation_event].append(idx)
-                constructor.mutation_counters.append(mutation_counter)  
+                constructor.mutation_counters.append(mutation_counter) 
+            print(constructor) 
             constructors.append(constructor)
         # mutation placements
         parameter_batches = []

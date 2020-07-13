@@ -1,10 +1,9 @@
-"""usage: gIMble blocks         -z <DIR> [-l <INT> -m <INT> -r <INT> -u <INT> -i <INT> -d -f -h]
+"""usage: gIMble blocks         -z <DIR> [-l <INT> -m <INT> -u <INT> -i <INT> -d -f -h]
     
     -z, --zarr <DIR>                            gIMble ZARR directory
     
     -l, --block_length <INT>                    Successively genotyped sites per block [default: 64] 
     -m, --block_span <INT>                      Maximum distance between first and last site of a block (default: '-l' * 2)
-    -r, --block_gap_run <INT>                   Maximum number of consecutive gaps within a block (default: '-l')
     -u, --max_multiallelic <INT>                Max multiallelics per block [default: 2]
     -i, --max_missing <INT>                     Max missing per block [default: 2]
 
@@ -37,11 +36,13 @@ class ParameterObj(RunObj):
         self.zstore = self._get_path(args['--zarr'])
         self.block_length = self._get_int(args['--block_length'])
         self.block_span = self._get_block_span(args['--block_span'])
-        self.block_gap_run = 0 #self._get_block_gap_run(args['--block_gap_run'])
+        self.block_gap_run = self._get_block_gap_run()
         self.block_max_multiallelic = int(args['--max_multiallelic'])
         self.block_max_missing = int(args['--max_missing'])
         self.overwrite = True if args['--force'] else False
 
+    def _get_block_gap_run(self):
+        return (self.block_span - self.block_length - 1)
     
     def _get_block_span(self, block_span):
         if block_span is None:
