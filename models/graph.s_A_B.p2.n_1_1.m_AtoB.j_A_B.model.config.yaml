@@ -6,17 +6,17 @@ population_ids:
   A: STRING
   B: STRING
 k_max:
-  m_1: INT
-  m_2: INT
-  m_3: INT
-  m_4: INT
+  m_1: 2
+  m_2: 2
+  m_3: 2
+  m_4: 2
 parameters:
-  C_A: FLOAT
-  C_A_B: FLOAT
-  C_B: FLOAT
-  M_A_B: FLOAT
-  T: FLOAT
-  theta: FLOAT
+  C_A: 1.0
+  C_A_B: 1.0
+  C_B: 1.0
+  M_A_B: 0
+  T: 1.4
+  theta: 1.2
 boundaries:
   C_A:
   - MIN

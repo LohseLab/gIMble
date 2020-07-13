@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gIMble inference                  -z FILE -m FILE [-c FILE] (-b|-w)
+"""usage: gIMble inference                  [-z FILE] -m FILE [-c FILE] (-b|-w)
                                             [-t INT] [-P INT] [-h|--help]
                                             
     Options:
@@ -45,12 +45,18 @@ after running simulations
 - for each grid points, do simulation replicates
 - somehow use rembination rate
 
-0. documentation
-0. Simon data
-0. run new VCF with old BED
-    -> konrad needs
 1. reading in data
     - best fitting parameter combination
+   - IM models:
+     Div1, -3.587 × 10**6,       theta=1.119,                                               T=0.3767
+    Div2, -3.587 × 10**6,        theta=1.086, λ[{x}] → 0.8375,                              T=0.4049
+    Div2B, -3.585 × 10**6,       theta=1.174, λ[{y}] → 1.315,                               T=0.3295
+    Div3, -3.585 × 10**6,        theta=1.161, λ[{x}] → 0.9507, λ[{y}] → 1.284,              T=0.3397
+    MigChiToRos, -3.576 × 106,   theta=0.4366, λ[{y}] → 0.4147, M → 1.652       
+    MigRostoChi, -3.594 × 106,   theta=1.020, λ[{x}] → 1.749, M → 3.895     
+    IMChiToRosChi, -3.577 × 106, theta=0.5000, λ[{y}] → 0.4808,                             T=8.000
+    IMChiToRosRos, -3.574 × 106, theta=1.055, λ[{x}] → 2.400,                               T=3.708
+  
 2. read in mathematic grid
     - plot Me/Ne
 3. simulations  
@@ -192,6 +198,34 @@ class ParameterObj(RunObj):
 
 def main(params):
     try:
+        '''
+        hetB, hetA, hetAB, fixed
+        Ne_B, Ne_A
+        B,    A
+        
+        grid:=
+            center of grid : 
+                - "global" model estimated from overal block_counts across genome in canonical workflow
+                - Ne_A, Ne_B, M_e
+            boundaries: 
+                - all required! 
+                - have to be checked for consistency! (logarithmic gridding?)
+                Ne_A_min, Ne_A_max, Ne_A_steps (min=0 makes no sense, though)
+                Ne_B_min, Ne_B_max, Ne_B_steps (min=0 makes no sense, though)
+                M_e_min, M_e_Max, M_e_steps (def want to include min=0)
+                     
+                                  centre
+        step                        *
+        |   |   |   |   |   |   |   |   |   |   |   |   |   |   |        
+        min                                                     max
+        
+        l = range(min, max+step, step)  # should allow for linear/log spacing                                                   
+        if not centre in l:  # identity check has to allow for precision-offness
+            error
+        if M_e and not 0 in l: # identity check has to allow for precision-offness
+            error   
+
+        '''
         start_time = timer()
         args = docopt(__doc__)
         #log = lib.log.get_logger(params)
