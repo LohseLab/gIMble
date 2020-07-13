@@ -291,11 +291,17 @@ class EquationSystemObj(object):
                 equationObj = calculate_inverse_laplace(parameter_batch)
                 equationObj_by_matrix_idx[equationObj.matrix_idx] = equationObj
         else:
+            # This does not work due to problem with multiprocessing library
+            # replicate with `-t 2`
+            '''
+            pexpect.exceptions.ExceptionPexpect: isalive() encountered condition where "terminated" is 0, but there was no child process. Did someone else call waitpid() on our process?
+            '''
             with poolcontext(processes=self.threads) as pool:
                 with tqdm(parameter_batches, desc=desc, ncols=100) as pbar:
                     for resultObj in pool.imap_unordered(calculate_inverse_laplace, parameter_batches):
                         equationObj_by_matrix_idx[resultObj.matrix_idx] = resultObj
                         pbar.update()
+
         PODs = np.zeros(tuple(self.k_max_by_mutype[mutype] + 2 for mutype in self.mutypes), np.float64)
         for matrix_id, equationObj in equationObj_by_matrix_idx.items():
             if equationObj.marginal_idx is None:
@@ -319,7 +325,6 @@ class EquationSystemObj(object):
                 for mutation_event in mutation_counter:
                     constructor.placements_by_mutation[mutation_event].append(idx)
                 constructor.mutation_counters.append(mutation_counter) 
-            print(constructor) 
             constructors.append(constructor)
         # mutation placements
         parameter_batches = []

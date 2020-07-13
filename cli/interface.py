@@ -3,7 +3,7 @@ Usage: gimble <module> [<args>...] [-D -V -h]
 
   [Modules]
     preprocess            Preprocess input files
-    setup                 Setup DataStore
+    setup                 Setup data store
     info                  Print information about DataStore
     blocks                Generate blocks from data in DataStore 
     windows               Generate windows from blocks in DataStore (requires blocks)
@@ -14,7 +14,7 @@ Usage: gimble <module> [<args>...] [-D -V -h]
     scan                  Scan using grid [TBI] (requires windows)
     
     partitioncds          Partition CDS sites in BED file by degeneracy in sample GTs 
-    plotbed               Plot BED file
+    plotbed               Plot BED file [TBR]
 
   [Options]
     -h, --help                         Show this screen.

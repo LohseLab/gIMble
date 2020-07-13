@@ -199,7 +199,15 @@ class ParameterObj(RunObj):
 def main(params):
     try:
         '''
+        => szudzik pairing function applied to the count of minor alleles (or major if equal to minor)
+
+        0/0 0/1 => 0 1 => 1
+        0/1 0/0 => 1 0 => 2
+        0/1 0/1 => 1 1 => 3 
+        0/0 1/1 => 0 2 => 4
+        
         hetB, hetA, hetAB, fixed
+
         Ne_B, Ne_A
         B,    A
         
@@ -228,6 +236,7 @@ def main(params):
         '''
         start_time = timer()
         args = docopt(__doc__)
+        print(args)
         #log = lib.log.get_logger(params)
         parameterObj = ParameterObj(params, args)
         #data = lib.math.get_data_array(parameterObj)
