@@ -14,7 +14,8 @@ Usage: gimble <module> [<args>...] [-D -V -h]
     scan                  Scan using grid [TBI] (requires windows)
     
     partitioncds          Partition CDS sites in BED file by degeneracy in sample GTs 
-    
+    plotbed               Plot BED file
+
   [Options]
     -h, --help                         Show this screen.
     -D, --debug                        Print debug information.
@@ -56,6 +57,9 @@ def main(gimble_dir):
         elif args['<module>'] == 'partitioncds':
             import cli.partitioncds as partitioncds
             partitioncds.main(params)
+        elif args['<module>'] == 'plotbed':
+            import cli.plotbed as plotbed
+            plotbed.main(params)
         elif args['<module>'] == 'blocks':
             import cli.blocks as blocks
             blocks.main(params)

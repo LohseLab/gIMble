@@ -3,19 +3,19 @@ random_seed: 12345
 precision: 25
 model: /Users/dlaetsch/git/gIMble/models/graph.s_A_B.p2.n_1_1.j_A_B.model.tsv
 population_ids:
-  A: STRING
-  B: STRING
+  A: 'A'
+  B: 'B'
 k_max:
-  m_1: INT
-  m_2: INT
-  m_3: INT
-  m_4: INT
+  m_1: 2
+  m_2: 2
+  m_3: 2
+  m_4: 2
 parameters:
-  C_A: FLOAT
-  C_A_B: FLOAT
-  C_B: FLOAT
-  T: FLOAT
-  theta: FLOAT
+  C_A: 1.0
+  C_A_B: 1.0
+  C_B: 2.0
+  T: 1.4
+  theta: 1.2
 boundaries:
   C_A:
   - MIN

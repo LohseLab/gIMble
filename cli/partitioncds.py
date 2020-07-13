@@ -33,7 +33,6 @@ import pandas as pd
 import itertools
 import tabulate
 
-
 DEGENERACIES = [0, 2, 3, 4]
 
 AMINOACID_BY_CODON = {
@@ -229,19 +228,6 @@ def parse_vcf_file(vcf_file, sequence_ids, query_regions_by_sequence_id):
                 variant_arrays_by_seq_id[seq_id]['GT'] = np.array(data_by_key['calldata/GT'])[pos_in_query_mask]
                 variant_arrays_by_seq_id[seq_id]['POS'] = np.array(data_by_key['variants/POS'])[pos_in_query_mask]
                 samples = list(data_by_key['samples'])
-                #for key, data in data_by_key.items():
-                #    if key == 'variants/REF':
-                #        variant_arrays_by_seq_id[seq_id]['REF'] = np.array(data)
-                #    elif key == 'variants/ALT':
-                #        variant_arrays_by_seq_id[seq_id]['ALT'] = np.array(data)
-                #    elif key == 'samples':
-                #        samples = list(data)
-                #    elif key == '#/GT':
-                #        variant_arrays_by_seq_id[seq_id]['GT'] = allel.GenotypeArray(data)
-                #    elif key == 'variants/POS':
-                #        variant_arrays_by_seq_id[seq_id]['POS'] = np.array(data) - 1 # port to BED (0-based) coordinates
-                #    else:
-                #        sys.exit("[X] Unknown key %r" % key)
     print("[+] Parsed %s variants." % sum([variant_arrays_by_seq_id[seq_id]['POS'].shape[0] for seq_id in variant_arrays_by_seq_id]))
     return (samples, variant_arrays_by_seq_id)
 

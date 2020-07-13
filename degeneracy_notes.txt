@@ -1,0 +1,499 @@
+# Konrad:
+- intergenic with 5% miss/multi (~3.2 == 3) -l 64 -m 128 -r 128-64-1=63
+- 4D : -m 1000 span -l 64 
+
+# Milestones for next version
+# - do merging-operation of shared coordinates within partitioncds!
+# - output separate 1st/2nd/3rd codon BED (as in reference)
+# - output excluded CDSs
+# - metrics for each sample (count of 0d,2d,3d,4d, and NA sites) 
+
+# partitioncds
+# - assigns codon-degeneracy to sites in CDSs based on sample genotype
+# - Assumptions:
+#   - VCF file must only contain filtered records 
+#   - BED file  MUST be in the following format:
+#       hmel2_5.chr00   253     370     HMEL035848g1.t1 1       +
+#       hmel2_5.chr00   805     985     HMEL035848g1.t1 1       +
+#       hmel2_5.chr00   1112    1306    HMEL035848g1.t1 1       +
+#       hmel2_5.chr00   1916    1976    HMEL015204g1.t1 0.99    -
+#       hmel2_5.chr00   2743    2878    HMEL015204g1.t1 0.81    -
+#       hmel2_5.chr00   3826    3952    HMEL015204g1.t1 0.81    -
+#       *4th column requires shared transcript_id across CDSs of same transcript 
+
+# 0. Generate CDS BED 
+# - this depends on CDS IDs 
+# - if needed adjust separator in 'split($4, i, "_")' and/or field in 'i[1]'
+cat hmel2_5.chromosomes.annotation.bed | awk '$8~/CDS/' | cut -f1-6 | awk '{split($4, i, "_"); print $1 "\t" $2 "\t" $3 "\t" i[1] "\t" $5 "\t" $6}' > hmel2_5.chromosomes.annotation.CDS.by_transcript_id.bed
+
+# 1. Run partitioncds
+# - This will generate a *degeneracy.bed file for each sample in the VCF file 
+# ~/gIMble/gIMble partitioncds -f $FASTA -v $GIMBLE_VCF -b CDS_BED
+~/gIMble/gIMble partitioncds -f hmel2_5.chromosomes.fa -v ../gimble/gimble.vcf.gz -b hmel2_5.chromosomes.annotation.CDS.by_transcript_id.no_cds.bed
+
+# Merging sites in each BED file (this all should happen in new version)
+parallel -j16 'bedtools sort -i {} | bedtools merge -i - -c 4 -d -1 -o distinct > {.}.merged.bed' ::: *degeneracy.bed
+# Merging sites across BED files
+cat *.merged.bed | grep -v "hmel2_5.chr00" | grep -v "hmel2_5.chr21" | bedtools sort | bedtools merge -i - -d -1 -c 4 -o count,distinct > hmel2_5.chromosomes.annotation.degeneracy.merged.bed
+
+wc -l hmel2_5.chromosomes.annotation.degeneracy.merged.bed
+22575550 hmel2_5.chromosomes.annotation.degeneracy.merged.bed
+
+# subset non-synonymous 4D sites
+cat hmel2_5.chromosomes.annotation.degeneracy.merged.bed | awk '$5!~/([A-Z]_[023])|NA/' > hmel2_5.chromosomes.annotation.degeneracy.merged.4D.non_syn.bed
+
+wc -l hmel2_5.chromosomes.annotation.degeneracy.merged.4D.non_syn.bed
+2831949 hmel2_5.chromosomes.annotation.degeneracy.merged.4D.non_syn.bed
+=> 2,831,949/22,575,550 = 12.54%
+
+# subset synonymous 4D sites
+cat hmel2_5.chromosomes.annotation.degeneracy.merged.4D.non_syn.bed | grep -vP "[,|\|]" > hmel2_5.chromosomes.annotation.degeneracy.merged.4D.syn.bed
+
+wc -l hmel2_5.chromosomes.annotation.degeneracy.merged.4D.syn.bed
+2604068 hmel2_5.chromosomes.annotation.degeneracy.merged.4D.syn.bed
+=> 2,604,068/22,575,550 = 11.53%
+
+# intersect gimble.bed with 4D sites 
+# non_syn
+bedtools intersect -a ../gimble/gimble.bed -b hmel2_5.chromosomes.annotation.degeneracy.merged.4D.non_syn.bed > gimble.hmel2_5.chromosomes.annotation.degeneracy.merged.4D.non_syn.bed
+bedlen gimble.hmel2_5.chromosomes.annotation.degeneracy.merged.4D.non_syn.bed
+=> 2,717,597/22,575,550 = 12.04%
+
+# syn
+bedtools intersect -a ../gimble/gimble.bed -b hmel2_5.chromosomes.annotation.degeneracy.merged.4D.syn.bed > gimble.hmel2_5.chromosomes.annotation.degeneracy.merged.4D.syn.bed
+bedlen gimble.hmel2_5.chromosomes.annotation.degeneracy.merged.4D.syn.bed
+=> 2,495,009/22,575,550 = 11.05%
+
+# intergenic
+bedtools intersect -a ../gimble/gimble.bed -b hmel2_5.chromosomes.annotation.intergenic_norepeats.autosomes.bed > gimble.hmel2_5.chromosomes.annotation.intergenic_norepeats.autosomes.bed
+# gIMble
+~/gIMble/gIMble setup -s gimble/gimble.samples.csv -v gimble/gimble.vcf.gz -b 4D_gimble/gimble.hmel2_5.chromosomes.annotation.degeneracy.merged.4D.syn.bed -g gimble/gimble.autosomes.genomefile -o heliconius_4D_syn 
+~/gIMble/gIMble setup -s gimble/gimble.samples.csv -v gimble/gimble.vcf.gz -b 4D_gimble/gimble.hmel2_5.chromosomes.annotation.degeneracy.merged.4D.non_syn.bed -g gimble/gimble.autosomes.genomefile -o heliconius_4D_non_syn
+~/gIMble/gIMble setup -s gimble/gimble.samples.csv -v gimble/gimble.vcf.gz -b intergenic_gimble/hmel2_5.chromosomes.annotation.intergenic_norepeats.autosomes.bed -g gimble/gimble.autosomes.genomefile -o heliconius_intergenic
+
+~/gIMble/gIMble blocks -z heliconius_4D_master.z -l 1 -m 1 -r 0 -i 0 -u 0
+
+~/gIMble/gIMble blocks -z heliconius_4D_syn.z -l 1 -m 2 -r 0 -u 0 -i 0 && ~/gIMble/gIMble blocks -z heliconius_4D_syn.z -l 64 -m 1000 -r 936 -u 3 -i 3 -f
+~/gIMble/gIMble blocks -z heliconius_4D_non_syn.z -l 1 -m 2 -r 0 -u 0 -i 0 && ~/gIMble/gIMble blocks -z heliconius_4D_non_syn.z -l 64 -m 1000 -r 936 -u 3 -i 3 -f 
+~/gIMble/gIMble blocks -z heliconius_intergenic.z -l 64 -m 128 -r 63 -u 3 -i 3
+
+~/gIMble/gIMble blocks -z heliconius_4D_non_syn.z -l 1 -m 2 -r 0 -u 0 -i 0 
+[+] Running 'gimble blocks'
+[%] Calculating bSFSs : 100%|██████████████████████████████████| 3.80k/3.80k [24:57<00:00, 2.54it/s]
+[%] Writing bSFSs : 100%|██████████████████████████████████████| 2.00k/2.00k [00:36<00:00, 55.5it/s]
+[+] Pi_chi = 0.01469206; Pi_ros = 0.01389497; D_xy = 0.0230538; F_st = 0.23456265; FGVs = 0 / 245427008 blocks (0.00%)
+[>] Created: '/scratch/dlaetsch/heliconius_4D_non_syn.mutuple_barchart.png'
+[*] Total runtime: 2883.957s
+
+~/gIMble/gIMble blocks -z heliconius_4D_non_syn.z -l 64 -m 1000 -r 936 -u 3 -i 3 -f
+[+] Running 'gimble blocks'
+[-] Store '/scratch/dlaetsch/heliconius_4D_non_syn.z' already contains blocks. But these will be overwritten...
+[%] Calculating bSFSs : 100%|██████████████████████████████████| 3.80k/3.80k [02:45<00:00, 22.9it/s]
+[%] Writing bSFSs : 100%|███████████████████████████████████████| 2.00k/2.00k [00:04<00:00, 423it/s]
+[+] Pi_chi = 0.0121604; Pi_ros = 0.01158412; D_xy = 0.02042001; F_st = 0.26469957; FGVs = 21791 / 1192121 blocks (1.83%)
+[>] Created: '/scratch/dlaetsch/heliconius_4D_non_syn.mutuple_barchart.png'
+[*] Total runtime: 274.981s
+
+~/gIMble/gIMble blocks -z heliconius_4D_syn.z -l 1 -m 2 -r 0 -u 0 -i 0 
+3 -i 3 -f
+[+] Running 'gimble blocks'
+[%] Calculating bSFSs : 100%|██████████████████████████████████| 3.80k/3.80k [21:42<00:00, 2.92it/s]
+[%] Writing bSFSs : 100%|██████████████████████████████████████| 2.00k/2.00k [00:32<00:00, 62.2it/s]
+[+] Pi_chi = 0.01421747; Pi_ros = 0.01342475; D_xy = 0.0225093; F_st = 0.23914374; FGVs = 0 / 223596833 blocks (0.00%)
+[>] Created: '/scratch/dlaetsch/heliconius_4D_syn.mutuple_barchart.png'
+[*] Total runtime: 2479.731s
+
+~/gIMble/gIMble blocks -z heliconius_4D_syn.z -l 64 -m 1000 -r 936 -u 3 -i 3 -f
+[+] Running 'gimble blocks'
+[-] Store '/scratch/dlaetsch/heliconius_4D_syn.z' already contains blocks. But these will be overwritten...
+[%] Calculating bSFSs : 100%|██████████████████████████████████| 3.80k/3.80k [03:21<00:00, 18.9it/s]
+[%] Writing bSFSs : 100%|███████████████████████████████████████| 2.00k/2.00k [00:05<00:00, 396it/s]
+[+] Pi_chi = 0.01091304; Pi_ros = 0.01039443; D_xy = 0.01892026; F_st = 0.27952006; FGVs = 14910 / 994896 blocks (1.50%)
+[>] Created: '/scratch/dlaetsch/heliconius_4D_syn.mutuple_barchart.png'                          99411632
+[*] Total runtime: 306.785s
+
+~/gIMble/gIMble blocks -z heliconius_intergenic.z -l 64 -m 128 -r 63 -u 3 -i 3
+[+] Running 'gimble blocks'
+[%] Calculating bSFSs : 100%|██████████████████████████████████| 3.80k/3.80k [17:07<00:00, 3.70it/s]
+[%] Writing bSFSs : 100%|███████████████████████████████████████| 2.00k/2.00k [00:17<00:00, 116it/s]
+[+] Pi_chi = 0.01745538; Pi_ros = 0.01712353; D_xy = 0.02422493; F_st = 0.16706197; FGVs = 1652402 / 99411632 blocks (1.66%)
+[>] Created: '/scratch/dlaetsch/heliconius_intergenic.mutuple_barchart.png'
+[*] Total runtime: 1798.196s
+
+~/gIMble/gIMble windows -z heliconius_intergenic.z -w 50000 -s 10000
+
+
+~/gIMble/gIMble windows -z heliconius_4D_non_syn.z -w 500 -s 100 
+
+~/gIMble/gIMble windows -z heliconius_4D_syn.z -w 500 -s 100
+
+########################################
+
+########################################
+# -l 1 -m 1 -r 0 -i 0 -u 0
+Pi_chi = 0.01426019; Pi_ros = 0.01342891; D_xy = 0.02259547; F_st = 0.24014586; FGVs = 0 / 227368851 blocks (0.00%)
+
+# -l 1 -m 1 -r 1 -i 0 -u 0 -f
+Pi_chi = 0.01426019; Pi_ros = 0.01342891; D_xy = 0.02259547; F_st = 0.24014586; FGVs = 0 / 227368851 blocks (0.00%)
+
+# -l 1 -m 2 -r 0 -i 0 -u 0 -f
+Pi_chi = 0.01426019; Pi_ros = 0.01342891; D_xy = 0.02259547; F_st = 0.24014586; FGVs = 0 / 227368851 blocks (0.00%)
+
+awk 'p{print $3-p}{p=$3}' gimble.hmel2_5.chromosomes.annotation.4D.merged.master.bed | grep -v '-' | sort > gimble.hmel2_5.chromosomes.annotation.4D.merged.master.distance_distribution.txt
+
+########################################
+
+~/gIMble/gIMble setup -s gimble/gimble.samples.csv -v gimble/gimble.vcf.gz -b 4D_gimble/gimble.hmel2_5.chromosomes.annotation.4D.merged.master.bed -g gimble/gimble.autosomes.genomefile -o heliconius_4D_master
+~/gIMble/gIMble blocks -z heliconius_4D_master.z -l 1 -m 1 -r 0 -i 0 -u 0
+[+] Running 'gimble blocks'
+[%] Calculating bSFSs : 100%|██████████████████████████████████| 3.80k/3.80k [21:40<00:00, 2.92it/s]
+[%] Writing bSFSs : 100%|██████████████████████████████████████| 2.00k/2.00k [00:31<00:00, 63.4it/s]
+[+] Pi_chi = 0.01426019; Pi_ros = 0.01342891; D_xy = 0.02259547; F_st = 0.24014586; FGVs = 0 / 227368851 blocks (0.00%)
+
+~/gIMble/gIMble setup -s gimble/gimble.samples.csv -v gimble/gimble.vcf.gz -b 4D_gimble/gimble.hmel2_5.chromosomes.annotation.4D.merged.master.bed -g gimble/gimble.autosomes.genomefile -o heliconius_4D_master_copy
+
+#####################
+
+# Subset 4D sites:
+# - exlude NonSyn 4D sites within sample
+# - exlude NonSyn 4D sites between altenative transcripts of same locus (i.e. collapse if same)
+parallel -j1 'bedtools sort -i {} | bedtools merge -i - -c 4 -d -1 -o distinct | grep -vP "[,|\|]" | grep "_4" > {.}.4D.bed' ::: *degeneracy.bed
+
+wc -l *.4D.bed
+   3239382 chi.CAM25091.f.degeneracy.4D.bed
+   3242327 chi.CAM25137.f.degeneracy.4D.bed
+   3240326 chi.CAM580.m.degeneracy.4D.bed
+   3245369 chi.CAM582.m.degeneracy.4D.bed
+   3238324 chi.CAM585.m.degeneracy.4D.bed
+   3240063 chi.CAM586.m.degeneracy.4D.bed
+   3225661 chi.CJ553.m.degeneracy.4D.bed
+   3224070 chi.CJ560.m.degeneracy.4D.bed
+   3226495 chi.CJ564.m.degeneracy.4D.bed
+   3225622 chi.CJ565.m.degeneracy.4D.bed
+   3252868 ros.CAM1841.m.degeneracy.4D.bed
+   3254689 ros.CAM1880.m.degeneracy.4D.bed
+   3255897 ros.CAM2045.m.degeneracy.4D.bed
+   3258876 ros.CAM2059.m.degeneracy.4D.bed
+   3258298 ros.CAM2519.m.degeneracy.4D.bed
+   3241601 ros.CAM2552.m.degeneracy.4D.bed
+   3240270 ros.CJ2071.m.degeneracy.4D.bed
+   3227124 ros.CJ531.m.degeneracy.4D.bed
+   3221413 ros.CJ533.m.degeneracy.4D.bed
+   3223041 ros.CJ546.m.degeneracy.4D.bed
+  64781716 total
+
+cat *.4D.bed | grep -v "hmel2_5.chr00" | grep -v "hmel2_5.chr21" | bedtools sort | bedtools merge -i - -c 4 -o count,distinct > hmel2_5.chromosomes.annotation.4D.merged.bed
+
+
+
+
+# calculate naive Pi using GT-HETs 
+
+# Merge: 
+# - exlude NonSyn 4D sites
+grep -v "," hmel2_5.chromosomes.annotation.4D.merged.bed > hmel2_5.chromosomes.annotation.4D.merged.only_syn.bed
+3143693 => 97.15% (2.85% loss due to only using Syn-4Ds)
+
+cut -f4 hmel2_5.chromosomes.annotation.4D.merged.TEST.bed | sort | uniqc | sort -rnk1
+20      2604064
+19      12353
+18      6032
+17      4443
+16      3648
+15      3328
+14      3191
+13      3099
+12      4485
+11      2585
+10      10041
+9       2544
+8       2155
+7       1651
+6       1713
+5       1112
+4       948
+3       967
+2       1018
+1       2449
+
+cut -f4 hmel2_5.chromosomes.annotation.4D.merged.bed | sort | uniqc | sort -rnk1
+20      2609360
+19      146467
+18      77737
+17      54597
+16      44051
+15      37505
+14      32334
+13      27644
+12      26400
+11      24039
+10      32066
+9       18490
+8       14696
+7       12154
+6       11166
+5       10151
+4       9995
+3       10623
+2       13562
+1       22801
+
+ grep "," hmel2_5.chromosomes.annotation.4D.merged.bed | cut -f4 | sort | uniqc | sort -rnk1
+20      5292
+19      5265
+18      6854
+17      8781
+16      10239
+15      10531
+14      9858
+13      8220
+12      6985
+11      5639
+10      4498
+9       3416
+8       2274
+7       1534
+6       1017
+5       718
+4       478
+3       343
+2       203
+
+# Example
+hmel2_5.chr01   2854    2855    11      T_4
+for bed in *.degeneracy.bed; do echo $bed; awk '$1=="hmel2_5.chr01" && $2==2854 && $3==2855' $bed; done
+chi.CAM25091.f   hmel2_5.chr01   2854    2855    A_4|T_4     => NonSyn    
+chi.CAM25137.f   hmel2_5.chr01   2854    2855    T_4         => Syn
+chi.CAM580.m     hmel2_5.chr01   2854    2855    T_4         => Syn
+chi.CAM582.m     hmel2_5.chr01   2854    2855    T_4         => Syn
+chi.CAM585.m     hmel2_5.chr01   2854    2855    T_4         => Syn
+chi.CAM586.m     hmel2_5.chr01   2854    2855    T_4         => Syn
+chi.CJ553.m      hmel2_5.chr01   2854    2855    NA          => Missing Data
+chi.CJ560.m      hmel2_5.chr01   2854    2855    NA          => Missing Data
+chi.CJ564.m      hmel2_5.chr01   2854    2855    NA          => Missing Data
+chi.CJ565.m      hmel2_5.chr01   2854    2855    NA          => Missing Data
+ros.CAM1841.m    hmel2_5.chr01   2854    2855    T_4         => Syn 
+ros.CAM1880.m    hmel2_5.chr01   2854    2855    T_4         => Syn 
+ros.CAM2045.m    hmel2_5.chr01   2854    2855    T_4         => Syn 
+ros.CAM2059.m    hmel2_5.chr01   2854    2855    T_4         => Syn 
+ros.CAM2519.m    hmel2_5.chr01   2854    2855    T_4         => Syn 
+ros.CAM2552.m    hmel2_5.chr01   2854    2855    T_4         => Syn 
+ros.CJ2071.m     hmel2_5.chr01   2854    2855    NA          => Missing Data 
+ros.CJ531.m      hmel2_5.chr01   2854    2855    NA          => Missing Data 
+ros.CJ533.m      hmel2_5.chr01   2854    2855    NA          => Missing Data 
+ros.CJ546.m      hmel2_5.chr01   2854    2855    NA          => Missing Data 
+
+# multiallelic+missing => 2 :  
+
+# gimble BED
+bedtools intersect -a ../gimble/gimble.bed -b hmel2_5.chromosomes.annotation.4D.master.bed > gimble.hmel2_5.chromosomes.annotation.4D.master.bed
+cut -f4 gimble.hmel2_5.chromosomes.annotation.4D.master.bed | sort | uniqc | sort -rgk1
+20      1797901
+19      151563
+18      78253
+17      53371
+16      41972
+15      33881
+14      31194
+13      29576
+12      51274
+11      17680
+10      23629
+9       13811
+8       11421
+7       8669
+6       7313
+5       6917
+4       5955
+3       5460
+2       4997
+1       5531
+
+
+# any subset of 4D sites
+cat hmel2_5.chromosomes.annotation.4D.merged.bed | grep -v "," | grep -v "hmel2_5.chr00" | grep -v "hmel2_5.chr21" > hmel2_5.chromosomes.annotation.4D_any.master.bed
+bedtools intersect -a ../gimble/gimble.bed -b hmel2_5.chromosomes.annotation.4D_any.master.bed > gimble.hmel2_5.chromosomes.annotation.4D_any.master.bed
+~/gIMble/gIMble setup -s gimble/gimble.samples.csv -v gimble/gimble.vcf.gz -b 4D_gimble/gimble.hmel2_5.chromosomes.annotation.4D_any.master.bed -g gimble/gimble.autosomes.genomefile -o 4D_gimble/heliconius_4D_any_master
+~/gIMble/gIMble blocks -z 4D_gimble/heliconius_4D_any_master.z -l 1 
+
+# any subset of 4D sites ≤ 20
+awk '$4==20' hmel2_5.chromosomes.annotation.4D.merged.bed | grep -v "," | grep -v "hmel2_5.chr00" | grep -v "hmel2_5.chr21" > hmel2_5.chromosomes.annotation.4D_le_20.master.bed
+bedtools intersect -a ../gimble/gimble.bed -b hmel2_5.chromosomes.annotation.4D_le_20.master.bed > gimble.hmel2_5.chromosomes.annotation.4D_le_20.master.bed
+~/gIMble/gIMble setup -s gimble/gimble.samples.csv -v gimble/gimble.vcf.gz -b 4D_gimble/gimble.hmel2_5.chromosomes.annotation.4D_le_20.master.bed -g gimble/gimble.autosomes.genomefile -o 4D_gimble/heliconius_4D_le_20_master
+~/gIMble/gIMble blocks -z 4D_gimble/heliconius_4D_le_20_master.z -l 1 
+
+# 1st codon
+
+# 2nd codon
+
+# 3rd codon
+awk 'NR % 3 == 0' ros.CJ546.m.bed | cut -f1,2,3 | grep -v "hmel2_5.chr00" | grep -v "hmel2_5.chr21" > hmel2_5.chromosomes.annotation.3rd_codon.master.bed
+
+# on C3 ; sconda gimbledev
+~/gIMble/gIMble setup -s gimble/gimble.samples.csv -v gimble/gimble.vcf.gz -b 4D_gimble/gimble.hmel2_5.chromosomes.annotation.4D.master.bed -g gimble/gimble.autosomes.genomefile -o 4D_gimble/heliconius_4D_master && ~/gIMble/gIMble blocks -z 4D_gimble/heliconius_4D_master.z -l 64 -r 500 -m 500
+~/gIMble/gIMble setup -s gimble/gimble.samples.csv -v gimble/gimble.vcf.gz -b 4D_gimble/gimble.hmel2_5.chromosomes.annotation.4D.master.bed -g gimble/gimble.autosomes.genomefile -o 4D_gimble/heliconius_4D_master && ~/gIMble/gIMble blocks -z 4D_gimble/heliconius_4D_master.z -l 64 -r 500 -m 500
+[+] Running 'gimble setup'
+[%] Parsing input files : 100%|█████████████████████████████████████| 20/20 [04:00<00:00, 12.02s/it]
+[=] ==========================================
+[+] [DataStore   ] 4D_gimble/heliconius_4D_master.z
+[+] [Genome      ] 259,277,206 b in 20 sequence(s)
+[+] [Samples     ] 20 in 2 populations
+[+] [Sample-sets ] 100
+[=] ==========================================
+[*] Total runtime: 240.388s
+[+] Running 'gimble blocks'
+[%] Calculating bSFSs : 100%|██████████████████████████████████| 3.80k/3.80k [02:29<00:00, 25.5it/s]
+[%] Writing bSFSs : 100%|███████████████████████████████████████| 2.00k/2.00k [00:04<00:00, 457it/s]
+[+] Pi_chi = 0.00681029; Pi_ros = 0.00641683; D_xy = 0.01283315; F_st = 0.31982736; FGVs = 1355 / 267176 blocks (0.51%)
+[>] Created: '/scratch/dlaetsch/4D_gimble/heliconius_4D_master.mutuple_barchart.png'
+[*] Total runtime: 238.565s
+
+~/gIMble/gIMble blocks -z 4D_gimble/heliconius_4D_master.z -l 64 -r 1000 -m 1000  -f
+[+] Running 'gimble blocks'
+[-] Store '/scratch/dlaetsch/4D_gimble/heliconius_4D_master.z' already contains blocks. But these will be overwritten...
+[%] Calculating bSFSs : 100%|██████████████████████████████████| 3.80k/3.80k [02:23<00:00, 26.4it/s]
+[%] Writing bSFSs : 100%|███████████████████████████████████████| 2.00k/2.00k [00:04<00:00, 446it/s]
+[+] Pi_chi = 0.01026483; Pi_ros = 0.00975067; D_xy = 0.01776184; F_st = 0.27922955; FGVs = 13531 / 961657 blocks (1.41%)
+[>] Created: '/scratch/dlaetsch/4D_gimble/heliconius_4D_master.mutuple_barchart.png'
+[*] Total runtime: 233.494s
+
+ ~/gIMble/gIMble blocks -z 4D_gimble/heliconius_4D_master.z -l 64 -r 1000 -m 10000  -f
+[+] Running 'gimble blocks'
+[-] Store '/scratch/dlaetsch/4D_gimble/heliconius_4D_master.z' already contains blocks. But these will be overwritten...
+[%] Calculating bSFSs : 100%|██████████████████████████████████| 3.80k/3.80k [02:31<00:00, 25.0it/s]
+[%] Writing bSFSs : 100%|███████████████████████████████████████| 2.00k/2.00k [00:04<00:00, 431it/s]
+[+] Pi_chi = 0.01252583; Pi_ros = 0.01176873; D_xy = 0.02046942; F_st = 0.25514966; FGVs = 53510 / 2198992 blocks (2.43%)
+[>] Created: '/scratch/dlaetsch/4D_gimble/heliconius_4D_master.mutuple_barchart.png'
+[*] Total runtime: 246.782s
+
+~/gIMble/gIMble blocks -z 4D_gimble/heliconius_4D_master.z -l 64 -r 100 -m 10000  -f
+[+] Running 'gimble blocks'
+[-] Store '/scratch/dlaetsch/4D_gimble/heliconius_4D_master.z' already contains blocks. But these will be overwritten...
+[%] Calculating bSFSs : 100%|██████████████████████████████████| 3.80k/3.80k [02:50<00:00, 22.4it/s]
+[%] Writing bSFSs : 100%|███████████████████████████████████████| 2.00k/2.00k [00:04<00:00, 447it/s]
+[+] Pi_chi = 0.01050805; Pi_ros = 0.00998296; D_xy = 0.0180371; F_st = 0.27549071; FGVs = 11292 / 809500 blocks (1.39%)
+[>] Created: '/scratch/dlaetsch/4D_gimble/heliconius_4D_master.mutuple_barchart.png'
+[*] Total runtime: 262.444s
+
+~/gIMble/gIMble blocks -z 4D_gimble/heliconius_4D_master.z -l 64 -r 5000 -m 5000  -f
+[+] Running 'gimble blocks'
+[-] Store '/scratch/dlaetsch/4D_gimble/heliconius_4D_master.z' already contains blocks. But these will be overwritten...
+[%] Calculating bSFSs : 100%|██████████████████████████████████| 3.80k/3.80k [02:24<00:00, 26.2it/s]
+[%] Writing bSFSs : 100%|███████████████████████████████████████| 2.00k/2.00k [00:04<00:00, 424it/s]
+[+] Pi_chi = 0.01273583; Pi_ros = 0.01200737; D_xy = 0.02077984; F_st = 0.25363121; FGVs = 67541 / 2573432 blocks (2.62%)
+[>] Created: '/scratch/dlaetsch/4D_gimble/heliconius_4D_master.mutuple_barchart.png'
+[*] Total runtime: 241.280s
+
+~/gIMble/gIMble blocks -z 4D_gimble/heliconius_4D_master.z -l 64 -r 10000 -m 10000  -f
+[+] Running 'gimble blocks'
+[-] Store '/scratch/dlaetsch/4D_gimble/heliconius_4D_master.z' already contains blocks. But these will be overwritten...
+[%] Calculating bSFSs : 100%|██████████████████████████████████| 3.80k/3.80k [02:24<00:00, 26.3it/s]
+[%] Writing bSFSs : 100%|███████████████████████████████████████| 2.00k/2.00k [00:04<00:00, 429it/s]
+[+] Pi_chi = 0.01315778; Pi_ros = 0.0123486; D_xy = 0.02123212; F_st = 0.24948809; FGVs = 83208 / 2916674 blocks (2.85%)
+[>] Created: '/scratch/dlaetsch/4D_gimble/heliconius_4D_master.mutuple_barchart.png'
+[*] Total runtime: 241.427s
+
+~/gIMble/gIMble blocks -z 4D_gimble/heliconius_4D_master.z -l 64 -r 20000 -m 20000  -f
+[+] Running 'gimble blocks'
+[-] Store '/scratch/dlaetsch/4D_gimble/heliconius_4D_master.z' already contains blocks. But these will be overwritten...
+[%] Calculating bSFSs : 100%|██████████████████████████████████| 3.80k/3.80k [02:26<00:00, 26.0it/s]
+[%] Writing bSFSs : 100%|███████████████████████████████████████| 2.00k/2.00k [00:04<00:00, 423it/s]
+[+] Pi_chi = 0.01330633; Pi_ros = 0.01248096; D_xy = 0.02133248; F_st = 0.24656122; FGVs = 92786 / 3101096 blocks (2.99%)
+[>] Created: '/scratch/dlaetsch/4D_gimble/heliconius_4D_master.mutuple_barchart.png'
+[*] Total runtime: 245.795s
+
+~/gIMble/gIMble blocks -z 4D_gimble/heliconius_4D_master.z -l 16 -r 500 -m 500 -f
+[+] Running 'gimble blocks'
+[-] Store '/scratch/dlaetsch/4D_gimble/heliconius_4D_master.z' already contains blocks. But these will be overwritten...
+[%] Calculating bSFSs : 100%|██████████████████████████████████| 3.80k/3.80k [02:45<00:00, 23.0it/s]
+[%] Writing bSFSs : 100%|███████████████████████████████████████| 2.00k/2.00k [00:05<00:00, 364it/s]
+[+] Pi_chi = 0.01264068; Pi_ros = 0.01194244; D_xy = 0.02037502; F_st = 0.24745351; FGVs = 18959 / 10117214 blocks (0.19%)
+[>] Created: '/scratch/dlaetsch/4D_gimble/heliconius_4D_master.mutuple_barchart.png'
+[*] Total runtime: 291.396s
+
+~/gIMble/gIMble blocks -z 4D_gimble/heliconius_4D_master.z -l 16 -r 250 -m 250 -f
+[+] Running 'gimble blocks'
+[-] Store '/scratch/dlaetsch/4D_gimble/heliconius_4D_master.z' already contains blocks. But these will be overwritten...
+[%] Calculating bSFSs : 100%|██████████████████████████████████| 3.80k/3.80k [02:56<00:00, 21.6it/s]
+[%] Writing bSFSs : 100%|███████████████████████████████████████| 2.00k/2.00k [00:05<00:00, 354it/s]
+[+] Pi_chi = 0.01236386; Pi_ros = 0.01165986; D_xy = 0.01999697; F_st = 0.24946585; FGVs = 15633 / 8991709 blocks (0.17%)
+[>] Created: '/scratch/dlaetsch/4D_gimble/heliconius_4D_master.mutuple_barchart.png'
+[*] Total runtime: 297.485s
+
+ ~/gIMble/gIMble blocks -z 4D_gimble/heliconius_4D_master.z -l 1 -f
+[+] Running 'gimble blocks'
+[-] Store '/scratch/dlaetsch/4D_gimble/heliconius_4D_master.z' already contains blocks. But these will be overwritten...
+[%] Calculating bSFSs : 100%|██████████████████████████████████| 3.80k/3.80k [20:03<00:00, 3.16it/s]
+[%] Writing bSFSs : 100%|██████████████████████████████████████| 2.00k/2.00k [00:29<00:00, 67.5it/s]
+[+] Pi_chi = 0.013425; Pi_ros = 0.01263781; D_xy = 0.0212895; F_st = 0.24061414; FGVs = 0 / 213306224 blocks (0.00%)
+[>] Created: '/scratch/dlaetsch/4D_gimble/heliconius_4D_master.mutuple_barchart.png'
+[*] Total runtime: 2299.370s
+
+# FASTA
+
+
+
+
+hmel2_5.chr00   352810  352811  1       G_4
+hmel2_5.chr00   352813  352814  4       P_4,T_4
+hmel2_5.chr00   352816  352817  4       R_4,T_4
+hmel2_5.chr00   352822  352823  4       P_4,T_4
+hmel2_5.chr00   352828  352829  4       G_4,P_4
+hmel2_5.chr00   352831  352832  4       R_4,S_4
+hmel2_5.chr00   352834  352835  4       G_4,S_4
+hmel2_5.chr00   352837  352838  2       S_4
+hmel2_5.chr00   352840  352841  2       V_4
+hmel2_5.chr00   352846  352847  2       A_4
+hmel2_5.chr00   352849  352850  4       T_4
+hmel2_5.chr00   352855  352856  2       P_4,S_4
+hmel2_5.chr00   352858  352859  2       R_4
+hmel2_5.chr00   352861  352862  4       G_4,S_4
+hmel2_5.chr00   352864  352865  4       P_4,S_4
+hmel2_5.chr00   352867  352868  4       A_4,G_4
+hmel2_5.chr00   352870  352871  2       T_4
+hmel2_5.chr00   352873  352874  2       A_4
+hmel2_5.chr00   352879  352880  2       S_4
+
+grep '_4' ros.CJ546.m.bed | grep -v '|' | bedtools sort > ros.CJ546.m.4D.sorted.bed
+grep '_4' ros.CJ533.m.bed | grep -v '|' | bedtools sort > ros.CJ533.m.4D.sorted.bed
+
+cat **
+cat ros.CJ533.m.4D.sorted.bed ros.CJ546.m.4D.sorted.bed | bedtools sort > ros.CJ533.m_and_ros.CJ546.m.4D.sorted.bed
+
+bedtools merge -i ros.CJ533.m_and_ros.CJ546.m.4D.sorted.bed -c 4 -o count,distinct |less
+
+hmel2_5.chr00   131352  131353  2       L_4
+hmel2_5.chr00   131355  131356  2       L_4
+hmel2_5.chr00   142036  142037  2       G_4
+hmel2_5.chr00   142039  142040  4       G_4 => t1/t2
+hmel2_5.chr00   142045  142046  4       P_4
+hmel2_5.chr00   142051  142052  4       L_4
+hmel2_5.chr00   142054  142055  4       V_4
+hmel2_5.chr00   142057  142058  4       A_4
+hmel2_5.chr00   142060  142061  4       V_4
+hmel2_5.chr00   142063  142064  4       R_4
+hmel2_5.chr00   142066  142067  4       V_4
+hmel2_5.chr00   142069  142070  4       P_4
+
+# > 2 (at least one additonal transcript involved) ... maybe we can just keep them ... they seem to do no harm (HETs are already excludeds)
+bedtools merge -i ros.CJ533.m_and_ros.CJ546.m.4D.sorted.bed -c 4 -o count,distinct | awk '$4>=3' | wc -l
+350,911
+
+# 
+bedtools merge -i ros.CJ533.m_and_ros.CJ546.m.4D.sorted.bed -c 4 -o count,distinct | awk '$4==1' | wc -l
+139,536
+
+# ros.CJ533.m_and_ros.CJ546.m.4D.sorted.bed
+hmel2_5.chr00   131352  131353  L_4
+hmel2_5.chr00   131352  131353  L_4
+hmel2_5.chr00   392732  392733  S_4
+hmel2_5.chr00   392732  392733  A_4
+hmel2_5.chr00   942039  942040  G_4
+hmel2_5.chr00   942039  942040  G_4
+hmel2_5.chr00   942039  942040  G_4
+hmel2_5.chr00   942039  942040  G_4
+
+# bedtools merge -i ros.CJ533.m_and_ros.CJ546.m.4D.sorted.bed -c 4 -o count,distinct |less
+hmel2_5.chr00   131352  131353  2       L_4
+hmel2_5.chr00   392732  392733  2       A_4,S_4
+hmel2_5.chr00   942039  942040  4       G_4

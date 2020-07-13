@@ -16,6 +16,8 @@ import matplotlib.pyplot as plt
 # np.set_printoptions(threshold=sys.maxsize)
 
 '''
+[To Do]
+- output name of windows png based on parameters.
 [Glossary]
 - datatypes = ['blocks', 'windows', 'simblocks', 'simwindows']
 
@@ -24,6 +26,15 @@ import matplotlib.pyplot as plt
     - n=4, p=1 => e.g. [[0],[0],[0],[1]]            =>  4 mutypes ?
     - n=2, p=3 => e.g. [[0,0,0], [0,1,1]] ...       =>  8 mutypes ?
     - n=3, p=2 => e.g. [[0,0], [0,1], [0,1]], ...   => 15 mutypes ?
+
+
+# get rid of blockgap run 
+ make equal to m - l
+ 
+# OUTPUT of Blocks
+# within sample HET/HOMREF/HOMALT calls
+# non-cardinal pairs 
+    - output within species 
 
 # better datastructure?
 
@@ -112,13 +123,12 @@ def format_fraction(fraction, precision=2):
 def format_count(count):
     return "%s" % str(format(count, ',d'))
 
-######################## inference ################################
-'''
-TBD
-'''
-##############################################################
+
 
 def fix_pos_array(pos_array):
+    '''
+    De-duplicates array by shifting values forward until there aren't any collisions
+    '''
     # get boolean array for first and subsequent duplicates (True) (required sorted) 
     idxs = np.insert((np.diff(pos_array)==0).astype(np.bool), 0, False)
     if np.any(idxs): 
@@ -133,6 +143,7 @@ def fix_pos_array(pos_array):
     # if there are no duplicated values
     return pos_array
 
+############## Only needed once we have demand for multidimensional pairing function
 # def multidimensional_box_pairing(lengths: List[int], indexes: List[int]) -> int:
 #     n = len(lengths)
 #     index = 0
@@ -141,7 +152,6 @@ def fix_pos_array(pos_array):
 #         index += indexes[dimension] * dimension_product
 #         dimension_product *= lengths[dimension]
 #     return index
-
 # def multidimensional_szudzik_pairing(*indexes: int) -> int:
 #     n = len(indexes)
 #     if n == 0:
@@ -158,16 +168,16 @@ def fix_pos_array(pos_array):
 #     return shell ** n + recursive_index(0)
 
 def szudzik_pairing(folded_minor_allele_counts):
-    '''1=HetB, 2=HetA, 3=HetAB, 4=Fixed'''
     # adapted from: https://drhagen.com/blog/superior-pairing-function/
-    # for unpairing and multidimensional pairing functions, see: https://drhagen.com/blog/multidimensional-pairing-functions/
     if isinstance(folded_minor_allele_counts, np.ndarray):
+        # assumes folded_minor_allele_counts is array with shape (n,2)
         return np.where(
             (folded_minor_allele_counts[:,0] >= folded_minor_allele_counts[:,1]),
             np.square(folded_minor_allele_counts[:,0]) + folded_minor_allele_counts[:,0] + folded_minor_allele_counts[:,1],
             folded_minor_allele_counts[:,0] + np.square(folded_minor_allele_counts[:,1])
             )
     elif isinstance(folded_minor_allele_counts, tuple):
+        # assumes folded_minor_allele_counts is tuple of size 2
         a, b = folded_minor_allele_counts
         if a >= b:
             return (a**2) + a + b 
@@ -176,6 +186,7 @@ def szudzik_pairing(folded_minor_allele_counts):
         pass
 
 def get_coverage_counts(coverages, idxs, num_blocks):
+    # not used at the moment
     num_sample_sets = idxs[-1] + 1 # this is correct, don't worry about it ...
     temp = coverages + (num_sample_sets * np.arange(coverages.shape[0]))[:, None]
     blocks_per_sample_set = np.bincount(temp.ravel(), minlength=(num_sample_sets * coverages.shape[0])).reshape(-1, num_sample_sets)
@@ -191,8 +202,8 @@ def block_sites_to_variation_arrays(block_sites, max_type_count=4):
 
 def calculate_popgen_from_array(mutype_array, sites):
     # print('# Mutypes: 0=MULTI, 1=MISS, 2=MONO, 3=HetB, 4=HetA, 5=HetAB, 6=Fixed')
-    pi_1 = float("%.8f" % np.divide(np.sum(mutype_array[:, 1]) + np.sum(mutype_array[:, 2]), sites))
-    pi_2 = float("%.8f" % np.divide(np.sum(mutype_array[:, 0]) + np.sum(mutype_array[:, 2]), sites))
+    pi_1 = float("%.8f" % np.divide(np.sum(mutype_array[:, 1]) + np.sum(mutype_array[:, 2]), sites)) # average heterozygosity
+    pi_2 = float("%.8f" % np.divide(np.sum(mutype_array[:, 0]) + np.sum(mutype_array[:, 2]), sites)) # average heterozygosity
     d_xy = float("%.8f" % np.divide(np.divide(np.sum(mutype_array[:, 0]) + np.sum(mutype_array[:, 1]) + np.sum(mutype_array[:, 2]), 2.0) + np.sum(mutype_array[:, 3]), sites))
     mean_pi = (pi_1 + pi_2) / 2.0
     total_pi = (d_xy + mean_pi) / 2.0 # special case of pairwise Fst
@@ -202,49 +213,55 @@ def calculate_popgen_from_array(mutype_array, sites):
     fgv = len(mutype_array[(mutype_array[:, 2] > 0) & (mutype_array[:, 3] > 0)])
     return (pi_1, pi_2, d_xy, f_st, fgv)
 
-def genotype_to_mutype_array(sa_genotype_array, idx_block_sites_in_pos, block_sites, debug=False):
-    np_genotype_array = np.array(sa_genotype_array)
-    np_allele_count_array = np.ma.masked_equal(sa_genotype_array.count_alleles(), 0, copy=False)    
-    allele_map = np.ones((np_allele_count_array.shape), dtype='int8') * np.arange(np_allele_count_array.shape[-1])
-    idx_max_global_allele_count = np.nanargmax(np_allele_count_array, axis=1)
-    idx_min_global_allele_count = np.nanargmin(np_allele_count_array, axis=1)
-    has_major_allele = (idx_max_global_allele_count != idx_min_global_allele_count)
-    idx_min_prime_allele = np.amin(np_genotype_array[:,0], axis=1)
-    idx_min_global_allele = np.amin(np.amin(np_genotype_array, axis=1), axis=1)
-    idx_max_global_allele = np.amax(np.amax(np_genotype_array, axis=1), axis=1)
-    idx_major_allele = np.where(
-        has_major_allele, 
-        idx_max_global_allele_count, 
-        idx_min_prime_allele)
-    idx_minor_allele = np.where(
-        has_major_allele, 
-        idx_min_global_allele_count, 
-        np.where((
-            idx_min_global_allele == idx_min_prime_allele),
-            np.max((idx_min_global_allele, idx_max_global_allele), axis=0), 
-            np.min((idx_min_global_allele, idx_max_global_allele), axis=0)))
-    # for each genotype (np.arange(allele_map.shape[0])), set minor allele to 1 (1st do minor, so that overwritten if monomorphic)
-    allele_map[np.arange(allele_map.shape[0]), idx_minor_allele] = 1 
-    # for each genotype (np.arange(allele_map.shape[0])), set major allele to 0
-    allele_map[np.arange(allele_map.shape[0]), idx_major_allele] = 0
-    folded_minor_allele_counts = sa_genotype_array.map_alleles(allele_map).to_n_alt(fill=-1)
-    folded_minor_allele_counts[np.any(sa_genotype_array.is_missing(), axis=1)] = np.ones(2) * -1        # -1, -1 for missing => -1
-    folded_minor_allele_counts[(np_allele_count_array.count(axis=1) > 2)] = np.ones(2) * (-1, -2)       # -1, -2 for multiallelic => -2
-    block_sites_pos = block_sites.flatten()
-    test = szudzik_pairing(folded_minor_allele_counts)+2
-    block_sites[idx_block_sites_in_pos] = szudzik_pairing(folded_minor_allele_counts) + 2               # add 2 so that not negative for bincount
-    block_sites[~idx_block_sites_in_pos] = 2                                                            # monomorphic = 2 (0 = multiallelic, 1 = missing)
+def genotype_to_mutype_array(sa_genotype_array, idx_block_sites_in_pos, block_sites, debug=True):
     if debug == True:
-        pos_df = pd.DataFrame(block_sites_pos[idx_block_sites_in_pos.flatten()], dtype='int', columns=['pos'])
-        genotypes_df = pd.DataFrame(np_genotype_array.reshape(np_genotype_array.shape[0], 4), dtype='i4', columns=['a1', 'a2', 'b1', 'b2'])        
-        block_sites_df = pos_df.join(genotypes_df)
-        folded_minor_allele_count_df = pd.DataFrame(folded_minor_allele_counts, dtype='int8', columns=['fmAC_a', 'fmAC_b'])
-        block_sites_df = block_sites_df.join(folded_minor_allele_count_df)
-        variants = pd.DataFrame(block_sites[idx_block_sites_in_pos], dtype='int', columns=['SVar'])
-        block_sites_df = block_sites_df.join(variants)
-        print('# Mutypes: 0=MULTI, 1=MISS, 2=MONO, 3=HetB, 4=HetA, 5=HetAB, 6=Fixed')
-        print(block_sites_df)
-    return block_sites
+        print("# Blocksites", block_sites)
+    np_genotype_array = np.array(sa_genotype_array)
+    #print('np_genotype_array', np_genotype_array)
+    try:
+        np_allele_count_array = np.ma.masked_equal(sa_genotype_array.count_alleles(), 0, copy=False)    
+        #print('np_allele_count_array', np_allele_count_array)
+        allele_map = np.ones((np_allele_count_array.shape), dtype='int8') * np.arange(np_allele_count_array.shape[-1])
+        idx_max_global_allele_count = np.nanargmax(np_allele_count_array, axis=1)
+        idx_min_global_allele_count = np.nanargmin(np_allele_count_array, axis=1)
+        has_major_allele = (idx_max_global_allele_count != idx_min_global_allele_count)
+        idx_min_prime_allele = np.amin(np_genotype_array[:,0], axis=1)
+        idx_min_global_allele = np.amin(np.amin(np_genotype_array, axis=1), axis=1)
+        idx_max_global_allele = np.amax(np.amax(np_genotype_array, axis=1), axis=1)
+        idx_major_allele = np.where(
+            has_major_allele, 
+            idx_max_global_allele_count, 
+            idx_min_prime_allele)
+        idx_minor_allele = np.where(
+            has_major_allele, 
+            idx_min_global_allele_count, 
+            np.where((
+                idx_min_global_allele == idx_min_prime_allele),
+                np.max((idx_min_global_allele, idx_max_global_allele), axis=0), 
+                np.min((idx_min_global_allele, idx_max_global_allele), axis=0)))
+        # for each genotype (np.arange(allele_map.shape[0])), set minor allele to 1 (1st do minor, so that overwritten if monomorphic)
+        allele_map[np.arange(allele_map.shape[0]), idx_minor_allele] = 1 
+        # for each genotype (np.arange(allele_map.shape[0])), set major allele to 0
+        allele_map[np.arange(allele_map.shape[0]), idx_major_allele] = 0
+        folded_minor_allele_counts = sa_genotype_array.map_alleles(allele_map).to_n_alt(fill=-1)
+        folded_minor_allele_counts[np.any(sa_genotype_array.is_missing(), axis=1)] = np.ones(2) * -1        # -1, -1 for missing => -1
+        folded_minor_allele_counts[(np_allele_count_array.count(axis=1) > 2)] = np.ones(2) * (-1, -2)       # -1, -2 for multiallelic => -2
+        block_sites_pos = block_sites.flatten()
+        block_sites[idx_block_sites_in_pos] = szudzik_pairing(folded_minor_allele_counts) + 2               # add 2 so that not negative for bincount
+        block_sites[~idx_block_sites_in_pos] = 2                                                            # monomorphic = 2 (0 = multiallelic, 1 = missing)
+        if debug == True:
+            pos_df = pd.DataFrame(block_sites_pos[idx_block_sites_in_pos.flatten()], dtype='int', columns=['pos'])
+            genotypes_df = pd.DataFrame(np_genotype_array.reshape(np_genotype_array.shape[0], 4), dtype='i4', columns=['a1', 'a2', 'b1', 'b2'])        
+            block_sites_df = pos_df.join(genotypes_df)
+            folded_minor_allele_count_df = pd.DataFrame(folded_minor_allele_counts, dtype='int8', columns=['fmAC_a', 'fmAC_b'])
+            block_sites_df = block_sites_df.join(folded_minor_allele_count_df)
+            variants = pd.DataFrame(block_sites[idx_block_sites_in_pos], dtype='int', columns=['SVar'])
+            block_sites_df = block_sites_df.join(variants)
+            print('# Mutypes: 0=MULTI, 1=MISS, 2=MONO, 3=HetB, 4=HetA, 5=HetAB, 6=Fixed')
+            print(block_sites_df)
+        return block_sites
+    except ValueError:
+        print("VALUEERROR")
 
 def create_ranges(aranges):
     # does the transformation form 0-based (BED) to 1-based (VCF) coordinate system 
@@ -390,6 +407,7 @@ class Store(object):
         print("[+] [DataStore   ] %s" % self.path)
         print("[+] [Genome      ] %s in %s sequence(s)" % (format_bases(self.get_base_count(kind='total')), len(self.data.attrs['sequence_ids'])))
         print("[+] [Samples     ] %s in %s populations" % (len(pop_ids_by_sample_id), len(pop_ids)))
+        
         if verbose:
             print("%s" % "\n".join(["[+] \t %s [%s]" % (sample_id, pop_id) for sample_id, pop_id in pop_ids_by_sample_id.items()]))
         print("[+] [Sample-sets ] %s" % (len(self.data.attrs['idx_cartesian_sample_sets'])))
@@ -457,17 +475,21 @@ class Store(object):
         self.data.attrs['sample_ids'] = df['sample_id'].to_list() # Order as they appear in file
         self.data.attrs['population_ids'] = df['population_id'].to_list() 
         self.data.attrs['pop_ids'] = sorted(set(df['population_id'].to_list())) # Sorted pop_ids
-        self.data.attrs['pop_ids_by_sample_id'] = {sample_id: pop_id for sample_id, pop_id in zip(self.data.attrs['sample_ids'], self.data.attrs['population_ids'])}
-        self.data.attrs['sample_sets'] = [tuple(_) for _ in itertools.combinations(self.data.attrs['sample_ids'], pairedness)] # DO NOT SORT, otherwise there could be erroneously polarised sample sets (pop2, pop1)
+        pop_id_by_sample_id = {sample_id: pop_id for sample_id, pop_id in zip(self.data.attrs['sample_ids'], self.data.attrs['population_ids'])}
+        print('pop_id_by_sample_id', pop_id_by_sample_id)
+        self.data.attrs['pop_ids_by_sample_id'] = pop_id_by_sample_id
+        self.data.attrs['sample_sets'] = [sorted(x, key=(pop_id_by_sample_id.get if pop_id_by_sample_id[x[0]] != pop_id_by_sample_id[x[1]] else None)) for x in itertools.combinations(pop_id_by_sample_id.keys(), 2)] #[tuple(_) for _ in itertools.combinations(self.data.attrs['sample_ids'], pairedness)] # DO NOT SORT, otherwise there could be erroneously polarised sample sets (pop2, pop1)
+        print('self.data.attrs["sample_sets"]', self.data.attrs['sample_sets'])
         self.data.attrs['idx_cartesian_sample_sets'] = [idx for idx, sample_set in enumerate(self.data.attrs['sample_sets']) if (len(set([self.data.attrs['pop_ids_by_sample_id'][sample_id] for sample_id in sample_set])) == len(self.data.attrs['pop_ids']))]
+        
         # TEST FOR CORRECT SAMPLE_SET POLARISATION
-        # _pops = []
-        # for sample_set in self.data.attrs['sample_sets']:
-        #     _pops.append(tuple(
-        #         [self.data.attrs['pop_ids_by_sample_id'][sample_set[0]],
-        #         self.data.attrs['pop_ids_by_sample_id'][sample_set[1]]]
-        #         ))
-        # print(collections.Counter(_pops))
+        _pops = []
+        for sample_set in self.data.attrs['sample_sets']:
+            _pops.append(tuple(
+                [self.data.attrs['pop_ids_by_sample_id'][sample_set[0]],
+                self.data.attrs['pop_ids_by_sample_id'][sample_set[1]]]
+                ))
+        print(collections.Counter(_pops))
         logging.info("[+] Found %s samples from %s populations. Generated %s sets of %s samples" % (
             len(self.data.attrs['sample_ids']), 
             len(self.data.attrs['population_ids']),

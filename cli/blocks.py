@@ -19,6 +19,16 @@ from docopt import docopt
 from lib.gimble import RunObj
 import lib.gimble
 
+# 1 
+# block_gap_run should be ['-l' - '-m']
+
+# 4D sites:
+# distribution of 4D positions in plasmodium and heliconius
+
+# parameter sweep for heliconius blocks and make plot
+
+# 1st/2nd/3rd codon 
+
 class ParameterObj(RunObj):
     '''Sanitises command line arguments and stores parameters'''
 
@@ -27,11 +37,12 @@ class ParameterObj(RunObj):
         self.zstore = self._get_path(args['--zarr'])
         self.block_length = self._get_int(args['--block_length'])
         self.block_span = self._get_block_span(args['--block_span'])
-        self.block_gap_run = int(args['--block_gap_run']) if not args['--block_gap_run'] is None else self.block_length
+        self.block_gap_run = 0 #self._get_block_gap_run(args['--block_gap_run'])
         self.block_max_multiallelic = int(args['--max_multiallelic'])
         self.block_max_missing = int(args['--max_missing'])
         self.overwrite = True if args['--force'] else False
 
+    
     def _get_block_span(self, block_span):
         if block_span is None:
             return 2*self.block_length
@@ -54,7 +65,7 @@ def main(params):
         #print(store, type(store) )
         store.make_blocks(parameterObj)
         store.dump_blocks(parameterObj)
-        #print(store.tree())
+        print(store.tree())
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
         print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
