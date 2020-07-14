@@ -27,6 +27,12 @@ def poolcontext(*args, **kwargs):
     pool.terminate()
 
 def get_data_array(parameterObj):
+    ''' based on kmax
+        => create PODs 
+        A = np.zeros(tuple(self.k_max_by_mutype[mutype] + 2 for mutype in self.mutypes), np.float64)
+        for mutuple, count in mutuples, counts:
+            A[tuple(mutuple)] = count
+    '''
     store = lib.gimble.load_store(parameterObj)
     print('[++]')
     print(store.tree())

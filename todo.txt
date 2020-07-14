@@ -1,3 +1,166 @@
+
+
+# Milestones for next version partitioncds
+# - do merging-operation of shared coordinates within partitioncds!
+# - output separate 1st/2nd/3rd codon BED (as in reference)
+# - output excluded CDSs
+# - metrics for each sample (count of 0d,2d,3d,4d, and NA sites) 
+
+# partitioncds
+# - assigns codon-degeneracy to sites in CDSs based on sample genotype
+# - Assumptions:
+#   - VCF file must only contain filtered records 
+#   - BED file  MUST be in the following format:
+#       hmel2_5.chr00   253     370     HMEL035848g1.t1 1       +
+#       hmel2_5.chr00   805     985     HMEL035848g1.t1 1       +
+#       hmel2_5.chr00   1112    1306    HMEL035848g1.t1 1       +
+#       hmel2_5.chr00   1916    1976    HMEL015204g1.t1 0.99    -
+#       hmel2_5.chr00   2743    2878    HMEL015204g1.t1 0.81    -
+#       hmel2_5.chr00   3826    3952    HMEL015204g1.t1 0.81    -
+#       *4th column requires shared transcript_id across CDSs of same transcript 
+
+
+- we should unashamedly stick to the principle that all stats are based on pairwise comparisons; i.e. sites that only pass filtering in one ind are not useful for popgen and should NOT contribute to any estimate of diversity.
+
+# Sample-based
+=> Average per site heterozygosity for each sample 
+
+# Pair-based (readme)
+Average per site heterozygosity for each pair
+Average per 
+
+
+=> pairs are imperative
+
+- 4D
+- -m 1000 span
+- -l 64 
+
+
+- we should decide whether to stick to the design principle that sum stats are averaged across pairs (each pair contributes equally irrespective of coverage). 
+  - This is DIFFERENT from what happens to blocks down the line (and sum stats computed in windows), where all blocks (irrespective of pair) contribute equally. My opinion is that this difference is fine....
+
+- sensible sum stats for intraspecific pairs can be computed with minimal tweaking of the existing machinery. These are:
+
+- given n diploid individuals sampled in spp/pop 1; pairwise pi is an average over 2n(2n-1)/2=n(2n-1) comparisons of lineages. Of these, n_intra (=n) comparisons involve lineages sampled from the same diploid individual and 2n(n-1) comparisons involve lineages sampled from different individuals (there are n(n-1)/2 diploid pairs and each involves 4 pairs of lineages, so 
+
+n_inter=4n(n-1)/2= 2n(n-1)).
+
+n_intra + n_inter= n(2n-1)
+
+- d(xy,mean)_all
+- pimean_within
+
+
+- So n(pimean)+2n(n-1)(d(xy,mean))/n(2n-1) gives Nei's estimate of pi in which intra and interindividual pairs of lineages are treated equally.
+-  We should call the other pi estimates mean heterozygosity.
+
+[To Do]
+- output name of windows png based on parameters.
+[Glossary]
+- datatypes = ['blocks', 'windows', 'simblocks', 'simwindows']
+
+- mutypes?
+    + n=2, p=2 => e.g. [[0,0], [0,1]]  ...          =>  4 mutypes
+    - n=4, p=1 => e.g. [[0],[0],[0],[1]]            =>  4 mutypes ?
+    - n=2, p=3 => e.g. [[0,0,0], [0,1,1]] ...       =>  8 mutypes ?
+    - n=3, p=2 => e.g. [[0,0], [0,1], [0,1]], ...   => 15 mutypes ?
+
+
+# get rid of blockgap run 
+ make equal to m - l
+ 
+# OUTPUT of Blocks
+# within sample HET/HOMREF/HOMALT calls
+# non-cardinal pairs 
+    - output within species 
+
+# better datastructure?
+
+setup
+    - genome_f
+    - sample_f
+    - bed_f
+    - vcf_f
+
+each stage needs:
+    - evidence for completion of stage
+    - command
+    - meaningful parameters
+
+meta
+    - sequence_ids
+    - sequence_lengths
+    - sample_ids
+    - population_ids
+    - sample_ids_by_population_id
+    - population_id_by_sample_id
+    - idx_cartesian_sample_sets => get rid of this!
+    - pairedness
+
+variants
+    - sample_ids_vcf
+    - mutypes_count
+
+blocks
+    - block_length
+    - block_span
+    - block_max_missing
+    - block_max_multiallelic
+
+by sample_set
+- block_sites
+- interval_sites
+- starts
+- ends
+- variation
+- multiallelic
+- missing
+
+windows
+    - variation
+    - starts
+    - end
+    - window_id
+    - midpoint_mean
+    - midpoint_median
+
+sim_windows
+    - variation
+    - starts
+    - end
+    - window_id
+    - midpoint_mean
+    - midpoint_median
+
+np.ones(clens[-1], dtype=int)
+
+[To do]
+- make final block-metrics show average number of variants per block in addition to FGV
+
+- write test that errors when no VCF index since it takes ages without
+- query module
+    - writing BED file of blocks with associated metrics
+    - writing BED file of windows with associated metrics
+...
+./gimble setup -s ~/git/gIMble/data/test.samples.csv -v ~/git/gIMble/data/test.vcf -b ~/git/gIMble/data/test.bed -o gimble_testdb -g ~/git/gIMble/data/test.genomefile
+./gimble blocks -z gimble_testdb.z -l 10 -r 2 -m 10
+./gimble windows -w 3 -s 1 -z gimble_testdb.z
+'''
+
+
+# blocks
+# 1 
+# block_gap_run should be ['-l' - '-m']
+
+# 4D sites:
+# distribution of 4D positions in plasmodium and heliconius
+
+# parameter sweep for heliconius blocks and make plot
+
+# 1st/2nd/3rd codon 
+
+
 # Timing 
 - why is building equations so slow all of a sudden? Has to do with summing by mutuple?
 - which are the 2-3 fastest ones to keep as automated tests?

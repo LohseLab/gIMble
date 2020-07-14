@@ -18,15 +18,6 @@ from docopt import docopt
 from lib.gimble import RunObj
 import lib.gimble
 
-# 1 
-# block_gap_run should be ['-l' - '-m']
-
-# 4D sites:
-# distribution of 4D positions in plasmodium and heliconius
-
-# parameter sweep for heliconius blocks and make plot
-
-# 1st/2nd/3rd codon 
 
 class ParameterObj(RunObj):
     '''Sanitises command line arguments and stores parameters'''
@@ -66,7 +57,7 @@ def main(params):
         #print(store, type(store) )
         store.make_blocks(parameterObj)
         store.dump_blocks(parameterObj)
-        print(store.tree())
+        #print(store.tree())
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
         print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))

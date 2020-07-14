@@ -2,25 +2,6 @@
 - intergenic with 5% miss/multi (~3.2 == 3) -l 64 -m 128 -r 128-64-1=63
 - 4D : -m 1000 span -l 64 
 
-# Milestones for next version
-# - do merging-operation of shared coordinates within partitioncds!
-# - output separate 1st/2nd/3rd codon BED (as in reference)
-# - output excluded CDSs
-# - metrics for each sample (count of 0d,2d,3d,4d, and NA sites) 
-
-# partitioncds
-# - assigns codon-degeneracy to sites in CDSs based on sample genotype
-# - Assumptions:
-#   - VCF file must only contain filtered records 
-#   - BED file  MUST be in the following format:
-#       hmel2_5.chr00   253     370     HMEL035848g1.t1 1       +
-#       hmel2_5.chr00   805     985     HMEL035848g1.t1 1       +
-#       hmel2_5.chr00   1112    1306    HMEL035848g1.t1 1       +
-#       hmel2_5.chr00   1916    1976    HMEL015204g1.t1 0.99    -
-#       hmel2_5.chr00   2743    2878    HMEL015204g1.t1 0.81    -
-#       hmel2_5.chr00   3826    3952    HMEL015204g1.t1 0.81    -
-#       *4th column requires shared transcript_id across CDSs of same transcript 
-
 # 0. Generate CDS BED 
 # - this depends on CDS IDs 
 # - if needed adjust separator in 'split($4, i, "_")' and/or field in 'i[1]'

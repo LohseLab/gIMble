@@ -15,100 +15,6 @@ import pathlib
 import matplotlib.pyplot as plt
 # np.set_printoptions(threshold=sys.maxsize)
 
-'''
-[To Do]
-- output name of windows png based on parameters.
-[Glossary]
-- datatypes = ['blocks', 'windows', 'simblocks', 'simwindows']
-
-- mutypes?
-    + n=2, p=2 => e.g. [[0,0], [0,1]]  ...          =>  4 mutypes
-    - n=4, p=1 => e.g. [[0],[0],[0],[1]]            =>  4 mutypes ?
-    - n=2, p=3 => e.g. [[0,0,0], [0,1,1]] ...       =>  8 mutypes ?
-    - n=3, p=2 => e.g. [[0,0], [0,1], [0,1]], ...   => 15 mutypes ?
-
-
-# get rid of blockgap run 
- make equal to m - l
- 
-# OUTPUT of Blocks
-# within sample HET/HOMREF/HOMALT calls
-# non-cardinal pairs 
-    - output within species 
-
-# better datastructure?
-
-setup
-    - genome_f
-    - sample_f
-    - bed_f
-    - vcf_f
-
-each stage needs:
-    - evidence for completion of stage
-    - command
-    - meaningful parameters
-
-meta
-    - sequence_ids
-    - sequence_lengths
-    - sample_ids
-    - population_ids
-    - sample_ids_by_population_id
-    - population_id_by_sample_id
-    - idx_cartesian_sample_sets => get rid of this!
-    - pairedness
-
-variants
-    - sample_ids_vcf
-    - mutypes_count
-
-blocks
-    - block_length
-    - block_span
-    - block_max_missing
-    - block_max_multiallelic
-
-by sample_set
-- block_sites
-- interval_sites
-- starts
-- ends
-- variation
-- multiallelic
-- missing
-
-windows
-    - variation
-    - starts
-    - end
-    - window_id
-    - midpoint_mean
-    - midpoint_median
-
-sim_windows
-    - variation
-    - starts
-    - end
-    - window_id
-    - midpoint_mean
-    - midpoint_median
-
-np.ones(clens[-1], dtype=int)
-
-[To do]
-- make final block-metrics show average number of variants per block in addition to FGV
-
-- write test that errors when no VCF index since it takes ages without
-- query module
-    - writing BED file of blocks with associated metrics
-    - writing BED file of windows with associated metrics
-...
-./gimble setup -s ~/git/gIMble/data/test.samples.csv -v ~/git/gIMble/data/test.vcf -b ~/git/gIMble/data/test.bed -o gimble_testdb -g ~/git/gIMble/data/test.genomefile
-./gimble blocks -z gimble_testdb.z -l 10 -r 2 -m 10
-./gimble windows -w 3 -s 1 -z gimble_testdb.z
-'''
-
 # Formatting functions
 
 def format_bases(bases):
@@ -484,10 +390,10 @@ class Store(object):
         self.data.attrs['population_ids'] = df['population_id'].to_list() 
         self.data.attrs['pop_ids'] = sorted(set(df['population_id'].to_list())) # Sorted pop_ids
         pop_id_by_sample_id = {sample_id: pop_id for sample_id, pop_id in zip(self.data.attrs['sample_ids'], self.data.attrs['population_ids'])}
-        print('pop_id_by_sample_id', pop_id_by_sample_id)
+        #print('pop_id_by_sample_id', pop_id_by_sample_id)
         self.data.attrs['pop_ids_by_sample_id'] = pop_id_by_sample_id
         self.data.attrs['sample_sets'] = [sorted(x, key=(pop_id_by_sample_id.get if pop_id_by_sample_id[x[0]] != pop_id_by_sample_id[x[1]] else None)) for x in itertools.combinations(pop_id_by_sample_id.keys(), 2)] #[tuple(_) for _ in itertools.combinations(self.data.attrs['sample_ids'], pairedness)] # DO NOT SORT, otherwise there could be erroneously polarised sample sets (pop2, pop1)
-        print('self.data.attrs["sample_sets"]', self.data.attrs['sample_sets'])
+        #print('self.data.attrs["sample_sets"]', self.data.attrs['sample_sets'])
         self.data.attrs['idx_cartesian_sample_sets'] = [idx for idx, sample_set in enumerate(self.data.attrs['sample_sets']) if (len(set([self.data.attrs['pop_ids_by_sample_id'][sample_id] for sample_id in sample_set])) == len(self.data.attrs['pop_ids']))]
         
         # TEST FOR CORRECT SAMPLE_SET POLARISATION
