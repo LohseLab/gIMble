@@ -11,6 +11,7 @@ import itertools
 import lib.gimble
 from functools import partial
 import pandas as pd
+import collections
 
 
 def run_sim(parameterObj):
@@ -161,29 +162,34 @@ def run_ind_sim(
     """
     # with infinite sites = pre-msprime 1.0
     positions = np.array([int(site.position) for site in ts.sites()])
-    #print(f"[+] {ts.num_sites} mutation(s) along the simulated sequence")
+    print(f"[+] {ts.num_sites} mutation(s) along the simulated sequence")
     new_positions = lib.gimble.fix_pos_array(positions)
-    if new_positions[-1] >= total_length:
+    print("new_positions", new_positions)
+    if ts.num_sites>0 and any(p>=total_length for p in new_positions):
         blocklength = new_positions[-1]
         total_length = blocks*blocklength
     genotype_matrix = get_genotypes(ts, ploidy, num_samples)
     sa_genotype_array = allel.GenotypeArray(genotype_matrix)
     # always the same for all pairwise comparisons
-    block_sites = np.arange(total_length).reshape(blocks, blocklength)
     #print("[+] generated genotype matrix")
     # generate all comparisons
     num_comparisons = len(comparisons)
     result = np.zeros((num_comparisons, blocks, blocklength), dtype="int8")
     for idx, pair in enumerate(comparisons):
+        block_sites = np.arange(total_length).reshape(blocks, blocklength)
         # slice genotype array
-        subset_genotype_array = sa_genotype_array.subset(sel1=pair)
+        #subset_genotype_array = sa_genotype_array.subset(sel1=pair)
         block_sites_variant_bool = np.isin(
             block_sites, new_positions, assume_unique=True
         )
+        new_positions_variant_bool = np.isin(
+            new_positions, block_sites, assume_unique=True
+        )
+        subset_genotype_array = sa_genotype_array.subset(new_positions_variant_bool, pair)
         result[idx] = lib.gimble.genotype_to_mutype_array(
             subset_genotype_array, block_sites_variant_bool, block_sites, debug=False
         )
-
+        
     return result
 
 
