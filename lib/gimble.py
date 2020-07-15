@@ -17,6 +17,26 @@ import matplotlib.pyplot as plt
 
 # Formatting functions
 
+'''
+ZARR
+ - seq
+    - meta 
+    - chroms
+
+ - sim
+    - meta
+        - 
+        - simulaton = {'A' : [1], 'B': [2,3,4,5,6,7,8, ... 100] }
+    - 1
+        - GTS
+    - 2
+    - 3
+    - 4
+    - 5
+
+block_starts, seq = "seq/blocks/%s/starts" % (seq)
+'''
+
 def format_bases(bases):
     return "%s b" % format(bases, ',d')
 
@@ -28,7 +48,6 @@ def format_fraction(fraction, precision=2):
 
 def format_count(count):
     return "%s" % str(format(count, ',d'))
-
 
 
 def fix_pos_array(pos_array):
@@ -264,18 +283,170 @@ class RunObj(object):
         except TypeError():
             sys.exit("[X] %r can't be converted to float." % string)
 
+
+SCHEMA = {
+    'main';
+        'attrs':
+            'module': 'command'
+    }
+
+seqs,
+    meta
+
+sims,
+    meta
+META_SCHEMA = {
+            'meta' : {
+                'files': {'vcf_f': None, 'sample_f': None, 'genome_f': None, 'bed_f': None}, 
+                # genome_file
+                'sequences': {'sequence_ids': [], 'sequence_lengths': []},
+                # sample_file
+                'samples': {'sample_ids' = [], 'sample_ids_vcf' = [], 'sample_ids_bed' = [], 'population_ids' = [], 'sample_sets' = [], 'sample_sets_cartesian' = []},
+                # bed_file
+                'bed': {'intervals': None, 'span': None}
+                # blocks
+                'blocks': {'block_length' : None, 'block_span' : None, 'block_max_missing' : None, 'block_max_multiallelic' : None},
+                # windows
+                'windows': {'window_size': None, 'window_step': None}
+                }
+            }
+
+# for each sequence
+#'variants/pos'
+#'variants/gt_matrix'
+#'intervals/starts'
+#'intervals/ends'
+#'intervals/interval_matrix'
+#'blocks/starts'
+#'blocks/ends'
+#'blocks/variation'
+#'blocks/missing'
+#'blocks/multiallelic'
+#'windows/starts'
+#'windows/ends'
+#'windows/variation'
+#'windows/pos_mean'
+#'windows/pos_median'
+
 class Store(object):
-    def __init__(self):
-        self.path = None
-        self.prefix = None
-        self.data = None
-        self.mutype_labels = []
-
-    def add_stage(self, parameterObj):
+    def __init__(self, zarr_dir, create=False, overwrite=False):
+        self.prefix = self._get_zarr_prefix(zarr_dir)
+        self.path = self._get_zarr_path(zarr_dir)
+        self.data = self._get_store_data(create, overwrite)
+    
+    def tree(self):
+        return self.data.tree()
+    
+    def log_stage(self, parameterObj):
+        '''only remembers last command per module'''
         self.data.attrs[parameterObj._MODULE] = parameterObj._get_cmd()
-
-    def get_stage_cmd(self, stage):
+    
+    def get_stage(self, stage):
+        '''can only get last command per module'''
         return self.data.attrs[stage]
+    
+    def _get_store_data(self, create, overwrite):
+        if create:
+            if os.path.isdir(self.path):
+                logging.info("[-] Gimble store %r already exists." % self.path)
+                if not overwrite:
+                    logging.info("[X] Please specify '-f' to overwrite.")
+                    sys.exit(1)
+                logging.info("[+] Deleting existing ZARR store %r" % self.path)
+                shutil.rmtree(self.path)
+            logging.info("[+] Creating ZARR store %r" % self.path)
+            return zarr.open(str(self.path), mode='w')
+        logging.info("[+] Loading ZARR store %r" % self.path)
+        return zarr.open(str(self.path), mode='r+')
+    
+    def _get_zarr_prefix(self, zarr_dir):
+        '''used as prefix for output files'''
+        if isinstance(zarr_dir, pathlib.Path):
+            # remove suffix 
+            # ['blocks', 'windows', 'inference'] 
+            return str(zarr_dir.resolve().stem)
+        # ['setup']
+        return zarr_dir
+    
+    def _get_zarr_path(self, zarr_dir):
+        if isinstance(zarr_dir, pathlib.Path):
+            # ['blocks', 'windows', 'inference'] 
+            return str(zarr_dir) 
+        # add suffix 
+        # ['setup']
+        return "%s.z" % zarr_dir
+    
+    def _create_meta(self):
+        self.data.create_group('seqs/meta/files')
+        self.data['seqs/meta/files'].attrs.put({'vcf_f': '', 'sample_f': '', 'genome_f': '', 'bed_f': ''})
+        self.data.create_group('seqs/meta/sequences')
+        self.data['seqs/meta/sequences'].attrs.put({'sequence_ids': [], 'sequence_lengths': []})
+        self.data.create_group('seqs/meta/samples')
+        self.data.create_group('seqs/meta/bed')
+        self.data.create_group('seqs/meta/variants')
+        self.data.create_group('seqs/meta/blocks')
+        self.data.create_group('seqs/meta/windows')
+
+        META_SCHEMA = {
+                'files': {'vcf_f': '', 'sample_f': '', 'genome_f': '', 'bed_f': ''}, # setup
+                'sequences': {'sequence_ids': [], 'sequence_lengths': []}, # genome_file
+                'samples': {'sample_ids' : [], 'sample_ids_vcf' : [], 'sample_ids_bed' : [], 'population_ids' : [], 'sample_sets' : [], 'sample_sets_cartesian' : []}, # sample_file
+                'bed': {'intervals': None, 'span': None}, # bed_file
+                'blocks': {'block_length' : None, 'block_span' : None, 'block_max_missing' : None, 'block_max_multiallelic' : None, 'span_in_blocks': None}, # blocks
+                'windows': {'window_size': None, 'window_step': None, 'window_count': None, 'span_in_windows': None} # windows
+            }
+        #self.data['seqs/'].attrs.put(META_SCHEMA)
+
+        #self.data['seqs/meta/samples'].attrs['sample_ids']
+    
+    def setup(self, parameterObj):
+        self._create_meta()
+        logging.info("[#] Processing Genome file %r..." % genome_file)
+        self._parse_genome_file(parameterObj.genome_file)
+        logging.info("[+] Found %s sequences of a total length of %s b..." % (
+            len(self.data['seqs/meta/sequences/ids']), 
+            sum(self.data['seqs/meta/sequences/lengths'])))
+
+        self._parse_sample_file(parameterObj.sample_file, 2)
+        self._parse_vcf_file(parameterObj.vcf_file)
+        self._parse_bed_file(parameterObj.bed_file)
+        self.add_stage(parameterObj)
+    
+    def _parse_genome_file(self, genome_file):
+        df = pd.read_csv(genome_file, 
+            sep="\t", usecols=[0,1], names=['sequence_id', 'sequence_length'], 
+            header=None, dtype={'sequence_id': str, 'sequence_length': 'Int64'})
+        self.data['seqs/meta/sequences/ids'] = df['sequence_id'].to_list()
+        self.data['seqs/meta/sequences/lengths'] = df['sequence_length'].to_list()
+        for sequence_id in self.data.attrs['sequence_ids']:
+            self.data.create_group('seqs/%s/' % sequence_id)
+        self.data.attrs['genome_f'] = str(genome_file)
+
+    def _parse_bed_file(self, parameterObj.bed_file):
+        print("[+] Parsing BED file...")
+        try:
+            bed_df = pd.read_csv(parameterObj.bed_file, sep="\t", usecols=[0,1,2], names=['sequence_id', 'start', 'end'], 
+                                    dtype={'sequence_id': str, 'start': 'Int64', 'end': 'Int64'}).sort_values(['sequence_id', 'start'], ascending=[True, True])
+        except ValueError:
+            sys.exit("[X] BED file %r does not contain the following the columns: 'sequence_id', 'start', 'end'" % (parameterObj.bed_file))
+        count_sequences = bed_df['sequence_id'].nunique()
+        count_intervals = len(bed_df.index)
+        print("[+] Found %s BED intervals on %s sequences (%s intervals/sequence)..." % (
+                                            lib.gimble.format_count(count_intervals), 
+                                            lib.gimble.format_count(count_sequences), 
+                                            lib.gimble.format_fraction(count_intervals / count_sequences)))
+        bed_df['distance'] = np.where((bed_df['sequence_id'] == bed_df['sequence_id'].shift(-1)), (bed_df['start'].shift(-1) - bed_df['end']) + 1, np.nan)
+        bed_df['length'] = (bed_df['end'] - bed_df['start'])
+        distance_counter = collections.Counter(list(bed_df['distance'].dropna(how="any", inplace=False)))
+        length_counter = collections.Counter(list(bed_df['length']))
+        distance_f = parameterObj.bed_file.parent / (parameterObj.bed_file.stem + '.distance.png')
+        plot_loglog(distance_counter, 'Distance to downstream BED interval', distance_f)
+        length_f = parameterObj.bed_file.parent / (parameterObj.bed_file.stem + '.length.png')
+        plot_loglog(length_counter, 'Length of BED interval', length_f)
+
+
+
+class Store(object):
 
     def _from_zarr(self, parameterObj):
         '''should be made more explicit'''
@@ -287,6 +458,7 @@ class Store(object):
         self.prefix = parameterObj.outprefix
         self.path = self._get_path(parameterObj.outprefix)
         self.data = zarr.open(self.path, mode='w')
+
         self._parse_genome_file(parameterObj.genome_file)
         self._parse_sample_file(
             str(parameterObj.sample_file), 
@@ -371,15 +543,6 @@ class Store(object):
         return "\n".join(
             ["\t".join([k, str(len(v)), str(type(v)), str(v)]) if isinstance(v, list) else "\t".join([k, str(v), str(type(v)), str(v)]) for k, v in self.data.attrs.asdict().items()])
 
-    def _parse_genome_file(self, genome_file):
-        logging.info("[#] Processing Genome file %r..." % genome_file)
-        df = pd.read_csv(genome_file, sep="\t", names=['sequence_id', 'sequence_length'], header=None)
-        self.data.attrs['sequence_ids'] = [str(sequence_id) for sequence_id in df['sequence_id'].to_list()] #df['sequence_id'].to_numpy(dtype=str)
-        self.data.attrs['sequence_length'] = df['sequence_length'].to_list()
-        logging.info("[+] Found %s sequences of a total length of %s b..." % (len(self.data.attrs['sequence_ids']), sum(self.data.attrs['sequence_length'])))
-        for sequence_id in self.data.attrs['sequence_ids']:
-            self.data.create_group('%s/' % sequence_id)
-        self.data.attrs['genome_f'] = str(genome_file)
         
     def _parse_sample_file(self, sample_file, pairedness):
         logging.info("[#] Processing Sample file %r ..." % sample_file)
@@ -470,8 +633,7 @@ class Store(object):
         sample_sets = self.data.attrs['sample_sets']
         #print(self.attrs())
         logging.info("[#] Processing BED file %r ..." % self.data.attrs['bed_f'])
-        df = pd.read_csv(self.data.attrs['bed_f'], sep="\t", usecols=[0, 1, 2, 4], names=['sequence_id', 'start', 'end', 'samples'], 
-            dtype={'sequence_id': str, 'start': np.int, 'end': np.int, 'samples': str})
+        df = pd.read_csv(self.data.attrs['bed_f'], sep="\t", usecols=[0, 1, 2, 4], names=['sequence_id', 'start', 'end', 'samples'], dtype={'sequence_id': str, 'start': np.int, 'end': np.int, 'samples': str})
         # remove sequence_ids that are not in sequence_names_array, sort, reset index
         intervals_df = df[df['sequence_id'].isin(sequence_ids)].sort_values(['sequence_id', 'start'], ascending=[True, True]).reset_index(drop=True)
         # get length column

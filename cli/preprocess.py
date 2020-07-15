@@ -141,7 +141,7 @@ def get_multi_callable_f(parameterObj):
         parameterObj.commands.append(cmd)
         bed_path = tmp_prefix.parent / (tmp_prefix.name + '.quantized.bed.gz')
         bed_df = pd.read_csv(bed_path, compression='gzip', sep="\t", names=['sequence_id', 'start', 'end', 'callability'], 
-                    dtype={'sequence_id': str, 'start': np.int, 'end': np.int, 'callability': str})
+                    dtype={'sequence_id': str, 'start': np.int, 'end': np.int, 'callability': str}).sort_values(['sequence_id', 'start'], ascending=[True, True])
         bed_callable_df = bed_df[bed_df['callability'] == "CALLABLE"] # subset CALLABLE regions
         bed_callable_f = tmp_prefix.parent / (tmp_prefix.name + '.callable.bed')
         write_df(bed_callable_df, out_f=bed_callable_f, sep='\t', header=False, status=False)
