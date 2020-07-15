@@ -31,26 +31,17 @@ Average per
 
 
 => pairs are imperative
-
 - 4D
 - -m 1000 span
 - -l 64 
-
-
 - we should decide whether to stick to the design principle that sum stats are averaged across pairs (each pair contributes equally irrespective of coverage). 
   - This is DIFFERENT from what happens to blocks down the line (and sum stats computed in windows), where all blocks (irrespective of pair) contribute equally. My opinion is that this difference is fine....
-
 - sensible sum stats for intraspecific pairs can be computed with minimal tweaking of the existing machinery. These are:
-
 - given n diploid individuals sampled in spp/pop 1; pairwise pi is an average over 2n(2n-1)/2=n(2n-1) comparisons of lineages. Of these, n_intra (=n) comparisons involve lineages sampled from the same diploid individual and 2n(n-1) comparisons involve lineages sampled from different individuals (there are n(n-1)/2 diploid pairs and each involves 4 pairs of lineages, so 
-
 n_inter=4n(n-1)/2= 2n(n-1)).
-
 n_intra + n_inter= n(2n-1)
-
 - d(xy,mean)_all
 - pimean_within
-
 
 - So n(pimean)+2n(n-1)(d(xy,mean))/n(2n-1) gives Nei's estimate of pi in which intra and interindividual pairs of lineages are treated equally.
 -  We should call the other pi estimates mean heterozygosity.
