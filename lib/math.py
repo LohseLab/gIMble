@@ -34,57 +34,35 @@ def get_data_array(parameterObj):
             A[tuple(mutuple)] = count
     '''
     store = lib.gimble.load_store(parameterObj)
-    print('[++]')
-    print(store.tree())
-    store.check_existing_data(parameterObj, 'blocks', fail=True)
-    if parameterObj.data_type == 'blocks':
-        store.check_existing_data(parameterObj, 'blocks', fail=True)
-        '''sum all block counts across all pairs'''
-        '''visualise somehow'''
-        pass
-    elif parameterObj.data_type == 'windows':
-        store.check_existing_data(parameterObj, 'windows', fail=True)
-        '''sum all block counts across all pairs'''
+    data_type = parameterObj.data_type #either blocks, windows, sims
+    print("THIS NEEDS TO BE ADAPTED HERE, FUNCTION NOT WORKING YET")
+    #data = store.data, DATA NEEDS TO BE LOADED IN PROPERLY
+    k_max_by_mutype = parameterObj.k_max_by_mutype
+    #what is parameterObj.mutypes??
+
+    
+    if data_type == "blocks":
+        return block_mutype_counter(data, k_max_by_mutype, mutypes)
+
+    elif data_type == "windows":
+        np.vectorize(block_mutype_counter)
+        return block_mutype_counter(data, k_max_by_mutype, mutypes)
+    elif data_type == "sims":
+        return block_mutype_counter(data, k_max_by_mutype, mutypes)
     else:
-        sys.exit("[X2] This should never happen.")
+        sys.exit("[X2] This should never happen.")        
 
-    #mutype_hdf5_store = pd.HDFStore(infile)
-    #mutype_df = pd.read_hdf(mutype_hdf5_store, key='mutypes')
-    #mutype_hdf5_store.close()
-    #shape = tuple(self.max_by_mutype[mutype] + 2 for mutype in MUTYPES)
-    #mutuple_count_matrix = np.zeros(shape, np.float64)
-    ##print(self.ancestor_population_id, (entityCollection.populationObjs[0].id, entityCollection.populationObjs[1].id))
-    ##print("before")
-    ##print(mutype_df)
-    #if self.ancestor_population_id == entityCollection.populationObjs[0].id:
-    #    # mutuples do not have to be flipped
-    #    print("[+] Ancestor is %s ..." % self.ancestor_population_id)
-    #elif self.ancestor_population_id == entityCollection.populationObjs[1].id:
-    #    mutype_df.rename(columns={'hetA': 'hetB', 'hetB': 'hetA'}, inplace=True)
-    #    print("[+] Ancestor is %s (hetA and hetB will be flipped)... " % self.ancestor_population_id)
-    ##print("before")
-    ##print(mutype_df)
-    ## this has to be changed if order of mutypes changes
-    #FGV_count = 0
-    #kmax_binned_count = 0
-    #total_count = mutype_df['count'].sum()
-    #for count, hetA, fixed, hetB, hetAB in tqdm(mutype_df[['count'] + MUTYPES].values, total=len(mutype_df.index), desc="[%] ", ncols=100):
-    #    #print(hetA, fixed, hetB, hetAB)
-    #    mutuple = (hetA, fixed, hetB, hetAB)
-    #    if mutuple[1] > 0 and mutuple[3] > 0:
-    #        FGV_count += count  
-    #    if any([count > self.kmax for count in mutuple]):
-    #        kmax_binned_count += count
-    #    mutuple_vector = tuple([count if not count > self.max_by_mutype[mutype] else self.max_by_mutype[mutype] + 1 for count, mutype in zip(mutuple, MUTYPES)])
-    #    
-    #    mutuple_count_matrix[mutuple_vector] += count
-    #    #print(count, hetA, fixed, hetB, hetAB, mutuple_vector, mutuple_count_matrix)
-    #print("[=] Total mutuple count = %s" % (format_count(total_count)))
-    #print("[=] Counts excluded due to four-gamete-violations = %s (%s)" % (format_count(FGV_count), format_percentage(FGV_count / total_count)))
-    #print("[=] Counts binned due to kmax = %s (%s)" % (format_count(kmax_binned_count), format_percentage(kmax_binned_count / total_count)))
-    #return mutuple_count_matrix
-
-
+def block_mutype_counter(blockcounts, k_max_by_mutype, mutypes):
+    A = np.zeros(tuple(k_max_by_mutype[mutype] + 2 for mutype in mutypes), np.float64)
+    #does A contain floats rather than ints?
+    counts, unique = blockcounts[:,0], blockcounts[:,1:]    
+    capped = np.clip(counts, [0 for i in len(k_max_by_mutype)], kmax_by_mutype)
+    #need to collapse values that are no longer unique, so we can no longer use the faster
+    #A[tuple(unique.transpose)] = counts approach
+    for mutype, count in zip(capped, counts) 
+        A[mutype]+=count
+    return A 
+    
 def multinomial(lst):
     '''https://stackoverflow.com/questions/46374185/does-python-have-a-function-which-computes-multinomial-coefficients'''
     res, i = 1, 1
@@ -282,7 +260,7 @@ class EquationSystemObj(object):
                 sys.exit("[-] Monomorphic check failed: P(monomorphic) = %s (should be 1)" % equationObj.result)
             else:
                 print("[+] Monomorphic check passed: P(monomorphic) = %s" % equationObj.result)
-
+    
     def calculate_PODs(self):
         print("[=] ==================================================")
         print("[+] Calculating PODs ...")
@@ -307,7 +285,8 @@ class EquationSystemObj(object):
                     for resultObj in pool.imap_unordered(calculate_inverse_laplace, parameter_batches):
                         equationObj_by_matrix_idx[resultObj.matrix_idx] = resultObj
                         pbar.update()
-
+    
+            
         PODs = np.zeros(tuple(self.k_max_by_mutype[mutype] + 2 for mutype in self.mutypes), np.float64)
         for matrix_id, equationObj in equationObj_by_matrix_idx.items():
             if equationObj.marginal_idx is None:

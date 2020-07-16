@@ -10,6 +10,8 @@ __pycache__/
 .test
 test.*
 .test/
+.output
+output
 
 # C extensions
 *.so
