@@ -7,6 +7,7 @@ import pandas as pd
 import shutil
 import zarr
 import os
+import string
 import logging
 import collections
 import sys
@@ -49,7 +50,14 @@ def format_fraction(fraction, precision=2):
 def format_count(count):
     return "%s" % str(format(count, ',d'))
 
-
+def get_n50_from_lengths(lengths):
+    length_sorted = sorted(lengths, reverse=True)
+    cum_sum = np.cumsum(length_sorted)
+    half = int(sum(lengths)/2)
+    cum_sum_2 =min(cum_sum[cum_sum >= half])
+    n50_idx = np.where(cum_sum == cum_sum_2)
+    return length_sorted[int(n50_idx[0][0])]
+    
 def fix_pos_array(pos_array):
     '''
     De-duplicates array by shifting values forward until there aren't any collisions
@@ -376,51 +384,164 @@ class Store(object):
         # ['setup']
         return "%s.z" % zarr_dir
     
-    def _create_meta(self):
-        self.data.create_group('seqs/meta/files')
-        self.data['seqs/meta/files'].attrs.put({'vcf_f': '', 'sample_f': '', 'genome_f': '', 'bed_f': ''})
-        self.data.create_group('seqs/meta/sequences')
-        self.data['seqs/meta/sequences'].attrs.put({'sequence_ids': [], 'sequence_lengths': []})
-        self.data.create_group('seqs/meta/samples')
-        self.data.create_group('seqs/meta/bed')
-        self.data.create_group('seqs/meta/variants')
-        self.data.create_group('seqs/meta/blocks')
-        self.data.create_group('seqs/meta/windows')
-
-        META_SCHEMA = {
-                'files': {'vcf_f': '', 'sample_f': '', 'genome_f': '', 'bed_f': ''}, # setup
-                'sequences': {'sequence_ids': [], 'sequence_lengths': []}, # genome_file
-                'samples': {'sample_ids' : [], 'sample_ids_vcf' : [], 'sample_ids_bed' : [], 'population_ids' : [], 'sample_sets' : [], 'sample_sets_cartesian' : []}, # sample_file
-                'bed': {'intervals': None, 'span': None}, # bed_file
-                'blocks': {'block_length' : None, 'block_span' : None, 'block_max_missing' : None, 'block_max_multiallelic' : None, 'span_in_blocks': None}, # blocks
-                'windows': {'window_size': None, 'window_step': None, 'window_count': None, 'span_in_windows': None} # windows
-            }
-        #self.data['seqs/'].attrs.put(META_SCHEMA)
-
-        #self.data['seqs/meta/samples'].attrs['sample_ids']
-    
     def setup(self, parameterObj):
-        self._create_meta()
-        logging.info("[#] Processing Genome file %r..." % genome_file)
+        logging.info("[#] Initialising store...")
+        self._init_meta(overwrite=True)
+        logging.info("[#] Processing genome file %r..." % parameterObj.genome_file)
         self._parse_genome_file(parameterObj.genome_file)
-        logging.info("[+] Found %s sequences of a total length of %s b..." % (
-            len(self.data['seqs/meta/sequences/ids']), 
-            sum(self.data['seqs/meta/sequences/lengths'])))
-
+        logging.info("[#] Processing sample file %r..." % parameterObj.sample_file)
         self._parse_sample_file(parameterObj.sample_file, 2)
+        logging.info("[#] Processing vcf file %r..." % parameterObj.vcf_file)
         self._parse_vcf_file(parameterObj.vcf_file)
+        logging.info("[#] Processing vcf file %r..." % parameterObj.bed_file)
         self._parse_bed_file(parameterObj.bed_file)
         self.add_stage(parameterObj)
     
+    def _init_meta(self, overwrite=False):
+        # seqs
+        defaults_by_group = {
+            'seqs/meta/files': {'vcf_f': '', 'sample_f': '', 'genome_f': '', 'bed_f': ''},
+            'seqs/meta/sequences' : {'sequence_ids': [], 'sequence_lengths': [], 'n50' = 0},
+            'seqs/meta/samples' : {'samples' : [], 'populations' : [], 'sample_sets' : [], 'sample_sets_cartesian' : []},
+            'seqs/meta/variants/': {
+                'variant_counts': [], 'vcf_samples': [], 'gt_idx_by_sample': {}, 
+                'count_hom_ref_by_sample': {}, 'count_hom_alt_by_sample': {}, 'count_het_by_sample': {}, 'count_missing_by_sample': {}}
+            'seqs/meta/intervals' : {'count': 0, 'span': 0, 'bed_samples': []},
+            'seqs/meta/blocks' : {'block_length' : 0, 'block_span' : 0, 'block_max_missing' : 0, 'block_max_multiallelic' : 0, 'span_in_blocks': 0},
+            'seqs/meta/windows' : {'window_size': 0, 'window_step': 0, 'window_count': 0, 'span_in_windows': 0}
+        }
+        for group, default in defaults_by_group.items():
+            self.data.require_group(group, overwrite=overwrite)
+            self.data[group].attrs.put(default)    
+        # sims
+        # ...
+
     def _parse_genome_file(self, genome_file):
-        df = pd.read_csv(genome_file, 
-            sep="\t", usecols=[0,1], names=['sequence_id', 'sequence_length'], 
+        df = pd.read_csv(
+            genome_file, sep="\t", usecols=[0,1], names=['sequence_id', 'sequence_length'], 
             header=None, dtype={'sequence_id': str, 'sequence_length': 'Int64'})
-        self.data['seqs/meta/sequences/ids'] = df['sequence_id'].to_list()
-        self.data['seqs/meta/sequences/lengths'] = df['sequence_length'].to_list()
+        print("[TBT] Test for bad TSV")
+        print(df) 
+        if df.isnull().values.any():
+            sys.exit("[X] Bad TSV file %r." % genome_file)
+        self.data.attrs['seqs/meta/sequences/']['ids'] = df['sequence_id'].to_list()
+        self.data.attrs['seqs/meta/sequences/']['lengths'] = df['sequence_length'].to_list()
+        self.data.attrs['seqs/meta/sequences/']['n50'] = get_n50_from_lengths(self.data['seqs/meta/sequences/lengths'])
         for sequence_id in self.data.attrs['sequence_ids']:
             self.data.create_group('seqs/%s/' % sequence_id)
-        self.data.attrs['genome_f'] = str(genome_file)
+        self.data.attrs['seqs/meta/files/']['genome_f'] = str(genome_file)
+
+    def _parse_sample_file(self, sample_file, pairedness):
+        df = pd.read_csv(
+            sample_file, sep=",", usecols=[0,1], names=['samples', 'populations'],
+            header=None, dtype={'samples': str, 'populations': str})
+        print("[TBT] Test for bad CSV")
+        print(df)
+        if df.isnull().values.any():
+            sys.exit("[X] Bad CSV file %r." % sample_file)
+        self.data.attrs['seqs/meta/samples/']['samples'] = df['sequence_id'].to_list()
+        self.data.attrs['seqs/meta/samples/']['populations'] = df['population_ids'].to_list()
+        self.data.attrs['seqs/meta/samples/']['population_ids'] = sorted(set(df['population_id'].to_list()))
+        population_by_sample = {sample: population for sample, population in zip(
+            self.data.attrs['seqs/meta/samples/']['samples'], 
+            self.data.attrs['seqs/meta/samples/']['populations'])}
+        self.data.attrs['seqs/meta/samples/']['population_by_sample'] = population_by_sample
+        self.data.attrs['seqs/meta/samples/']['sample_sets'] = [
+            tuple(sorted(x, key=(population_by_sample.get if population_by_sample[x[0]] != population_by_sample[x[1]] else None))) 
+            for x in itertools.combinations(population_by_sample.keys(), 2)]
+        self.data.attrs['seqs/meta/samples/']['sample_sets_cartesian'] = [
+            True if 
+                self.data.attrs['seqs/meta/samples/population_by_sample'][sample_set[0]] == self.data.attrs['seqs/meta/samples/population_by_sample'][sample_set[1]] 
+            else False for sample_set in self.data.attrs['seqs/meta/samples/sample_sets']]
+        self.data.attrs['seqs/meta/files/']['sample_f'] = str(sample_file)
+
+    def _parse_vcf_file(self, vcf_file):
+        sequences = self.data.attrs['seqs/meta/sequences/']['id']
+        lengths = self.data.attrs['seqs/meta/sequences/']['lengths']
+        samples = self.data.attrs['seqs/meta/samples/']['samples']
+        variant_counts = []
+        count_hom_ref_by_sample = {}
+        count_hom_alt_by_sample = {}
+        count_het_by_sample = {}
+        count_missing_by_sample = {}
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            gt_key, pos_key, sample_key = 'calldata/GT', 'variants/POS', 'samples'
+            vcf_samples = allel.read_vcf(vcf_f, fields=[sample_key])[sample_key]
+            query_samples = [vcf_sample for vcf_sample in vcf_samples if vcf_sample in set(samples)] # order as they appear genotypes
+            self.data.attrs['seqs/meta/variants/']['gt_samples'] = query_samples
+            self.data.attrs['seqs/meta/variants/']['gt_idx_by_sample'] = {query_sample: idx for idx, query_sample in enumerate(query_samples)}
+            for idx, (sequence, length) in tqdm(enumerate(zip(sequences, lengths)), total=len(sequences), desc="[%] Reading variants...", ncols=100):
+                vcf_data = allel.read_vcf(vcf_file, region=seq_id, samples=samples_query, fields=[gt_key, pos_key])
+                # genotypes
+                gt_matrix = vcf_data[gt_key]
+                self.data.create_dataset("seqs/%s/variants/gt_matrix'" % seq_id, data=gt_matrix)
+                variant_counts.append(gt_matrix.shape[0])
+                sa_genotype_matrix = allel.GenotypeArray(gt_matrix)
+                count_array_hom_ref = sa_genotype_matrix.count_hom_ref(axis=0)
+                count_array_hom_alt = sa_genotype_matrix.count_hom_alt(axis=0)
+                count_array_het = sa_genotype_matrix.count_het(axis=0)
+                count_array_missing = sa_genotype_matrix.count_missing(axis=0)
+                for sample, vcf_idx in self.data.attrs['seqs/meta/variants/']['gt_idx_by_sample'].items():
+                    count_hom_ref_by_sample[sample] = hom_ref_by_sample.get(sample, 0) + count_array_hom_ref[idx]
+                    count_hom_alt_by_sample[sample] = hom_alt_by_sample.get(sample, 0) + count_array_hom_alt[idx]
+                    count_het_by_sample[sample] = het_by_sample.get(sample, 0) + count_array_het[idx]
+                    count_missing_by_sample[sample] = missing_by_sample.get(sample, 0) + count_array_missing[idx]
+                # positions
+                pos_array = vcf_data[pos_key] - 1 # port to BED (0-based) coordinates
+                unique_pos, counts_pos = np.unique(pos_array, return_counts=True)
+                duplicates = unique_pos[counts_pos > 1]
+                if duplicates.any():
+                    print("\n[-] Sequence %r: %s VCF records with non-unique positions found. Rescuing records by shifting position... (abort if this is not desired)" % (seq_id, len(duplicates)))
+                    pos_array = fix_pos_array(pos_array)
+                self.data.create_dataset("seqs/%s/variants/pos" % seq_id, data=pos_array)
+        self.data.attrs['seqs/meta/variants/']['count_hom_ref_by_sample'] = count_hom_ref_by_sample
+        self.data.attrs['seqs/meta/variants/']['count_hom_alt_by_sample'] = count_hom_alt_by_sample
+        self.data.attrs['seqs/meta/variants/']['count_het_by_sample'] = count_het_by_sample
+        self.data.attrs['seqs/meta/variants/']['count_missing_by_sample'] = count_missing_by_sample
+        self.data.attrs['seqs/meta/variants/']['variant_counts'] = variant_counts
+        self.data.attrs['seqs/meta/files/']['vcf_f'] = str(sample_file)
+
+    def info(self, verbose = False):
+        print("[=] ==========================================")
+        SPACING = 16
+        print(f"[+] [{'GStore'.center(SPACING)}] {self.path}")
+        sequence_lengths = self.data.attrs['seqs/meta/sequences/']['lengths']
+        sequence_span = format_bases(sum(sequence_lengths))
+        sequence_count = format_count(len(sequence_lengths))
+        sequence_n50 = format_bases(get_n50_from_lengths(sequence_lengths))
+        print(f"[+] [{'Genome'.center(SPACING)}] {sequence_span} in {sequence_count} sequence(s) (N50={sequence_n50})")
+        samples = self.data.attrs['seqs/meta/samples/']['samples']
+        populations = self.data.attrs['seqs/meta/samples/']['populations']
+        population_ids = self.data.attrs['seqs/meta/samples/']['population_ids']
+        samples_count = len(samples)
+        population_count = len(population_ids)
+        print(f"[+] [{'Samples'.center(SPACING)}] {samples_count} in {population_count} populations")
+        for idx, (population_id, population_char) in enumerate(zip(population_ids, string.ascii_uppercase)):
+            population_samples = [sample for sample, population in zip(sample, populations) if population == population_id]
+            population_sample_count = len(population_samples)
+            print(f"[+] [{'Population {population_char}'.center(SPACING)}] {population_id} has {population_sample_count} samples")
+            if verbose:
+                population_sample_string = ", ".join(population_samples)
+                print(f"[+] [{'Samples in {population_char}'.center(SPACING)}] {population_sample_string}")
+        variant_counts = self.data.attrs['seqs/meta/variants/']['variant_counts']
+        variant_samples = self.data.attrs['seqs/meta/variants/']['vcf_samples']
+        variants_total = sum(variant_counts)
+        print(f"[+] [{'Variants'.center(SPACE)}] {variants_total} VCF records for  populations")
+        # TABLE
+        logging.info("[+] Found %s samples from %s populations. Generated %s sets of %s samples" % (
+            len(self.data.attrs['sample_ids']), 
+            len(self.data.attrs['population_ids']),
+            len(self.data.attrs['sample_sets']),
+            pairedness
+            ))
+        #logging.info("[+] Found %s sequences of a total length of %s b..." % (
+        #    len(self.data['seqs/meta/sequences/ids']), 
+        #    sum(self.data['seqs/meta/sequences/lengths'])))
+
+    
+
+
 
     def _parse_bed_file(self, parameterObj.bed_file):
         print("[+] Parsing BED file...")
@@ -543,38 +664,6 @@ class Store(object):
         return "\n".join(
             ["\t".join([k, str(len(v)), str(type(v)), str(v)]) if isinstance(v, list) else "\t".join([k, str(v), str(type(v)), str(v)]) for k, v in self.data.attrs.asdict().items()])
 
-        
-    def _parse_sample_file(self, sample_file, pairedness):
-        logging.info("[#] Processing Sample file %r ..." % sample_file)
-        df = pd.read_csv(sample_file, sep=",", names=['sample_id', 'population_id'])
-        if df.isnull().values.any():
-            sys.exit("[X] Sample IDs are missing population IDs in %r." % sample_file)
-        self.data.attrs['sample_ids'] = df['sample_id'].to_list() # Order as they appear in file
-        self.data.attrs['population_ids'] = df['population_id'].to_list() 
-        self.data.attrs['pop_ids'] = sorted(set(df['population_id'].to_list())) # Sorted pop_ids
-        pop_id_by_sample_id = {sample_id: pop_id for sample_id, pop_id in zip(self.data.attrs['sample_ids'], self.data.attrs['population_ids'])}
-        #print('pop_id_by_sample_id', pop_id_by_sample_id)
-        self.data.attrs['pop_ids_by_sample_id'] = pop_id_by_sample_id
-        self.data.attrs['sample_sets'] = [sorted(x, key=(pop_id_by_sample_id.get if pop_id_by_sample_id[x[0]] != pop_id_by_sample_id[x[1]] else None)) for x in itertools.combinations(pop_id_by_sample_id.keys(), 2)] #[tuple(_) for _ in itertools.combinations(self.data.attrs['sample_ids'], pairedness)] # DO NOT SORT, otherwise there could be erroneously polarised sample sets (pop2, pop1)
-        #print('self.data.attrs["sample_sets"]', self.data.attrs['sample_sets'])
-        self.data.attrs['idx_cartesian_sample_sets'] = [idx for idx, sample_set in enumerate(self.data.attrs['sample_sets']) if (len(set([self.data.attrs['pop_ids_by_sample_id'][sample_id] for sample_id in sample_set])) == len(self.data.attrs['pop_ids']))]
-        
-        # TEST FOR CORRECT SAMPLE_SET POLARISATION
-        _pops = []
-        for sample_set in self.data.attrs['sample_sets']:
-            _pops.append(tuple(
-                [self.data.attrs['pop_ids_by_sample_id'][sample_set[0]],
-                self.data.attrs['pop_ids_by_sample_id'][sample_set[1]]]
-                ))
-        print(collections.Counter(_pops))
-        logging.info("[+] Found %s samples from %s populations. Generated %s sets of %s samples" % (
-            len(self.data.attrs['sample_ids']), 
-            len(self.data.attrs['population_ids']),
-            len(self.data.attrs['sample_sets']),
-            pairedness
-            ))
-        self.data.attrs['sample_f'] = str(sample_file)
-        self.data.attrs['pairedness'] = pairedness
 
     def _parse_vcf_file(self, vcf_file):
         sample_ids = self.data.attrs['sample_ids']
