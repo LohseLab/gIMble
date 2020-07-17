@@ -31,43 +31,52 @@ def run_sim(parameterObj):
         params["sample_size_A"][0], params["sample_size_B"][0]
     )
     print(f"[+] simulating {replicates} replicate(s) of {blocks} block(s) for {len(sim_configs)} parameter combinations")
-    root = store.data.create_group('sims', overwrite=True)
-    for idx, (config, zarr_attrs) in enumerate(zip(msprime_configs, sim_configs)):
-        seeds = np.random.randint(1, 2 ** 32, replicates)
+    store.data.require_group('sims')
+    #check how many simulation runs we have already done
+    #count number of groups in this level and add one
+    if len(store.data['sims'])==0:
+        runcount = 0
+    else:
+        runcount = max([int(group[0].split('_')[-1]) for group in list(store.data['sims'].groups())])
+    new_run_number = runcount + 1
+    root = store.data.create_group(f'sims/run_{new_run_number}')
+    with tqdm(total=replicates*len(sim_configs), desc="[%] running sims ", ncols=100, unit_scale=True) as pbar:
+        for idx, (config, zarr_attrs) in enumerate(zip(msprime_configs, sim_configs)):
+            seeds = np.random.randint(1, 2 ** 32, replicates)
 
-        if threads > 1:
-            with multiprocessing.Pool(processes=threads) as pool:
+            if threads > 1:
+                with multiprocessing.Pool(processes=threads) as pool:
 
-                run_sims_specified = partial(
-                    run_ind_sim,
-                    msprime_config=config,
-                    ploidy=ploidy,
-                    blocks=blocks,
-                    blocklength=blocklength,
-                    comparisons=all_interpop_comparisons,
-                )
-                result_list = pool.map(run_sims_specified, seeds)
-        else:
-            result_list = []
-            for seed in seeds:
-                result_list.append(
-                    run_ind_sim(
-                        seed=seed,
+                    run_sims_specified = partial(
+                        run_ind_sim,
                         msprime_config=config,
                         ploidy=ploidy,
                         blocks=blocks,
                         blocklength=blocklength,
                         comparisons=all_interpop_comparisons,
                     )
-                )
+                    result_list = pool.map(run_sims_specified, seeds)
+            else:
+                result_list = []
+                for seed in seeds:
+                    result_list.append(
+                        run_ind_sim(
+                            seed=seed,
+                            msprime_config=config,
+                            ploidy=ploidy,
+                            blocks=blocks,
+                            blocklength=blocklength,
+                            comparisons=all_interpop_comparisons,
+                        )
+                    )
 
-        name = f"parameter_combination_{idx}"
-        g = root.create_group(name)
-        g.attrs.put(zarr_attrs)
-        for idx2, (d, s) in enumerate(zip(result_list, seeds)):
-            g.create_dataset(f"replicate_{idx2}", data=d, overwrite=True)
-            g[f"replicate_{idx2}"].attrs["seed"] = str(s)
-
+            name = f"parameter_combination_{idx}"
+            g = root.create_group(name)
+            g.attrs.put(zarr_attrs)
+            for idx2, (d, s) in enumerate(zip(result_list, seeds)):
+                g.create_dataset(f"replicate_{idx2}", data=d, overwrite=True)
+                g[f"replicate_{idx2}"].attrs["seed"] = str(s)
+                pbar.update(1)
 
 def make_sim_configs(params, ploidy):
     sample_size_A = params["sample_size_A"]
@@ -162,9 +171,8 @@ def run_ind_sim(
     """
     # with infinite sites = pre-msprime 1.0
     positions = np.array([int(site.position) for site in ts.sites()])
-    print(f"[+] {ts.num_sites} mutation(s) along the simulated sequence")
+    #print(f"[+] {ts.num_sites} mutation(s) along the simulated sequence")
     new_positions = lib.gimble.fix_pos_array(positions)
-    print("new_positions", new_positions)
     if ts.num_sites>0 and any(p>=total_length for p in new_positions):
         blocklength = new_positions[-1]
         total_length = blocks*blocklength
@@ -189,7 +197,8 @@ def run_ind_sim(
         result[idx] = lib.gimble.genotype_to_mutype_array(
             subset_genotype_array, block_sites_variant_bool, block_sites, debug=False
         )
-        
+        multiallelic, missing, monomorphic, variation = lib.gimble.block_sites_to_variation_arrays(block_sites)
+        print(variation)
     return result
 
 
@@ -204,9 +213,12 @@ def dict_product(d):
 def expand_params(d):
     for key, value in d.items():
         if len(value) > 1 and key!="recombination":
-            assert len(value) == 3, "MIN, MAX and STEPSIZE need to be specified"
-            d[key] = np.arange(value[0], value[1], value[2], dtype=float)
-
+            assert len(value) >= 3, "MIN, MAX and STEPSIZE need to be specified"
+            sim_range = np.arange(value[0], value[1]+value[2], value[2], dtype=float)
+            if len(value)==4:
+                if not any(np.isin(sim_range, value[3])):
+                    print(f"[-] Specified range for {key} does not contain specified grid center value")  
+            d[key] = sim_range
 
 def all_interpopulation_comparisons(popA, popB):
     return list(itertools.product(range(popA), range(popA, popA + popB)))

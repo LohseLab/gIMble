@@ -42,7 +42,7 @@ gIMble simulate -m
 ./gIMble simulate -m output/test.model.tsv
 
 ./gIMble simulate -m output/s_A_B.p2.n_1_1.m_AtoB.j_A_B.model.tsv -c /Users/s1854903/git/gIMble/output/s_A_B.p2.n_1_1.m_AtoB.j_A_B.model.config.yaml -z /Users/s1854903/git/gIMble/test.z
-./gIMble simulate -m output/test.model.tsv -c output/test.model.config.yaml -o output/sims_test
+./gIMble simulate -z output/sims.z -m output/test.model.tsv -c output/test.model.config.yaml
 """
 
 
@@ -93,6 +93,7 @@ class ParameterObj(RunObj):
             sys.exit("[X] Specify path for zarr file.")
 
     def _get_or_write_config(self, blocks, replicates):
+        #in case no config file is provided
         if self.config_file is None:
             print("[-] No config file found.")
             print("[+] Generating config file for model %r" % self.model_file)
@@ -127,6 +128,7 @@ class ParameterObj(RunObj):
             config["recombination"]["recombination_map"] = "FILE_PATH"
             config["recombination"]["cutoff"] = "INT_0_100"
             config["recombination"]["number_bins"] = "INT"
+            config["recombination"]["scale"]="LINEAR/LOG"
             for parameter in config["parameters"]:
                 if parameter not in ["sample_size_A", "sample_size_B"]:
                     config["boundaries"][parameter] = ["MIN", "MAX", "STEPSIZE"]
@@ -140,72 +142,61 @@ class ParameterObj(RunObj):
             sys.exit(
                 "[X] Please specify parameters in config file %r" % str(config_file)
             )
+
+        #if a config file is given
         else:
             print("[+] Reading config %r" % self.config_file)
             config_raw = yaml.safe_load(open(self.config_file, "r"))
             config = {}
-            for k, v in config_raw.items():
-                if k == "version":
-                    config[k] = v
-                elif k == "model":
-                    config[k] = v
-                elif isinstance(v, str):
-                    sys.exit(
-                        "[X] Config file error: %r should be a number (not %r)."
-                        % (k, v)
-                    )
-                elif k == "parameters":
-                    config["parameters"] = {}
-                    for v_k, v_v in config_raw[k].items():
-                        if isinstance(v_v, str):  # parameter not set
-                            if any(
-                                [
-                                    isinstance(bound, str)
-                                    for bound in config_raw["boundaries"][v_k]
-                                ]
-                            ):
-                                sys.exit(
-                                    "[X] Config file error: set parameter or boundaries for %r (not %r)."
-                                    % (v_k, v_v)
-                                )
-                            else:
-                                config["parameters"][v_k] = config_raw["boundaries"][
-                                    v_k
-                                ]
-                        else:
-                            config[k][v_k] = [
-                                v_v,
-                            ]
-                elif k == "boundaries":
-                    pass
-                elif k == "recombination":
-                    file_path = config_raw[k]['recombination_map']
-                    if file_path != 'FILE_PATH':
-                        file_path = pathlib.Path(file_path)
-                        if file_path.is_file():
-                            cutoff = config_raw[k]['cutoff']
-                            rbins = config_raw[k]['number_bins']
-                            if isinstance(cutoff, str):
-                                cutoff = 90
-                            if isinstance(rbins, str):
-                                rbins = 10
-                            if isinstance(config_raw[k]['rate'], float):
-                                sys.exit("[X] Either provide a recombination map or a rate")
-                            window_bin, to_be_simulated = self._parse_recombination_map(file_path.as_posix(), cutoff, rbins)
-                            config["parameters"]["recombination"] = to_be_simulated
-                        else:
-                            sys.exit("[X] Incorrect path to recombination map")
-                    else:
-                        rec_rate = config_raw[k]['rate']
-                        if isinstance(rec_rate, float):
-                            config["parameters"]["recombination"] = [rec_rate,]
-                        else:
-                            config["parameters"]["recombination"] = [0.0,]
+            for k in ['version', 'model', 'precision']:
+                config[k]=config_raw[k]
+            for k in ['blocks', 'blocklength', 'replicates', 'ploidy']:
+                assert isinstance(config_raw[k], int), f"integer value required for {k}"
+                config[k]=int(config_raw[k])
+            config["parameters"] = {}
+            
+            #boundaries and parameters
+            for key, value in config_raw['boundaries'].items():
+                if any(isinstance(v, str) for v in value):
+                    assert not isinstance(config_raw['parameters'][key], str), f"value required for parameter {k}"
+                    config['parameters'][key] = [config_raw['parameters'][key],]
                 else:
-                    config[k] = v
-            for k, name in zip([blocks, replicates], ["blocks", "replicates"]):
-                if k:
-                    config[name] = int(k)
+                    config['parameters'][key] = value
+                    center = config_raw['parameters'][key]
+                    if not isinstance(center,str):
+                        config['parameters'][key].append(center)
+            
+            #sample size
+            config["parameters"]["sample_size_A"] = [config_raw["parameters"]["sample_size_A"],]
+            config["parameters"]["sample_size_B"] = [config_raw["parameters"]["sample_size_B"],]
+
+            #recombination
+            file_path = config_raw['recombination']['recombination_map']
+            if file_path != 'FILE_PATH':
+                file_path = pathlib.Path(file_path)
+                if file_path.is_file():
+                    cutoff = config_raw['recombination']['cutoff']
+                    rbins = config_raw['recombination']['number_bins']
+                    if isinstance(cutoff, str):
+                        cutoff = 90
+                    if isinstance(rbins, str):
+                        rbins = 10
+                    if isinstance(config_raw['recombination']['rate'], float):
+                        sys.exit("[X] Either provide a recombination map or a rate")
+                    scale = config_raw['recombination']['scale']
+                    window_bin, to_be_simulated = self._parse_recombination_map(file_path.as_posix(), cutoff, rbins, scale)
+                    #at the moment window_bin info is not used but should be
+                    #indicates to which bin each window belongs
+                    config["parameters"]["recombination"] = to_be_simulated
+                else:
+                    sys.exit("[X] Incorrect path to recombination map")
+            else:
+                rec_rate = config_raw['recombination']['rate']
+                if isinstance(rec_rate, float):
+                    config["parameters"]["recombination"] = [rec_rate,]
+                else:
+                    config["parameters"]["recombination"] = [0.0,]
+
             (pop_configs, columns) = self._parse_model_file()
             assert (
                 config["parameters"]["sample_size_A"][0] == pop_configs["A"]
@@ -227,26 +218,40 @@ class ParameterObj(RunObj):
             pop_configs["ploidy"] = count_el[0]
             return (pop_configs, columns)
 
-    def _parse_recombination_map(self, v, cutoff, bins):
+    def _parse_recombination_map(self, v, cutoff, bins, scale):
         #load bedfile
         hapmap = pd.read_csv(v, sep='\t', 
-            names=['chrom', 'chromStart', 'chromEnd', 'rec'])
+            names=['chrom', 'chromStart', 'chromEnd', 'rec'], header=None)
         #from cM/Mb to rec/bp
         hapmap['rec_scaled'] = hapmap['rec']*1e-8
-        return self._make_bins(hapmap['rec_scaled'], cutoff, bins)
+        return self._make_bins(hapmap['rec_scaled'], scale, cutoff, bins)
 
-    def _make_bins(self, x, cutoff=90, bins=10):
-        
-        #cutoff is value between 0 and 100
+    def _make_bins(self, x, scale, cutoff=90, bins=10):
+        x=np.array(x)
         clip_value = np.percentile(x,cutoff)
         clip_array = np.clip(x, a_min=None, a_max=clip_value)
-        counts, bin_edges = np.histogram(clip_array, bins=bins)
+        with_zero = np.count_nonzero(x==0.0)
+        if scale.lower() == "log":
+            start, stop = np.min(clip_array), np.max(clip_array)
+            if with_zero:
+                zero_index = np.where(clip_array==0.0)
+                start=np.min(np.delete(clip_array, zero_index))
+            start, stop = np.log10(start), np.log10(stop)
+            bin_edges = np.logspace(start, stop, num=bins)
+            counts, bin_edges = np.histogram(clip_array, bins=bin_edges)
+        
+        elif scale.lower() == "linear": 
+            counts, bin_edges = np.histogram(clip_array, bins=bins)
+        else:
+            sys.exit("[-] Scale of recombination values to be simulated should either be LINEAR or LOG")
         bin_with_counts = counts>0
-        count_zeros = x.size - np.count_nonzero(x)
+        no_counts = bins-sum(1 for v in bin_with_counts if v)
+        print(f"[+] There are {no_counts} recombination bins without counts")
         to_be_simulated  = [(stop + start)/2 for start, stop, c in zip(bin_edges[:-1],bin_edges[1:], bin_with_counts) if c]
-        if count_zeros:
-            to_be_simulated = [0] + to_be_simulated
+        if with_zero:
+            to_be_simulated = [0] + list(to_be_simulated)
         #assign each window to a specific bin
+        #needs to be adjusted to the actual bins that are simulated
         #if there are windows with rec rate zero these will be simulated as well.
         window_bin = np.digitize(clip_array, bin_edges, right=True)
         return (window_bin, list(to_be_simulated))
