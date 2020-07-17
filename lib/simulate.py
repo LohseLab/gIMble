@@ -84,10 +84,12 @@ def make_sim_configs(params, ploidy):
     num_samples = sample_size_A + sample_size_B
     C_A = params["C_A"]
     C_B = params["C_B"]
+    if "C_A_B" in params:
+        C_AB = params["C_A_B"] if params["C_A_B"] else C_A + C_B
+    else: C_AB = C_A
     mutation_rate = params["theta"]
     rec_rate = params["recombination"]
 
-    demographic_events = None
     population_configurations = [
         msprime.PopulationConfiguration(
             sample_size=sample_size_A * ploidy, initial_size=C_A
@@ -95,29 +97,32 @@ def make_sim_configs(params, ploidy):
         msprime.PopulationConfiguration(
             sample_size=sample_size_B * ploidy, initial_size=C_B
         ),
+        msprime.PopulationConfiguration(
+            sample_size=0, initial_size=C_AB
+        )
     ]
+
     migration_matrix = np.zeros((3, 3))  # migration rate needs to be divided by 4Ne
+    #migration matirx: M[i,j]=k k is the fraction of population i consisting of migrants
+    # from population j, FORWARDS in time.
+    #here migration is defined backwards in time
     if "M_A_B" in params:
-        # migration A to B backwards
-        migration_matrix[1, 0] = params["M_A_B"]
+        # migration A to B backwards, forwards in time, migration from B to A
+        migration_matrix[0, 1] = params["M_A_B"]
     if "M_B_A" in params:
-        # migration B to A
-        migration_matrix[0, 1] = params["M_B_A"]
-    if "C_A_B" in params:
-        C_AB = params["C_A_B"] if params["C_A_B"] else C_A + C_B
-        population_configurations += [
-            msprime.PopulationConfiguration(sample_size=0, initial_size=C_AB),
-        ]
-        # demographic events: specify in the order they occur backwards in time
-        demographic_events = [
-            msprime.MassMigration(
-                time=params["T"], source=0, destination=2, proportion=1.0
-            ),
-            msprime.MassMigration(
-                time=params["T"], source=1, destination=2, proportion=1.0
-            ),
-            msprime.MigrationRateChange(params["T"], 0),
-        ]
+        # migration B to A, forwards in time, migration from A to B
+        migration_matrix[1, 0] = params["M_B_A"]
+    
+    # demographic events: specify in the order they occur backwards in time
+    demographic_events = [
+        msprime.MassMigration(
+            time=params["T"], source=0, destination=2, proportion=1.0
+        ),
+        msprime.MassMigration(
+            time=params["T"], source=1, destination=2, proportion=1.0
+        ),
+        msprime.MigrationRateChange(params["T"], 0),
+    ]
 
     return (
         population_configurations,
@@ -198,7 +203,7 @@ def run_ind_sim(
             subset_genotype_array, block_sites_variant_bool, block_sites, debug=False
         )
         multiallelic, missing, monomorphic, variation = lib.gimble.block_sites_to_variation_arrays(block_sites)
-        print(variation)
+
     return result
 
 
