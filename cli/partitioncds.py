@@ -127,10 +127,6 @@ def get_transcripts(parameterObj, sequence_by_id):
     bed_df = parse_bed(parameterObj.bed_file)
     transcriptObjs = []
     for transcript_id, transcript_df in tqdm(bed_df.groupby(['transcript_id']), desc="[%] Reading BED...", ncols=150):
-        if not transcript_df['orientation'].nunique():
-            sys.exit("[X] More than one orientation found in CDSs of transcript %s\n%s" % (transcript_id, transcript_df))
-        if not transcript_df['sequence_id'].nunique():
-            print("[-] More than one sequence found in CDSs of transcript %s\n%s" % (transcript_id, transcript_df))
         transcriptObj = TranscriptObj(transcript_id)
         transcriptObj.add_cds_from_df(transcript_df, sequence_by_id)
         if transcriptObj.positions.shape[0] > 6:
@@ -168,14 +164,10 @@ class TranscriptObj(object):
                 cds_list.append(cds)
         sequence = "".join(cds_list)
         self.sequence = np.array(list(sequence))
-        #if self.is_divisible_by_three():
         self.degeneracy = np.concatenate([degeneracy(["".join(sequence[i:i+3])]) for i in range(0, len(sequence), 3)])
-        #if self.degeneracy is None:
-        #    print('self.transcript_id', self.transcript_id)
-        #    print('self.sequence', self.sequence)
-        #    print('self.is_orf()', self.is_orf())
-        #    sys.exit()
         self.positions = np.concatenate(pos_arrays)
+        if self.orientation == '-':
+            self.positions = self.positions[::-1]
         self.start = np.min(self.positions)
         self.end = np.max(self.positions)
 
@@ -327,22 +319,13 @@ def infer_degeneracy(transcriptObjs, samples, variant_arrays_by_seq_id):
     #for sample in samples:
     #    print('degeneracy_arrays_by_sample[%s].shape' % sample, degeneracy_arrays_by_sample[sample].shape)
     for sample in tqdm(samples, total=len(samples), desc="[%] Writing output... ", ncols=150):
-        #a = np.concatenate(sequence_id_arrays)
-        #b = np.concatenate(start_arrays)
-        #c = np.concatenate(end_arrays)
-        #d = np.concatenate(degeneracy_arrays_by_sample[sample])
-        #print('a.shape', a.shape)
-        #print('type(b)', type(b), 'b.shape', b.shape)
-        #print('c.shape', c.shape)
-        #print('d.shape', d.shape, d[0:3])
-
         data = np.vstack([
             np.concatenate(sequence_id_arrays),
             np.concatenate(start_arrays),
             np.concatenate(end_arrays),
             np.concatenate(degeneracy_arrays_by_sample[sample]),
         ]).T
-        df = pd.DataFrame(data=data, columns=['sequence_id', 'start', 'end', 'degeneracy'])
+        df = pd.DataFrame(data=data, columns=['sequence_id', 'start', 'end', 'degeneracy']).sort_values(['sequence_id', 'start'], ascending=[True, True])
         write_df(df, out_f="%s.bed" % sample, sep='\t', header=False, status=False)
 
 def get_query_regions(transcriptObjs):
