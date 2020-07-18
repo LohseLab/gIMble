@@ -21,11 +21,28 @@ def run_sim(parameterObj):
     blocks = parameterObj._config["blocks"]
     blocklength = parameterObj._config["blocklength"]
     replicates = parameterObj._config["replicates"]
+    grid_df = parameterObj.parameter_grid
     zarr_store = parameterObj.zstore
     store = lib.gimble.load_store(parameterObj)
     
-    expand_params(params)
-    sim_configs = dict_product(params)
+    if len(params)>0:
+        expand_params(params)
+        sim_configs = dict_product(params)
+        parameters_df = pd.DataFrame(sim_configs)
+    if grid_df:
+        if grid_df and len(params)>0:
+            for df in filter(None,[parameters_df, grid_df]):
+                df['key'] = 1
+                parameters_df = pd.merge(parameters_df, grid_df,on='key')
+                parameters_df.drop(['key',], inplace=True, axis=1)
+                sim_configs = parameters_df.to_dict(orient='records')
+        else:
+            sim_configs = grid_df.to_dict(orient='records')
+    #save parameters file: use parameterObj.path -> for zarr file
+    #parameters_df.to_csv(path, sep='\t')
+    ##loop over each row in df turning it into a dict
+    print(sim_configs)
+    sys.exit()
     msprime_configs = (make_sim_configs(config, ploidy) for config in sim_configs)
     all_interpop_comparisons = all_interpopulation_comparisons(
         params["sample_size_A"][0], params["sample_size_B"][0]
@@ -108,10 +125,10 @@ def make_sim_configs(params, ploidy):
     #here migration is defined backwards in time
     if "M_A_B" in params:
         # migration A to B backwards, forwards in time, migration from B to A
-        migration_matrix[0, 1] = params["M_A_B"]
+        migration_matrix[0, 1] = params["M_A_B"] #/(4*C_A) #this needs to be verified
     if "M_B_A" in params:
         # migration B to A, forwards in time, migration from A to B
-        migration_matrix[1, 0] = params["M_B_A"]
+        migration_matrix[1, 0] = params["M_B_A"] #/(4*C_B)
     
     # demographic events: specify in the order they occur backwards in time
     demographic_events = [
@@ -157,7 +174,7 @@ def run_ind_sim(
         population_configurations=population_configurations,
         demographic_events=demographic_events,
         migration_matrix=migration_matrix,
-        mutation_rate=theta,
+        mutation_rate=theta*total_length, #needs to be multiplied by the total length
         random_seed=seed, #error was when 3582573439
     )
 
@@ -188,6 +205,7 @@ def run_ind_sim(
     # generate all comparisons
     num_comparisons = len(comparisons)
     result = np.zeros((num_comparisons, blocks, blocklength), dtype="int8")
+    #result = np.zeros((num_comparisons, blocks, 4), dtype="int64")
     for idx, pair in enumerate(comparisons):
         block_sites = np.arange(total_length).reshape(blocks, blocklength)
         # slice genotype array
@@ -202,8 +220,11 @@ def run_ind_sim(
         result[idx] = lib.gimble.genotype_to_mutype_array(
             subset_genotype_array, block_sites_variant_bool, block_sites, debug=False
         )
-        multiallelic, missing, monomorphic, variation = lib.gimble.block_sites_to_variation_arrays(block_sites)
-
+        #block_sites = lib.gimble.genotype_to_mutype_array(
+        #    subset_genotype_array, block_sites_variant_bool, block_sites, debug=False
+        #)
+        #multiallelic, missing, monomorphic, variation = lib.gimble.block_sites_to_variation_arrays(block_sites)
+        #results[idx] = variation
     return result
 
 
@@ -212,18 +233,20 @@ def get_genotypes(ts, ploidy, num_samples):
     return np.reshape(ts.genotype_matrix(), shape)
 
 def dict_product(d):
-    return [dict(zip(d, x)) for x in itertools.product(*d.values())]
+    if len(d)>0:
+        return [dict(zip(d, x)) for x in itertools.product(*d.values())]
 
 
 def expand_params(d):
-    for key, value in d.items():
-        if len(value) > 1 and key!="recombination":
-            assert len(value) >= 3, "MIN, MAX and STEPSIZE need to be specified"
-            sim_range = np.arange(value[0], value[1]+value[2], value[2], dtype=float)
-            if len(value)==4:
-                if not any(np.isin(sim_range, value[3])):
-                    print(f"[-] Specified range for {key} does not contain specified grid center value")  
-            d[key] = sim_range
+    if len(d)>0:
+        for key, value in d.items():
+            if len(value) > 1 and key!="recombination":
+                assert len(value) >= 3, "MIN, MAX and STEPSIZE need to be specified"
+                sim_range = np.arange(value[0], value[1]+value[2], value[2], dtype=float)
+                if len(value)==4:
+                    if not any(np.isin(sim_range, value[3])):
+                        print(f"[-] Specified range for {key} does not contain specified grid center value")  
+                d[key] = sim_range
 
 def all_interpopulation_comparisons(popA, popB):
     return list(itertools.product(range(popA), range(popA, popA + popB)))

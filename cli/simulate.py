@@ -63,18 +63,8 @@ class ParameterObj(RunObj):
         self._config = self._get_or_write_config(args["--blocks"], args["--replicates"])
         self.data_type = "simulations"
         self._get_zarr_store(args)
-    """
-    def _get_datatype(self, args):
-        # needs to be adapted for simulation.py
-        if not any(args):
-            return None
-        elif args[0]:
-            return "blocks"
-        elif args[1]:
-            return "windows"
-        else:
-            sys.exit("[X] This should not have happend.")
-    """
+        self.parameter_grid = None
+
     def _get_zarr_store(self, args):
         z = args['--zarr']
         if z:
@@ -113,7 +103,8 @@ class ParameterObj(RunObj):
                 #'k_max': collections.defaultdict(dict),
                 "parameters": collections.defaultdict(dict),
                 "boundaries": collections.defaultdict(list),
-                "recombination":collections.defaultdict(dict)
+                "recombination":collections.defaultdict(dict),
+                "grid":collections.defaultdict(dict)
             }
             (pop_configs, columns) = self._parse_model_file()
             config["ploidy"] = int(pop_configs["ploidy"])
@@ -129,6 +120,8 @@ class ParameterObj(RunObj):
             config["recombination"]["cutoff"] = "INT_0_100"
             config["recombination"]["number_bins"] = "INT"
             config["recombination"]["scale"]="LINEAR/LOG"
+            config["grid"]["file"] = "FILE_PATH"
+            config["grid"]["parameters"] = "PARAMETERS"
             for parameter in config["parameters"]:
                 if parameter not in ["sample_size_A", "sample_size_B"]:
                     config["boundaries"][parameter] = ["MIN", "MAX", "STEPSIZE"]
@@ -154,17 +147,31 @@ class ParameterObj(RunObj):
                 assert isinstance(config_raw[k], int), f"integer value required for {k}"
                 config[k]=int(config_raw[k])
             config["parameters"] = {}
+
+            #grid
+            #check whether file_path is path
+            p_grid_fpath = config_raw['grid']['file']
+            p_grid_names = []
+            if os.path.isfile(p_grid_fpath):
+                p_grid_names = config_raw['grid']['parameters']
+                self.parameter_grid = pd.read_csv(p_grid_fpath, 
+                    names=p_grid_names, index=False, header=None, sep='\t')
+                
             
             #boundaries and parameters
             for key, value in config_raw['boundaries'].items():
                 if any(isinstance(v, str) for v in value):
-                    assert not isinstance(config_raw['parameters'][key], str), f"value required for parameter {k}"
-                    config['parameters'][key] = [config_raw['parameters'][key],]
+                    if not key in p_grid_names:
+                        assert not isinstance(config_raw['parameters'][key], str), f"value required for parameter {k}"
+                        config['parameters'][key] = [config_raw['parameters'][key],]
                 else:
                     config['parameters'][key] = value
                     center = config_raw['parameters'][key]
                     if not isinstance(center,str):
                         config['parameters'][key].append(center)
+            
+            #verify there is no overlap between parameters and gridfile
+            assert len(config_raw['boundaries']) == len(p_grid_names)+len(config['parameters']), "The same parameter has been specified both in the gridfile and in the yamlfile."
             
             #sample size
             config["parameters"]["sample_size_A"] = [config_raw["parameters"]["sample_size_A"],]
