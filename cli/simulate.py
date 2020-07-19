@@ -44,6 +44,7 @@ gIMble simulate -m
 
 ./gIMble simulate -m output/s_A_B.p2.n_1_1.m_AtoB.j_A_B.model.tsv -c /Users/s1854903/git/gIMble/output/s_A_B.p2.n_1_1.m_AtoB.j_A_B.model.config.yaml -z /Users/s1854903/git/gIMble/test.z
 ./gIMble simulate -z output/sims.z -m output/test.model.tsv -c output/test.model.config.yaml
+./gIMble simulate -z output/test.z -w output/windows.tsv 
 """
 
 
@@ -62,11 +63,11 @@ class ParameterObj(RunObj):
         self.config_file = self._get_path(args["--config_file"])
         self.threads = self._get_int(args["--threads"])
         self._check_zarr_store(args["--zarr"])
+        #check all parameters and sort into dicts
+        self._config = self._get_or_write_config(args["--blocks"], args["--replicates"])
         self._store_structure()
         #set data type
         self.data_type = "simulations"
-        #check all parameters and sort into dicts
-        self._config = self._get_or_write_config(args["--blocks"], args["--replicates"])
         #from config make parameter grid and dump to tsv
         self.sim_configs = self._generate_parameter_grid()
     
@@ -165,7 +166,7 @@ class ParameterObj(RunObj):
             #check whether file_path is path
             p_grid_fpath = config_raw['grid']['file']
             p_grid_names = []
-            self.parameter_grid=None
+            self.parameter_grid=pd.DataFrame()
             if os.path.isfile(p_grid_fpath):
                 self.parameter_grid = pd.read_csv(p_grid_fpath, header=0, sep='\t')
                 p_grid_names = list(self.parameter_grid.columns)
@@ -284,6 +285,7 @@ class ParameterObj(RunObj):
             sys.exit("[X] Ends recombination map do not match window coordinates")
 
     def return_windows_tsv(self, store):
+        #sequence data should be found under seqs
         df_list = [] 
         path = self.windows_path
         for chrom in store.data.group_keys():
