@@ -21,42 +21,43 @@ def run_sim(parameterObj):
     blocks = parameterObj._config["blocks"]
     blocklength = parameterObj._config["blocklength"]
     replicates = parameterObj._config["replicates"]
-    grid_df = parameterObj.parameter_grid
-    zarr_store = parameterObj.zstore
-    store = lib.gimble.load_store(parameterObj)
-    parameters_df=None
+    #grid_df = parameterObj.parameter_grid
+    #zarr_store = parameterObj.zstore
+    #store = lib.gimble.load_store(parameterObj)
+    sim_configs = parameterObj.sim_configs
+    #parameters_df=None
     
-    if len(params)>0:
-        expand_params(params)
-        sim_configs = dict_product(params)
-        parameters_df = pd.DataFrame(sim_configs)
-    if not grid_df.empty:
-        if len(params)>0:
-            for df in [parameters_df, grid_df]:
-                df['key'] = 1
-            parameters_df = pd.merge(parameters_df, grid_df,on='key')
-            parameters_df.drop(['key',], inplace=True, axis=1)
-            sim_configs = parameters_df.to_dict(orient='records')
-        else:
-            sim_configs = grid_df.to_dict(orient='records')
+    #if len(params)>0:
+    #    expand_params(params)
+    #    sim_configs = dict_product(params)
+    #    parameters_df = pd.DataFrame(sim_configs)
+    #if not grid_df.empty:
+    #    if len(params)>0:
+    #        for df in [parameters_df, grid_df]:
+    #            df['key'] = 1
+    #        parameters_df = pd.merge(parameters_df, grid_df,on='key')
+    #        parameters_df.drop(['key',], inplace=True, axis=1)
+    #        sim_configs = parameters_df.to_dict(orient='records')
+    #    else:
+    #        sim_configs = grid_df.to_dict(orient='records')
         
     msprime_configs = (make_sim_configs(config, ploidy) for config in sim_configs)
     all_interpop_comparisons = all_interpopulation_comparisons(
         params["sample_size_A"][0], params["sample_size_B"][0]
     )
     print(f"[+] simulating {replicates} replicate(s) of {blocks} block(s) for {len(sim_configs)} parameter combinations")
-    store.data.require_group('sims')
+    #store.data.require_group('sims')
     #check how many simulation runs we have already done
     #count number of groups in this level and add one
-    if len(store.data['sims'])==0:
-        runcount = 0
-    else:
-        runcount = max([int(group[0].split('_')[-1]) for group in list(store.data['sims'].groups())])
-    new_run_number = runcount + 1
+    #if len(store.data['sims'])==0:
+    #    runcount = 0
+    #else:
+    #    runcount = max([int(group[0].split('_')[-1]) for group in list(store.data['sims'].groups())])
+    #new_run_number = runcount + 1
     #save parameters file: use parameterObj.path -> for zarr file
-    csv_path = os.path.split(parameterObj.path)[0]+f'/run_{new_run_number}_parametergrid.tsv'
-    parameters_df.to_csv(csv_path, sep='\t')
-    root = store.data.create_group(f'sims/run_{new_run_number}')
+    #csv_path = os.path.split(parameterObj.path)[0]+f'/run_{new_run_number}_parametergrid.tsv'
+    #parameters_df.to_csv(csv_path, sep='\t')
+    #root = store.data.create_group(f'sims/run_{new_run_number}')
     with tqdm(total=replicates*len(sim_configs), desc="[%] running sims ", ncols=100, unit_scale=True) as pbar:
         for idx, (config, zarr_attrs) in enumerate(zip(msprime_configs, sim_configs)):
             seeds = np.random.randint(1, 2 ** 32, replicates)
@@ -88,7 +89,7 @@ def run_sim(parameterObj):
                     )
 
             name = f"parameter_combination_{idx}"
-            g = root.create_group(name)
+            g = parameterObj.root.create_group(name)
             g.attrs.put(zarr_attrs)
             for idx2, (d, s) in enumerate(zip(result_list, seeds)):
                 g.create_dataset(f"replicate_{idx2}", data=d, overwrite=True)
