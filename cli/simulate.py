@@ -60,10 +60,10 @@ class ParameterObj(RunObj):
         self.model_file = self._get_path(args["--model_file"])
         self.config_file = self._get_path(args["--config_file"])
         self.threads = self._get_int(args["--threads"])
+        self.parameter_grid = None
         self._config = self._get_or_write_config(args["--blocks"], args["--replicates"])
         self.data_type = "simulations"
         self._get_zarr_store(args)
-        self.parameter_grid = None
 
     def _get_zarr_store(self, args):
         z = args['--zarr']
@@ -155,8 +155,7 @@ class ParameterObj(RunObj):
             if os.path.isfile(p_grid_fpath):
                 p_grid_names = config_raw['grid']['parameters']
                 self.parameter_grid = pd.read_csv(p_grid_fpath, 
-                    names=p_grid_names, index=False, header=None, sep='\t')
-                
+                    names=p_grid_names, header=None, sep='\t')
             
             #boundaries and parameters
             for key, value in config_raw['boundaries'].items():
