@@ -59,13 +59,14 @@ def run_sim(parameterObj):
                     )
 
             name = f"parameter_combination_{idx}"
-            g = parameterObj.root.create_group(name)
+            g = parameterObj.root.create_dataset(name, data=np.array(result_list), overwrite=True)
             g.attrs.put(zarr_attrs)
-            for idx2, (d, s) in enumerate(zip(result_list, seeds)):
-                g.create_dataset(f"replicate_{idx2}", data=d, overwrite=True)
-                g[f"replicate_{idx2}"].attrs["seed"] = str(s)
-                pbar.update(1)
-
+            
+            #for idx2, (d, s) in enumerate(zip(result_list, seeds)):
+            #    g.create_dataset(f"replicate_{idx2}", data=d, overwrite=True)
+            #    g[f"replicate_{idx2}"].attrs["seed"] = str(s)
+            pbar.update(replicates)
+            
 def make_sim_configs(params, ploidy):
     sample_size_A = params["sample_size_A"]
     sample_size_B = params["sample_size_B"]
@@ -195,7 +196,7 @@ def run_ind_sim(
             subset_genotype_array, block_sites_variant_bool, block_sites, debug=False
         )
         multiallelic, missing, monomorphic, variation = lib.gimble.block_sites_to_variation_arrays(block_sites)
-        results[idx] = variation
+        result[idx] = variation
     return result
 
 
