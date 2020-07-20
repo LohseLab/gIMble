@@ -135,7 +135,6 @@ class ParameterObj(RunObj):
             config["recombination"]["number_bins"] = "INT"
             config["recombination"]["scale"]="LINEAR/LOG"
             config["grid"]["file"] = "FILE_PATH"
-            config["grid"]["parameters"] = "PARAMETERS"
             for parameter in config["parameters"]:
                 if parameter not in ["sample_size_A", "sample_size_B"]:
                     config["boundaries"][parameter] = ["MIN", "MAX", "STEPSIZE"]
@@ -170,7 +169,7 @@ class ParameterObj(RunObj):
             if os.path.isfile(p_grid_fpath):
                 self.parameter_grid = pd.read_csv(p_grid_fpath, header=0, sep='\t')
                 p_grid_names = list(self.parameter_grid.columns)
-                
+                assert all(name in list(config_raw['parameters'].keys()) for name in p_grid_names), 'Grid tsv headers should be valid parameter names.'
             #boundaries and parameters
             for key, value in config_raw['boundaries'].items():
                 if any(isinstance(v, str) for v in value):
