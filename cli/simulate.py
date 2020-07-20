@@ -31,6 +31,7 @@ import lib.simulate
 import numpy as np
 import zarr
 import pandas as pd
+import itertools
 
 """
 test command:
@@ -43,6 +44,7 @@ gIMble simulate -m
 
 ./gIMble simulate -m output/s_A_B.p2.n_1_1.m_AtoB.j_A_B.model.tsv -c /Users/s1854903/git/gIMble/output/s_A_B.p2.n_1_1.m_AtoB.j_A_B.model.config.yaml -z /Users/s1854903/git/gIMble/test.z
 ./gIMble simulate -z output/sims.z -m output/test.model.tsv -c output/test.model.config.yaml
+./gIMble simulate -z output/test.z -w output/windows.tsv 
 """
 
 
@@ -60,37 +62,39 @@ class ParameterObj(RunObj):
         self.model_file = self._get_path(args["--model_file"])
         self.config_file = self._get_path(args["--config_file"])
         self.threads = self._get_int(args["--threads"])
+        self._check_zarr_store(args["--zarr"])
+        #check all parameters and sort into dicts
         self._config = self._get_or_write_config(args["--blocks"], args["--replicates"])
+        self._store_structure()
+        #set data type
         self.data_type = "simulations"
-        self._get_zarr_store(args)
-    """
-    def _get_datatype(self, args):
-        # needs to be adapted for simulation.py
-        if not any(args):
-            return None
-        elif args[0]:
-            return "blocks"
-        elif args[1]:
-            return "windows"
-        else:
-            sys.exit("[X] This should not have happend.")
-    """
-    def _get_zarr_store(self, args):
-        z = args['--zarr']
+        #from config make parameter grid and dump to tsv
+        self.sim_configs = self._generate_parameter_grid()
+    
+    def _check_zarr_store(self, z):
         if z:
             #check if file exists
             if z.endswith('.z'):
-                self.path = z
-                z_path = pathlib.Path(z)
-                if z_path.is_dir() or z_path.is_file():
+                if os.path.isdir(z):
                     self.zstore = z
                 else:
                     self.zstore= z
-                    self.data = zarr.open(self.path, mode='w')
+                    zarr.open(z, mode='w')
             else:
                 sys.exit("[X] Specify the path to a zarr file ending in .z .")
         else:
             sys.exit("[X] Specify path for zarr file.")
+
+    def _store_structure(self):
+        store = lib.gimble.load_store(self)
+        store.data.require_group('sims')
+        #count number of groups in this level and add one
+        if len(store.data['sims'])==0:
+            runcount = 0
+        else:
+            runcount = max([int(group[0].split('_')[-1]) for group in list(store.data['sims'].groups())])
+        self.new_run_number = runcount + 1
+        self.root = store.data.create_group(f'sims/run_{self.new_run_number}')
 
     def _get_or_write_config(self, blocks, replicates):
         #in case no config file is provided
@@ -113,7 +117,8 @@ class ParameterObj(RunObj):
                 #'k_max': collections.defaultdict(dict),
                 "parameters": collections.defaultdict(dict),
                 "boundaries": collections.defaultdict(list),
-                "recombination":collections.defaultdict(dict)
+                "recombination":collections.defaultdict(dict),
+                "grid":collections.defaultdict(dict)
             }
             (pop_configs, columns) = self._parse_model_file()
             config["ploidy"] = int(pop_configs["ploidy"])
@@ -129,6 +134,8 @@ class ParameterObj(RunObj):
             config["recombination"]["cutoff"] = "INT_0_100"
             config["recombination"]["number_bins"] = "INT"
             config["recombination"]["scale"]="LINEAR/LOG"
+            config["grid"]["file"] = "FILE_PATH"
+            config["grid"]["parameters"] = "PARAMETERS"
             for parameter in config["parameters"]:
                 if parameter not in ["sample_size_A", "sample_size_B"]:
                     config["boundaries"][parameter] = ["MIN", "MAX", "STEPSIZE"]
@@ -154,17 +161,30 @@ class ParameterObj(RunObj):
                 assert isinstance(config_raw[k], int), f"integer value required for {k}"
                 config[k]=int(config_raw[k])
             config["parameters"] = {}
-            
+
+            #grid
+            #check whether file_path is path
+            p_grid_fpath = config_raw['grid']['file']
+            p_grid_names = []
+            self.parameter_grid=pd.DataFrame()
+            if os.path.isfile(p_grid_fpath):
+                self.parameter_grid = pd.read_csv(p_grid_fpath, header=0, sep='\t')
+                p_grid_names = list(self.parameter_grid.columns)
+                
             #boundaries and parameters
             for key, value in config_raw['boundaries'].items():
                 if any(isinstance(v, str) for v in value):
-                    assert not isinstance(config_raw['parameters'][key], str), f"value required for parameter {k}"
-                    config['parameters'][key] = [config_raw['parameters'][key],]
+                    if not key in p_grid_names:
+                        assert not isinstance(config_raw['parameters'][key], str), f"value required for parameter {key}"
+                        config['parameters'][key] = [config_raw['parameters'][key],]
                 else:
                     config['parameters'][key] = value
                     center = config_raw['parameters'][key]
                     if not isinstance(center,str):
                         config['parameters'][key].append(center)
+            
+            #verify there is no overlap between parameters and gridfile
+            assert len(config_raw['boundaries']) == len(p_grid_names)+len(config['parameters']), "The same parameter has been specified both in the gridfile and in the yamlfile."
             
             #sample size
             config["parameters"]["sample_size_A"] = [config_raw["parameters"]["sample_size_A"],]
@@ -265,6 +285,7 @@ class ParameterObj(RunObj):
             sys.exit("[X] Ends recombination map do not match window coordinates")
 
     def return_windows_tsv(self, store):
+        #sequence data should be found under seqs -> needs fixing with the final datastructure
         df_list = [] 
         path = self.windows_path
         for chrom in store.data.group_keys():
@@ -280,10 +301,45 @@ class ParameterObj(RunObj):
         df = pd.concat(df_list)
         df.to_csv(path, index=False , sep='\t')
 
-    def simulate(self):
-        replicate = lib.simulate.run_sim(self)
-        lib.simulate.get_genotypes(self, replicate)
+    def _generate_parameter_grid(self):
+        parameters_df = None
+        if len(self._config["parameters"])>0:
+            self._expand_params()
+            sim_configs = self._dict_product()
+            parameters_df = pd.DataFrame(sim_configs)
+        if not self.parameter_grid.empty:
+            if len(self._config["parameters"])>0:
+                for df in [parameters_df, self.parameter_grid]:
+                    df['key'] = 1
+                parameters_df = pd.merge(parameters_df, self.parameter_grid,on='key')
+                parameters_df.drop(['key',], inplace=True, axis=1)
+                sim_configs = parameters_df.to_dict(orient='records')
+            else:
+                sim_configs = self.parameter_grid.to_dict(orient='records')
+        self._dump_parameters_df(parameters_df)
+        return sim_configs
+        
+    def _dump_parameters_df(self, parameters_df):
+        #save parameters file
+        csv_path = os.path.split(self.zstore)[0]+f'/run_{self.new_run_number}_parametergrid.tsv'
+        parameters_df.to_csv(csv_path, sep='\t')
+        print(f"[+] Saved parametergrid as {csv_path}")
 
+    def _dict_product(self):
+        if len(self._config["parameters"])>0:
+            return [dict(zip(self._config["parameters"], x)) for x in itertools.product(*self._config["parameters"].values())]
+
+
+    def _expand_params(self):
+        if len(self._config["parameters"])>0:
+            for key, value in self._config["parameters"].items():
+                if len(value) > 1 and key!="recombination":
+                    assert len(value) >= 3, "MIN, MAX and STEPSIZE need to be specified"
+                    sim_range = np.arange(value[0], value[1]+value[2], value[2], dtype=float)
+                    if len(value)==4:
+                        if not any(np.isin(sim_range, value[3])):
+                            print(f"[-] Specified range for {key} does not contain specified grid center value")  
+                    self._config["parameters"][key] = sim_range
 
 def main(params):
     try:
