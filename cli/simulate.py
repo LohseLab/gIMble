@@ -285,7 +285,7 @@ class ParameterObj(RunObj):
             sys.exit("[X] Ends recombination map do not match window coordinates")
 
     def return_windows_tsv(self, store):
-        #sequence data should be found under seqs
+        #sequence data should be found under seqs -> needs fixing with the final datastructure
         df_list = [] 
         path = self.windows_path
         for chrom in store.data.group_keys():

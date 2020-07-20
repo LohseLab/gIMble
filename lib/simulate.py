@@ -21,43 +21,13 @@ def run_sim(parameterObj):
     blocks = parameterObj._config["blocks"]
     blocklength = parameterObj._config["blocklength"]
     replicates = parameterObj._config["replicates"]
-    #grid_df = parameterObj.parameter_grid
-    #zarr_store = parameterObj.zstore
-    #store = lib.gimble.load_store(parameterObj)
     sim_configs = parameterObj.sim_configs
-    #parameters_df=None
-    
-    #if len(params)>0:
-    #    expand_params(params)
-    #    sim_configs = dict_product(params)
-    #    parameters_df = pd.DataFrame(sim_configs)
-    #if not grid_df.empty:
-    #    if len(params)>0:
-    #        for df in [parameters_df, grid_df]:
-    #            df['key'] = 1
-    #        parameters_df = pd.merge(parameters_df, grid_df,on='key')
-    #        parameters_df.drop(['key',], inplace=True, axis=1)
-    #        sim_configs = parameters_df.to_dict(orient='records')
-    #    else:
-    #        sim_configs = grid_df.to_dict(orient='records')
         
     msprime_configs = (make_sim_configs(config, ploidy) for config in sim_configs)
     all_interpop_comparisons = all_interpopulation_comparisons(
         params["sample_size_A"][0], params["sample_size_B"][0]
     )
     print(f"[+] simulating {replicates} replicate(s) of {blocks} block(s) for {len(sim_configs)} parameter combinations")
-    #store.data.require_group('sims')
-    #check how many simulation runs we have already done
-    #count number of groups in this level and add one
-    #if len(store.data['sims'])==0:
-    #    runcount = 0
-    #else:
-    #    runcount = max([int(group[0].split('_')[-1]) for group in list(store.data['sims'].groups())])
-    #new_run_number = runcount + 1
-    #save parameters file: use parameterObj.path -> for zarr file
-    #csv_path = os.path.split(parameterObj.path)[0]+f'/run_{new_run_number}_parametergrid.tsv'
-    #parameters_df.to_csv(csv_path, sep='\t')
-    #root = store.data.create_group(f'sims/run_{new_run_number}')
     with tqdm(total=replicates*len(sim_configs), desc="[%] running sims ", ncols=100, unit_scale=True) as pbar:
         for idx, (config, zarr_attrs) in enumerate(zip(msprime_configs, sim_configs)):
             seeds = np.random.randint(1, 2 ** 32, replicates)
@@ -205,8 +175,8 @@ def run_ind_sim(
     #print("[+] generated genotype matrix")
     # generate all comparisons
     num_comparisons = len(comparisons)
-    result = np.zeros((num_comparisons, blocks, blocklength), dtype="int8")
-    #result = np.zeros((num_comparisons, blocks, 4), dtype="int64")
+    #result = np.zeros((num_comparisons, blocks, blocklength), dtype="int8")
+    result = np.zeros((num_comparisons, blocks, 4), dtype="int64") #get number of mutypes
     for idx, pair in enumerate(comparisons):
         block_sites = np.arange(total_length).reshape(blocks, blocklength)
         # slice genotype array
@@ -218,14 +188,14 @@ def run_ind_sim(
             new_positions, block_sites, assume_unique=True
         )
         subset_genotype_array = sa_genotype_array.subset(new_positions_variant_bool, pair)
-        result[idx] = lib.gimble.genotype_to_mutype_array(
-            subset_genotype_array, block_sites_variant_bool, block_sites, debug=False
-        )
-        #block_sites = lib.gimble.genotype_to_mutype_array(
+        #result[idx] = lib.gimble.genotype_to_mutype_array(
         #    subset_genotype_array, block_sites_variant_bool, block_sites, debug=False
         #)
-        #multiallelic, missing, monomorphic, variation = lib.gimble.block_sites_to_variation_arrays(block_sites)
-        #results[idx] = variation
+        block_sites = lib.gimble.genotype_to_mutype_array(
+            subset_genotype_array, block_sites_variant_bool, block_sites, debug=False
+        )
+        multiallelic, missing, monomorphic, variation = lib.gimble.block_sites_to_variation_arrays(block_sites)
+        results[idx] = variation
     return result
 
 
