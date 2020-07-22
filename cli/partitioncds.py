@@ -265,7 +265,7 @@ def degeneracy(array):
         result = ["|".join(sorted(set(_temp))) for _temp in temp] 
         return result
 
-def infer_degeneracy(transcriptObjs, samples, variant_arrays_by_seq_id):
+def infer_degeneracy(parameterObj, transcriptObjs, samples, variant_arrays_by_seq_id):
     #degeneracy_arrays_by_sample = collections.defaultdict(list)
     warnings = []
     # needs to know how many sites in output
@@ -280,9 +280,9 @@ def infer_degeneracy(transcriptObjs, samples, variant_arrays_by_seq_id):
     data = np.zeros(total_sites, dtype={'names':('sequence_id', 'start', 'end', 'codon_pos', 'orientation'),'formats':('U16', 'i8', 'i8', 'i1', 'U1')})
     
     degeneracy_array = np.zeros((total_sites, len(samples)), dtype='U16')
-    print("\n".join(warnings))
-    #print(type(degeneracy_array), degeneracy_array.shape, degeneracy_array)
-    
+    if warnings:
+        print("\n".join(warnings))
+
     offset = 0 
     #print(type(data), data.shape, data)
     for transcriptObj in tqdm(transcriptObjs_blessed, total=len(transcriptObjs_blessed), desc="[%] Inferring degeneracy... ", ncols=150, position=0, leave=True):
@@ -343,7 +343,7 @@ def infer_degeneracy(transcriptObjs, samples, variant_arrays_by_seq_id):
         df = pd.DataFrame(data=data, columns=['sequence_id', 'start', 'end', 'codon_pos', 'orientation'])
         df['degeneracy'] = degeneracy_array[:,idx]
         cols = ['sequence_id', 'start', 'end', 'degeneracy', 'codon_pos', 'orientation']
-        write_df(df[cols].sort_values(['sequence_id', 'start'], ascending=[True, True]), out_f="%s.bed" % sample, sep='\t', header=False, status=False)
+        write_df(df[cols].sort_values(['sequence_id', 'start'], ascending=[True, True]), out_f="%s.%s.cds.bed" % (parameterObj.outprefix, sample), sep='\t', header=False, status=False)
 
 def get_query_regions(transcriptObjs):
     _query_regions_by_sequence_id = collections.defaultdict(list)
@@ -365,7 +365,7 @@ def main(params):
         transcriptObjs = get_transcripts(parameterObj, sequence_by_id)
         query_regions_by_sequence_id = get_query_regions(transcriptObjs)
         samples, variant_arrays_by_seq_id = parse_vcf_file(parameterObj.vcf_file, sequence_by_id, query_regions_by_sequence_id)
-        infer_degeneracy(transcriptObjs, samples, variant_arrays_by_seq_id)
+        infer_degeneracy(parameterObj, transcriptObjs, samples, variant_arrays_by_seq_id)
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
         print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
