@@ -17,6 +17,12 @@ awk '$8=="CDS" || $8=="cds"' ~/Dropbox/heliconius_full/current/hmel2_5.chromosom
 paste <(cut -f1,2 -d"_" ~/Dropbox/heliconius_full/current/hmel2_5.chromosomes.annotation.CDS.bed) <(cut -f5,6 ~/Dropbox/heliconius_full/current/hmel2_5.chromosomes.annotation.CDS.bed) > ~/Dropbox/heliconius_full/current/hmel2_5.chromosomes.annotation.CDS.by_transcript_id.be
 '''
 
+'''
+[To Do]
+- a
+'''
+
+
 from timeit import default_timer as timer
 from docopt import docopt
 #import lib.gimblelog
@@ -276,7 +282,7 @@ def infer_degeneracy(transcriptObjs, samples, variant_arrays_by_seq_id):
     
     degeneracy_array = np.zeros((total_sites, len(samples)), dtype='U16')
     print("\n".join(warnings))
-    print(type(degeneracy_array), degeneracy_array.shape, degeneracy_array)
+    #print(type(degeneracy_array), degeneracy_array.shape, degeneracy_array)
     
     offset = 0 
     #print(type(data), data.shape, data)

@@ -131,7 +131,7 @@ def genotype_to_mutype_array(sa_genotype_array, idx_block_sites_in_pos, block_si
     #print('sa_genotype_array', sa_genotype_array.shape)
     #print(sa_genotype_array)
     #print('np_genotype_array', np_genotype_array.shape)
-    #print(np_genotype_array)
+    
     np_allele_count_array = np.ma.masked_equal(sa_genotype_array.count_alleles(), 0, copy=False)    
     #print('np_allele_count_array', np_allele_count_array)
     allele_map = np.ones((np_allele_count_array.shape), dtype='int8') * np.arange(np_allele_count_array.shape[-1])
