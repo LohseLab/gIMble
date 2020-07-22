@@ -59,7 +59,7 @@ def block_mutype_counter(blockcounts, k_max_by_mutype, mutypes):
     capped = np.clip(counts, [0 for i in len(k_max_by_mutype)], kmax_by_mutype)
     #need to collapse values that are no longer unique, so we can no longer use the faster
     #A[tuple(unique.transpose)] = counts approach
-    for mutype, count in zip(capped, counts) 
+    for mutype, count in zip(capped, counts): 
         A[mutype]+=count
     return A 
     
