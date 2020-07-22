@@ -19,7 +19,7 @@ paste <(cut -f1,2 -d"_" ~/Dropbox/heliconius_full/current/hmel2_5.chromosomes.an
 
 '''
 [To Do]
-- a
+- output
 '''
 
 
@@ -277,8 +277,7 @@ def infer_degeneracy(transcriptObjs, samples, variant_arrays_by_seq_id):
         else:
             total_sites += transcriptObj.positions.shape[0]
             transcriptObjs_blessed.append(transcriptObj)
-    data = np.zeros(total_sites, dtype={'names':('sequence_id', 'start', 'end', 'degeneracy', 'codon_pos', 'orientation'),
-                                        'formats':('U16', 'i8', 'i8', 'U16', 'i1', 'U1')})
+    data = np.zeros(total_sites, dtype={'names':('sequence_id', 'start', 'end', 'codon_pos', 'orientation'),'formats':('U16', 'i8', 'i8', 'i1', 'U1')})
     
     degeneracy_array = np.zeros((total_sites, len(samples)), dtype='U16')
     print("\n".join(warnings))
@@ -341,9 +340,10 @@ def infer_degeneracy(transcriptObjs, samples, variant_arrays_by_seq_id):
         offset = end
     #print(data)
     for idx, sample in tqdm(enumerate(samples), total=len(samples), desc="[%] Writing output... ", ncols=150):
-        df = pd.DataFrame(data=[], columns=['sequence_id', 'start', 'end', 'degeneracy', 'codon_pos', 'orientation'])
-        #data[:]['degeneracy'] = degeneracy_array[:,idx]
-        write_df(pd.DataFrame(data=data, columns=['sequence_id', 'start', 'end', 'degeneracy', 'codon_pos', 'orientation']).sort_values(['sequence_id', 'start'], ascending=[True, True]), out_f="%s.bed" % sample, sep='\t', header=False, status=False)
+        df = pd.DataFrame(data=data, columns=['sequence_id', 'start', 'end', 'codon_pos', 'orientation'])
+        df['degeneracy'] = degeneracy_array[:,idx]
+        cols = ['sequence_id', 'start', 'end', 'degeneracy', 'codon_pos', 'orientation']
+        write_df(df[cols].sort_values(['sequence_id', 'start'], ascending=[True, True]), out_f="%s.bed" % sample, sep='\t', header=False, status=False)
 
 def get_query_regions(transcriptObjs):
     _query_regions_by_sequence_id = collections.defaultdict(list)
