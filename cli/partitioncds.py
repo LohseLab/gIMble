@@ -9,6 +9,7 @@
         -v, --vcf_file FILE                         VCF file (filtered)
         -b, --bed_file FILE                         BED file
         -o, --outprefix STR                         Outprefix [default: gimble]
+        -e, --exclude STR                           Sample IDs to exclude : '-e sample_A,sample_B'
 
 """
 
@@ -19,7 +20,8 @@ paste <(cut -f1,2 -d"_" ~/Dropbox/heliconius_full/current/hmel2_5.chromosomes.an
 
 '''
 [To Do]
-- output
+- ignore sample argument:
+    - should be possible to remove certain samples from VCF file
 '''
 
 
@@ -208,6 +210,7 @@ class ParameterObj(RunObj):
         self.vcf_file = self._get_path(args['--vcf_file'], path=True)
         self.bed_file = self._get_path(args['--bed_file'], path=True)
         self.outprefix = args['--outprefix']
+        self.samples_to_exclude = args['--exclude'].split(",") if args['--exclude'] is not None else []
 
 def parse_vcf_file(vcf_file, sequence_ids, query_regions_by_sequence_id):
     samples = []
