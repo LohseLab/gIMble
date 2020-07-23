@@ -121,9 +121,12 @@ class ParameterObj(RunObj):
                 "grid":collections.defaultdict(dict)
             }
             (pop_configs, columns) = self._parse_model_file()
+            pop_names = list(pop_configs.keys())
+            pop_names.remove("ploidy")
+            A, B = pop_names
             config["ploidy"] = int(pop_configs["ploidy"])
-            config["parameters"]["sample_size_A"] = pop_configs["A"]
-            config["parameters"]["sample_size_B"] = pop_configs["B"]
+            config["parameters"][f"sample_size_{A}"] = pop_configs[f"{A}"]
+            config["parameters"][f"sample_size_{B}"] = pop_configs[f"{B}"]
             config["parameters"]["theta"] = "FLOAT"
             for column in columns:
                 if column.startswith("C_") or column.startswith("M_"):
@@ -136,7 +139,7 @@ class ParameterObj(RunObj):
             config["recombination"]["scale"]="LINEAR/LOG"
             config["grid"]["file"] = "FILE_PATH"
             for parameter in config["parameters"]:
-                if parameter not in ["sample_size_A", "sample_size_B"]:
+                if parameter not in [f"sample_size_{A}", f"sample_size_{B}"]:
                     config["boundaries"][parameter] = ["MIN", "MAX", "STEPSIZE"]
             config_file = pathlib.Path(self.model_file).with_suffix(".config.yaml")
             yaml.add_representer(
@@ -151,6 +154,10 @@ class ParameterObj(RunObj):
 
         #if a config file is given
         else:
+            (pop_configs, columns) = self._parse_model_file()
+            self.pop_names = list(pop_configs.keys())
+            self.pop_names.remove("ploidy")
+            A, B = self.pop_names
             print("[+] Reading config %r" % self.config_file)
             config_raw = yaml.safe_load(open(self.config_file, "r"))
             config = {}
@@ -186,8 +193,8 @@ class ParameterObj(RunObj):
             assert len(config_raw['boundaries']) == len(p_grid_names)+len(config['parameters']), "The same parameter has been specified both in the gridfile and in the yamlfile."
             
             #sample size
-            config["parameters"]["sample_size_A"] = [config_raw["parameters"]["sample_size_A"],]
-            config["parameters"]["sample_size_B"] = [config_raw["parameters"]["sample_size_B"],]
+            config["parameters"][f"sample_size_{A}"] = [config_raw["parameters"][f"sample_size_{A}"],]
+            config["parameters"][f"sample_size_{B}"] = [config_raw["parameters"][f"sample_size_{B}"],]
 
             #recombination
             file_path = config_raw['recombination']['recombination_map']
@@ -216,10 +223,9 @@ class ParameterObj(RunObj):
                 else:
                     config["parameters"]["recombination"] = [0.0,]
 
-            (pop_configs, columns) = self._parse_model_file()
             assert (
-                config["parameters"]["sample_size_A"][0] == pop_configs["A"]
-                and config["parameters"]["sample_size_B"][0] == pop_configs["B"]
+                config["parameters"][f"sample_size_{A}"][0] == pop_configs[f"{A}"]
+                and config["parameters"][f"sample_size_{B}"][0] == pop_configs[f"{B}"]
             ), "sample size does not match model sample size"
             return config
 
@@ -230,8 +236,9 @@ class ParameterObj(RunObj):
             second_line = fh.readline().rstrip().split()
             A, B = second_line[3].split(";")
             pop_configs = {}
-            for pop, name in zip([A, B], ["A", "B"]):
-                pop = pop.lstrip(f"{name}=[").rstrip("]")
+            for pop_in in [A, B]:
+                name = pop_in.split("=")[0]
+                pop = pop_in.lstrip(f"{name}=[").rstrip("]")
                 unique_el, count_el = np.unique(pop.split(","), return_counts=True)
                 pop_configs[name] = len(unique_el)
             pop_configs["ploidy"] = count_el[0]
@@ -267,8 +274,8 @@ class ParameterObj(RunObj):
         no_counts = bins-sum(1 for v in bin_with_counts if v)
         print(f"[+] There are {no_counts} recombination bins without counts")
         to_be_simulated  = [(stop + start)/2 for start, stop, c in zip(bin_edges[:-1],bin_edges[1:], bin_with_counts) if c]
-        if with_zero:
-            to_be_simulated = [0] + list(to_be_simulated)
+        #if with_zero:
+        #    to_be_simulated = [0] + list(to_be_simulated)
         #assign each window to a specific bin
         #needs to be adjusted to the actual bins that are simulated
         #if there are windows with rec rate zero these will be simulated as well.

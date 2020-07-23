@@ -22,10 +22,10 @@ def run_sim(parameterObj):
     blocklength = parameterObj._config["blocklength"]
     replicates = parameterObj._config["replicates"]
     sim_configs = parameterObj.sim_configs
-        
-    msprime_configs = (make_sim_configs(config, ploidy) for config in sim_configs)
+    A,B = parameterObj.pop_names    
+    msprime_configs = (make_sim_configs(config, ploidy, (A,B)) for config in sim_configs)
     all_interpop_comparisons = all_interpopulation_comparisons(
-        params["sample_size_A"][0], params["sample_size_B"][0]
+        params[f"sample_size_{A}"][0], params[f"sample_size_{B}"][0]
     )
     print(f"[+] simulating {replicates} replicate(s) of {blocks} block(s) for {len(sim_configs)} parameter combinations")
     with tqdm(total=replicates*len(sim_configs), desc="[%] running sims ", ncols=100, unit_scale=True) as pbar:
@@ -67,15 +67,16 @@ def run_sim(parameterObj):
             #    g[f"replicate_{idx2}"].attrs["seed"] = str(s)
             pbar.update(replicates)
             
-def make_sim_configs(params, ploidy):
-    sample_size_A = params["sample_size_A"]
-    sample_size_B = params["sample_size_B"]
+def make_sim_configs(params, ploidy, pop_names):
+    A, B = pop_names
+    sample_size_A = params[f"sample_size_{A}"]
+    sample_size_B = params[f"sample_size_{B}"]
     num_samples = sample_size_A + sample_size_B
-    C_A = params["C_A"]
-    C_B = params["C_B"]
-    if "C_A_B" in params:
-        C_AB = params["C_A_B"] if params["C_A_B"] else C_A + C_B
-    else: C_AB = C_A
+    C_A = params[f"C_{A}"]
+    C_B = params[f"C_{B}"]
+    if f"C_{A}_{B}" in params:
+        C_AB = params[f"C_{A}_{B}"]
+    else: C_AB = C_A #what do we do here??
     mutation_rate = params["theta"]
     rec_rate = params["recombination"]
 
@@ -95,23 +96,25 @@ def make_sim_configs(params, ploidy):
     #migration matirx: M[i,j]=k k is the fraction of population i consisting of migrants
     # from population j, FORWARDS in time.
     #here migration is defined backwards in time
-    if "M_A_B" in params:
+    if f"M_{A}_{B}" in params:
         # migration A to B backwards, forwards in time, migration from B to A
-        migration_matrix[0, 1] = params["M_A_B"] #/(4*C_A) #this needs to be verified
-    if "M_B_A" in params:
+        migration_matrix[0, 1] = params[f"M_{A}_{B}"] #/(4*C_A) #this needs to be verified
+    if f"M_{B}_{A}" in params:
         # migration B to A, forwards in time, migration from A to B
-        migration_matrix[1, 0] = params["M_B_A"] #/(4*C_B)
+        migration_matrix[1, 0] = params[f"M_{B}_{A}"] #/(4*C_B)
     
     # demographic events: specify in the order they occur backwards in time
-    demographic_events = [
-        msprime.MassMigration(
-            time=params["T"], source=0, destination=2, proportion=1.0
-        ),
-        msprime.MassMigration(
-            time=params["T"], source=1, destination=2, proportion=1.0
-        ),
-        msprime.MigrationRateChange(params["T"], 0),
-    ]
+    demographic_events = []
+    if params["T"]:
+        demographic_events = [
+            msprime.MassMigration(
+                time=params["T"], source=0, destination=2, proportion=1.0
+            ),
+            msprime.MassMigration(
+                time=params["T"], source=1, destination=2, proportion=1.0
+            ),
+            msprime.MigrationRateChange(params["T"], 0),
+        ]
 
     return (
         population_configurations,
