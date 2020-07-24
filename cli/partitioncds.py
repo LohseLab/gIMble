@@ -303,11 +303,9 @@ def infer_degeneracy(parameterObj, transcriptObjs, zstore):
     if warnings:
         print("\n".join(warnings))
     with tqdm(transcriptObjs_valid, ncols=150, desc="[%] Inferring degeneracy... ", position=0, leave=True) as pbar:
+        offset = 0 
         for sequence_id, transcriptObjs in transcriptObjs_by_sequence_id.items():
-            offset = 0 
-            if not sequence_id in zstore['seqs']: # no variants
-                pos = np.array([])
-            else:
+            if sequence_id in zstore['seqs']: # no variants
                 pos = np.array(zstore["seqs/%s/variants/pos" % sequence_id]) 
                 gts = np.array(zstore["seqs/%s/variants/gts" % sequence_id])
                 alt = np.array(zstore["seqs/%s/variants/alt" % sequence_id])
@@ -321,7 +319,6 @@ def infer_degeneracy(parameterObj, transcriptObjs, zstore):
                 alleles = np.where(mask, alleles_raw, '')
             for transcriptObj in transcriptObjs:
                 start, end = offset, offset + transcriptObj.positions.shape[0]
-                pos_in_cds_mask = np.isin(pos, transcriptObj.positions, assume_unique=True) # will crash if non-unique pos
                 data[start:end]['sequence_id'] = transcriptObj.sequence_id
                 data[start:end]['start'] = transcriptObj.positions
                 data[start:end]['end'] = transcriptObj.positions + 1
@@ -329,10 +326,11 @@ def infer_degeneracy(parameterObj, transcriptObjs, zstore):
                 data[start:end]['codon_pos'][1::3] = 2
                 data[start:end]['codon_pos'][2::3] = 3
                 data[start:end]['orientation'] = transcriptObj.orientation
-                if not np.any(pos_in_cds_mask):
+                if not sequence_id in zstore['seqs']:
                     #print("transcriptObj.degeneracy", type(transcriptObj.degeneracy), transcriptObj.degeneracy.shape)
                     data[start:end]['degeneracy'] = transcriptObj.degeneracy
                 else:
+                    #pos_in_cds_mask = np.isin(pos, transcriptObj.positions, assume_unique=True) # will crash if non-unique pos
                     cds_in_pos_mask = np.isin(transcriptObj.positions, pos, assume_unique=True) # will crash if non-unique pos
                     for i in range(0, len(transcriptObj.sequence), 3):
                         codon_start = start+i
