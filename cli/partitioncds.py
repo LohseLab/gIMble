@@ -290,21 +290,27 @@ def infer_degeneracy(parameterObj, transcriptObjs, zstore):
     total_sites = 0
     transcriptObjs_by_sequence_id = collections.defaultdict(list)
     transcriptObjs_valid = 0
+    length_by_sequence_id = collections.Counter()
     for transcriptObj in tqdm(transcriptObjs, total=len(transcriptObjs), desc="[%] Checking for ORFs... ", ncols=150, position=0, leave=True):
         if not transcriptObj.is_orf():
             warnings.append("[-] Transcript %s has no ORF: START=%s, STOP=%s, DIVISIBLE_BY_3=%s (will be skipped)" % (transcriptObj.transcript_id, transcriptObj.has_start(), transcriptObj.has_stop(), transcriptObj.is_divisible_by_three()))
         else:
             total_sites += transcriptObj.positions.shape[0]
             transcriptObjs_by_sequence_id[transcriptObj.sequence_id].append(transcriptObj)
+            length_by_sequence_id[transcriptObj.sequence_id] += transcriptObj.positions.shape[0]
             transcriptObjs_valid += 1
     samples = zstore.attrs['samples']
     degeneracy_chars = "U%s" % (len(samples) * 6) # could be improved with ploidy?
-    data = np.zeros(total_sites, dtype={'names':('sequence_id', 'start', 'end', 'degeneracy', 'codon_pos', 'orientation'),'formats':('U16', 'i8', 'i8', degeneracy_chars, 'i1', 'U1')})
+    #data = np.zeros(total_sites, dtype={'names':('sequence_id', 'start', 'end', 'degeneracy', 'codon_pos', 'orientation'),'formats':('U16', 'i8', 'i8', degeneracy_chars, 'i1', 'U1')})
     if warnings:
         print("\n".join(warnings))
-    with tqdm(transcriptObjs_valid, ncols=150, desc="[%] Inferring degeneracy... ", position=0, leave=True) as pbar:
-        offset = 0 
+    dfs = []
+    with tqdm(total=transcriptObjs_valid, ncols=150, desc="[%] Inferring degeneracy... ", position=0, leave=True) as pbar:
         for sequence_id, transcriptObjs in transcriptObjs_by_sequence_id.items():
+            offset = 0 
+            data = np.zeros(
+                length_by_sequence_id[sequence_id], 
+                dtype={'names':('sequence_id', 'start', 'end', 'degeneracy', 'codon_pos', 'orientation'),'formats':('U16', 'i8', 'i8', degeneracy_chars, 'i1', 'U1')})
             if sequence_id in zstore['seqs']: # no variants
                 pos = np.array(zstore["seqs/%s/variants/pos" % sequence_id]) 
                 gts = np.array(zstore["seqs/%s/variants/gts" % sequence_id])
@@ -341,9 +347,11 @@ def infer_degeneracy(parameterObj, transcriptObjs, zstore):
                             data[codon_start:codon_start+3]['degeneracy'] = degeneracy(codon_list) if codon_list else 3 * ['NA']
                 offset = end
                 pbar.update()
+            dfs.append(pd.DataFrame(data=data, columns=['sequence_id', 'start', 'end', 'degeneracy', 'codon_pos', 'orientation']))
     shutil.rmtree(parameterObj.tmp_dir)
-    df = pd.DataFrame(data=data, columns=['sequence_id', 'start', 'end', 'degeneracy', 'codon_pos', 'orientation'])
-    write_df(df.sort_values(['sequence_id', 'start'], ascending=[True, True]), out_f="%s.cds.bed" % (parameterObj.outprefix), sep='\t', header=False, status=False)
+    #df = pd.DataFrame(data=data, columns=['sequence_id', 'start', 'end', 'degeneracy', 'codon_pos', 'orientation'])
+    #write_df(df.sort_values(['sequence_id', 'start'], ascending=[True, True]), out_f="%s.cds.bed" % (parameterObj.outprefix), sep='\t', header=False, status=False)
+    write_df(pd.concat(dfs), out_f="%s.cds.bed" % (parameterObj.outprefix), sep='\t', header=False, status=False)
 
 
 def get_query_regions(transcriptObjs):
