@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gimble partitioncds               -f FILE -b FILE -v FILE [-o STR] [-h|--help]
+"""usage: gimble partitioncds               -f FILE -b FILE -v FILE [-e STR -o STR] [-h|--help]
                                             
     Options:
         -h --help                                   show this
@@ -33,11 +33,14 @@ import lib.gimble
 import warnings
 import numpy as np
 import sys
+import tempfile
 import allel
 from tqdm import tqdm
 import collections
 import pandas as pd
+import zarr
 import itertools
+import shutil
 
 DEGENERACIES = [0, 2, 3, 4]
 
@@ -155,9 +158,9 @@ class TranscriptObj(object):
     def add_cds_from_df(self, transcript_df, sequence_by_id):
         if not transcript_df['orientation'].nunique():
             sys.exit("[X] More than one orientation found in CDSs of transcript %s\n%s" % (self.transcript_id, transcript_df))
+        self.orientation = list(transcript_df['orientation'].unique())[0]
         if not transcript_df['sequence_id'].nunique():
             sys.exit("[X] More than one sequence_id found in CDSs of transcript %s\n%s" % (self.transcript_id, transcript_df))
-        self.orientation = list(transcript_df['orientation'].unique())[0]
         self.sequence_id = list(transcript_df['sequence_id'].unique())[0]
         pos_arrays = []
         cds_list = []
@@ -207,28 +210,43 @@ class ParameterObj(RunObj):
     def __init__(self, params, args):
         super().__init__(params)
         self.fasta_file = self._get_path(args['--fasta_file'], path=True)
-        self.vcf_file = self._get_path(args['--vcf_file'], path=True)
+        self.vcf_file = str(self._get_path(args['--vcf_file'], path=True))
         self.bed_file = self._get_path(args['--bed_file'], path=True)
         self.outprefix = args['--outprefix']
-        self.samples_to_exclude = args['--exclude'].split(",") if args['--exclude'] is not None else []
+        self.samples_to_exclude = set(args['--exclude'].split(",")) if args['--exclude'] is not None else set([])
+        self.tmp_dir = str(tempfile.mkdtemp(prefix='.tmp_gimble_', dir="."))
+        print(self.__dict__)
 
-def parse_vcf_file(vcf_file, sequence_ids, query_regions_by_sequence_id):
-    samples = []
-    variant_arrays_by_seq_id = collections.defaultdict(dict)
+def parse_vcf_file(parameterObj, sequence_ids, query_regions_by_sequence_id):
+    print("[+] Parsing VCF file...")
+    zstore = zarr.open(parameterObj.tmp_dir, mode='w')
+    variant_counts = []
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        for seq_id in tqdm(sequence_ids, total=len(sequence_ids), desc="[%] Parsing VCF file... ", ncols=150):
-            data_by_key = allel.read_vcf(str(vcf_file), region=seq_id, fields=['samples', 'calldata/GT', 'variants/POS', 'variants/REF', 'variants/ALT'])
-            if data_by_key:
-                pos = data_by_key['variants/POS']
-                pos_in_query_mask = np.isin(pos, query_regions_by_sequence_id[seq_id])
-                variant_arrays_by_seq_id[seq_id]['REF'] = np.array(data_by_key['variants/REF'])[pos_in_query_mask]
-                variant_arrays_by_seq_id[seq_id]['ALT'] = np.array(data_by_key['variants/ALT'])[pos_in_query_mask]
-                variant_arrays_by_seq_id[seq_id]['GT'] = np.array(data_by_key['calldata/GT'])[pos_in_query_mask]
-                variant_arrays_by_seq_id[seq_id]['POS'] = np.array(data_by_key['variants/POS'])[pos_in_query_mask]
-                samples = list(data_by_key['samples'])
-    print("[+] Parsed %s variants." % sum([variant_arrays_by_seq_id[seq_id]['POS'].shape[0] for seq_id in variant_arrays_by_seq_id]))
-    return (samples, variant_arrays_by_seq_id)
+        sample_key, gt_key, pos_key, ref_key, alt_key = 'samples', 'calldata/GT', 'variants/POS', 'variants/REF', 'variants/ALT'
+        samples_vcf = list(allel.read_vcf(parameterObj.vcf_file, fields=[sample_key])[sample_key])
+        samples_query = [vcf_sample for vcf_sample in samples_vcf if vcf_sample not in set(parameterObj.samples_to_exclude)] # order as they appear genotypes
+        zstore.attrs['samples'] = samples_query
+        print("[+] Will query %s samples from VCF: %r" % (len(samples_query), ", ".join(samples_query)))
+        for idx, sequence_id in tqdm(enumerate(sequence_ids), total=len(sequence_ids), desc="[%] Reading variants...", ncols=100):
+            vcf_data = allel.read_vcf(parameterObj.vcf_file, 
+                region=sequence_id, 
+                samples=samples_query, 
+                fields=[gt_key, pos_key, ref_key, alt_key])
+            if not vcf_data is None:
+                pos_array = np.array(vcf_data[pos_key]) - 1 # port to BED (0-based) coordinates
+                cds_mask = np.isin(pos_array, query_regions_by_sequence_id[sequence_id])
+                pos = pos_array[cds_mask]
+                zstore.create_dataset("seqs/%s/variants/pos" % sequence_id, data=pos)
+                ref = vcf_data[ref_key][cds_mask]
+                zstore.create_dataset("seqs/%s/variants/ref" % sequence_id, data=ref, dtype='str')
+                alt = vcf_data[alt_key][cds_mask]
+                zstore.create_dataset("seqs/%s/variants/alt" % sequence_id, data=alt, dtype='str')
+                gts = vcf_data[gt_key][cds_mask]
+                zstore.create_dataset("seqs/%s/variants/gts" % sequence_id, data=gts)
+                variant_counts.append(pos_array.shape[0])
+    print("[+] Parsed %s variants." % sum(variant_counts))
+    return zstore
 
 def degeneracy(array):
     '''
@@ -246,17 +264,13 @@ def degeneracy(array):
     ['NA', 'NA', 'NA']
     '''
     if array:
+        #print("Calculating degeneracy:")
+        #print(array)
         AA = [AMINOACID_BY_CODON.get(''.join(row), [])*3 for row in array]
         if not AA or None in AA:
-            #print('Array', array)
-            #print('AA', AA)
-            
             return len(array[0]) * ['NA']
         DEG = [CODON_DEGENERACY_BY_CODON.get(''.join(row), "111") for row in array]
         if '111' in DEG:
-            #print('Array', array)
-            #print('AA', AA)
-            #print('DEG', DEG)
             return len(array[0]) * ['NA']
         temp = []
         deg = "".join(DEG)
@@ -266,87 +280,73 @@ def degeneracy(array):
             else:
                 temp.append(["_".join([a,deg[idx]])])
         result = ["|".join(sorted(set(_temp))) for _temp in temp] 
+        #print("[+] DEG Result:", result)
         return result
 
-def infer_degeneracy(parameterObj, transcriptObjs, samples, variant_arrays_by_seq_id):
+def infer_degeneracy(parameterObj, transcriptObjs, zstore):
     #degeneracy_arrays_by_sample = collections.defaultdict(list)
     warnings = []
     # needs to know how many sites in output
     total_sites = 0
-    transcriptObjs_blessed = []
+    transcriptObjs_by_sequence_id = collections.defaultdict(list)
+    transcriptObjs_valid = 0
     for transcriptObj in tqdm(transcriptObjs, total=len(transcriptObjs), desc="[%] Checking for ORFs... ", ncols=150, position=0, leave=True):
         if not transcriptObj.is_orf():
             warnings.append("[-] Transcript %s has no ORF: START=%s, STOP=%s, DIVISIBLE_BY_3=%s (will be skipped)" % (transcriptObj.transcript_id, transcriptObj.has_start(), transcriptObj.has_stop(), transcriptObj.is_divisible_by_three()))
         else:
             total_sites += transcriptObj.positions.shape[0]
-            transcriptObjs_blessed.append(transcriptObj)
-    data = np.zeros(total_sites, dtype={'names':('sequence_id', 'start', 'end', 'codon_pos', 'orientation'),'formats':('U16', 'i8', 'i8', 'i1', 'U1')})
-    
-    degeneracy_array = np.zeros((total_sites, len(samples)), dtype='U16')
+            transcriptObjs_by_sequence_id[transcriptObj.sequence_id].append(transcriptObj)
+            transcriptObjs_valid += 1
+    samples = zstore.attrs['samples']
+    degeneracy_chars = "U%s" % (len(samples) * 6) # could be improved with ploidy?
+    data = np.zeros(total_sites, dtype={'names':('sequence_id', 'start', 'end', 'degeneracy', 'codon_pos', 'orientation'),'formats':('U16', 'i8', 'i8', degeneracy_chars, 'i1', 'U1')})
     if warnings:
         print("\n".join(warnings))
+    with tqdm(transcriptObjs_valid, ncols=150, desc="[%] Inferring degeneracy... ", position=0, leave=True) as pbar:
+        for sequence_id, transcriptObjs in transcriptObjs_by_sequence_id.items():
+            offset = 0 
+            if not sequence_id in zstore['seqs']: # no variants
+                pos = np.array([])
+            else:
+                pos = np.array(zstore["seqs/%s/variants/pos" % sequence_id]) 
+                gts = np.array(zstore["seqs/%s/variants/gts" % sequence_id])
+                alt = np.array(zstore["seqs/%s/variants/alt" % sequence_id])
+                ref = np.array(zstore["seqs/%s/variants/ref" % sequence_id])
+                alleles_raw = np.column_stack([ref, alt])
+                # initiate boolean mask with False
+                mask = np.zeros(alleles_raw.shape, dtype=bool)
+                acs = allel.GenotypeArray(gts).count_alleles()
+                # overwrite with True those alleles_raw that occur in gts 
+                mask[:,0:acs.shape[1]] = acs
+                alleles = np.where(mask, alleles_raw, '')
+            for transcriptObj in transcriptObjs:
+                start, end = offset, offset + transcriptObj.positions.shape[0]
+                pos_in_cds_mask = np.isin(pos, transcriptObj.positions, assume_unique=True) # will crash if non-unique pos
+                data[start:end]['sequence_id'] = transcriptObj.sequence_id
+                data[start:end]['start'] = transcriptObj.positions
+                data[start:end]['end'] = transcriptObj.positions + 1
+                data[start:end]['codon_pos'][0::3] = 1
+                data[start:end]['codon_pos'][1::3] = 2
+                data[start:end]['codon_pos'][2::3] = 3
+                data[start:end]['orientation'] = transcriptObj.orientation
+                if not np.any(pos_in_cds_mask):
+                    #print("transcriptObj.degeneracy", type(transcriptObj.degeneracy), transcriptObj.degeneracy.shape)
+                    data[start:end]['degeneracy'] = transcriptObj.degeneracy
+                else:
+                    cds_in_pos_mask = np.isin(transcriptObj.positions, pos, assume_unique=True) # will crash if non-unique pos
+                    for i in range(0, len(transcriptObj.sequence), 3):
+                        codon_start = start+i
+                        if not np.any(cds_in_pos_mask[codon_start:codon_start+3]):
+                            data[codon_start:codon_start+3]['degeneracy'] = transcriptObj.degeneracy[i:i+3]
+                        else:
+                            codon_list = list(filter(lambda codon: len (codon) == 3, ["".join(x) for x in itertools.product(*alleles[codon_start:codon_start+3])]))
+                            data[codon_start:codon_start+3]['degeneracy'] = degeneracy(codon_list) if codon_list else 3 * ['NA']
+                offset = end
+                pbar.update()
+    shutil.rmtree(parameterObj.tmp_dir)
+    df = pd.DataFrame(data=data, columns=['sequence_id', 'start', 'end', 'degeneracy', 'codon_pos', 'orientation'])
+    write_df(df.sort_values(['sequence_id', 'start'], ascending=[True, True]), out_f="%s.cds.bed" % (parameterObj.outprefix), sep='\t', header=False, status=False)
 
-    offset = 0 
-    #print(type(data), data.shape, data)
-    for transcriptObj in tqdm(transcriptObjs_blessed, total=len(transcriptObjs_blessed), desc="[%] Inferring degeneracy... ", ncols=150, position=0, leave=True):
-        start, end = offset, offset + transcriptObj.positions.shape[0]
-        #print('start', start, 'end', end)
-        if not transcriptObj.sequence_id in variant_arrays_by_seq_id:
-            cds_pos_mask = np.array([])
-        else:
-            cds_pos_mask = np.isin(transcriptObj.positions, variant_arrays_by_seq_id[transcriptObj.sequence_id]['POS'], assume_unique=True) # will crash if non-unique pos
-
-        data[start:end]['sequence_id'] = transcriptObj.sequence_id
-        data[start:end]['start'] = transcriptObj.positions
-        data[start:end]['end'] = transcriptObj.positions + 1
-        data[start:end]['codon_pos'][0::3] = 1
-        data[start:end]['codon_pos'][1::3] = 2
-        data[start:end]['codon_pos'][2::3] = 3
-        data[start:end]['orientation'] = transcriptObj.orientation
-        if np.any(cds_pos_mask):
-            gt_pos_mask = np.isin(variant_arrays_by_seq_id[transcriptObj.sequence_id]['POS'], transcriptObj.positions, assume_unique=True) # will crash if non-unique pos
-            alleles = np.column_stack(
-                    [
-                    variant_arrays_by_seq_id[transcriptObj.sequence_id]['REF'][gt_pos_mask], 
-                    variant_arrays_by_seq_id[transcriptObj.sequence_id]['ALT'][gt_pos_mask],
-                    np.full(gt_pos_mask[gt_pos_mask==True].shape, '')
-                    ])
-            for idx, sample in enumerate(samples):
-                # at least one variant pos in VCF (even if all variants are HOMREF)
-                gt_sample = variant_arrays_by_seq_id[transcriptObj.sequence_id]['GT'][gt_pos_mask, idx]
-                idx0 = np.array([np.arange(alleles.shape[0]), gt_sample[:,0]])
-                idx1 = np.array([np.arange(alleles.shape[0]), gt_sample[:,1]])
-                variants = np.vstack(
-                    [
-                    alleles[tuple(idx0)], 
-                    alleles[tuple(idx1)]
-                    ]).T
-                cds_sample_array = np.full((transcriptObj.positions.shape[0], variants.shape[1]), '') # has shape (gt_sample, ploidy)
-                cds_sample_array[cds_pos_mask] = variants
-                cds_sample_array[~cds_pos_mask,0] = transcriptObj.sequence[~cds_pos_mask]
-                degeneracies = []
-                for i in range(0, len(transcriptObj.sequence), 3):
-                    codon_list = list(filter(lambda codon: len (codon) == 3, ["".join(x) for x in itertools.product(*cds_sample_array[i:i+3])]))
-                    _degeneracy = degeneracy(codon_list) if codon_list else 3 * ['NA']
-                    degeneracies.append(_degeneracy)
-                #_deg = np.concatenate(degeneracies)
-                degeneracy_array[start:end, idx] = np.concatenate(degeneracies)
-                #print("#", transcriptObj.transcript_id, transcriptObj.positions.shape, _deg.shape, _deg[0:3])
-                #degeneracy_arrays_by_sample[sample].append(_deg)
-        else:
-            #sequence_id_arrays.append(np.full(site_count, transcriptObj.sequence_id))
-            #start_arrays.append(transcriptObj.positions)
-            #end_arrays.append(transcriptObj.positions + 1)
-            for idx, sample in enumerate(samples):
-                degeneracy_array[start:end, idx] = transcriptObj.degeneracy
-                #degeneracy_arrays_by_sample[sample].append(transcriptObj.degeneracy)
-        offset = end
-    #print(data)
-    for idx, sample in tqdm(enumerate(samples), total=len(samples), desc="[%] Writing output... ", ncols=150):
-        df = pd.DataFrame(data=data, columns=['sequence_id', 'start', 'end', 'codon_pos', 'orientation'])
-        df['degeneracy'] = degeneracy_array[:,idx]
-        cols = ['sequence_id', 'start', 'end', 'degeneracy', 'codon_pos', 'orientation']
-        write_df(df[cols].sort_values(['sequence_id', 'start'], ascending=[True, True]), out_f="%s.%s.cds.bed" % (parameterObj.outprefix, sample), sep='\t', header=False, status=False)
 
 def get_query_regions(transcriptObjs):
     _query_regions_by_sequence_id = collections.defaultdict(list)
@@ -367,8 +367,8 @@ def main(params):
         sequence_by_id = parse_fasta(parameterObj.fasta_file)
         transcriptObjs = get_transcripts(parameterObj, sequence_by_id)
         query_regions_by_sequence_id = get_query_regions(transcriptObjs)
-        samples, variant_arrays_by_seq_id = parse_vcf_file(parameterObj.vcf_file, sequence_by_id, query_regions_by_sequence_id)
-        infer_degeneracy(parameterObj, transcriptObjs, samples, variant_arrays_by_seq_id)
+        zstore = parse_vcf_file(parameterObj, sequence_by_id, query_regions_by_sequence_id)
+        infer_degeneracy(parameterObj, transcriptObjs, zstore)
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
         print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
