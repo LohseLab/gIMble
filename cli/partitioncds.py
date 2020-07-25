@@ -22,6 +22,12 @@ paste <(cut -f1,2 -d"_" ~/Dropbox/heliconius_full/current/hmel2_5.chromosomes.an
 [To Do]
 - ignore sample argument:
     - should be possible to remove certain samples from VCF file
+
+- add window starts ends in info output
+
+[Info]
+
+- C_A_B is ALWAYS 1 (for now)
 '''
 
 
@@ -154,6 +160,7 @@ class TranscriptObj(object):
         self.start = None
         self.end = None
         self.degeneracy_by_sample = collections.defaultdict(list)
+        self.bed = None
 
     def add_cds_from_df(self, transcript_df, sequence_by_id):
         if not transcript_df['orientation'].nunique():
@@ -164,13 +171,16 @@ class TranscriptObj(object):
         self.sequence_id = list(transcript_df['sequence_id'].unique())[0]
         pos_arrays = []
         cds_list = []
+        beds = []
         for sequence_id, start, end, _, score, orientation in transcript_df.values.tolist():
+            beds.append("\t".join([sequence_id, str(start), str(end), str(_), str(score), orientation]))
             pos_arrays.append(np.arange(start, end))
             cds = sequence_by_id[sequence_id][start:end]
             if orientation == '-':
                 cds_list.insert(0, revcom(cds))
             else:
                 cds_list.append(cds)
+        self.bed = "\n".join(beds)
         sequence = "".join(cds_list)
         self.sequence = np.array(list(sequence))
         self.degeneracy = np.concatenate([degeneracy(["".join(sequence[i:i+3])]) for i in range(0, len(sequence), 3)])
@@ -286,14 +296,17 @@ def degeneracy(array):
 def infer_degeneracy(parameterObj, transcriptObjs, zstore):
     #degeneracy_arrays_by_sample = collections.defaultdict(list)
     warnings = []
+    beds_rejected = []
     # needs to know how many sites in output
     total_sites = 0
     transcriptObjs_by_sequence_id = collections.defaultdict(list)
     transcriptObjs_valid = 0
     length_by_sequence_id = collections.Counter()
+
     for transcriptObj in tqdm(transcriptObjs, total=len(transcriptObjs), desc="[%] Checking for ORFs... ", ncols=150, position=0, leave=True):
         if not transcriptObj.is_orf():
             warnings.append("[-] Transcript %s has no ORF: START=%s, STOP=%s, DIVISIBLE_BY_3=%s (will be skipped)" % (transcriptObj.transcript_id, transcriptObj.has_start(), transcriptObj.has_stop(), transcriptObj.is_divisible_by_three()))
+            beds_rejected.append(transcriptObj.bed)
         else:
             total_sites += transcriptObj.positions.shape[0]
             transcriptObjs_by_sequence_id[transcriptObj.sequence_id].append(transcriptObj)
@@ -303,6 +316,8 @@ def infer_degeneracy(parameterObj, transcriptObjs, zstore):
     degeneracy_chars = "U%s" % (len(samples) * 6) # could be improved with ploidy?
     #data = np.zeros(total_sites, dtype={'names':('sequence_id', 'start', 'end', 'degeneracy', 'codon_pos', 'orientation'),'formats':('U16', 'i8', 'i8', degeneracy_chars, 'i1', 'U1')})
     if warnings:
+        with open("%s.cds.rejected_transcripts.bed" % parameterObj.outprefix, 'w') as fh:
+            fh.write("\n".join(beds_rejected) + "\n")
         print("\n".join(warnings))
     dfs = []
     with tqdm(total=transcriptObjs_valid, ncols=150, desc="[%] Inferring degeneracy... ", position=0, leave=True) as pbar:
@@ -311,7 +326,7 @@ def infer_degeneracy(parameterObj, transcriptObjs, zstore):
             data = np.zeros(
                 length_by_sequence_id[sequence_id], 
                 dtype={'names':('sequence_id', 'start', 'end', 'degeneracy', 'codon_pos', 'orientation'),'formats':('U16', 'i8', 'i8', degeneracy_chars, 'i1', 'U1')})
-            if sequence_id in zstore['seqs']: # no variants
+            if sequence_id in zstore['seqs']: # sequence has variants
                 pos = np.array(zstore["seqs/%s/variants/pos" % sequence_id]) 
                 gts = np.array(zstore["seqs/%s/variants/gts" % sequence_id])
                 alt = np.array(zstore["seqs/%s/variants/alt" % sequence_id])
