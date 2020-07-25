@@ -7,6 +7,7 @@ import zarr
 import multiprocessing
 import contextlib
 from tqdm import tqdm
+from tqdm.auto import trange
 import itertools
 import lib.gimble
 import pandas as pd
@@ -28,45 +29,40 @@ def run_sim(parameterObj):
     )
     
     print(f"[+] simulating {replicates} replicate(s) of {blocks} block(s) for {len(sim_configs)} parameter combinations")
-    with tqdm(total=replicates*len(sim_configs), desc="[%] running sims ", ncols=100, unit_scale=True) as pbar:
-        for idx, (config, zarr_attrs) in enumerate(zip(msprime_configs, sim_configs)):
-            seeds = np.random.randint(1, 2 ** 32, replicates)
-            result_list = []
-            if threads > 1:
-                with multiprocessing.Pool(processes=threads) as pool:
+    #with tqdm(total=replicates*len(sim_configs), desc="[%] running sims ", ncols=100, unit_scale=True) as pbar:
+    for idx, (config, zarr_attrs) in enumerate(tqdm(zip(msprime_configs, sim_configs),desc='Overall simulation progress',ncols=100, unit_scale=True, total=len(sim_configs))):
+        seeds = np.random.randint(1, 2 ** 32, replicates)
+        result_list = []
+        if threads > 1:
+            with multiprocessing.Pool(processes=threads) as pool:
 
-                    run_sims_specified = partial(
-                    run_ind_sim,
-                    msprime_config=config,
-                    ploidy=ploidy,
-                    blocks=blocks,
-                    blocklength=blocklength,
-                    comparisons=all_interpop_comparisons,
-                )
-                    result_list = pool.map(run_sims_specified, seeds)
-                pbar.update(replicates)
-            else:
-                for seed in seeds:
-                    result_list.append(
-                        run_ind_sim(
-                            seed=seed,
-                            msprime_config=config,
-                            ploidy=ploidy,
-                            blocks=blocks,
-                            blocklength=blocklength,
-                            comparisons=all_interpop_comparisons
-                        )
+                run_sims_specified = partial(
+                run_ind_sim,
+                msprime_config=config,
+                ploidy=ploidy,
+                blocks=blocks,
+                blocklength=blocklength,
+                comparisons=all_interpop_comparisons,
+            )
+    
+                result_list = list(tqdm(pool.imap(run_sims_specified, seeds),desc=f'running parameter combination {idx}',ncols=100, unit_scale=True, total=replicates))
+        else:
+            for seed in tqdm(seeds,desc=f'running parameter combination {idx}',ncols=100, unit_scale=True):
+                result_list.append(
+                    run_ind_sim(
+                        seed=seed,
+                        msprime_config=config,
+                        ploidy=ploidy,
+                        blocks=blocks,
+                        blocklength=blocklength,
+                        comparisons=all_interpop_comparisons
                     )
-                    pbar.update()
+                )
             
-            name = f"parameter_combination_{idx}"
-            g = parameterObj.root.create_dataset(name, data=np.array(result_list), overwrite=True)
-            g.attrs.put(zarr_attrs)
-            g.attrs['seeds']=tuple([int(s) for s in seeds])
-            #for idx2, (d, s) in enumerate(zip(result_list, seeds)):
-            #    g.create_dataset(f"replicate_{idx2}", data=d, overwrite=True)
-            #    g[f"replicate_{idx2}"].attrs["seed"] = str(s)
-            #pbar.update(replicates)
+        name = f"parameter_combination_{idx}"
+        g = parameterObj.root.create_dataset(name, data=np.array(result_list), overwrite=True)
+        g.attrs.put(zarr_attrs)
+        g.attrs['seeds']=tuple([int(s) for s in seeds])
             
 def make_sim_configs(params, ploidy, pop_names, blocks, blocklength):
     A, B = pop_names
