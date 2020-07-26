@@ -61,7 +61,9 @@ preprocess [1]
 
 + log all executed commands: `gimble.log.txt`
 
-`~/gIMble/gIMble preprocess -f FASTA -b BAM_DIR/ -v RAW.vcf.gz -k`
+```
+~/gIMble/gIMble preprocess -f FASTA -b BAM_DIR/ -v RAW.vcf.gz -k
+```
 
 Modify input files [2]
 --------------
@@ -83,7 +85,9 @@ Setup [3]
 
 + will extract input data into DataStore 
 
-`./gimble setup -v gimble.vcf.gz -b gimble.intergenic.bed -g gimble.genomefile -s gimble.samples.csv -o analysis`
+```
+./gimble setup -v gimble.vcf.gz -b gimble.intergenic.bed -g gimble.genomefile -s gimble.samples.csv -o analysis
+```
 
 Blocks [4]
 --------------
@@ -92,11 +96,15 @@ Blocks [4]
 
 + block span (`end - start`) can be adjusted (default is `2 * '-l'`)
 
-`./gimble blocks -z analysis.z -l 64`
+```
+./gimble blocks -z analysis.z -l 64
+```
 
 Windows [5]
 --------------
 
 + constructs windows of blocks along the genome
 
+```
 ./gimble windows -z analysis.z -w 500 -s 100 -z analysis.z
+```
