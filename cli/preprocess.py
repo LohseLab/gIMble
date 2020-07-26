@@ -9,8 +9,8 @@
         -v, --vcf_file FILE                         VCF file (raw)
         -b, --bam_dir FILE                          Directory containing all BAM files
         -g, --snpgap INT                            SnpGap [default: 2]
-        -m, --min_depth FILE                        Min read depth [default: 8]
-        -M, --max_depth FILE                        Max read depth (as multiple of SD from mean) [default: 2]
+        -m, --min_depth INT                         Min read depth [default: 8]
+        -M, --max_depth INT                         Max read depth (as multiple of SD from mean) [default: 2]
         -t, --threads INT                           Threads [default: 1]
         -o, --outprefix STR                         Outprefix [default: gimble]
         -k, --keep_tmp                              Do not delete temporary files [default: False]
