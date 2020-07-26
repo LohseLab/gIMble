@@ -61,7 +61,7 @@ E. processes **BAM files**:
 + `{RAW_INVARIANT}` = union of all sites with read depths within coverage thresholds in their respective sample (bedtools multiinter)
 + `{INVARIANTS} = {SITES} - {RAW_INVARIANT}`
     
-F. log all executed commands
+F. logs all executed commands
 
 ```
 ~/gIMble/gIMble preprocess -f FASTA -b BAM_DIR/ -v RAW.vcf.gz -k
@@ -80,11 +80,9 @@ F. log all executed commands
 
 + `gimble.genomefile`:
     + [OPTIONAL] remove sequence IDs to ignore them in the analyses
-    
 + `gimble.samples.csv` 
     + [REQUIRED] add population IDs to the sample IDs (must be exactly 2)
     + [OPTIONAL] remove sample IDs to ignore them in the analyses
-    
 + `gimble.bed`
     + [RECOMMENDED] intersect with BED regions of interest to analyse particular genomic regions
 
@@ -103,7 +101,6 @@ F. log all executed commands
 --------------
 
 + infers bSFs for a given block length `'-l'` 
-
 + block span (`end - start`) can be adjusted (default is `2 * '-l'`)
 
 ```
