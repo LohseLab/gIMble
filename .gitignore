@@ -39,7 +39,7 @@ MANIFEST
 .test
 .data
 data
-.lib
+lib
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
