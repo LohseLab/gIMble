@@ -39,13 +39,13 @@ Usage: gimble <module> [<args>...] [-D -V -h]
 [0] preprocess
 --------------
 
-A) generates **genome file** (sequence_id, length) based on FASTA file
+[A] generates **genome file** (sequence_id, length) based on FASTA file
 
-B) generates **sample file** (sample_id) based on ReadGroupIDs in BAM files
+[B] generates **sample file** (sample_id) based on ReadGroupIDs in BAM files
 
-C) generates **coverage threshold report** for each BAM file
+[C] generates **coverage threshold report** for each BAM file
 
-D) processes **VCF file**
+[D] processes **VCF file**
     + decomposition of MNPs into SNPs
     + `{RAW_VARIANTS}` = all variants in VCF
     + `{NONSNP}`: non-SNP variants 
@@ -55,11 +55,11 @@ D) processes **VCF file**
     + `{VARIANTS} = {RAW_VARIANTS} - {FAIL}`
     + sample genotypes in `{VARIANTS}` with read depths outside of coverage thresholds are set to missing (`./.`)
 
-E) processes **BAM files**: 
+[E] processes **BAM files**: 
     + `{RAW_INVARIANT}` = union of all sites with read depths within coverage thresholds in their respective sample (bedtools multiinter)
     + `{INVARIANTS} = {SITES} - {RAW_INVARIANT}`
 
-F) log all executed commands
+[F] log all executed commands
 
 ```
 ~/gIMble/gIMble preprocess -f FASTA -b BAM_DIR/ -v RAW.vcf.gz -k
