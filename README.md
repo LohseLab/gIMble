@@ -39,13 +39,13 @@ Usage: gimble <module> [<args>...] [-D -V -h]
 [0] preprocess
 --------------
 
-+ generates **genome file** (sequence_id, length) based FASTA file: `gimble.genomefile`
+A) generates **genome file** (sequence_id, length) based on FASTA file
 
-+ generates **sample file** (sample_id) based on ReadGroupIDs in BAM files: `gimble.samples.csv`
+B) generates **sample file** (sample_id) based on ReadGroupIDs in BAM files
 
-+ generates **coverage threshold report** for each BAM file: `gimble.coverage_summary.csv`
+C) generates **coverage threshold report** for each BAM file
 
-+ processes **VCF file**: `gimble.vcf.gz`
+D) processes **VCF file**
     + decomposition of MNPs into SNPs
     + `{RAW_VARIANTS}` = all variants in VCF
     + `{NONSNP}`: non-SNP variants 
@@ -55,14 +55,22 @@ Usage: gimble <module> [<args>...] [-D -V -h]
     + `{VARIANTS} = {RAW_VARIANTS} - {FAIL}`
     + sample genotypes in `{VARIANTS}` with read depths outside of coverage thresholds are set to missing (`./.`)
 
-+ processes **BAM files**: `gimble.bed`
+E) processes **BAM files**: 
     + `{RAW_INVARIANT}` = union of all sites with read depths within coverage thresholds in their respective sample (bedtools multiinter)
     + `{INVARIANTS} = {SITES} - {RAW_INVARIANT}`
 
-+ log all executed commands: `gimble.log.txt`
+F) log all executed commands
 
 ```
 ~/gIMble/gIMble preprocess -f FASTA -b BAM_DIR/ -v RAW.vcf.gz -k
+
+# output files 
+`gimble.samples.csv`            # A)
+`gimble.genomefile`             # B)
+`gimble.coverage_summary.csv`   # C)
+`gimble.vcf.gz`                 # D)
+`gimble.bed`                    # E)
+`gimble.log.txt`                # F)
 ```
 
 [1] Modify input files
