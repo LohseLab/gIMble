@@ -7,10 +7,12 @@ __pycache__/
 .literature/
 
 .simulation
+.notes
 .test
 test.*
 .test/
 .output
+data/
 output
 
 # C extensions

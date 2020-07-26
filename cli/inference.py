@@ -93,8 +93,8 @@ class ParameterObj(RunObj):
     def __init__(self, params, args):
         super().__init__(params)
         self.zstore = self._get_path(args['--zarr_file'])
-        self.model_file = self._get_path(args['--model_file'])
-        self.config_file = self._get_path(args['--config_file'])
+        self.model_file = self._get_path(args['--model_file'], path=False)
+        self.config_file = self._get_path(args['--config_file'], path=False)
         self.threads = self._get_int(args['--threads'])
         self._config = self._get_or_write_config()
         self.data_type = self._get_datatype([args['--blocks'], args['--windows']])
@@ -123,7 +123,7 @@ class ParameterObj(RunObj):
                 'version': self._VERSION,
                 'random_seed' : 12345,
                 'precision': 25,
-                'model' : self.model_file,
+                #'model' : self.model_file,
                 'population_ids': collections.defaultdict(dict),
                 'k_max': collections.defaultdict(dict),
                 'parameters': collections.defaultdict(dict), 
@@ -158,8 +158,8 @@ class ParameterObj(RunObj):
                     config[k] = v
                 elif k == 'population_ids':
                     config[k] = v
-                elif k == 'model':
-                    config[k] = v
+                #elif k == 'model':
+                #    config[k] = v
                 elif isinstance(v, str):
                     sys.exit("[X] Config file error: %r should be a number (not %r)." % (k, v))
                 elif k == 'parameters':

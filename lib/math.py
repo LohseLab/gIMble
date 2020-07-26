@@ -260,6 +260,7 @@ class EquationSystemObj(object):
                 sys.exit("[-] Monomorphic check failed: P(monomorphic) = %s (should be 1)" % equationObj.result)
             else:
                 print("[+] Monomorphic check passed: P(monomorphic) = %s" % equationObj.result)
+
     
     def calculate_PODs(self):
         print("[=] ==================================================")
@@ -293,6 +294,7 @@ class EquationSystemObj(object):
                 PODs[matrix_id] = equationObj.result
             else:
                 PODs[matrix_id] = equationObj.result - sum(PODs[equationObj.marginal_idx].flatten())
+            print(matrix_id, PODs[matrix_id])
         if not math.isclose(np.sum(PODs.flatten()), 1, rel_tol=1e-5):
             print("[-]\t∑(PODs) != 1 (rel_tol=1e-5)")
         else:
@@ -351,5 +353,6 @@ class EquationSystemObj(object):
                                 marginal_idx, 
                                 equation_by_mutation_tuple[equation_idx].substitute(mutation_rates))
             equationObjs.append(equationObj)
+
         print("[+] Generated equations for %s mutation tuples" % len(equationObjs))
         return equationObjs
