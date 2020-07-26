@@ -7,12 +7,12 @@ import zarr
 import multiprocessing
 import contextlib
 from tqdm import tqdm
+from tqdm.auto import trange
 import itertools
 import lib.gimble
-from functools import partial
 import pandas as pd
+from functools import partial
 import collections
-
 
 def run_sim(parameterObj):
     threads = parameterObj.threads
@@ -22,61 +22,59 @@ def run_sim(parameterObj):
     blocklength = parameterObj._config["blocklength"]
     replicates = parameterObj._config["replicates"]
     sim_configs = parameterObj.sim_configs
-        
-    msprime_configs = (make_sim_configs(config, ploidy) for config in sim_configs)
+    A,B = parameterObj.pop_names    
+    msprime_configs = (make_sim_configs(config, ploidy, (A,B), blocks, blocklength) for config in sim_configs)
     all_interpop_comparisons = all_interpopulation_comparisons(
-        params["sample_size_A"][0], params["sample_size_B"][0]
+        params[f"sample_size_{A}"][0], params[f"sample_size_{B}"][0]
     )
+    
     print(f"[+] simulating {replicates} replicate(s) of {blocks} block(s) for {len(sim_configs)} parameter combinations")
-    with tqdm(total=replicates*len(sim_configs), desc="[%] running sims ", ncols=100, unit_scale=True) as pbar:
-        for idx, (config, zarr_attrs) in enumerate(zip(msprime_configs, sim_configs)):
-            seeds = np.random.randint(1, 2 ** 32, replicates)
+    #with tqdm(total=replicates*len(sim_configs), desc="[%] running sims ", ncols=100, unit_scale=True) as pbar:
+    for idx, (config, zarr_attrs) in enumerate(tqdm(zip(msprime_configs, sim_configs),desc='Overall simulation progress',ncols=100, unit_scale=True, total=len(sim_configs))):
+        seeds = np.random.randint(1, 2 ** 32, replicates)
+        result_list = []
+        if threads > 1:
+            with multiprocessing.Pool(processes=threads) as pool:
 
-            if threads > 1:
-                with multiprocessing.Pool(processes=threads) as pool:
-
-                    run_sims_specified = partial(
-                        run_ind_sim,
+                run_sims_specified = partial(
+                run_ind_sim,
+                msprime_config=config,
+                ploidy=ploidy,
+                blocks=blocks,
+                blocklength=blocklength,
+                comparisons=all_interpop_comparisons,
+            )
+    
+                result_list = list(tqdm(pool.imap(run_sims_specified, seeds),desc=f'running parameter combination {idx}',ncols=100, unit_scale=True, total=replicates))
+        else:
+            for seed in tqdm(seeds,desc=f'running parameter combination {idx}',ncols=100, unit_scale=True):
+                result_list.append(
+                    run_ind_sim(
+                        seed=seed,
                         msprime_config=config,
                         ploidy=ploidy,
                         blocks=blocks,
                         blocklength=blocklength,
-                        comparisons=all_interpop_comparisons,
+                        comparisons=all_interpop_comparisons
                     )
-                    result_list = pool.map(run_sims_specified, seeds)
-            else:
-                result_list = []
-                for seed in seeds:
-                    result_list.append(
-                        run_ind_sim(
-                            seed=seed,
-                            msprime_config=config,
-                            ploidy=ploidy,
-                            blocks=blocks,
-                            blocklength=blocklength,
-                            comparisons=all_interpop_comparisons,
-                        )
-                    )
-
-            name = f"parameter_combination_{idx}"
-            g = parameterObj.root.create_dataset(name, data=np.array(result_list), overwrite=True)
-            g.attrs.put(zarr_attrs)
+                )
             
-            #for idx2, (d, s) in enumerate(zip(result_list, seeds)):
-            #    g.create_dataset(f"replicate_{idx2}", data=d, overwrite=True)
-            #    g[f"replicate_{idx2}"].attrs["seed"] = str(s)
-            pbar.update(replicates)
+        name = f"parameter_combination_{idx}"
+        g = parameterObj.root.create_dataset(name, data=np.array(result_list), overwrite=True)
+        g.attrs.put(zarr_attrs)
+        g.attrs['seeds']=tuple([int(s) for s in seeds])
             
-def make_sim_configs(params, ploidy):
-    sample_size_A = params["sample_size_A"]
-    sample_size_B = params["sample_size_B"]
+def make_sim_configs(params, ploidy, pop_names, blocks, blocklength):
+    A, B = pop_names
+    sample_size_A = params[f"sample_size_{A}"]
+    sample_size_B = params[f"sample_size_{B}"]
     num_samples = sample_size_A + sample_size_B
-    C_A = params["C_A"]
-    C_B = params["C_B"]
-    if "C_A_B" in params:
-        C_AB = params["C_A_B"] if params["C_A_B"] else C_A + C_B
-    else: C_AB = C_A
-    mutation_rate = params["theta"]
+    C_A = params[f"C_{A}"]
+    C_B = params[f"C_{B}"]
+    if f"C_{A}_{B}" in params:
+        C_AB = params[f"C_{A}_{B}"]
+    else: C_AB = C_A #what do we do here??
+    theta = params["theta"]/2
     rec_rate = params["recombination"]
 
     population_configurations = [
@@ -95,29 +93,31 @@ def make_sim_configs(params, ploidy):
     #migration matirx: M[i,j]=k k is the fraction of population i consisting of migrants
     # from population j, FORWARDS in time.
     #here migration is defined backwards in time
-    if "M_A_B" in params:
+    if f"M_{A}_{B}" in params:
         # migration A to B backwards, forwards in time, migration from B to A
-        migration_matrix[0, 1] = params["M_A_B"] #/(4*C_A) #this needs to be verified
-    if "M_B_A" in params:
+        migration_matrix[0, 1] = params[f"M_{A}_{B}"]/(4*C_AB) #this needs to be verified
+    if f"M_{B}_{A}" in params:
         # migration B to A, forwards in time, migration from A to B
-        migration_matrix[1, 0] = params["M_B_A"] #/(4*C_B)
+        migration_matrix[1, 0] = params[f"M_{B}_{A}"]/(4*C_AB)
     
     # demographic events: specify in the order they occur backwards in time
-    demographic_events = [
-        msprime.MassMigration(
-            time=params["T"], source=0, destination=2, proportion=1.0
-        ),
-        msprime.MassMigration(
-            time=params["T"], source=1, destination=2, proportion=1.0
-        ),
-        msprime.MigrationRateChange(params["T"], 0),
-    ]
+    demographic_events = []
+    if params["T"]:
+        demographic_events = [
+            msprime.MassMigration(
+                time=params["T"], source=0, destination=2, proportion=1.0
+            ),
+            msprime.MassMigration(
+                time=params["T"], source=1, destination=2, proportion=1.0
+            ),
+            msprime.MigrationRateChange(params["T"], 0),
+        ]
 
     return (
         population_configurations,
         demographic_events,
         migration_matrix,
-        mutation_rate,
+        theta,
         num_samples,
         rec_rate,
     )
@@ -129,7 +129,7 @@ def run_ind_sim(
     ploidy,
     blocks,
     blocklength,
-    comparisons,
+    comparisons
 ):
     (
         population_configurations,
@@ -146,10 +146,10 @@ def run_ind_sim(
         population_configurations=population_configurations,
         demographic_events=demographic_events,
         migration_matrix=migration_matrix,
-        mutation_rate=theta*total_length, #needs to be multiplied by the total length
+        mutation_rate=theta,
         random_seed=seed, #error was when 3582573439
     )
-
+    
     """
     #with msprime 1.0 -> finite sites mutations
     ts = run_ind_sim(
@@ -170,6 +170,8 @@ def run_ind_sim(
     if ts.num_sites>0 and any(p>=total_length for p in new_positions):
         blocklength = new_positions[-1]
         total_length = blocks*blocklength
+    if ts.num_sites==0:
+        new_positions = [0,]
     genotype_matrix = get_genotypes(ts, ploidy, num_samples)
     sa_genotype_array = allel.GenotypeArray(genotype_matrix)
     # always the same for all pairwise comparisons
@@ -201,6 +203,8 @@ def run_ind_sim(
 
 
 def get_genotypes(ts, ploidy, num_samples):
+    if ts.num_mutations == 0:
+        return np.zeros((1,num_samples, ploidy), dtype='int8')
     shape = (ts.num_mutations, num_samples, ploidy)
     return np.reshape(ts.genotype_matrix(), shape)
 
@@ -209,16 +213,16 @@ def dict_product(d):
         return [dict(zip(d, x)) for x in itertools.product(*d.values())]
 
 
-def expand_params(d):
-    if len(d)>0:
-        for key, value in d.items():
-            if len(value) > 1 and key!="recombination":
-                assert len(value) >= 3, "MIN, MAX and STEPSIZE need to be specified"
-                sim_range = np.arange(value[0], value[1]+value[2], value[2], dtype=float)
-                if len(value)==4:
-                    if not any(np.isin(sim_range, value[3])):
-                        print(f"[-] Specified range for {key} does not contain specified grid center value")  
-                d[key] = sim_range
-
+#def expand_params(d):
+#    if len(d)>0:
+#        for key, value in d.items():
+#            if len(value) > 1 and key!="recombination":
+#                assert len(value) >= 3, "MIN, MAX and STEPSIZE need to be specified"
+#                sim_range = np.arange(value[0], value[1]+value[2], value[2], dtype=float)
+#                if len(value)==4:
+#                    if not any(np.isin(sim_range, value[3])):
+#                        print(f"[-] Specified range for {key} does not contain specified grid center value")  
+#                d[key] = sim_range
+#
 def all_interpopulation_comparisons(popA, popB):
     return list(itertools.product(range(popA), range(popA, popA + popB)))
