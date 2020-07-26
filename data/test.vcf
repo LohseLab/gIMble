@@ -11,8 +11,8 @@
 ##INFO=<ID=HaplotypeScore,Number=1,Type=Float,Description="Consistency	of	the	site	with	at	most	two	segregating	haplotypes">
 ##contig=<ID=toy1,length=1000>
 ##contig=<ID=toy2,length=1000>
-#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	A	B	C	X	Y	Z
-toy1	1	.	A	.	531.13	PASS	AN=12;AC=0	GT	0/0	0/0	0/0	0/0	0/0	0/0
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	A	B	X	C	Y	Z
+toy1	1	.	A	.	531.13	PASS	AN=12;AC=0	GT	0/0	./.	1/1	0/1	./.	./.
 toy1    2       .       A       .       531.13  PASS    AN=12;AC=0      GT      0/1     0/1     0/2     0/2     1/2     0/2
 toy1    3       .       A       .       531.13  PASS    AN=12;AC=0      GT      1/1     1/1     0/1     1/1     1/1     0/1
 toy1	10	.	A	T	531.13	PASS	AN=12;AC=6	GT	0/1	0/1	0/1	0/1	0/1	0/1
