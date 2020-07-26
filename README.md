@@ -36,7 +36,7 @@ Usage: gimble <module> [<args>...] [-D -V -h]
 
 ```
  
-preprocess [1]
+[0] preprocess
 --------------
 
 + generates **genome file** (sequence_id, length) based FASTA file: `gimble.genomefile`
@@ -65,7 +65,7 @@ preprocess [1]
 ~/gIMble/gIMble preprocess -f FASTA -b BAM_DIR/ -v RAW.vcf.gz -k
 ```
 
-Modify input files [2]
+[1] Modify input files
 --------------
 
 + `gimble.genomefile`:
@@ -80,7 +80,7 @@ Modify input files [2]
 
     e.g `bedtools intersect -a gimble.bed -b my_intergenic_regions.bed > gimble.intergenic.bed` 
 
-Setup [3]
+[2] Setup
 --------------
 
 + will extract input data into DataStore 
@@ -89,7 +89,7 @@ Setup [3]
 ./gimble setup -v gimble.vcf.gz -b gimble.intergenic.bed -g gimble.genomefile -s gimble.samples.csv -o analysis
 ```
 
-Blocks [4]
+[3] Blocks
 --------------
 
 + infers bSFs for a given block length `'-l'` 
@@ -100,7 +100,7 @@ Blocks [4]
 ./gimble blocks -z analysis.z -l 64
 ```
 
-Windows [5]
+[4] Windows 
 --------------
 
 + constructs windows of blocks along the genome
