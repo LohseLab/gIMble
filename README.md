@@ -35,11 +35,9 @@ Usage: gimble <module> [<args>...] [-D -V -h]
     plotbed               Plot BED file [TBR]
 
 ```
-
-Running gimble 
---------------
  
-# 0. preprocess
+preprocess [1]
+--------------
 
 + generates **genome file** (sequence_id, length) based FASTA file: `gimble.genomefile`
 
@@ -60,11 +58,13 @@ Running gimble
 + processes **BAM files**: `gimble.bed`
     + `{RAW_INVARIANT}` = union of all sites with read depths within coverage thresholds in their respective sample (bedtools multiinter)
     + `{INVARIANTS} = {SITES} - {RAW_INVARIANT}`
+
 + log all executed commands: `gimble.log.txt`
 
 `~/gIMble/gIMble preprocess -f FASTA -b BAM_DIR/ -v RAW.vcf.gz -k`
 
-# 1. Adjust input files
+Modify input files [2]
+--------------
 
 + `gimble.genomefile`:
     + [OPTIONAL] remove sequence IDs to ignore them in the analyses
@@ -78,13 +78,15 @@ Running gimble
 
     e.g `bedtools intersect -a gimble.bed -b my_intergenic_regions.bed > gimble.intergenic.bed` 
 
-# 2. setup
+Setup [3]
+--------------
 
 + will extract input data into DataStore 
 
 `./gimble setup -v gimble.vcf.gz -b gimble.intergenic.bed -g gimble.genomefile -s gimble.samples.csv -o analysis`
 
-# 3. blocks
+Blocks [4]
+--------------
 
 + infers bSFs for a given block length `'-l'` 
 
@@ -92,7 +94,8 @@ Running gimble
 
 `./gimble blocks -z analysis.z -l 64`
 
-# 4. windows
+Windows [5]
+--------------
 
 + constructs windows of blocks along the genome
 
