@@ -46,6 +46,7 @@ Usage: gimble <module> [<args>...] [-D -V -h]
 [C] generates **coverage threshold report** for each BAM file
 
 [D] processes **VCF file**
+
     + decomposition of MNPs into SNPs
     + `{RAW_VARIANTS}` = all variants in VCF
     + `{NONSNP}`: non-SNP variants 
@@ -55,7 +56,8 @@ Usage: gimble <module> [<args>...] [-D -V -h]
     + `{VARIANTS} = {RAW_VARIANTS} - {FAIL}`
     + sample genotypes in `{VARIANTS}` with read depths outside of coverage thresholds are set to missing (`./.`)
 
-[E] processes **BAM files**: 
+[E] processes **BAM files**:
+
     + `{RAW_INVARIANT}` = union of all sites with read depths within coverage thresholds in their respective sample (bedtools multiinter)
     + `{INVARIANTS} = {SITES} - {RAW_INVARIANT}`
 
