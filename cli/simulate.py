@@ -181,8 +181,14 @@ class ParameterObj(RunObj):
             for key, value in config_raw['boundaries'].items():
                 if any(isinstance(v, str) for v in value):
                     if not key in p_grid_names:
-                        assert not isinstance(config_raw['parameters'][key], str), f"value required for parameter {key}"
-                        config['parameters'][key] = [config_raw['parameters'][key],]
+                        if key == "T":
+                            if isinstance(config_raw['parameters']["T"], str):
+                                config['parameters']["T"] = [np.inf,]
+                            else:
+                                config['parameters']["T"] = [config_raw['parameters']["T"],]                
+                        else:
+                            assert not isinstance(config_raw['parameters'][key], str), f"value required for parameter {key}"
+                            config['parameters'][key] = [config_raw['parameters'][key],]
                 else:
                     config['parameters'][key] = value
                     center = config_raw['parameters'][key]

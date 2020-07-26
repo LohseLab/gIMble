@@ -191,8 +191,6 @@ def run_ind_sim(
             new_positions, block_sites, assume_unique=True
         )
         subset_genotype_array = sa_genotype_array.subset(new_positions_variant_bool, pair)
-        if not subset_genotype_array:
-            print('is passed empty')
         #result[idx] = lib.gimble.genotype_to_mutype_array(
         #    subset_genotype_array, block_sites_variant_bool, block_sites, debug=False
         #)
@@ -215,16 +213,16 @@ def dict_product(d):
         return [dict(zip(d, x)) for x in itertools.product(*d.values())]
 
 
-def expand_params(d):
-    if len(d)>0:
-        for key, value in d.items():
-            if len(value) > 1 and key!="recombination":
-                assert len(value) >= 3, "MIN, MAX and STEPSIZE need to be specified"
-                sim_range = np.arange(value[0], value[1]+value[2], value[2], dtype=float)
-                if len(value)==4:
-                    if not any(np.isin(sim_range, value[3])):
-                        print(f"[-] Specified range for {key} does not contain specified grid center value")  
-                d[key] = sim_range
-
+#def expand_params(d):
+#    if len(d)>0:
+#        for key, value in d.items():
+#            if len(value) > 1 and key!="recombination":
+#                assert len(value) >= 3, "MIN, MAX and STEPSIZE need to be specified"
+#                sim_range = np.arange(value[0], value[1]+value[2], value[2], dtype=float)
+#                if len(value)==4:
+#                    if not any(np.isin(sim_range, value[3])):
+#                        print(f"[-] Specified range for {key} does not contain specified grid center value")  
+#                d[key] = sim_range
+#
 def all_interpopulation_comparisons(popA, popB):
     return list(itertools.product(range(popA), range(popA, popA + popB)))
