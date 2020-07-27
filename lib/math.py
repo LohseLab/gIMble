@@ -40,7 +40,6 @@ def get_data_array(parameterObj):
     k_max_by_mutype = parameterObj.k_max_by_mutype
     #what is parameterObj.mutypes??
 
-    
     if data_type == "blocks":
         return block_mutype_counter(data, k_max_by_mutype, mutypes)
 
