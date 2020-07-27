@@ -1,0 +1,56 @@
+##fileformat=VCFv4.1
+##FILTER=<ID=PASS,Description="All	filters	passed">
+##ALT=<ID=*:DEL,Description="Represents	any	possible	spanning	deletion	allele	at	this	location">
+##ALT=<ID=NON_REF,Description="Represents	any	possible	alternative	allele	at	this	location">
+##FILTER=<ID=LowQual,Description="Low	quality">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+##INFO=<ID=AC,Number=A,Type=Integer,Description="Allele	count	in	genotypes,	for	each	ALT	allele,	in	the	same	order	as	listed">
+##INFO=<ID=AN,Number=1,Type=Integer,Description="Total	number	of	alleles	in	called	genotypes">
+##INFO=<ID=DS,Number=0,Type=Flag,Description="Were	any	of	the	samples	downsampled?">
+##INFO=<ID=END,Number=1,Type=Integer,Description="Stop	position	of	the	interval">
+##INFO=<ID=HaplotypeScore,Number=1,Type=Float,Description="Consistency	of	the	site	with	at	most	two	segregating	haplotypes">
+##contig=<ID=toy1,length=70>
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	A	B	C	X	Y	Z
+toy1	1	.	A	.	531.13	PASS	AN=12;AC=0	GT	0/0	0/0	0/0	0/1	0/1	0/1
+toy1	2	.	A	.	531.13	PASS	AN=12;AC=0	GT	0/0	0/0	0/0	0/1	0/1	0/1
+toy1	3	.	A	.	531.13	PASS	AN=12;AC=0	GT	0/0	0/0	0/0	0/1	0/1	0/1
+toy1	5	.	A	.	531.13	PASS	AN=12;AC=0	GT	0/0	0/0	0/0	0/1	0/1	0/1
+toy1	7	.	A	.	531.13	PASS	AN=12;AC=0	GT	0/0	0/0	0/0	0/1	0/1	0/1
+toy1	10	.	A	T	531.13	PASS	AN=12;AC=6	GT	0/0	0/0	0/0	0/1	0/1	0/1
+toy1	11	.	A	T	531.13	PASS	AN=12;AC=3	GT	0/1	0/0	0/0	0/0	0/1	0/1
+toy1	12	.	A	T	531.13	PASS	AN=12;AC=3	GT	0/1	0/0	0/0	0/0	0/1	0/1
+toy1	15	.	A	T	531.13	PASS	AN=12;AC=3	GT	0/1	0/0	0/0	0/0	0/1	0/1
+toy1	16	.	A	T	531.13	PASS	AN=12;AC=3	GT	0/1	0/0	0/0	0/0	0/1	0/1
+toy1	18	.	A	T	531.13	PASS	AN=12;AC=3	GT	0/1	0/0	0/0	0/0	0/1	0/1
+toy1	19	.	A	T	531.13	PASS	AN=12;AC=3	GT	0/1	0/0	0/0	0/0	0/1	0/1
+toy1	20	.	A	T	531.13	PASS	AN=12;AC=9	GT	1/1	1/1	1/1	0/1	0/1	0/1
+toy1	21	.	A	T	531.13	PASS	AN=12;AC=9	GT	1/1	1/1	1/1	0/1	0/1	0/1
+toy1	22	.	A	T	531.13	PASS	AN=12;AC=9	GT	1/1	1/1	1/1	0/1	0/1	0/1
+toy1	25	.	A	T	531.13	PASS	AN=12;AC=9	GT	1/1	1/1	1/1	0/1	0/1	0/1
+toy1	28	.	A	T	531.13	PASS	AN=12;AC=9	GT	1/1	1/1	1/1	0/1	0/1	0/1
+toy1	29	.	A	T	531.13	PASS	AN=12;AC=9	GT	1/1	1/1	1/1	0/1	0/1	0/1
+toy1	30	.	A	T	531.13	PASS	AN=12;AC=9	GT	1/1	1/1	1/1	0/0	0/0	0/0
+toy1	31	.	A	T	531.13	PASS	AN=12;AC=9	GT	1/1	1/1	1/1	0/0	0/0	0/0
+toy1	32	.	A	T	531.13	PASS	AN=12;AC=9	GT	1/1	1/1	1/1	0/0	0/0	0/0
+toy1	33	.	A	T	531.13	PASS	AN=12;AC=9	GT	1/1	1/1	1/1	0/0	0/0	0/0
+toy1	34	.	A	T	531.13	PASS	AN=12;AC=9	GT	1/1	1/1	1/1	0/0	0/0	0/0
+toy1	35	.	A	T	531.13	PASS	AN=12;AC=9	GT	1/1	1/1	1/1	0/0	0/0	0/0
+toy1	36	.	A	T	531.13	PASS	AN=12;AC=9	GT	1/1	1/1	1/1	0/0	0/0	0/0
+toy1	39	.	A	T	531.13	PASS	AN=12;AC=9	GT	1/1	1/1	1/1	0/0	0/0	0/0
+toy1	40	.	A	T	531.13	PASS	AN=12;AC=9	GT	0/0	0/0	0/0	1/1	0/0	0/1
+toy1	41	.	A	T	531.13	PASS	AN=12;AC=9	GT	0/0	0/0	0/0	1/1	0/0	0/1
+toy1	42	.	A	T	531.13	PASS	AN=12;AC=9	GT	0/0	0/0	0/1	1/1	0/0	0/1
+toy1	43	.	A	T	531.13	PASS	AN=12;AC=9	GT	0/0	0/0	0/1	1/1	0/0	0/1
+toy1	44	.	A	T	531.13	PASS	AN=12;AC=9	GT	0/0	0/0	1/1	1/1	0/0	0/1
+toy1	45	.	A	T	531.13	PASS	AN=12;AC=9	GT	0/0	0/0	1/1	1/1	0/0	0/1
+toy1	50	.	A	T	531.13	PASS	AN=12;AC=9	GT	0/0	0/0	0/0	0/0	0/0	0/0
+toy1	51	.	A	T	531.13	PASS	AN=12;AC=9	GT	0/0	0/0	0/0	0/0	0/0	0/1
+toy1	52	.	A	T	531.13	PASS	AN=12;AC=9	GT	0/0	0/0	0/0	0/0	0/0	0/2
+toy1	53	.	A	T	531.13	PASS	AN=12;AC=9	GT	0/0	0/0	0/0	0/0	0/0	1/0
+toy1	54	.	A	T	531.13	PASS	AN=12;AC=9	GT	0/0	0/0	0/0	0/0	0/0	1/1
+toy1	55	.	A	T	531.13	PASS	AN=12;AC=9	GT	0/0	0/0	0/0	0/0	0/0	2/2
+toy1	56	.	A	T	531.13	PASS	AN=12;AC=9	GT	0/0	0/0	0/0	0/0	0/0	0/.
+toy1	57	.	A	T	531.13	PASS	AN=12;AC=9	GT	0/0	0/0	0/0	0/0	0/0	./.
+toy1	58	.	A	T	531.13	PASS	AN=12;AC=9	GT	0/0	0/0	0/0	0/0	0/0	1/2
+toy1	59	.	A	T	531.13	PASS	AN=12;AC=9	GT	0/0	0/0	0/0	0/0	0/0	1/3
+toy1	60	.	A	T	531.13	PASS	AN=12;AC=9	GT	0/0	0/0	0/0	0/0	0/0	0/1

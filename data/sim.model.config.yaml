@@ -1,0 +1,47 @@
+version: gimble v0.5.0
+model: /Users/s1854903/git/gIMble/output/test.model.tsv
+precision: 25
+blocks: 10
+blocklength: 100
+replicates: 1
+parameters:
+  C_A: 100
+  C_A_B: 100
+  C_B: 200
+  M_A_B: 0.01
+  T: 100
+  sample_size_A: 2
+  sample_size_B: 1
+  theta: 0.0001
+boundaries:
+  C_A:
+  - 50
+  - 200
+  - 60
+  C_A_B:
+  - MIN
+  - MAX
+  - STEPSIZE
+  C_B:
+  - MIN
+  - MAX
+  - STEPSIZE
+  M_A_B:
+  - MIN
+  - MAX
+  - STEPSIZE
+  T:
+  - MIN
+  - MAX
+  - STEPSIZE
+  theta:
+  - MIN
+  - MAX
+  - STEPSIZE
+recombination:
+  cutoff: INT
+  number_bins: INT
+  rate: FLOAT
+  recombination_map: FILE_PATH
+  scale: LOG 
+ploidy: 2

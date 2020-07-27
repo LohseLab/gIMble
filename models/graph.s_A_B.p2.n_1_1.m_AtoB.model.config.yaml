@@ -1,0 +1,34 @@
+version: gimble v0.5.0
+random_seed: 12345
+precision: 25
+model: /Users/dlaetsch/git/gIMble/models/graph.s_A_B.p2.n_1_1.m_AtoB.model.tsv
+population_ids:
+  A: chi
+  B: ros
+k_max:
+  m_1: 2
+  m_2: 2
+  m_3: 2
+  m_4: 2
+parameters:
+  C_A: 1
+  C_B: 1
+  M_A_B: 2.34
+  T: 1.4
+  theta: 1.2
+boundaries:
+  C_A:
+  - MIN
+  - MAX
+  C_B:
+  - MIN
+  - MAX
+  M_A_B:
+  - MIN
+  - MAX
+  T:
+  - MIN
+  - MAX
+  theta:
+  - MIN
+  - MAX

@@ -6,6 +6,15 @@ __pycache__/
 # Literature
 .literature/
 
+.simulation
+.notes
+.test
+test.*
+.test/
+.output
+data/
+output
+
 # C extensions
 *.so
 
@@ -33,6 +42,13 @@ wheels/
 .installed.cfg
 *.egg
 MANIFEST
+
+.notes
+.simulation
+.test
+.data
+data
+lib
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -83,3 +99,15 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+gimble.bed
+
+gimble.coverage_summary.csv
+
+gimble.genomefile
+
+gimble.log.txt
+
+gimble.samples.csv
+
+gimble.vcf.gz

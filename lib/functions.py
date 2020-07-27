@@ -10,12 +10,12 @@ import pandas as pd
 #from tabulate import tabulate
 
 import logging 
-import matplotlib as mat
 import matplotlib.pyplot as plt
+import matplotlib as mat
 mat.use("agg")
 
 # CONSTANTS
-MUTYPE_ORDER = ['hetA', 'fixed', 'hetB', 'hetAB']
+MUTYPE_ORDER = ['hetB', 'hetA', 'hetAB', 'fixed'] # ideally this comes from reverse
 
 COLOR_HISTOGRAM = 'orange'
 COLORS = ['deeppink', 'dodgerblue']
@@ -38,6 +38,9 @@ mat.rcParams['figure.frameon'] = False
 mat.rcParams['axes.grid'] = False
 mpl_logger = logging.getLogger('matplotlib') 
 mpl_logger.setLevel(logging.WARNING) 
+
+def get_pop_ids_by_sample_ids_from_csv(parameterObj):
+    return pd.read_csv(parameterObj.sample_file, index_col=0, squeeze=True, header=None).to_dict()
 
 def plot_pi_genome_scan(window_df, out_f, sequenceObjs):
     offset_by_sequence_id = {}
@@ -228,7 +231,7 @@ def plot_mutuple_barchart(out_f, global_mutuple_counter):
     ax.spines['right'].set_visible(False)
     ax.spines['top'].set_visible(False)
     plt.xticks(x_vals, x_labels, rotation=45, fontsize=8)
-    plt.xlabel('Mutuples [hetA, fixed, hetB, hetAB]')
+    plt.xlabel('Mutuples [%s]' % ",".join(MUTYPE_ORDER)) 
     plt.ylabel('Count')
     #ax.autoscale_view(tight=False, scalex=True, scaley=True)
     plt.tight_layout()
@@ -365,15 +368,3 @@ def poolcontext(*args, **kwargs):
     pool = multiprocessing.Pool(*args, **kwargs)
     yield pool
     pool.terminate()
-
-def format_bases(bases):
-    return "%s b" % format(bases, ',d')
-
-def format_percentage(fraction, precision=2):
-    return "{:.{}%}".format(fraction, precision)
-
-def format_fraction(fraction, precision=2):
-    return "{:.{}}".format(fraction, precision)
-
-def format_count(count):
-    return "%s" % str(format(count, ',d'))
