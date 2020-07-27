@@ -181,6 +181,14 @@ class EquationSystemObj(object):
         self.rate_by_event = self._get_rate_by_variable(prefix=set(['C', 'M']))
         self.rate_by_mutation = self._get_rate_by_variable(prefix=set(['m']))
         self.equation_batch_by_idx = collections.defaultdict(list)
+        self.probcheck_file = parameterObj.probcheck_file
+        self.PODs = None
+
+    def check_PODs(self):
+        probabilities_df = pd.read_csv(self.probcheck_file, sep=",", names=['A', 'B', 'C', 'D', 'probability'],  dtype={'A': int, 'B': int, 'C': int, 'D': int, 'probability': float}, float_precision='round_trip')
+        for a, b, c, d, probability in probabilities_df.values.tolist():
+            mutuple = (int(a), int(b), int(d), int(c))
+            print(mutuple, " : ", probability, self.PODs[mutuple], np.isclose(probability, self.PODs[mutuple], rtol=1e-15))    
 
     def info(self):
         print("[=] ==================================================")
@@ -299,7 +307,7 @@ class EquationSystemObj(object):
             print("[-]\t∑(PODs) != 1 (rel_tol=1e-5)")
         else:
             print("[+]\t∑(PODs) == 1 ")
-        return PODs
+        self.PODs = PODs
 
     def _get_equationObjs(self):
         constructors = []

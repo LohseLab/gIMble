@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gIMble inference                  [-z FILE] -m FILE [-c FILE] (-b|-w)
-                                            [-t INT] [-P INT] [-h|--help]
+"""usage: gIMble inference                  [-z FILE] -m FILE [-c FILE] [-k FILE]
+                                            (-b|-w) [-t INT] [-P INT] [-h|--help]
+                                            
                                             
     Options:
         -h --help                                   show this
@@ -10,6 +11,7 @@
         -z, --zarr_file FILE                        ZARR datastore
         -c, --config_file FILE                      Config file with parameters (if not present, empty config file is created)
         -P, --precision INT                         Floating point precision of probabilities [default: 30]
+        -k, --probcheck FILE                        probcheck
         -b, --blocks                                                               
         -w, --windows
         -t, --threads INT                           Threads [default: 1]
@@ -98,6 +100,7 @@ class ParameterObj(RunObj):
         self.threads = self._get_int(args['--threads'])
         self._config = self._get_or_write_config()
         self.data_type = self._get_datatype([args['--blocks'], args['--windows']])
+        self.probcheck_file = self._get_path(args['--probcheck'], path=False) if args['--probcheck'] is not None else None
 
     def _get_datatype(self, args):
         if not any(args):
@@ -244,10 +247,8 @@ def main(params):
         equationSystem = lib.math.EquationSystemObj(parameterObj)
         equationSystem.info()
         equationSystem.initiate_model()
-        PODs = equationSystem.calculate_PODs()
-        print(PODs)
-
-        
+        equationSystem.calculate_PODs()
+        equationSystem.check_PODs()
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
         print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
