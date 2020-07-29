@@ -11,6 +11,8 @@ from tqdm import tqdm
 import multiprocessing
 import contextlib
 import lib.gimble
+#sage.all.numerical_approx(value, digits=1)
+
 '''
 mutype = ['m_1', 'm_2', 'm_3', 'm_4'] (for n2+p2)
 mutation_profile = [1, 1, 0, 1]
@@ -18,6 +20,8 @@ event_tuple = (event, demography_counter, mutation_counter) # step in path of st
 constructor = datastructure for terms of equation (used for building equations)
 
 To Do:
+    mutype = ['m_1', 'm_2', 'm_3', 'm_4'] (for n2+p2)
+    used in 
     - general way to filter FGVs in generate_mutation_profiles()
 '''
 @contextlib.contextmanager
@@ -95,7 +99,7 @@ def place_mutations(parameter_batch):
     equations = []
     for constructor in constructors:
         equation = 0    
-        if constructor.is_compatible_with_mutation_profile(mutation_profile):
+        if constructor.is_mutable_by(mutation_profile):
             mutation_equation = 0
             for placement_tuples in itertools.product(*[list(itertools.combinations_with_replacement(constructor.placements_by_mutation[mutype], count)) for mutype, count in mutation_profile.items()]):
                 mutypes_by_idx = collections.defaultdict(list)
@@ -118,13 +122,18 @@ def place_mutations(parameter_batch):
     return (mutation_tuple, sum(equations))
 
 def calculate_inverse_laplace(params):
-    time = sage.all.SR.var('T')
+    '''
+    [To Do]
+    - test for errors due to unsolve equations due to wrong model? 
+    - or is there a way to sort out model-coherenece as pre-flight check? 
+    '''
     equationObj, rates, split_time, dummy_variable = params
-    equation = (equationObj.equation / dummy_variable).substitute(rates)
-    equationObj.result = sage.all.inverse_laplace(equation, dummy_variable, time, algorithm='giac').substitute(T=split_time)
+    equation = (equationObj.equation).substitute(rates)
+    if split_time is None:
+        equationObj.result = equation
+    else:
+        equationObj.result = sage.all.inverse_laplace(equation / dummy_variable, dummy_variable, sage.all.SR.var('T'), algorithm='giac').substitute(T=split_time)
     return equationObj
-
-#sage.all.numerical_approx(value, digits=1)
 
 class Constructor(object):
     def __init__(self, constructor_id):
@@ -144,7 +153,7 @@ class Constructor(object):
             '[+] mutation_counters %r' % self.mutation_counters,
             '[+] mutations %r' % self.mutations])
 
-    def is_compatible_with_mutation_profile(self, mutation_profile):
+    def is_mutable_by(self, mutation_profile):
         mutypes_to_place = set([mutype for mutype, count in mutation_profile.items() if count > 0])
         placeable = all([(True if self.placements_by_mutation[mutype] else False) for mutype in mutypes_to_place])
         return placeable
@@ -175,7 +184,7 @@ class EquationSystemObj(object):
         self.event_tuples_by_idx = self._get_event_tuples_by_idx()
         self.user_rate_by_event = self._get_user_rate_by_event(parameterObj)
         self.base_rate_by_variable = self._get_base_rate_by_variable()
-        self.split_time = self.user_rate_by_event['T']
+        self.split_time = self.user_rate_by_event.get('T', None)
         self.dummy_variable = self._get_dummy_variable()
         self.rate_by_event = self._get_rate_by_variable(prefix=set(['C', 'M']))
         self.rate_by_mutation = self._get_rate_by_variable(prefix=set(['m']))
@@ -184,10 +193,50 @@ class EquationSystemObj(object):
         self.PODs = None
 
     def check_PODs(self):
+        '''
+        ./gimble inference -m models/gimble.model.A_B.p2.n_1_1.J_A_B.Div.tsv -c models/gimble.model.A_B.p2.n_1_1.J_A_B.Div1.config.yaml -t 1 -b -k models/gimble.model.A_B.p2.n_1_1.J_A_B.Div1.probabilities.csv
+        ./gimble inference -m models/gimble.model.A_B.p2.n_1_1.J_A_B.Div.tsv -c models/gimble.model.A_B.p2.n_1_1.J_A_B.Div2B.config.yaml -t 1 -b -k models/gimble.model.A_B.p2.n_1_1.J_A_B.Div2B.probabilities.csv
+
+        '''
         probabilities_df = pd.read_csv(self.probcheck_file, sep=",", names=['A', 'B', 'C', 'D', 'probability'],  dtype={'A': int, 'B': int, 'C': int, 'D': int, 'probability': float}, float_precision='round_trip')
         for a, b, c, d, probability in probabilities_df.values.tolist():
-            mutuple = (int(a), int(b), int(d), int(c))
+            mutuple = (int(a), int(b), int(c), int(d))
             print(mutuple, " : ", probability, self.PODs[mutuple], np.isclose(probability, self.PODs[mutuple], rtol=1e-15))    
+
+
+    def setup_grid(self):
+        '''LEGACY CODE'''
+        theta_step = (self.theta_high - self.theta_low) / 8
+        migration_step = (self.migration_high - self.migration_low) / 10
+        grid_raw = []
+        grid_gimble = []
+        # make migration_low/high
+        # c_derived as float
+        test_limit = 4
+        i = 0
+        for migration in np.arange(
+                self.migration_low, 
+                self.migration_high + migration_step, 
+                migration_step):
+            for theta_ancestral in np.arange(self.theta_low, self.theta_high, theta_step):
+                for theta_derived in np.arange(
+                        self.theta_low / self.derived_coalescence_MLE, 
+                        self.theta_high / self.derived_coalescence_MLE, 
+                        theta_step / self.derived_coalescence_MLE):
+                    if i < test_limit:
+                        grid_raw.append((theta_ancestral, theta_derived, migration)) 
+                        i += 1
+        for theta_ancestral, theta_derived, migration in grid_raw:
+            theta = theta_ancestral / 2
+            C_ancestor = 1
+            C_derived = (theta_ancestral / theta_derived)
+            Migration = ((migration * theta_ancestral) / (self.block_size * self.mutation_rate) / 2) # per branch
+            Time = (self.time_MLE * 2 * self.block_size * self.mutation_rate) / theta_ancestral
+            grid_gimble.append((C_ancestor, C_derived, Migration, theta, Time))
+        #print(grid_raw)
+        #print(grid_gimble)
+        self.grid_raw = grid_raw
+        self.grid_gimble = grid_gimble
 
     def info(self):
         print("[=] ==================================================")
@@ -254,19 +303,19 @@ class EquationSystemObj(object):
         print("[=] ==================================================")
         print("[+] Initiating model ...")
         self.equationObjs = self._get_equationObjs()
-        if check_monomorphic:
-            rates = {
-                **{event: random.randint(1, 4) for event, rate in self.rate_by_event.items()}, 
-                **{mutype: 0 for mutype, rate in self.rate_by_mutation.items()}
-                }
-            split_time = 1
-            dummy_variable = self.dummy_variable
-            params = (copy.deepcopy(self.equationObjs[0]), rates, split_time, dummy_variable)
-            equationObj = calculate_inverse_laplace(params)
-            if not equationObj.result == 1:
-                sys.exit("[-] Monomorphic check failed: P(monomorphic) = %s (should be 1)" % equationObj.result)
-            else:
-                print("[+] Monomorphic check passed: P(monomorphic) = %s" % equationObj.result)
+        #if check_monomorphic:
+        #    rates = {
+        #        **{event: random.randint(1, 4) for event, rate in self.rate_by_event.items()}, 
+        #        **{mutype: 0 for mutype, rate in self.rate_by_mutation.items()}
+        #        }
+        #    split_time = 1
+        #    dummy_variable = self.dummy_variable
+        #    params = (copy.deepcopy(self.equationObjs[0]), rates, split_time, dummy_variable)
+        #    equationObj = calculate_inverse_laplace(params)
+        #    if not equationObj.result == 1:
+        #        sys.exit("[-] Monomorphic check failed: P(monomorphic) = %s (should be 1)" % equationObj.result)
+        #    else:
+        #        print("[+] Monomorphic check passed: P(monomorphic) = %s" % equationObj.result)
 
     
     def calculate_PODs(self):
