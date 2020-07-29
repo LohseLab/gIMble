@@ -35,6 +35,20 @@ import pandas as pd
 import tabulate
 import oyaml as yaml
 
+'''
+[To Do]
+- diagnostic plots 
+    - plotting gimble.bed
+    - plotting gimble.vcf
+        - missingness (across non-overlapping 10kb windows)
+        - multiallelicity (across non-overlapping 10kb windows)
+        - snp-rate (across non-overlapping 10kb windows)
+        - pca of snps
+        - pairwise distance (diagonal heatmap: https://seaborn.pydata.org/examples/many_pairwise_correlations.html)
+            - how to calculate?
+- divide cli/lib code
+'''
+
 def print_df(df):
     table = tabulate.tabulate(df, headers=df.columns, tablefmt="orgtbl", floatfmt=".2f")
     border = "[=] %s" % str('=' * (len(table.split("\n")[0]) - 4))
