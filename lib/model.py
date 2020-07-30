@@ -4,9 +4,9 @@ import networkx as nx
 import matplotlib as mat
 mat.use("agg")
 from tqdm import tqdm
-import ast
-import re
 import sys
+import pathlib
+import yaml
 import lib.functions
 
 ################################### Constants #################################
@@ -269,6 +269,37 @@ class StateGraph(object):
     def get_origins(self):
         self.origin_idx_by_label = {self.graph.nodes[node_idx]['label']: node_idx for node_idx, out_degree in self.graph.out_degree() if out_degree == 0}
 
+    def write_yaml(self, paramterObj):
+        config = {
+            'version': self._VERSION,
+            'random_seed' : 19,
+            'precision': 25,
+            #'model' : self.model_file,
+            'population_ids': collections.defaultdict(dict),
+            'k_max': collections.defaultdict(dict),
+            'parameters': collections.defaultdict(dict), 
+            'boundaries': collections.defaultdict(list),
+            }
+        config['parameters']['theta'] = 'FLOAT'
+        for column in self._parse_model_file(target='header'):
+            if column.startswith('C_'): 
+                config['parameters'][column] = 'FLOAT'
+                population_id = column.replace('C_', '') 
+                if len(population_id) == 1:
+                    config['population_ids'][population_id] = 'STRING'
+            if column.startswith('M_'):
+                config['parameters'][column] = 'FLOAT'
+            elif column.startswith('m_'):
+                config['k_max'][column] = 'INT'
+        config['parameters']['T'] = 'FLOAT'
+        for parameter in config['parameters']:
+            config['boundaries'][parameter] = ['MIN', 'MAX']
+        config_file = pathlib.Path(self.model_file).with_suffix('.config.yaml')
+        yaml.add_representer(collections.defaultdict, yaml.representer.Representer.represent_dict)
+        with open(config_file, 'w') as fh:
+            yaml.dump(config, fh)
+        print("[+] Wrote file %r" % str(config_file))
+
     def write_model(self, parameterObj):
         #print("[+] Calculating model ...")
         #print(self.events_counter)
@@ -413,49 +444,3 @@ def graph_generator(parameterObj):
         ", ".join(state_graph.origin_idx_by_label.keys())))
     return state_graph
 
-class ParameterObj(object):
-    def __init__(self, args):
-        self.ploidy = int(args['--ploidy'])
-        self.pop_ids = sorted(args['--pop_ids'].split(','))
-        self.samples_by_pop_id = {pop_id: int(samples) for pop_id, samples in zip(args['--pop_ids'].split(','), args['--samples'].split(','))}
-        self.out_prefix = args['--out_prefix']
-        self.join_events = self._parse_join_events(args['--join_string']) if args['--join_string'] else []
-        self.migration_events = self._parse_migration_events(args['--migration_string']) if args['--migration_string'] else []
-        self.sample_stateObj = self._get_sample_stateObj()
-        self.set_of_events = self._get_set_of_events() 
-        self.model_output = False if args['--nomodel'] else True 
-        self.graph_output = False if args['--nograph'] else True
-        #print(self.__dict__) 
-
-    def _get_set_of_events(self):
-        return set(["C_%s" % pop_id for pop_id in self.pop_ids + self.join_events] + self.join_events + self.migration_events)
-
-    def _get_sample_stateObj(self):
-        pop_dict = {}
-        for pop_id in self.pop_ids:
-            pop_list = []
-            for i in range(self.samples_by_pop_id[pop_id]):
-                for j in range(self.ploidy):
-                    pop_list.append("%s%s" % (pop_id.lower(), i+1))
-            pop_dict[pop_id.upper()] = PopObj(pop_list)
-        return StateObj(pop_dict)
-
-    def _parse_join_events(self, join_string):
-        char_counter = collections.Counter(join_string)
-        if not all([char_counter[pop_id] <= 1 for pop_id in self.pop_ids]) == True:
-            return "[X] Duplicated population IDs"
-        print(joins(ast.literal_eval(re.sub(r'([a-zA-Z]+)',r'"\1"', join_string))))
-        return joins(ast.literal_eval(re.sub(r'([a-zA-Z]+)',r'"\1"', join_string)))
-
-    def _parse_migration_events(self, migration_string):
-        events = []
-        for m in migration_string.split(','):
-           if '>' in m:
-               a, b = m.split('>')
-               events.append("M_%s_%s" % (a, b))
-           elif '<' in m:
-               a, b = m.split('<')
-               events.append("M_%s_%s" % (b, a))
-           else:
-               sys.exit("[X] %r is not a valid migration parameter.")
-        return events

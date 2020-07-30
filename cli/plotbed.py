@@ -10,16 +10,19 @@
 """
 
 '''
-4D sites
-- Hmel : -m 1000kb -l 64
-    - multiallelic  == 0 |=> -l 1  
-    - missing       == 0 |=>
+[To Do]
+- diagnostic plots
+    - by_source
+        - from bed
+        - from zarr
+    - by topic
+        - distance
+        - length
+        - samples (in fifth column)
+            - decay (shared in any)
+            - sharedness as proportion of total (diagonal heatmap: https://seaborn.pydata.org/examples/many_pairwise_correlations.html)
 
-    - default : 5% (rounded down) of blocklength
-    - span: 2* blocklength
-    - -r : [span - blocklength]
-
-    
+- divide cli/lib code
 '''
 
 from timeit import default_timer as timer
@@ -32,6 +35,7 @@ import numpy as np
 import sys
 import collections
 import pandas as pd
+import math
 import matplotlib.pyplot as plt
 import matplotlib as mat
 mat.use("agg")
@@ -71,16 +75,72 @@ def analyse_bed(parameterObj):
                                         lib.gimble.format_fraction(count_intervals / count_sequences)))
     bed_df['distance'] = np.where((bed_df['sequence_id'] == bed_df['sequence_id'].shift(-1)), (bed_df['start'].shift(-1) - bed_df['end']) + 1, np.nan)
     bed_df['length'] = (bed_df['end'] - bed_df['start'])
+    
     distance_counter = collections.Counter(list(bed_df['distance'].dropna(how="any", inplace=False)))
+    distance_scatter_f = parameterObj.bed_file.parent / (parameterObj.bed_file.stem + 'scatter.distance.png')
+    distance_heatmap_f = parameterObj.bed_file.parent / (parameterObj.bed_file.stem + 'heatmap.distance.png')
+    plot_heatmap(distance_counter, 'Distance to downstream BED interval', distance_heatmap_f)
+    plot_loglog(distance_counter, 'Distance to downstream BED interval', distance_scatter_f)
+
     length_counter = collections.Counter(list(bed_df['length']))
-    distance_f = parameterObj.bed_file.parent / (parameterObj.bed_file.stem + '.distance.png')
-    plot_loglog(distance_counter, 'Distance to downstream BED interval', distance_f)
-    length_f = parameterObj.bed_file.parent / (parameterObj.bed_file.stem + '.length.png')
-    plot_loglog(length_counter, 'Length of BED interval', length_f)
+    length_scatter_f = parameterObj.bed_file.parent / (parameterObj.bed_file.stem + 'scatter.length.png')
+    length_heatmap_f = parameterObj.bed_file.parent / (parameterObj.bed_file.stem + 'heatmap.length.png')
+    plot_heatmap(length_counter, 'Length of BED Intervals', length_heatmap_f)
+    plot_loglog(length_counter, 'Length of BED intervals', length_scatter_f)
+
     #for sequence_id, df in bed_df.groupby('sequence_id'):
     #    distance_counter = collections.Counter(list(df['distance'].dropna(how="any", inplace=False)))
     #    distance_f = parameterObj.bed_file.parent / (parameterObj.bed_file.stem + '.%s.distance.png' % sequence_id)
     #    plot_distance(distance_f, distance_counter)
+
+def plot_heatmap1(counter, xlabel, out_f):
+    x = np.array(list(counter.keys()))
+    y = np.array(list(counter.values()))
+    MIN = 1
+    MAX = 100000000
+    #bins = 10 ** np.linspace(np.log10(MIN), np.log10(MAX), 50)
+    y_space = np.linspace(x.min(), x.max(), num=49)
+    x_space = np.geomspace(MIN, MAX, num=49)
+    heatmap, xedges, yedges = np.histogram2d(x,y, bins=[x_space, y_space])
+    fig = plt.figure(figsize=(12, 12), dpi=200, frameon=True)
+    ax = fig.add_subplot(111)
+    #heatmap = ax.pcolor((xedges, yedges), cmap=plt.cm.Blues, alpha=0.8)
+    X,Y = np.meshgrid(xedges, yedges)
+    ax.imshow(heatmap, interpolation='none', cmap=plt.cm.Blues, origin='lower')
+    #xlabels = [item.get_text() for item in ax.get_xticklabels()]
+    ax.set_xticklabels(xedges)
+    ax.set_yticklabels(yedges)
+    #ax.loglog()
+    #ax.set_xlim(xedges[0], xedges[-1])
+    #ax.set_ylim(yedges[0], yedges[-1])
+    plt.xlabel(xlabel)
+    fig.savefig(out_f, format="png")
+
+def plot_heatmap(counter, xlabel, out_f):
+    labels, values = zip(*counter.items())
+    indexes = np.arange(len(labels))
+    width = 1
+    fig = plt.figure(figsize=(12, 12), dpi=200, frameon=True)
+    ax = fig.add_subplot(111)
+    ax.bar(indexes, values, width)
+    #ax.xticks(indexes + width * 0.5, labels)
+    fig.savefig(out_f, format="png")
+    # #bins = 10 ** np.linspace(np.log10(MIN), np.log10(MAX), 50)
+    # y_space = np.linspace(x.min(), x.max(), num=49)
+    # x_space = np.geomspace(MIN, MAX, num=49)
+    # heatmap, xedges, yedges = np.histogram2d(x,y, bins=[x_space, y_space])
+    
+    # #heatmap = ax.pcolor((xedges, yedges), cmap=plt.cm.Blues, alpha=0.8)
+    # X,Y = np.meshgrid(xedges, yedges)
+    # ax.imshow(heatmap, interpolation='none', cmap=plt.cm.Blues, origin='lower')
+    # #xlabels = [item.get_text() for item in ax.get_xticklabels()]
+    # ax.set_xticklabels(xedges)
+    # ax.set_yticklabels(yedges)
+    # #ax.loglog()
+    # #ax.set_xlim(xedges[0], xedges[-1])
+    # #ax.set_ylim(yedges[0], yedges[-1])
+    # plt.xlabel(xlabel)
+    # fig.savefig(out_f, format="png")
 
 def plot_loglog(counter, xlabel, out_f):
     y_vals = []

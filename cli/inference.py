@@ -199,6 +199,7 @@ class ParameterObj(RunObj):
                     if l.startswith("path_idx"):
                         return l.split()
 
+
 def main(params):
     try:
         '''
@@ -235,7 +236,6 @@ def main(params):
             error
         if M_e and not 0 in l: # identity check has to allow for precision-offness
             error   
-
         '''
         start_time = timer()
         args = docopt(__doc__)

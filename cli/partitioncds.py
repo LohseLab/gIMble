@@ -14,20 +14,11 @@
 """
 
 '''
-awk '$8=="CDS" || $8=="cds"' ~/Dropbox/heliconius_full/current/hmel2_5.chromosomes.annotation.bed > ~/Dropbox/heliconius_full/current/hmel2_5.chromosomes.annotation.CDS.bed
-paste <(cut -f1,2 -d"_" ~/Dropbox/heliconius_full/current/hmel2_5.chromosomes.annotation.CDS.bed) <(cut -f5,6 ~/Dropbox/heliconius_full/current/hmel2_5.chromosomes.annotation.CDS.bed) > ~/Dropbox/heliconius_full/current/hmel2_5.chromosomes.annotation.CDS.by_transcript_id.be
-'''
-
-'''
 [To Do]
 - ignore sample argument:
     - should be possible to remove certain samples from VCF file
 
-- add window starts ends in info output
-
-[Info]
-
-- C_A_B is ALWAYS 1 (for now)
+- divide cli/lib code
 '''
 
 
