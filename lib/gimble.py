@@ -16,27 +16,19 @@ import pathlib
 import matplotlib.pyplot as plt
 # np.set_printoptions(threshold=sys.maxsize)
 
-# Formatting functions
-
 '''
-ZARR
- - seq
-    - meta 
-    - chroms
-
- - sim
-    - meta
-        - 
-        - simulaton = {'A' : [1], 'B': [2,3,4,5,6,7,8, ... 100] }
-    - 1
-        - GTS
-    - 2
-    - 3
-    - 4
-    - 5
-
-block_starts, seq = "seq/blocks/%s/starts" % (seq)
+[To Do]
+- 
 '''
+
+def parse_csv(csv_f='', dtype=[], usecols=[], sep=',', header=None):
+    '''dtypes := "object", "int64", "float64", "bool", "datetime64", "timedelta", "category"'''
+    df = pd.read_csv(csv_f, sep=sep, usecols=usecols, names=list(dtype.keys()), header=header, dtype=dtype)
+    print("[TBT] Test for bad TSV")
+    print(df) 
+    if df.isnull().values.any():
+        sys.exit("[X] Bad file format %r." % csv_f)
+    return df
 
 def format_bases(bases):
     return "%s b" % format(bases, ',d')
@@ -150,17 +142,7 @@ def genotype_to_mutype_array(sa_genotype_array, idx_block_sites_in_pos, block_si
     if debug == True:
         print("# Blocksites", block_sites)
     np_genotype_array = np.array(sa_genotype_array)
-    #print('np_genotype_array', np_genotype_array)
-    #print('block_sites', block_sites.shape)
-    #print(block_sites)
-    #print('idx_block_sites_in_pos', idx_block_sites_in_pos.shape)
-    #print(idx_block_sites_in_pos)
-    #print('sa_genotype_array', sa_genotype_array.shape)
-    #print(sa_genotype_array)
-    #print('np_genotype_array', np_genotype_array.shape)
-    #print(np_genotype_array)
     np_allele_count_array = np.ma.masked_equal(sa_genotype_array.count_alleles(), 0, copy=False)    
-    #print('np_allele_count_array', np_allele_count_array)
     allele_map = np.ones((np_allele_count_array.shape), dtype='int8') * np.arange(np_allele_count_array.shape[-1])
     idx_max_global_allele_count = np.nanargmax(np_allele_count_array, axis=1)
     idx_min_global_allele_count = np.nanargmin(np_allele_count_array, axis=1)
@@ -190,7 +172,7 @@ def genotype_to_mutype_array(sa_genotype_array, idx_block_sites_in_pos, block_si
     block_sites[idx_block_sites_in_pos] = szudzik_pairing(folded_minor_allele_counts) + 2               # add 2 so that not negative for bincount
     block_sites[~idx_block_sites_in_pos] = 2                                                            # monomorphic = 2 (0 = multiallelic, 1 = missing)
     if debug == True:
-        pos_df = pd.DataFrame(block_sites_pos[idx_block_sites_in_pos.flatten()], dtype='int', columns=['pos'])
+        pos_df = pd.DataFrame(block_sites_pos[idx_block_sites_in_pos.flatten()], dtype='int8', columns=['pos'])
         genotypes_df = pd.DataFrame(np_genotype_array.reshape(np_genotype_array.shape[0], 4), dtype='i4', columns=['a1', 'a2', 'b1', 'b2'])        
         block_sites_df = pos_df.join(genotypes_df)
         folded_minor_allele_count_df = pd.DataFrame(folded_minor_allele_counts, dtype='int8', columns=['fmAC_a', 'fmAC_b'])
@@ -216,17 +198,13 @@ def cut_windows(mutype_array, idxs, start_array, end_array, sample_set_array, nu
     mutype_array_sorted = mutype_array.take(coordinate_sorted_idx, axis=0)
     window_idxs = np.arange(mutype_array_sorted.shape[0] - num_blocks + 1)[::num_steps, None] + np.arange(num_blocks)
     window_mutypes = mutype_array_sorted.take(window_idxs, axis=0)
-    #print("window_mutypes", window_mutypes[:])
     block_starts = start_array.take(coordinate_sorted_idx, axis=0).take(window_idxs, axis=0)
-    #print("block_starts", block_starts[:])
     window_starts = np.min(start_array.take(coordinate_sorted_idx, axis=0).take(window_idxs, axis=0), axis=1).T
-    #print("window_starts", window_starts[:])
     block_ends = end_array.take(coordinate_sorted_idx, axis=0).take(window_idxs, axis=0)#[:,-1]
     window_ends = np.max(end_array.take(coordinate_sorted_idx, axis=0).take(window_idxs, axis=0), axis=1).T
     window_midpoints = (block_starts / 2) + (block_ends / 2)
     window_pos_mean = np.mean(window_midpoints, axis=1).T
     window_pos_median = np.median(window_midpoints, axis=1).T
-    # coverages = get_coverage_counts(sample_set_array.take(window_idxs, axis=0), idxs, num_blocks)
     return window_mutypes, window_starts, window_ends, window_pos_mean, window_pos_median
 
 def cut_blocks(interval_starts, interval_ends, block_length, block_span, block_gap_run):
@@ -291,33 +269,6 @@ class RunObj(object):
         except TypeError():
             sys.exit("[X] %r can't be converted to float." % string)
 
-
-SCHEMA = {
-    'main';
-        'attrs':
-            'module': 'command'
-    }
-
-seqs,
-    meta
-
-sims,
-    meta
-META_SCHEMA = {
-            'meta' : {
-                'files': {'vcf_f': None, 'sample_f': None, 'genome_f': None, 'bed_f': None}, 
-                # genome_file
-                'sequences': {'sequence_ids': [], 'sequence_lengths': []},
-                # sample_file
-                'samples': {'sample_ids' = [], 'sample_ids_vcf' = [], 'sample_ids_bed' = [], 'population_ids' = [], 'sample_sets' = [], 'sample_sets_cartesian' = []},
-                # bed_file
-                'bed': {'intervals': None, 'span': None}
-                # blocks
-                'blocks': {'block_length' : None, 'block_span' : None, 'block_max_missing' : None, 'block_max_multiallelic' : None},
-                # windows
-                'windows': {'window_size': None, 'window_step': None}
-                }
-            }
 
 # for each sequence
 #'variants/pos'
@@ -388,60 +339,59 @@ class Store(object):
         logging.info("[#] Initialising store...")
         self._init_meta(overwrite=True)
         logging.info("[#] Processing genome file %r..." % parameterObj.genome_file)
-        self._parse_genome_file(parameterObj.genome_file)
+        self._set_sequences(parameterObj.genome_file)
         logging.info("[#] Processing sample file %r..." % parameterObj.sample_file)
-        self._parse_sample_file(parameterObj.sample_file, 2)
+        self._set_samples(parameterObj.sample_file)
         logging.info("[#] Processing vcf file %r..." % parameterObj.vcf_file)
-        self._parse_vcf_file(parameterObj.vcf_file)
+        self._set_variants(parameterObj.vcf_file)
         logging.info("[#] Processing vcf file %r..." % parameterObj.bed_file)
-        self._parse_bed_file(parameterObj.bed_file)
+        self._set_intervals(parameterObj.bed_file)
         self.add_stage(parameterObj)
     
     def _init_meta(self, overwrite=False):
         # seqs
         defaults_by_group = {
-            'seqs/meta/files': {'vcf_f': '', 'sample_f': '', 'genome_f': '', 'bed_f': ''},
-            'seqs/meta/sequences' : {'sequence_ids': [], 'sequence_lengths': [], 'n50' = 0},
+            'seqs/meta/files': {'vcf_file': None, 'sample_file': None, 'genome_file': None, 'bed_file': None},
+            'seqs/meta/sequences' : {'ids': [], 'lengths': [], 'n50': 0},
             'seqs/meta/samples' : {'samples' : [], 'populations' : [], 'sample_sets' : [], 'sample_sets_cartesian' : []},
             'seqs/meta/variants/': {
                 'variant_counts': [], 'vcf_samples': [], 'gt_idx_by_sample': {}, 
-                'count_hom_ref_by_sample': {}, 'count_hom_alt_by_sample': {}, 'count_het_by_sample': {}, 'count_missing_by_sample': {}}
+                'count_hom_ref_by_sample': {}, 'count_hom_alt_by_sample': {}, 'count_het_by_sample': {}, 'count_missing_by_sample': {}},
             'seqs/meta/intervals' : {'count': 0, 'span': 0, 'bed_samples': []},
             'seqs/meta/blocks' : {'block_length' : 0, 'block_span' : 0, 'block_max_missing' : 0, 'block_max_multiallelic' : 0, 'span_in_blocks': 0},
-            'seqs/meta/windows' : {'window_size': 0, 'window_step': 0, 'window_count': 0, 'span_in_windows': 0}
+            'seqs/meta/windows' : {'window_size': 0, 'window_step': 0, 'window_count': 0, 'span_in_windows': 0},
+            'inference/meta/grid' : None
         }
         for group, default in defaults_by_group.items():
             self.data.require_group(group, overwrite=overwrite)
             self.data[group].attrs.put(default)    
         # sims
-        # ...
+        # ...`
 
-    def _parse_genome_file(self, genome_file):
-        df = pd.read_csv(
-            genome_file, sep="\t", usecols=[0,1], names=['sequence_id', 'sequence_length'], 
-            header=None, dtype={'sequence_id': str, 'sequence_length': 'Int64'})
-        print("[TBT] Test for bad TSV")
-        print(df) 
-        if df.isnull().values.any():
-            sys.exit("[X] Bad TSV file %r." % genome_file)
-        self.data.attrs['seqs/meta/sequences/']['ids'] = df['sequence_id'].to_list()
-        self.data.attrs['seqs/meta/sequences/']['lengths'] = df['sequence_length'].to_list()
+    def _set_sequences(self, genome_file):
+        sequences_df = parse_csv(
+            csv_f=genome_file, 
+            sep="\t", 
+            usecols=[0,1], 
+            dtype={'sequence_id': 'category', 'sequence_length': 'int64'}, 
+            header=None)
+        self.data.attrs['seqs/meta/sequences/']['ids'] = sequences_df['sequence_id'].to_list()
+        self.data.attrs['seqs/meta/sequences/']['lengths'] = sequences_df['sequence_length'].to_list()
         self.data.attrs['seqs/meta/sequences/']['n50'] = get_n50_from_lengths(self.data['seqs/meta/sequences/lengths'])
         for sequence_id in self.data.attrs['sequence_ids']:
             self.data.create_group('seqs/%s/' % sequence_id)
         self.data.attrs['seqs/meta/files/']['genome_f'] = str(genome_file)
 
-    def _parse_sample_file(self, sample_file, pairedness):
-        df = pd.read_csv(
-            sample_file, sep=",", usecols=[0,1], names=['samples', 'populations'],
-            header=None, dtype={'samples': str, 'populations': str})
-        print("[TBT] Test for bad CSV")
-        print(df)
-        if df.isnull().values.any():
-            sys.exit("[X] Bad CSV file %r." % sample_file)
-        self.data.attrs['seqs/meta/samples/']['samples'] = df['sequence_id'].to_list()
-        self.data.attrs['seqs/meta/samples/']['populations'] = df['population_ids'].to_list()
-        self.data.attrs['seqs/meta/samples/']['population_ids'] = sorted(set(df['population_id'].to_list()))
+    def _set_samples(self, sample_file):
+        samples_df = parse_csv(
+            csv_f=sample_file, 
+            sep="\t", 
+            usecols=[0,1], 
+            dtype={'samples': 'object', 'populations': 'category'}, 
+            header=None)
+        self.data.attrs['seqs/meta/samples/']['ids'] = samples_df['samples'].to_list()
+        self.data.attrs['seqs/meta/samples/']['populations'] = samples_df['population_ids'].to_list()
+        self.data.attrs['seqs/meta/samples/']['population_ids'] = sorted(set(samples_df['population_id'].to_list()))
         population_by_sample = {sample: population for sample, population in zip(
             self.data.attrs['seqs/meta/samples/']['samples'], 
             self.data.attrs['seqs/meta/samples/']['populations'])}
@@ -455,27 +405,28 @@ class Store(object):
             else False for sample_set in self.data.attrs['seqs/meta/samples/sample_sets']]
         self.data.attrs['seqs/meta/files/']['sample_f'] = str(sample_file)
 
-    def _parse_vcf_file(self, vcf_file):
-        sequences = self.data.attrs['seqs/meta/sequences/']['id']
+    def _set_variants(self, vcf_file):
+        '''
+        [To Do]
+        - plot barcharts of HOMREF/HOMALT/HET/MISS/MULTI as proportion of total records
+        '''
+        sequences = self.data.attrs['seqs/meta/sequences/']['ids']
         lengths = self.data.attrs['seqs/meta/sequences/']['lengths']
         samples = self.data.attrs['seqs/meta/samples/']['samples']
         variant_counts = []
-        count_hom_ref_by_sample = {}
-        count_hom_alt_by_sample = {}
-        count_het_by_sample = {}
-        count_missing_by_sample = {}
+        counter_by_sample_by_genotype = collections.defaultdict(collections.Counter) 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             gt_key, pos_key, sample_key = 'calldata/GT', 'variants/POS', 'samples'
-            vcf_samples = allel.read_vcf(vcf_f, fields=[sample_key])[sample_key]
+            vcf_samples = allel.read_vcf(vcf_file, fields=[sample_key])[sample_key]
             query_samples = [vcf_sample for vcf_sample in vcf_samples if vcf_sample in set(samples)] # order as they appear genotypes
             self.data.attrs['seqs/meta/variants/']['gt_samples'] = query_samples
             self.data.attrs['seqs/meta/variants/']['gt_idx_by_sample'] = {query_sample: idx for idx, query_sample in enumerate(query_samples)}
-            for idx, (sequence, length) in tqdm(enumerate(zip(sequences, lengths)), total=len(sequences), desc="[%] Reading variants...", ncols=100):
-                vcf_data = allel.read_vcf(vcf_file, region=seq_id, samples=samples_query, fields=[gt_key, pos_key])
+            for sequence in tqdm(sequences, total=len(sequences), desc="[%] Reading variants...", ncols=100):
+                vcf_data = allel.read_vcf(vcf_file, region=sequence, samples=query_samples, fields=[gt_key, pos_key])
                 # genotypes
                 gt_matrix = vcf_data[gt_key]
-                self.data.create_dataset("seqs/%s/variants/gt_matrix'" % seq_id, data=gt_matrix)
+                self.data.create_dataset("seqs/%s/variants/gt_matrix'" % sequence, data=gt_matrix)
                 variant_counts.append(gt_matrix.shape[0])
                 sa_genotype_matrix = allel.GenotypeArray(gt_matrix)
                 count_array_hom_ref = sa_genotype_matrix.count_hom_ref(axis=0)
@@ -483,24 +434,80 @@ class Store(object):
                 count_array_het = sa_genotype_matrix.count_het(axis=0)
                 count_array_missing = sa_genotype_matrix.count_missing(axis=0)
                 for sample, vcf_idx in self.data.attrs['seqs/meta/variants/']['gt_idx_by_sample'].items():
-                    count_hom_ref_by_sample[sample] = hom_ref_by_sample.get(sample, 0) + count_array_hom_ref[idx]
-                    count_hom_alt_by_sample[sample] = hom_alt_by_sample.get(sample, 0) + count_array_hom_alt[idx]
-                    count_het_by_sample[sample] = het_by_sample.get(sample, 0) + count_array_het[idx]
-                    count_missing_by_sample[sample] = missing_by_sample.get(sample, 0) + count_array_missing[idx]
+                    counter_by_sample_by_genotype[sample]['HOMREF'] += count_array_hom_ref[idx]
+                    counter_by_sample_by_genotype[sample]['HOMALT'] += count_array_hom_alt[idx]
+                    counter_by_sample_by_genotype[sample]['HET'] += count_array_het[idx]
+                    counter_by_sample_by_genotype[sample]['MISSING'] += count_array_missing[idx]
                 # positions
                 pos_array = vcf_data[pos_key] - 1 # port to BED (0-based) coordinates
                 unique_pos, counts_pos = np.unique(pos_array, return_counts=True)
                 duplicates = unique_pos[counts_pos > 1]
                 if duplicates.any():
-                    print("\n[-] Sequence %r: %s VCF records with non-unique positions found. Rescuing records by shifting position... (abort if this is not desired)" % (seq_id, len(duplicates)))
+                    print("\n[-] Sequence %r: %s VCF records with non-unique positions found. Rescuing records by shifting position... (abort if this is not desired)" % (sequence, len(duplicates)))
                     pos_array = fix_pos_array(pos_array)
-                self.data.create_dataset("seqs/%s/variants/pos" % seq_id, data=pos_array)
-        self.data.attrs['seqs/meta/variants/']['count_hom_ref_by_sample'] = count_hom_ref_by_sample
-        self.data.attrs['seqs/meta/variants/']['count_hom_alt_by_sample'] = count_hom_alt_by_sample
-        self.data.attrs['seqs/meta/variants/']['count_het_by_sample'] = count_het_by_sample
-        self.data.attrs['seqs/meta/variants/']['count_missing_by_sample'] = count_missing_by_sample
+                self.data.create_dataset("seqs/%s/variants/pos" % sequence, data=pos_array)
+        self.data.attrs['seqs/meta/variants/']['count_hom_ref_by_sample'] = dict(counter_by_sample_by_genotype['HOMREF'])
+        self.data.attrs['seqs/meta/variants/']['count_hom_alt_by_sample'] = dict(counter_by_sample_by_genotype['HOMALT'])
+        self.data.attrs['seqs/meta/variants/']['count_het_by_sample'] = dict(counter_by_sample_by_genotype['HET'])
+        self.data.attrs['seqs/meta/variants/']['count_missing_by_sample'] = dict(counter_by_sample_by_genotype['MISSING'])
         self.data.attrs['seqs/meta/variants/']['variant_counts'] = variant_counts
-        self.data.attrs['seqs/meta/files/']['vcf_f'] = str(sample_file)
+        self.data.attrs['seqs/meta/files/']['vcf_file'] = vcf_file
+
+    def _set_intervals(self, bed_file):
+        df = parse_csv(
+            csv_f=bed_file, 
+            sep="\t", 
+            usecols=[0, 1, 2, 4], 
+            dtype={'sequence_id': 'category', 'start': 'int64', 'end': 'int64', 'samples': 'category'},
+            header=None)
+        sequences = self.data.attrs['seqs/meta/sequences/']['ids']
+        samples = self.data.attrs['seqs/meta/samples/']['ids']
+        # remove sequence_ids that are not in sequence_names_array, sort, reset index
+        intervals_df = df[df['sequence_id'].isin(sequences)].sort_values(['sequence_id', 'start'], ascending=[True, True]).reset_index(drop=True)
+        # get length column
+        intervals_df['length'] = intervals_df['end'] - intervals_df['start'] 
+        # get coverage matrix and drop columns of samples that are not in sample_ids_array
+        intervals_df = pd.concat([intervals_df, intervals_df.samples.str.get_dummies(sep=',').filter(samples)], axis=1).drop(columns=['samples'])
+        for sequence_id, transcript_df in tqdm(bed_df.groupby(['transcript_id']), desc="[%] Reading BED...", ncols=150):
+
+        # remove those intervals including less than two sample_ids (query sample_id columns : intervals_df[intervals_df.columns.intersection(sample_ids)])
+        # intervals_df = intervals_df.loc[(intervals_df[intervals_df.columns.intersection(sample_ids)].sum(axis=1) > 1)]
+        #interval_sites_by_sample_set_idx = collections.defaultdict(list)
+        #block_sites_by_sample_set_idx = collections.defaultdict(list)
+
+
+
+
+
+        print("[+] Parsing BED file...")
+        df = pd.read_csv(
+            sample_file, sep=",", usecols=[0,1], names=['samples', 'populations'],
+            header=None, dtype={'samples': str, 'populations': str})
+        print("[TBT] Test for bad CSV")
+        print(df)
+        if df.isnull().values.any():
+            sys.exit("[X] Bad CSV file %r." % sample_file)
+        
+
+        try:
+            bed_df = pd.read_csv(parameterObj.bed_file, sep="\t", usecols=[0,1,2], names=['sequence_id', 'start', 'end'], 
+                                    dtype={'sequence_id': str, 'start': 'Int64', 'end': 'Int64'}).sort_values(['sequence_id', 'start'], ascending=[True, True])
+        except ValueError:
+            sys.exit("[X] BED file %r does not contain the following the columns: 'sequence_id', 'start', 'end'" % (parameterObj.bed_file))
+        count_sequences = bed_df['sequence_id'].nunique()
+        count_intervals = len(bed_df.index)
+        print("[+] Found %s BED intervals on %s sequences (%s intervals/sequence)..." % (
+                                            lib.gimble.format_count(count_intervals), 
+                                            lib.gimble.format_count(count_sequences), 
+                                            lib.gimble.format_fraction(count_intervals / count_sequences)))
+        bed_df['distance'] = np.where((bed_df['sequence_id'] == bed_df['sequence_id'].shift(-1)), (bed_df['start'].shift(-1) - bed_df['end']) + 1, np.nan)
+        bed_df['length'] = (bed_df['end'] - bed_df['start'])
+        distance_counter = collections.Counter(list(bed_df['distance'].dropna(how="any", inplace=False)))
+        length_counter = collections.Counter(list(bed_df['length']))
+        distance_f = parameterObj.bed_file.parent / (parameterObj.bed_file.stem + '.distance.png')
+        plot_loglog(distance_counter, 'Distance to downstream BED interval', distance_f)
+        length_f = parameterObj.bed_file.parent / (parameterObj.bed_file.stem + '.length.png')
+        plot_loglog(length_counter, 'Length of BED interval', length_f)
 
     def info(self, verbose = False):
         print("[=] ==========================================")
@@ -538,34 +545,6 @@ class Store(object):
         #logging.info("[+] Found %s sequences of a total length of %s b..." % (
         #    len(self.data['seqs/meta/sequences/ids']), 
         #    sum(self.data['seqs/meta/sequences/lengths'])))
-
-    
-
-
-
-    def _parse_bed_file(self, parameterObj.bed_file):
-        print("[+] Parsing BED file...")
-        try:
-            bed_df = pd.read_csv(parameterObj.bed_file, sep="\t", usecols=[0,1,2], names=['sequence_id', 'start', 'end'], 
-                                    dtype={'sequence_id': str, 'start': 'Int64', 'end': 'Int64'}).sort_values(['sequence_id', 'start'], ascending=[True, True])
-        except ValueError:
-            sys.exit("[X] BED file %r does not contain the following the columns: 'sequence_id', 'start', 'end'" % (parameterObj.bed_file))
-        count_sequences = bed_df['sequence_id'].nunique()
-        count_intervals = len(bed_df.index)
-        print("[+] Found %s BED intervals on %s sequences (%s intervals/sequence)..." % (
-                                            lib.gimble.format_count(count_intervals), 
-                                            lib.gimble.format_count(count_sequences), 
-                                            lib.gimble.format_fraction(count_intervals / count_sequences)))
-        bed_df['distance'] = np.where((bed_df['sequence_id'] == bed_df['sequence_id'].shift(-1)), (bed_df['start'].shift(-1) - bed_df['end']) + 1, np.nan)
-        bed_df['length'] = (bed_df['end'] - bed_df['start'])
-        distance_counter = collections.Counter(list(bed_df['distance'].dropna(how="any", inplace=False)))
-        length_counter = collections.Counter(list(bed_df['length']))
-        distance_f = parameterObj.bed_file.parent / (parameterObj.bed_file.stem + '.distance.png')
-        plot_loglog(distance_counter, 'Distance to downstream BED interval', distance_f)
-        length_f = parameterObj.bed_file.parent / (parameterObj.bed_file.stem + '.length.png')
-        plot_loglog(length_counter, 'Length of BED interval', length_f)
-
-
 
 class Store(object):
 
