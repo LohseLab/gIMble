@@ -18,7 +18,8 @@ import matplotlib.pyplot as plt
 
 '''
 [To Do]
-- 
+- gimble query -blocks -t|-c
+    - write blocks bed for each sample
 '''
 
 def parse_csv(csv_f='', dtype=[], usecols=[], sep=',', header=None):
