@@ -611,7 +611,7 @@ class Store(object):
                     data_by_key['sequence'].append(np.full_like(valid, seq_id, dtype='object'))
                     data_by_key['sample_set_idx'].append(np.full_like(valid, sample_set_idx, dtype='object'))
                     pbar.update()
-        header = ["# gimble %s" % parameterObj._VERSION] + ["# %s = %s" % (sample_set_idx, ", ".join(self.data.attrs['sample_sets'][sample_set_idx])) for sample_set_idx in sample_sets_idxs]
+        header = ["# %s" % parameterObj._VERSION] + ["# %s = %s" % (sample_set_idx, ", ".join(self.data.attrs['sample_sets'][sample_set_idx])) for sample_set_idx in sample_sets_idxs]
         out_f = 'gimble.blocks.bed'
         with open(out_f, 'w') as out_fh:
             out_fh.write("\n".join(header) + "\n")
@@ -621,7 +621,6 @@ class Store(object):
                 np.concatenate(data_by_key['end']),
                 np.concatenate(data_by_key['sample_set_idx'])
             ]).T
-
         bed_df = pd.DataFrame(
             data=array,
             columns=['sequence', 'start', 'end', 'sample_set_idx'])
