@@ -597,6 +597,37 @@ class Store(object):
     def get_gts(self, sequence_ids, start, end, sample_ids):
         pass
 
+    def write_block_bed(self, parameterObj):
+        sample_sets_idxs = self.data.attrs['idx_cartesian_sample_sets']
+        data_by_key = collections.defaultdict(list)
+        with tqdm(total=(len(self.data.attrs['sequence_ids']) * len(sample_sets_idxs)), desc="[%] Writing bSFSs ", ncols=100, unit_scale=True) as pbar: 
+            for seq_id in self.data.attrs['sequence_ids']: 
+                for sample_set_idx in sample_sets_idxs:
+                    missing = np.array(self.data["%s/%s/blocks/missing" % (seq_id, sample_set_idx)])
+                    multiallelic = np.array(self.data["%s/%s/blocks/multiallelic" % (seq_id, sample_set_idx)])
+                    valid = np.less_equal(missing, parameterObj.block_max_missing) & np.less_equal(multiallelic, parameterObj.block_max_multiallelic)
+                    data_by_key['start'].append(np.array(self.data["%s/%s/blocks/starts" % (seq_id, sample_set_idx)])[valid])
+                    data_by_key['end'].append(np.array(self.data["%s/%s/blocks/ends" % (seq_id, sample_set_idx)])[valid])
+                    data_by_key['sequence'].append(np.full_like(valid, seq_id, dtype='object'))
+                    data_by_key['sample_set_idx'].append(np.full_like(valid, sample_set_idx, dtype='object'))
+                    pbar.update()
+        header = ["# gimble %s" % parameterObj._VERSION] + ["# %s = %s" % (sample_set_idx, ", ".join(self.data.attrs['sample_sets'][sample_set_idx])) for sample_set_idx in sample_sets_idxs]
+        out_f = 'gimble.blocks.bed'
+        with open(out_f, 'w') as out_fh:
+            out_fh.write("\n".join(header) + "\n")
+        array = np.array([
+                np.concatenate(data_by_key['sequence']),
+                np.concatenate(data_by_key['start']),
+                np.concatenate(data_by_key['end']),
+                np.concatenate(data_by_key['sample_set_idx'])
+            ]).T
+
+        bed_df = pd.DataFrame(
+            data=array,
+            columns=['sequence', 'start', 'end', 'sample_set_idx'])
+        bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, mode='a', sep='\t', index=False, header=False)
+
+
     def dump_blocks(self, parameterObj):
         # applies the missing & multiallelic thresholds
         sample_sets_idxs = self.data.attrs['idx_cartesian_sample_sets']

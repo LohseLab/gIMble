@@ -7,6 +7,7 @@ Usage: gimble <module> [<args>...] [-D -V -h]
     info                  Print information about DataStore
     blocks                Generate blocks from data in DataStore 
     windows               Generate windows from blocks in DataStore (requires blocks)
+    query                 Query BED file of blocks (windows [TBI])
     model                 Build demographic model
     simulate              Simulate data [TBI] 
     inference             Make inference [TBI] (requires blocks)
@@ -60,6 +61,9 @@ def main(gimble_dir):
         elif args['<module>'] == 'plotbed':
             import cli.plotbed as plotbed
             plotbed.main(params)
+        elif args['<module>'] == 'query':
+            import cli.query as query
+            query.main(params)
         elif args['<module>'] == 'blocks':
             import cli.blocks as blocks
             blocks.main(params)
