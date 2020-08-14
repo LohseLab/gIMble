@@ -16,35 +16,46 @@ import pathlib
 import matplotlib.pyplot as plt
 # np.set_printoptions(threshold=sys.maxsize)
 
+
 '''
+[Rules for better living]
+- GimbleStore.data.attrs (meta): ZARR JSON encoder does not like numpy/pandas dtypes, have to be converted to python dtypes
+
+'''
+
+'''
+[Done]
+- rewrite of ZARR GimbleStore
+    - now only 'valid' blocks get saved (previously missing/multiallelic filter was applied for dumping/) 
+    - all metadata (for 'seqs') is handled via .zattrs
+        - now trivial to add/remove metadata 
+- less memory needed, looks like 'heliconius intergenic' blocks take less than 1h
+
+- blocks:
+    - made for all sample_sets (not just cartesian ones)
+        - necessary to calculate different Pi's
+
+- new modules
+    - info 
+    - query
+
 [To Do]
-- gimble query -blocks -t|-c
-    - write blocks bed for each sample
+- inference
+    - clean up config file
+        - move config-file-writer to model.py
+    - make grid
+
 - QC plots
     - variants 
         - plot barcharts of HOMREF/HOMALT/HET/MISS/MULTI as proportion of total records
     - intervals
         - plot length
         - plot distance
+- data dumping 
+- metrics dumping
+- generalise prefligth-checks for relevant modules
 
 '''
-# for each sequence
-#'variants/pos'
-#'variants/matrix'
-#'intervals/starts'
-#'intervals/ends'
-#'intervals/interval_matrix'
-#'blocks/starts'
-#'blocks/ends'
-#'blocks/variation'
-#'blocks/missing'
-#'blocks/multiallelic'
-#'windows/starts'
-#'windows/ends'
-#'windows/variation'
-#'windows/pos_mean'
-#'windows/pos_median'
-
 
 def parse_csv(csv_f='', dtype=[], usecols=[], sep=',', header=None):
     '''dtypes := "object", "int64", "float64", "bool", "datetime64", "timedelta", "category"'''
@@ -323,7 +334,7 @@ class Store(object):
     def has_stage(self, stage):
         return stage in self.data.attrs
     
-    def get_bsfs_matrix(self, data='blocks', population_by_letter={'A': 'pop1', 'B': 'pop2'}, cartesian_only=True, kmax_by_mutype={'1': 2, '2': 2, '3': 2, '4': 2}):
+    def get_bsfs_matrix(self, data='blocks', population_by_letter={'A': 'pop1', 'B': 'pop2'}, cartesian_only=True, kmax_by_mutype={'m_1': 2, 'm_2': 2, 'm_3': 2, 'm_4': 2}):
         meta = self.data['seqs'].attrs
         pop_switch_flag = False
         if population_by_letter:
@@ -343,7 +354,7 @@ class Store(object):
             if pop_switch_flag:
                 variation_array[0], variation_array[1] = variation_array[1], variation_array[0]
             mutypes, counts = np.unique(variation_array, return_counts=True, axis=0)
-            bsfs_matrix = np.zeros(tuple(kmax_by_mutype[str(mutype)] + 2 for mutype in range(1, meta['mutypes_count'] + 1)), np.int64)
+            bsfs_matrix = np.zeros(tuple(kmax_by_mutype["m_%s" % mutype] + 2 for mutype in range(1, meta['mutypes_count'] + 1)), np.int64)
             kmax_array = np.array(list(kmax_by_mutype.values())) + 1
             for mutype, count in zip(mutypes, counts):
                 bsfs_matrix[(tuple(np.clip(mutype, 0, kmax_array)))] = count
@@ -450,7 +461,6 @@ class Store(object):
         print("[#] Making blocks...")
         self._make_blocks(parameterObj)
         self.log_stage(parameterObj)
-        self.get_bsfs_matrix()
 
     def windows(self, parameterObj):
         print("[#] Preflight...")
@@ -467,6 +477,14 @@ class Store(object):
                 sys.exit("[X] GStore %r already contains windows.\n[X] These windows => %r\n[X] Please specify '--force' to overwrite." % (self.path, self.get_stage('windows')))
             print('[-] GStore %r already contains windows. But these will be overwritten...' % (self.path))
     
+    def _preflight_blocks(self, parameterObj):
+        if not self.has_stage('setup'):
+            sys.exit("[X] GStore %r has no data. Please run 'gIMble setup'." % self.path)
+        if self.has_stage('blocks'):
+            if not parameterObj.overwrite:
+                sys.exit("[X] GStore %r already contains blocks.\n[X] These blocks => %r\n[X] Please specify '--force' to overwrite." % (self.path, self.get_stage('blocks')))
+            print('[-] GStore %r already contains blocks. But these will be overwritten...' % (self.path))
+
     def _make_windows(self, parameterObj, cartesian_only=True):
         meta = self.data['seqs'].attrs
         meta['window_size'] = parameterObj.window_size
@@ -498,14 +516,6 @@ class Store(object):
                 self.data.create_dataset("seqs/%s/windows/pos_mean" % seq_name, data=window_pos_mean, overwrite=True)
                 self.data.create_dataset("seqs/%s/windows/pos_median" % seq_name, data=window_pos_median, overwrite=True)
         self.log_stage(parameterObj)
-    
-    def _preflight_blocks(self, parameterObj):
-        if not self.has_stage('setup'):
-            sys.exit("[X] GStore %r has no data. Please run 'gIMble setup'." % self.path)
-        if self.has_stage('blocks'):
-            if not parameterObj.overwrite:
-                sys.exit("[X] GStore %r already contains blocks.\n[X] These blocks => %r\n[X] Please specify '--force' to overwrite." % (self.path, self.get_stage('blocks')))
-            print('[-] GStore %r already contains blocks. But these will be overwritten...' % (self.path))
 
     def _get_interval_coordinates_for_sample(self, seq_name='', sample_set=[]):
         meta = self.data['seqs'].attrs
@@ -715,12 +725,12 @@ class Store(object):
                 self.data.create_dataset("seqs/%s/variants/matrix" % sequence, data=gt_matrix)
             meta['variants_idx_by_sample'] = {query_sample: idx for idx, query_sample in enumerate(query_samples)}
         meta['vcf_f'] = parameterObj.vcf_f
-        meta['variants_counts'] = int(np.sum(count_records)) # JSON encoder does not like numpy dtypes
-        meta['variants_counts_called'] = [int(x) for x in np.sum(count_called, axis=0)] # JSON encoder does not like numpy dtypes
-        meta['variants_counts_hom_ref'] = [int(x) for x in np.sum(count_hom_ref, axis=0)] # JSON encoder does not like numpy dtypes
-        meta['variants_counts_hom_alt'] = [int(x) for x in np.sum(count_hom_alt, axis=0)] # JSON encoder does not like numpy dtypes
-        meta['variants_counts_het'] = [int(x) for x in np.sum(count_het, axis=0)] # JSON encoder does not like numpy dtypes
-        meta['variants_counts_missing'] = [int(x) for x in np.sum(count_missing, axis=0)] # JSON encoder does not like numpy dtypes
+        meta['variants_counts'] = int(np.sum(count_records)) # ZARR JSON encoder does not like numpy dtypes
+        meta['variants_counts_called'] = [int(x) for x in np.sum(count_called, axis=0)] # ZARR JSON encoder does not like numpy dtypes
+        meta['variants_counts_hom_ref'] = [int(x) for x in np.sum(count_hom_ref, axis=0)] # ZARR JSON encoder does not like numpy dtypes
+        meta['variants_counts_hom_alt'] = [int(x) for x in np.sum(count_hom_alt, axis=0)] # ZARR JSON encoder does not like numpy dtypes
+        meta['variants_counts_het'] = [int(x) for x in np.sum(count_het, axis=0)] # ZARR JSON encoder does not like numpy dtypes
+        meta['variants_counts_missing'] = [int(x) for x in np.sum(count_missing, axis=0)] # ZARR JSON encoder does not like numpy dtypes
         # QC plots 
 
     def _set_intervals(self, parameterObj):
@@ -770,92 +780,94 @@ class Store(object):
         #count_intervals = len(intervals_df.index)
         #count_samples = len(query_samples)
 
-    def dump_blocks(self, parameterObj):
+    def dump_blocks(self, parameterObj, cartesian_only=True):
         # applies the missing & multiallelic thresholds
-        sample_sets_idxs = self.data.attrs['idx_cartesian_sample_sets']
-        data_by_key_by_sample_set_idx = collections.defaultdict(lambda: collections.defaultdict(list))
+        meta = self.data['seqs'].attrs
+        sample_set_idxs = [idx for (idx, is_cartesian) in enumerate(meta['sample_sets_cartesian']) if is_cartesian] if cartesian_only else range(len(meta['sample_sets']))
+        #data_by_key_by_sample_set_idx = collections.defaultdict(lambda: collections.defaultdict(list))
         variation_global = []
-        with tqdm(total=(len(self.data.attrs['sequence_ids']) * len(sample_sets_idxs)), desc="[%] Writing bSFSs ", ncols=100, unit_scale=True) as pbar: 
-            for seq_id in self.data.attrs['sequence_ids']: 
-                for sample_set_idx in sample_sets_idxs:
+        with tqdm(total=(len(meta['seq_names']) * len(sample_set_idxs)), desc="[%] Writing bSFSs ", ncols=100, unit_scale=True) as pbar: 
+            for seq_name in meta['seq_names']: 
+                for sample_set_idx in sample_set_idxs:
                     # aggregate interval/block sites as determined from BED file and blocking algorithm
-                    data_by_key_by_sample_set_idx[sample_set_idx]['interval_sites'].append(np.array(self.data["%s/%s/interval_sites" % (seq_id, sample_set_idx)]))
-                    data_by_key_by_sample_set_idx[sample_set_idx]['block_sites'].append(np.array(self.data["%s/%s/block_sites" % (seq_id, sample_set_idx)]))
+                    #data_by_key_by_sample_set_idx[sample_set_idx]['interval_sites'].append(np.array(self.data["%s/%s/interval_sites" % (seq_id, sample_set_idx)]))
+                    #data_by_key_by_sample_set_idx[sample_set_idx]['block_sites'].append(np.array(self.data["%s/%s/block_sites" % (seq_id, sample_set_idx)]))
                     # missing & multiallelic thresholds determine validity of blocks ...
-                    missing = np.array(self.data["%s/%s/blocks/missing" % (seq_id, sample_set_idx)])
-                    multiallelic = np.array(self.data["%s/%s/blocks/multiallelic" % (seq_id, sample_set_idx)])
-                    valid = np.less_equal(missing, parameterObj.block_max_missing) & np.less_equal(multiallelic, parameterObj.block_max_multiallelic)
-                    data_by_key_by_sample_set_idx[sample_set_idx]['block_sites_valid'].append(np.array([valid[valid == True].shape[0] * self.data.attrs['block_length']]))
+                    #missing = np.array(self.data["%s/%s/blocks/missing" % (seq_id, sample_set_idx)])
+                    #multiallelic = np.array(self.data["%s/%s/blocks/multiallelic" % (seq_id, sample_set_idx)])
+                    #valid = np.less_equal(missing, parameterObj.block_max_missing) & np.less_equal(multiallelic, parameterObj.block_max_multiallelic)
+                    #data_by_key_by_sample_set_idx[sample_set_idx]['block_sites_valid'].append(np.array([valid[valid == True].shape[0] * self.data.attrs['block_length']]))
                     # aggregate variation/location data of valid blocks 
-                    data_by_key_by_sample_set_idx[sample_set_idx]['missing'].append(missing[valid])
-                    data_by_key_by_sample_set_idx[sample_set_idx]['multiallelic'].append(multiallelic[valid])
-                    variation = np.array(self.data["%s/%s/blocks/variation" % (seq_id, sample_set_idx)])[valid]
-                    data_by_key_by_sample_set_idx[sample_set_idx]['variation'].append(variation)
-                    variation_global.append(variation)
-                    data_by_key_by_sample_set_idx[sample_set_idx]['starts'].append(np.array(self.data["%s/%s/blocks/starts" % (seq_id, sample_set_idx)])[valid])
-                    data_by_key_by_sample_set_idx[sample_set_idx]['ends'].append(np.array(self.data["%s/%s/blocks/ends" % (seq_id, sample_set_idx)])[valid])
+                    #data_by_key_by_sample_set_idx[sample_set_idx]['missing'].append(missing[valid])
+                    #data_by_key_by_sample_set_idx[sample_set_idx]['multiallelic'].append(multiallelic[valid])
+                    variation_key = 'seqs/%s/blocks/%s/variation' % (seq_name, sample_set_idx)
+                    variation_global.append(np.array(self.data[variation_key]))#[valid]
+                    #data_by_key_by_sample_set_idx[sample_set_idx]['variation'].append(variation)
+                    #variation_global.append(variation)
+                    #data_by_key_by_sample_set_idx[sample_set_idx]['starts'].append(np.array(self.data["%s/%s/blocks/starts" % (seq_id, sample_set_idx)])[valid])
+                    #data_by_key_by_sample_set_idx[sample_set_idx]['ends'].append(np.array(self.data["%s/%s/blocks/ends" % (seq_id, sample_set_idx)])[valid])
                     #sample_set.append(np.full_like(end[valid], sample_set_idx)) 
                     pbar.update()
         variation_global_array = np.concatenate(variation_global, axis=0)
         # popgen
         variation_global = []
-        metrics_rows = []
+        #metrics_rows = []
         # is order (pi_1, pi_2, d_xy, f_st, fgv) correct?
-        for sample_set_idx in data_by_key_by_sample_set_idx:
-            sample_set_ids = self.data.attrs['sample_sets'][sample_set_idx]
-            #print(data_by_key_by_sample_set_idx)
-            block_sites = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['block_sites'], axis=0))
-            interval_sites = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['interval_sites'], axis=0))
-            block_sites_valid = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['block_sites_valid'], axis=0))
-            variation_array = np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['variation'], axis=0)
-            missing_count = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['missing'], axis=0))
-            multiallelic_count = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['multiallelic'], axis=0))
-            hetB_count, hetA_count, hetAB_count, fixed_count = np.sum(variation_array, axis=0)
-            #pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation_array, (self.data.attrs['block_length'] * variation_array.shape[0]))    
-            pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation_array, block_sites_valid)    
-            metrics_rows.append([
-                sample_set_ids[0], 
-                sample_set_ids[1],     
-                block_sites,
-                interval_sites,
-                block_sites_valid,
-                np.divide(block_sites_valid, self.data.attrs['block_length']),
-                fgv,
-                missing_count,
-                multiallelic_count,
-                hetA_count, 
-                hetB_count, 
-                hetAB_count, 
-                fixed_count,
-                pi_1, 
-                pi_2, 
-                d_xy, 
-                f_st
-                ])
-        # output metrics 
-        header = [
-            self.data.attrs['pop_ids'][0], 
-            self.data.attrs['pop_ids'][1], 
-            'block_sites', 
-            'interval_sites', 
-            'block_sites_valid', 
-            'blocks', 
-            'fgv', 
-            'missing', 
-            'multiallelic', 
-            'hetA', 
-            'hetB', 
-            'hetAB', 
-            'fixed', 
-            'piA', 
-            'piB', 
-            'dxy', 
-            'fst'
-            ]
-        pd.DataFrame(data=metrics_rows, columns=header, dtype='int64').to_hdf("%s.block_stats.h5" % self.prefix, 'bsfs', format='table')
+        # for sample_set_idx in data_by_key_by_sample_set_idx:
+        #     sample_set_ids = self.data.attrs['sample_sets'][sample_set_idx]
+        #     #print(data_by_key_by_sample_set_idx)
+        #     block_sites = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['block_sites'], axis=0))
+        #     interval_sites = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['interval_sites'], axis=0))
+        #     block_sites_valid = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['block_sites_valid'], axis=0))
+        #     variation_array = np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['variation'], axis=0)
+        #     missing_count = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['missing'], axis=0))
+        #     multiallelic_count = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['multiallelic'], axis=0))
+        #     hetB_count, hetA_count, hetAB_count, fixed_count = np.sum(variation_array, axis=0)
+        #     #pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation_array, (self.data.attrs['block_length'] * variation_array.shape[0]))    
+        #     pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation_array, block_sites_valid)    
+        #     metrics_rows.append([
+        #         sample_set_ids[0], 
+        #         sample_set_ids[1],     
+        #         block_sites,
+        #         interval_sites,
+        #         block_sites_valid,
+        #         np.divide(block_sites_valid, self.data.attrs['block_length']),
+        #         fgv,
+        #         missing_count,
+        #         multiallelic_count,
+        #         hetA_count, 
+        #         hetB_count, 
+        #         hetAB_count, 
+        #         fixed_count,
+        #         pi_1, 
+        #         pi_2, 
+        #         d_xy, 
+        #         f_st
+        #         ])
+        # # output metrics 
+        # header = [
+        #     self.data.attrs['pop_ids'][0], 
+        #     self.data.attrs['pop_ids'][1], 
+        #     'block_sites', 
+        #     'interval_sites', 
+        #     'block_sites_valid', 
+        #     'blocks', 
+        #     'fgv', 
+        #     'missing', 
+        #     'multiallelic', 
+        #     'hetA', 
+        #     'hetB', 
+        #     'hetAB', 
+        #     'fixed', 
+        #     'piA', 
+        #     'piB', 
+        #     'dxy', 
+        #     'fst'
+        #     ]
+        # pd.DataFrame(data=metrics_rows, columns=header, dtype='int64').to_hdf("%s.block_stats.h5" % self.prefix, 'bsfs', format='table')
 
-        pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation_global_array, (self.data.attrs['block_length'] * variation_global_array.shape[0]))
-        print("[+] Pi_%s = %s; Pi_%s = %s; D_xy = %s; F_st = %s; FGVs = %s / %s blocks (%s)" % (self.data.attrs['pop_ids'][0], pi_1, self.data.attrs['pop_ids'][1], pi_2, d_xy, f_st, fgv, variation_global_array.shape[0], format_percentage(fgv / variation_global_array.shape[0]))) 
+        #pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation_global_array, (self.data.attrs['block_length'] * variation_global_array.shape[0]))
+        #print("[+] Pi_%s = %s; Pi_%s = %s; D_xy = %s; F_st = %s; FGVs = %s / %s blocks (%s)" % (self.data.attrs['pop_ids'][0], pi_1, self.data.attrs['pop_ids'][1], pi_2, d_xy, f_st, fgv, variation_global_array.shape[0], format_percentage(fgv / variation_global_array.shape[0]))) 
         
         # mutuple barchart
         mutypes, counts = np.unique(variation_global_array, return_counts=True, axis=0)
@@ -864,7 +876,7 @@ class Store(object):
 
         # mutuple tally
         bsfs = np.concatenate([counts[:, np.newaxis], mutypes], axis =-1)
-        header = ['count'] + [x+1 for x in range(self.data.attrs['mutypes_count'])]
+        header = ['count'] + [x+1 for x in range(meta['mutypes_count'])]
         pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.blocks.h5" % self.prefix, 'tally', format='table')
 
         # block coordinates (BED format)
@@ -1245,17 +1257,6 @@ class Store(object):
 #         self.add_stage(parameterObj)
 #         self.data.attrs['window_size'] = parameterObj.window_size
 #         self.data.attrs['window_step'] = parameterObj.window_step
-
-#     def _get_path(self, outprefix):
-#         path = "%s.z" % outprefix
-#         if os.path.isdir(path):
-#             logging.info("[!] ZARR store %r exists. Deleting ..." % path)
-#             shutil.rmtree(path)
-#         logging.info("[+] Generating ZARR store %r" % path)
-#         return path
-
-#     def get_gts(self, sequence_ids, start, end, sample_ids):
-#         pass
 
 #     def dump_blocks(self, parameterObj):
 #         # applies the missing & multiallelic thresholds
