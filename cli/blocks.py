@@ -50,11 +50,10 @@ def main(params):
         start_time = timer()
         print("[+] Running 'gimble blocks'")
         args = docopt(__doc__)
-        #print(args)
-        #log = lib.log.get_logger(run_params)
         parameterObj = ParameterObj(params, args)
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
         gimbleStore.blocks(parameterObj)
+        gimbleStore.dump_blocks(parameterObj)
         gimbleStore.info()
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
