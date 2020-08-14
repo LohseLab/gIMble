@@ -23,6 +23,56 @@ To Do:
     mutype = ['m_1', 'm_2', 'm_3', 'm_4'] (for n2+p2)
     used in 
     - general way to filter FGVs in generate_mutation_profiles()
+
+# YAML (boundaries):
+- *mu*: mutation rate in mutations per base per generation
+- *theta*: mutation rate in coalescence time scale (using pi as unbiased estimator from data)
+- *C_A*, *C_B*, *C_AB*: population size scalers (reference population should be set to 1.0) 
+- *tau* split time in numbers of generation
+- *m_e* probability of lineage to migrate per generation
+- *t*: generations per year (optional, would trigger output in years)
+
+ALWAYS report coalescence-scaled parameters
+- Ne_A, Ne_B, Ne_A_B, T, M  
+
+# gimble inference grid:
+- Ne = theta/4mu 
+- theta_block = theta * block_length
+- Ne_A, Ne_B, Ne_A_B = Ne/C_A, Ne/C_B, Ne/C_A_B
+- T = 2Ne*tau
+- M = 4Ne*m_e
+    
+# numbers of generation
+- *mu* in mutations per base per generation 
+- *tau* split time in numbers of generation
+- *m_e* probability of lineage to migrate per generation
+
+# on coalescence time scale
+- theta = 4Ne*mu
+- T = 2Ne*tau
+- M = 4Ne*m_e
+
+Goal:
+    - user provided *mu* in mutations per base per generation 
+    - required for grid-search
+        - m_e
+        - Ne_A, Ne_B, Ne_A_B
+        - tau (split time in numbers of generation)
+
+YAML:
+    - add mu
+    - add theta
+    - remove theta_block 
+
+get_base_rate:
+    - get theta_scaled : theta per block (theta * block_length) 
+    - calculate Ne
+    - C_A = 1, C_B = 0.5
+        - Ne_A = Ne/C_A; Ne_B = Ne/C_B
+    One scalar has to be set to 1, else error ('you need a reference population', 'can;t estimate 4 values')
+    - M: 4Ne*m (this is currently used in yaml)
+    - internal m_e = has to be used for grid 
+
 '''
 @contextlib.contextmanager
 def poolcontext(*args, **kwargs):
@@ -357,6 +407,39 @@ class EquationSystemObj(object):
             print("[+]\t∑(PODs) == 1 ")
         self.PODs = PODs
 
+    def optimise_parameters(symbolic_equations_by_mutuple, mutuple_count_matrix, parameterObj):
+        '''
+        search-bounds vs. real-bounds vs parameterObj.boundaries
+        '''
+
+        print("[+] Optimising parameters: %s ..." % (", ".join(parameterObj.boundaries.keys())))    
+        start_time = timer()
+        simplex_values, simplex_parameters = generate_initial_simplex(parameterObj.boundaries, parameterObj.seed)
+        x0 = tuple([0] * len(parameterObj.boundaries.keys()))
+        #block_count = mutuple_count_matrix.flatten().sum()
+        res = scipy.optimize.minimize(
+            infer_composite_likelihood, 
+            x0, 
+            args=(simplex_parameters, symbolic_equations_by_mutuple, mutuple_count_matrix, parameterObj), 
+            method="Nelder-Mead", 
+            options={
+                'initial_simplex': simplex_values, 
+                'maxfev' : 200,
+                'maxiter': 200,
+                'disp': False, 
+                'xatol': 1e-1, 
+                'fatol': 1e-1, # * block_count, # needs to be scaled by number of blocks
+                'adaptive': True})
+        print()
+        if res.success:
+            estimated_parameters = collections.OrderedDict({key: value for (key, _), value in zip(parameterObj.boundaries.items(), res.x)})
+            print_params = { (param):(value if not param == 'theta' else value * 2) for param, value in estimated_parameters.items()}
+            estimated_parameters_string = ", ".join(["%s=%s" % (key, round(value, 4)) for key, value in print_params.items()])
+            print("[+] Parameters estimated in %ss using %s iterations (Composite Likelihood = -%s): %s" % (timer() - start_time, res.nit, res.fun, estimated_parameters_string))
+        else:
+            print("[-] No covergence reached after %s iterations (%ss elapsed)" % (res.nit, timer() - start_time))
+        return estimated_parameters
+    
     def _get_equationObjs(self):
         constructors = []
         for constructor_id, event_tuples in tqdm(self.event_tuples_by_idx.items(), total=len(self.event_tuples_by_idx), desc="[%] Building equations", ncols=100):

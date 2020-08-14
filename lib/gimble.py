@@ -20,7 +20,6 @@ import matplotlib.pyplot as plt
 '''
 [Rules for better living]
 - GimbleStore.data.attrs (meta): ZARR JSON encoder does not like numpy/pandas dtypes, have to be converted to python dtypes
-
 '''
 
 '''
@@ -337,7 +336,11 @@ class Store(object):
     def has_stage(self, stage):
         return stage in self.data.attrs
     
-    def get_bsfs_matrix(self, data='blocks', population_by_letter={'A': 'pop1', 'B': 'pop2'}, cartesian_only=True, kmax_by_mutype={'m_1': 2, 'm_2': 2, 'm_3': 2, 'm_4': 2}):
+    def get_bsfs_matrix(self, 
+            data='blocks', 
+            population_by_letter={'A': 'pop1', 'B': 'pop2'}, 
+            cartesian_only=True, 
+            kmax_by_mutype={'m_1': 2, 'm_2': 2, 'm_3': 2, 'm_4': 2}):
         meta = self.data['seqs'].attrs
         pop_switch_flag = False
         if population_by_letter:

@@ -238,8 +238,10 @@ class ParameterObj(RunObj):
                             print(f"[-] Specified range for {key} does not contain specified grid center value")  
                     self._config["parameters"][key] = sim_range
 
+
         
 def main(params):
+    '''ETP = exact table of probabilities'''
     try:
         start_time = timer()
         args = docopt(__doc__)
@@ -260,7 +262,12 @@ def main(params):
         equationSystem.info()
         equationSystem.initiate_model()
         equationSystem.calculate_PODs()
-        equationSystem.check_PODs()
+        if parameterObj.probcheck_file is not None:
+            equationSystem.check_PODs()
+        from scipy.special import xlogy
+        import numpy as np
+        composite_likelihood = -np.sum((xlogy(np.sign(equationSystem.PODs), equationSystem.PODs) * data))
+        print('[+] L=-%s' % (composite_likelihood))
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
         print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
