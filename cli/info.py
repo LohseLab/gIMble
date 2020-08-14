@@ -26,7 +26,7 @@ def main(params):
         parameterObj = ParameterObj(params, args)
         store = lib.gimble.load_store(parameterObj)
         #print(store.tree())
-        store.info(verbose=True)
+        store.info()
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
         print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
