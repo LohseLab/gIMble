@@ -55,6 +55,7 @@ def main(params):
         gimbleStore.blocks(parameterObj)
         gimbleStore.dump_blocks(parameterObj)
         gimbleStore.info()
+        gimbleStore.tree()
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
         print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))

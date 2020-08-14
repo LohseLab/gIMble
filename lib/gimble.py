@@ -44,7 +44,10 @@ import matplotlib.pyplot as plt
     - clean up config file
         - move config-file-writer to model.py
     - make grid
-
+-info:
+    - mean span of intervals occupied by each sample
+    - window
+    
 - QC plots
     - variants 
         - plot barcharts of HOMREF/HOMALT/HET/MISS/MULTI as proportion of total records
@@ -494,11 +497,6 @@ class Store(object):
             for seq_name in meta['seq_names']:
                 variation, starts, ends = [], [], []
                 for sample_set_idx in sample_set_idxs:
-                    # missing_key = 'seqs/%s/blocks/%s/missing' % (seq_name, sample_set_idx)
-                    # missing = np.array(self.data[missing_key])
-                    # multiallelic_key = 'seqs/%s/blocks/%s/multiallelic' % (seq_name, sample_set_idx)
-                    # multiallelic = np.array(self.data[multiallelic_key])
-                    # valid = np.less_equal(missing, meta['blocks_max_missing']) & np.less_equal(multiallelic, meta['blocks_max_multiallelic'])
                     variation_key = 'seqs/%s/blocks/%s/variation' % (seq_name, sample_set_idx)
                     variation.append(np.array(self.data[variation_key]))
                     start_key = 'seqs/%s/blocks/%s/starts' % (seq_name, sample_set_idx)
@@ -517,7 +515,7 @@ class Store(object):
                 self.data.create_dataset("seqs/%s/windows/pos_median" % seq_name, data=window_pos_median, overwrite=True)
         self.log_stage(parameterObj)
 
-    def _get_interval_coordinates_for_sample(self, seq_name='', sample_set=[]):
+    def _get_interval_coordinates_for_sample_set(self, seq_name='', sample_set=[]):
         meta = self.data['seqs'].attrs
         sample_set_key = np.array([meta['intervals_idx_by_sample'][sample] for sample in sample_set]) # order should not matter...
         matrix_key = 'seqs/%s/intervals/matrix' % seq_name
@@ -542,7 +540,7 @@ class Store(object):
                 pos = self.data[pos_key] if pos_key in self.data else np.array([])
                 sa_genotype_array = allel.GenotypeArray(self.data[gt_key])
                 for sample_set_idx, (sample_set, sample_set_cartesian) in enumerate(zip(meta['sample_sets'], meta['sample_sets_cartesian'])):
-                    starts, ends = self._get_interval_coordinates_for_sample(seq_name=seq_name, sample_set=sample_set)
+                    starts, ends = self._get_interval_coordinates_for_sample_set(seq_name=seq_name, sample_set=sample_set)
                     # Cut blocks based on intervals and block-algoritm parameters
                     block_sites = cut_blocks(starts, ends, meta['blocks_length'], meta['blocks_span'], meta['blocks_gap_run']) 
                     if debug:
