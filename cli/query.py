@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gIMble query                  -z FILE -b [-u <INT> -i <INT>] [-h|--help]
+"""usage: gimble query                  -z FILE -b [-u <INT> -i <INT>] [-h|--help]
                                             
     Options:
         -h --help                                   show this
