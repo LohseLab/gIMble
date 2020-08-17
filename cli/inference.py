@@ -223,10 +223,10 @@ class ParameterObj(RunObj):
                     if l.startswith("path_idx"):
                         return l.split()
 
+
     def _make_grid(self):
         '''
-        - returns numpy array of floats
-        
+        - no need to be an "actual" grid
         '''
         if len(self._config["parameters"])>0:
             for key, value in self._config["parameters"].items():
@@ -238,7 +238,14 @@ class ParameterObj(RunObj):
                             print(f"[-] Specified range for {key} does not contain specified grid center value")  
                     self._config["parameters"][key] = sim_range
 
-
+def param_generator(pcentre, pmin, pmax, psamples, distr):
+    starts = [pmin, pcentre]
+    ends = [pcentre, pmax]
+    nums = [round(psamples/2) + 1, round(psamples/2)] if psamples % 2 == 0 else [round(psamples/2) + 1, round(psamples/2) + 1]
+    if distr == 'linear':
+        return np.unique(np.concatenate([np.linspace(start, stop, num=num, endpoint=True, dtype=np.float64) for start, stop, num in zip(starts, ends, nums)]))
+    else:
+        raise NotImplmentedError
         
 def main(params):
     '''ETP = exact table of probabilities'''
@@ -261,12 +268,12 @@ def main(params):
         equationSystem = lib.math.EquationSystemObj(parameterObj)
         equationSystem.info()
         equationSystem.initiate_model()
-        equationSystem.calculate_PODs()
+        equationSystem.calculate_ETPs()
         if parameterObj.probcheck_file is not None:
-            equationSystem.check_PODs()
+            equationSystem.check_ETPs()
         from scipy.special import xlogy
         import numpy as np
-        composite_likelihood = -np.sum((xlogy(np.sign(equationSystem.PODs), equationSystem.PODs) * data))
+        composite_likelihood = -np.sum((xlogy(np.sign(equationSystem.ETPs), equationSystem.ETPs) * data))
         print('[+] L=-%s' % (composite_likelihood))
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:

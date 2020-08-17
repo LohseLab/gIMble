@@ -82,7 +82,7 @@ def poolcontext(*args, **kwargs):
 
 def get_data_array(parameterObj):
     ''' based on kmax
-        => create PODs 
+        => create ETPs 
         A = np.zeros(tuple(self.k_max_by_mutype[mutype] + 2 for mutype in self.mutypes), np.float64)
         for mutuple, count in mutuples, counts:
             A[tuple(mutuple)] = count
@@ -240,9 +240,9 @@ class EquationSystemObj(object):
         self.rate_by_mutation = self._get_rate_by_variable(prefix=set(['m']))
         self.equation_batch_by_idx = collections.defaultdict(list)
         self.probcheck_file = parameterObj.probcheck_file
-        self.PODs = None
+        self.ETPs = None
 
-    def check_PODs(self):
+    def check_ETPs(self):
         '''
         ./gimble inference -m models/gimble.model.A_B.p2.n_1_1.J_A_B.Div.tsv -c models/gimble.model.A_B.p2.n_1_1.J_A_B.Div1.config.yaml -t 1 -b -k models/gimble.model.A_B.p2.n_1_1.J_A_B.Div1.probabilities.csv
         ./gimble inference -m models/gimble.model.A_B.p2.n_1_1.J_A_B.Div.tsv -c models/gimble.model.A_B.p2.n_1_1.J_A_B.Div2B.config.yaml -t 1 -b -k models/gimble.model.A_B.p2.n_1_1.J_A_B.Div2B.probabilities.csv
@@ -251,7 +251,7 @@ class EquationSystemObj(object):
         probabilities_df = pd.read_csv(self.probcheck_file, sep=",", names=['A', 'B', 'C', 'D', 'probability'],  dtype={'A': int, 'B': int, 'C': int, 'D': int, 'probability': float}, float_precision='round_trip')
         for a, b, c, d, probability in probabilities_df.values.tolist():
             mutuple = (int(a), int(b), int(c), int(d))
-            print(mutuple, " : ", probability, self.PODs[mutuple], np.isclose(probability, self.PODs[mutuple], rtol=1e-15))    
+            print(mutuple, " : ", probability, self.ETPs[mutuple], np.isclose(probability, self.ETPs[mutuple], rtol=1e-15))    
 
 
     def setup_grid(self):
@@ -368,9 +368,9 @@ class EquationSystemObj(object):
         #        print("[+] Monomorphic check passed: P(monomorphic) = %s" % equationObj.result)
 
     
-    def calculate_PODs(self):
+    def calculate_ETPs(self):
         print("[=] ==================================================")
-        print("[+] Calculating PODs ...")
+        print("[+] Calculating ETPs ...")
         parameter_batches = []
         for equationObj in self.equationObjs:
             rates = {**self.rate_by_event, **self.rate_by_mutation}
@@ -394,18 +394,18 @@ class EquationSystemObj(object):
                         pbar.update()
     
             
-        PODs = np.zeros(tuple(self.k_max_by_mutype[mutype] + 2 for mutype in self.mutypes), np.float64)
+        ETPs = np.zeros(tuple(self.k_max_by_mutype[mutype] + 2 for mutype in self.mutypes), np.float64)
         for matrix_id, equationObj in equationObj_by_matrix_idx.items():
             if equationObj.marginal_idx is None:
-                PODs[matrix_id] = equationObj.result
+                ETPs[matrix_id] = equationObj.result
             else:
-                PODs[matrix_id] = equationObj.result - sum(PODs[equationObj.marginal_idx].flatten())
-            print(matrix_id, PODs[matrix_id])
-        if not math.isclose(np.sum(PODs.flatten()), 1, rel_tol=1e-5):
-            print("[-]\t∑(PODs) != 1 (rel_tol=1e-5)")
+                ETPs[matrix_id] = equationObj.result - sum(ETPs[equationObj.marginal_idx].flatten())
+            print(matrix_id, ETPs[matrix_id])
+        if not math.isclose(np.sum(ETPs.flatten()), 1, rel_tol=1e-5):
+            print("[-]\t∑(ETPs) != 1 (rel_tol=1e-5)")
         else:
-            print("[+]\t∑(PODs) == 1 ")
-        self.PODs = PODs
+            print("[+]\t∑(ETPs) == 1 ")
+        self.ETPs = ETPs
 
     def optimise_parameters(symbolic_equations_by_mutuple, mutuple_count_matrix, parameterObj):
         '''
