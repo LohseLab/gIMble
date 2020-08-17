@@ -35,9 +35,10 @@ def main(params):
         args = docopt(__doc__)
         #log = lib.log.get_logger(run_params)
         parameterObj = ParameterObj(params, args)
-        store = lib.gimble.load_store(parameterObj)
-        store.make_windows(parameterObj)
-        store.dump_windows(parameterObj)
+        gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
+        gimbleStore.windows(parameterObj)
+        gimbleStore.info()
+        #gimbleStore.tree()
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
         print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))

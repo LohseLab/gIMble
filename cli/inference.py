@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gIMble inference                  [-z FILE] -m FILE [-c FILE] [-k FILE]
+"""usage: gIMble inference                  -z FILE -m FILE [-c FILE] [-k FILE]
                                             (-b|-w) [-t INT] [-P INT] [-h|--help]
                                             
                                             
@@ -83,6 +83,29 @@ gimble simulate
 gimble scan (combininig windows data with likelihoods)
 
 
+        
+        
+grid:=
+    center of grid : 
+        - "global" model estimated from overal block_counts across genome in canonical workflow
+        - Ne_A, Ne_B, M_e
+    boundaries: 
+        - all required! 
+        - have to be checked for consistency! (logarithmic gridding?)
+        Ne_A_min, Ne_A_max, Ne_A_steps (min=0 makes no sense, though)
+        Ne_B_min, Ne_B_max, Ne_B_steps (min=0 makes no sense, though)
+        M_e_min, M_e_Max, M_e_steps (def want to include min=0)
+             
+                          centre
+step                        *
+|   |   |   |   |   |   |   |   |   |   |   |   |   |   |        
+min                                                     max
+
+l = range(min, max+step, step)  # should allow for linear/log spacing                                                   
+if not centre in l:  # identity check has to allow for precision-offness
+    error
+if M_e and not 0 in l: # identity check has to allow for precision-offness
+    error   
 
 
 
@@ -95,12 +118,12 @@ class ParameterObj(RunObj):
     def __init__(self, params, args):
         super().__init__(params)
         self.zstore = self._get_path(args['--zarr_file'])
-        self.model_file = self._get_path(args['--model_file'], path=False)
-        self.config_file = self._get_path(args['--config_file'], path=False)
+        self.model_file = self._get_path(args['--model_file'])
+        self.config_file = self._get_path(args['--config_file'])
         self.threads = self._get_int(args['--threads'])
         self._config = self._get_or_write_config()
         self.data_type = self._get_datatype([args['--blocks'], args['--windows']])
-        self.probcheck_file = self._get_path(args['--probcheck'], path=False) if args['--probcheck'] is not None else None
+        self.probcheck_file = self._get_path(args['--probcheck']) if args['--probcheck'] is not None else None
 
     def _get_datatype(self, args):
         if not any(args):
@@ -115,6 +138,7 @@ class ParameterObj(RunObj):
     def _get_or_write_config(self):
         '''
         [To Do] 
+            - write_config has to be moved somewhere
             - numerical params: equal values mean equality (simplifies equation).
             - boundary params: need equality list, parameters in equality list MUST have equal values and are then collapsed.
         '''
@@ -200,55 +224,57 @@ class ParameterObj(RunObj):
                         return l.split()
 
 
+    def _make_grid(self):
+        '''
+        - no need to be an "actual" grid
+        '''
+        if len(self._config["parameters"])>0:
+            for key, value in self._config["parameters"].items():
+                if len(value) > 1 and key!="recombination":
+                    assert len(value) >= 3, "MIN, MAX and STEPSIZE need to be specified"
+                    sim_range = np.arange(value[0], value[1]+value[2], value[2], dtype=float)
+                    if len(value)==4:
+                        if not any(np.isin(sim_range, value[3])):
+                            print(f"[-] Specified range for {key} does not contain specified grid center value")  
+                    self._config["parameters"][key] = sim_range
+
+def param_generator(pcentre, pmin, pmax, psamples, distr):
+    starts = [pmin, pcentre]
+    ends = [pcentre, pmax]
+    nums = [round(psamples/2) + 1, round(psamples/2)] if psamples % 2 == 0 else [round(psamples/2) + 1, round(psamples/2) + 1]
+    if distr == 'linear':
+        return np.unique(np.concatenate([np.linspace(start, stop, num=num, endpoint=True, dtype=np.float64) for start, stop, num in zip(starts, ends, nums)]))
+    else:
+        raise NotImplmentedError
+        
 def main(params):
+    '''ETP = exact table of probabilities'''
     try:
-        '''
-        => szudzik pairing function applied to the count of minor alleles (or major if equal to minor)
-
-        0/0 0/1 => 0 1 => 1
-        0/1 0/0 => 1 0 => 2
-        0/1 0/1 => 1 1 => 3 
-        0/0 1/1 => 0 2 => 4
-        
-        hetB, hetA, hetAB, fixed
-
-        Ne_B, Ne_A
-        B,    A
-        
-        grid:=
-            center of grid : 
-                - "global" model estimated from overal block_counts across genome in canonical workflow
-                - Ne_A, Ne_B, M_e
-            boundaries: 
-                - all required! 
-                - have to be checked for consistency! (logarithmic gridding?)
-                Ne_A_min, Ne_A_max, Ne_A_steps (min=0 makes no sense, though)
-                Ne_B_min, Ne_B_max, Ne_B_steps (min=0 makes no sense, though)
-                M_e_min, M_e_Max, M_e_steps (def want to include min=0)
-                     
-                                  centre
-        step                        *
-        |   |   |   |   |   |   |   |   |   |   |   |   |   |   |        
-        min                                                     max
-        
-        l = range(min, max+step, step)  # should allow for linear/log spacing                                                   
-        if not centre in l:  # identity check has to allow for precision-offness
-            error
-        if M_e and not 0 in l: # identity check has to allow for precision-offness
-            error   
-        '''
         start_time = timer()
         args = docopt(__doc__)
         print(args)
         #log = lib.log.get_logger(params)
         parameterObj = ParameterObj(params, args)
+        gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
+        print(parameterObj._config)
+        data = gimbleStore.get_bsfs_matrix(
+            data='blocks', 
+            population_by_letter=parameterObj._config['population_ids'], 
+            cartesian_only=True, 
+            kmax_by_mutype=parameterObj._config['k_max'])
+        print('data.shape', data.shape)
         #data = lib.math.get_data_array(parameterObj)
         #print(data)
         equationSystem = lib.math.EquationSystemObj(parameterObj)
         equationSystem.info()
         equationSystem.initiate_model()
-        equationSystem.calculate_PODs()
-        equationSystem.check_PODs()
+        equationSystem.calculate_ETPs()
+        if parameterObj.probcheck_file is not None:
+            equationSystem.check_ETPs()
+        from scipy.special import xlogy
+        import numpy as np
+        composite_likelihood = -np.sum((xlogy(np.sign(equationSystem.ETPs), equationSystem.ETPs) * data))
+        print('[+] L=-%s' % (composite_likelihood))
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
         print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
