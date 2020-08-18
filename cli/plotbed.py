@@ -29,7 +29,6 @@ from timeit import default_timer as timer
 from docopt import docopt
 from tqdm import tqdm
 #import lib.gimblelog
-from lib.gimble import RunObj
 import lib.gimble
 import numpy as np
 import sys
@@ -165,7 +164,7 @@ def plot_loglog(counter, xlabel, out_f):
     print("[>] Created: %r" % str(out_f))
     plt.close(fig)
 
-class ParameterObj(RunObj):
+class PlotbedParameterObj(lib.gimble.ParameterObj):
     '''Sanitises command line arguments and stores parameters'''
     def __init__(self, params, args):
         super().__init__(params)
@@ -177,8 +176,8 @@ def main(params):
         args = docopt(__doc__)
         #print(args)
         #log = lib.log.get_logger(run_params)
-        parameterObj = ParameterObj(params, args)
-        df = analyse_bed(parameterObj)
+        parameterObj = PlotbedParameterObj(params, args)
+        analyse_bed(parameterObj)
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
         print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))

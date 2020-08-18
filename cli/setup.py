@@ -21,7 +21,6 @@ import sys
 
 from timeit import default_timer as timer
 from docopt import docopt
-
 import lib.gimble 
 
 '''
@@ -29,7 +28,7 @@ import lib.gimble
 - rename to: 'init', 'load', ... ?
 '''
 
-class ParameterObj(lib.gimble.RunObj):
+class SetupParameterObj(lib.gimble.ParameterObj):
     '''Sanitises command line arguments and stores parameters.'''
 
     def __init__(self, params, args):
@@ -59,7 +58,7 @@ def main(params):
         start_time = timer()
         print("[+] Running 'gimble setup'")
         args = docopt(__doc__)
-        parameterObj = ParameterObj(params, args)
+        parameterObj = SetupParameterObj(params, args)
         gimbleStore = lib.gimble.Store(prefix=parameterObj.outprefix, create=True, overwrite=parameterObj.overwrite)
         gimbleStore.setup(parameterObj)
         gimbleStore.info()

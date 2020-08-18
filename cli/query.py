@@ -31,7 +31,7 @@ from timeit import default_timer as timer
 from docopt import docopt
 import lib.gimble
 
-class ParameterObj(lib.gimble.RunObj):
+class QueryParameterObj(lib.gimble.ParameterObj):
     '''Sanitises command line arguments and stores parameters.'''
 
     def __init__(self, params, args):
@@ -45,7 +45,7 @@ def main(params):
     try:
         start_time = timer()
         args = docopt(__doc__)
-        parameterObj = ParameterObj(params, args)
+        parameterObj = QueryParameterObj(params, args)
         store = lib.gimble.load_store(parameterObj)
         #print(store.tree())
         store.write_block_bed(parameterObj)

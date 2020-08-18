@@ -19,7 +19,6 @@
 from timeit import default_timer as timer
 from docopt import docopt
 #import lib.gimblelog
-from lib.gimble import RunObj
 import lib.gimble
 import os
 
@@ -64,7 +63,7 @@ def write_df(df, out_f='', sep='\t', header=True, status=True):
     if status == True:
         print("[+] \t=> Wrote %r" % str(out_f))
 
-class ParameterObj(RunObj):
+class PreprocessParameterObj(lib.gimble.ParameterObj):
     '''Sanitises command line arguments and stores parameters'''
     def __init__(self, params, args):
         super().__init__(params)
@@ -230,7 +229,7 @@ def main(params):
         args = docopt(__doc__)
         #print(args)
         #log = lib.log.get_logger(run_params)
-        parameterObj = ParameterObj(params, args)
+        parameterObj = PreprocessParameterObj(params, args)
         #print(parameterObj.__dict__)
         preprocess(parameterObj)
         print("[*] Total runtime: %.3fs" % (timer() - start_time))

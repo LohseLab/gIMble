@@ -25,12 +25,13 @@ To Do:
     - general way to filter FGVs in generate_mutation_profiles()
 
 # YAML (boundaries):
-- *mu*: mutation rate in mutations per base per generation
+- *mu*: mutation rate in mutations per base per generation [optional]
 - *theta*: mutation rate in coalescence time scale (using pi as unbiased estimator from data)
 - *C_A*, *C_B*, *C_AB*: population size scalers (reference population should be set to 1.0) 
 - *tau* split time in numbers of generation
 - *m_e* probability of lineage to migrate per generation
-- *t*: generations per year (optional, would trigger output in years)
+- *t*: generations per year (optional, would trigger output in years) [optional]
+
 
 ALWAYS report coalescence-scaled parameters
 - Ne_A, Ne_B, Ne_A_B, T, M  
@@ -78,32 +79,7 @@ get_base_rate:
 def poolcontext(*args, **kwargs):
     pool = multiprocessing.Pool(*args, **kwargs)
     yield pool
-    pool.terminate()
-
-def get_data_array(parameterObj):
-    ''' based on kmax
-        => create ETPs 
-        A = np.zeros(tuple(self.k_max_by_mutype[mutype] + 2 for mutype in self.mutypes), np.float64)
-        for mutuple, count in mutuples, counts:
-            A[tuple(mutuple)] = count
-    '''
-    store = lib.gimble.load_store(parameterObj)
-    data_type = parameterObj.data_type #either blocks, windows, sims
-    print("THIS NEEDS TO BE ADAPTED HERE, FUNCTION NOT WORKING YET")
-    #data = store.data, DATA NEEDS TO BE LOADED IN PROPERLY
-    k_max_by_mutype = parameterObj.k_max_by_mutype
-    #what is parameterObj.mutypes??
-
-    if data_type == "blocks":
-        return block_mutype_counter(data, k_max_by_mutype, mutypes)
-
-    elif data_type == "windows":
-        np.vectorize(block_mutype_counter)
-        return block_mutype_counter(data, k_max_by_mutype, mutypes)
-    elif data_type == "sims":
-        return block_mutype_counter(data, k_max_by_mutype, mutypes)
-    else:
-        sys.exit("[X2] This should never happen.")        
+    pool.terminate()     
 
 def block_mutype_counter(blockcounts, k_max_by_mutype, mutypes):
     A = np.zeros(tuple(k_max_by_mutype[mutype] + 2 for mutype in mutypes), np.float64)
@@ -251,8 +227,7 @@ class EquationSystemObj(object):
         probabilities_df = pd.read_csv(self.probcheck_file, sep=",", names=['A', 'B', 'C', 'D', 'probability'],  dtype={'A': int, 'B': int, 'C': int, 'D': int, 'probability': float}, float_precision='round_trip')
         for a, b, c, d, probability in probabilities_df.values.tolist():
             mutuple = (int(a), int(b), int(c), int(d))
-            print(mutuple, " : ", probability, self.ETPs[mutuple], np.isclose(probability, self.ETPs[mutuple], rtol=1e-15))    
-
+            print(mutuple, " : ", probability, self.ETPs[mutuple], np.isclose(probability, self.ETPs[mutuple], rtol=1e-15))
 
     def setup_grid(self):
         '''LEGACY CODE'''

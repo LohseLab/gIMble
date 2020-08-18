@@ -1,3 +1,54 @@
+##########
+# GIMBLE #
+##########
+
+# previous
+
+# current 
+- saving of blocks based on validity (max_missing/max_multiallelic), probably causes discard of certain blocks
+  
+# v0.6.0
+- save count of total possible (valid+invalid) blocks, display info ... should be same as previous version
+
+# v0.7.0
+
+# v0.8.0
+
+# v0.9.0
+
+# v1.0.0
+- module makegrid
+
+
+# Resources 
+- Parsing CSV faster: https://medium.com/casual-inference/the-most-time-efficient-ways-to-import-csv-data-in-python-cc159b44063d
+- ABBA/BABA: http://evomics.org/learning/population-and-speciation-genomics/2018-population-and-speciation-genomics/abba-baba-statistics/
+- ZARR: https://zarr.readthedocs.io/en/stable/api/attrs.html
+- DaDi Optimisation: https://github.com/dportik/dadi_pipeline/blob/master/Optimize_Functions.py
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 # Milestones for next version partitioncds

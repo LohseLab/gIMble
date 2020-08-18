@@ -276,8 +276,8 @@ def ordered_intersect(a=[], b=[], order='a'):
         B, A = a, b
     return [_a for _a in A if _a in set(B)] 
         
-class RunObj(object):
-    '''Superclass for ParameterObjs'''
+class ParameterObj(object):
+    '''Superclass ParameterObj'''
     def __init__(self, params):
         self._PATH = params['path']
         self._VERSION = params['version']

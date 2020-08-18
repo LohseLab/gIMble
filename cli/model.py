@@ -19,7 +19,7 @@ from docopt import docopt
 from timeit import default_timer as timer
 from sys import stderr, exit
 import lib.model
-from lib.gimble import RunObj
+import lib.gimble
 import ast
 import re
 import collections
@@ -40,7 +40,7 @@ conda install -c conda-forge networkx matplotlib docopt tqdm pandas numpy psutil
 
 '''
 
-class ParameterObj(RunObj):
+class ModelParameterObj(lib.gimble.ParameterObj):
     '''Sanitises command line arguments and stores parameters'''
 
     def __init__(self, params, args):
@@ -119,12 +119,14 @@ def main(params):
         start_time = timer()
         print("[+] Running 'gimble model'")
         args = docopt(__doc__)
-        parameterObj = ParameterObj(params, args)
+        parameterObj = ModelParameterObj(params, args)
         stateGraph = lib.model.graph_generator(parameterObj)
         if parameterObj.model_output:
             stateGraph.write_model(parameterObj)
+            #stateGraph.write_yaml(parameterObj)
         if parameterObj.graph_output:
             stateGraph.plot_dot_graph(parameterObj)
+        print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
         stderr.write("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
         exit(-1)
