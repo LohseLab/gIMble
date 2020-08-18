@@ -25,7 +25,6 @@ import collections
 from timeit import default_timer as timer
 from docopt import docopt
 import sys, os
-from lib.gimble import RunObj
 from lib.gimble import Store
 import lib.simulate
 import numpy as np
@@ -48,7 +47,7 @@ gIMble simulate -m
 """
 
 
-class ParameterObj(RunObj):
+class SimulateParameterObj(lib.gimble.ParameterObj):
     """Sanitises command line arguments and stores parameters."""
 
     def __init__(self, params, args):
@@ -357,7 +356,7 @@ def main(params):
     try:
         start_time = timer()
         args = docopt(__doc__)
-        parameterObj = ParameterObj(params, args)
+        parameterObj = SimulateParameterObj(params, args)
         lib.simulate.run_sim(parameterObj)
 
         print("[*] Total runtime: %.3fs" % (timer() - start_time))

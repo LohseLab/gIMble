@@ -25,7 +25,6 @@
 from timeit import default_timer as timer
 from docopt import docopt
 #import lib.gimblelog
-from lib.gimble import RunObj
 import lib.gimble
 import warnings
 import numpy as np
@@ -206,7 +205,7 @@ class TranscriptObj(object):
     def __str__(self):
         return ">%s [%s:%s-%s(%s)]\n%s" % (self.transcript_id, self.sequence_id, self.start, self.end, self.orientation, self.sequence)
 
-class ParameterObj(RunObj):
+class PartitioncdsParameterObj(lib.gimble.ParameterObj):
     '''Sanitises command line arguments and stores parameters'''
     def __init__(self, params, args):
         super().__init__(params)
@@ -375,7 +374,7 @@ def main(params):
         args = docopt(__doc__)
         #print(args)
         #log = lib.log.get_logger(run_params)
-        parameterObj = ParameterObj(params, args)
+        parameterObj = PartitioncdsParameterObj(params, args)
         sequence_by_id = parse_fasta(parameterObj.fasta_file)
         transcriptObjs = get_transcripts(parameterObj, sequence_by_id)
         query_regions_by_sequence_id = get_query_regions(transcriptObjs)

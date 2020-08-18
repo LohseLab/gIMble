@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gIMble inference                  -z FILE -m FILE [-c FILE] [-k FILE]
+"""usage: gimble gridsearch                  -z FILE -m FILE [-c FILE]
                                             (-b|-w) [-t INT] [-P INT] [-h|--help]
                                             
                                             
@@ -11,7 +11,6 @@
         -z, --zarr_file FILE                        ZARR datastore
         -c, --config_file FILE                      Config file with parameters (if not present, empty config file is created)
         -P, --precision INT                         Floating point precision of probabilities [default: 30]
-        -k, --probcheck FILE                        probcheck
         -b, --blocks                                                               
         -w, --windows
         -t, --threads INT                           Threads [default: 1]
@@ -112,7 +111,7 @@ if M_e and not 0 in l: # identity check has to allow for precision-offness
 
 '''
 
-class InferenceParameterObj(lib.gimble.ParameterObj):
+class GridsearchParameterObj(lib.gimble.ParameterObj):
     '''Sanitises command line arguments and stores parameters.'''
 
     def __init__(self, params, args):
@@ -252,9 +251,7 @@ def main(params):
     try:
         start_time = timer()
         args = docopt(__doc__)
-        print(args)
-        #log = lib.log.get_logger(params)
-        parameterObj = InferenceParameterObj(params, args)
+        parameterObj = GridsearchParameterObj(params, args)
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
         print(parameterObj._config)
         data = gimbleStore.get_bsfs_matrix(

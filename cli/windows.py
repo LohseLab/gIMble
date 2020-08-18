@@ -16,10 +16,9 @@
 
 from docopt import docopt
 from timeit import default_timer as timer
-from lib.gimble import RunObj
 import lib.gimble
 
-class ParameterObj(RunObj):
+class WindowsParameterObj(lib.gimble.ParameterObj):
     '''Sanitises command line arguments and stores parameters'''
     def __init__(self, params, args):
         super().__init__(params)
@@ -34,11 +33,11 @@ def main(params):
         print("[+] Running 'gimble windows'")
         args = docopt(__doc__)
         #log = lib.log.get_logger(run_params)
-        parameterObj = ParameterObj(params, args)
+        parameterObj = WindowsParameterObj(params, args)
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
         gimbleStore.windows(parameterObj)
         gimbleStore.info()
-        #gimbleStore.tree()
+        gimbleStore.tree()
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
         print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
