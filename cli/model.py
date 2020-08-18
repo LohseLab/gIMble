@@ -62,7 +62,7 @@ class ModelParameterObj(lib.gimble.ParameterObj):
         self.model_output = False if args['--nomodel'] else True 
         self.graph_output = False if args['--nograph'] else True
         self.yaml_output = False if args['--noyaml'] else True
-        print(self.__dict__) 
+        #print(self.__dict__) 
 
     def _get_outprefix(self):
         pop_string = "_".join(self.pop_ids)
@@ -93,7 +93,7 @@ class ModelParameterObj(lib.gimble.ParameterObj):
 
     def _parse_join_events(self, join_string):
         char_counter = collections.Counter(join_string)
-        print(char_counter)
+        #print(char_counter)
         if not all([char_counter[pop_id] <= 1 for pop_id in self.pop_ids]) == True:
             return "[X] Duplicated population IDs"
         #print(lib.model.joins(ast.literal_eval(re.sub(r'([a-zA-Z]+)',r'"\1"', join_string))))
@@ -101,7 +101,7 @@ class ModelParameterObj(lib.gimble.ParameterObj):
 
     def _parse_migration_events(self, migration_string):
         events = []
-        print(migration_string)
+        #print(migration_string)
         if not migration_string == "''":
             for m in migration_string.split(','):
                if '>' in m:
@@ -123,7 +123,7 @@ def main(params):
         stateGraph = lib.model.graph_generator(parameterObj)
         if parameterObj.model_output:
             stateGraph.write_model(parameterObj)
-            #stateGraph.write_yaml(parameterObj)
+            stateGraph.write_yaml(parameterObj)
         if parameterObj.graph_output:
             stateGraph.plot_dot_graph(parameterObj)
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
