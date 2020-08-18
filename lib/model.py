@@ -6,7 +6,7 @@ mat.use("agg")
 from tqdm import tqdm
 import sys
 import pathlib
-import yaml
+import oyaml
 import lib.functions
 
 ################################### Constants #################################
@@ -269,36 +269,30 @@ class StateGraph(object):
     def get_origins(self):
         self.origin_idx_by_label = {self.graph.nodes[node_idx]['label']: node_idx for node_idx, out_degree in self.graph.out_degree() if out_degree == 0}
 
-    def write_yaml(self, paramterObj):
+    def write_yaml(self, parameterObj):
+        events = sorted(self.events_counter.keys())
+        lineages = sorted([lineage for lineage in self.set_of_lineages if not lineage == self.lca_label])
+        mutypes = sorted(set([mutype for mutype in [lineage_to_mutype(lineage) for lineage in lineages] if not mutype is None]))
         config = {
-            'version': self._VERSION,
+            'version': parameterObj._VERSION,
             'random_seed' : 19,
             'precision': 25,
-            #'model' : self.model_file,
-            'population_ids': collections.defaultdict(dict),
-            'k_max': collections.defaultdict(dict),
+            'population_ids': {pop_id: '' for pop_id in sorted(self.pop_ids) if "_" not in pop_id},
+            'k_max': {"m_%s" % (mutype): 2 for mutype in mutypes},
             'parameters': collections.defaultdict(dict), 
             'boundaries': collections.defaultdict(list),
             }
-        config['parameters']['theta'] = 'FLOAT'
-        for column in self._parse_model_file(target='header'):
-            if column.startswith('C_'): 
-                config['parameters'][column] = 'FLOAT'
-                population_id = column.replace('C_', '') 
-                if len(population_id) == 1:
-                    config['population_ids'][population_id] = 'STRING'
-            if column.startswith('M_'):
-                config['parameters'][column] = 'FLOAT'
-            elif column.startswith('m_'):
-                config['k_max'][column] = 'INT'
-        config['parameters']['T'] = 'FLOAT'
-        for parameter in config['parameters']:
-            config['boundaries'][parameter] = ['MIN', 'MAX']
-        config_file = pathlib.Path(self.model_file).with_suffix('.config.yaml')
-        yaml.add_representer(collections.defaultdict, yaml.representer.Representer.represent_dict)
+        parameters = ['mu', 'theta', 'tau', 'T'] + [event for event in sorted(self.events_counter.keys()) if event[0:2] in CM]
+        boundaries = ['mu', 'theta', 'tau', 'T'] + [event for event in sorted(self.events_counter.keys()) if event[0:2] in CM]
+        for parameter in parameters:
+            config['parameters'][parameter] = 'FLOAT'
+        for boundary in boundaries:
+            config['boundaries'][boundary] = ['CENTRE', 'MIN', 'MAX', 'STEPS', 'SCALE']
+        config_file = "%s.yaml" % parameterObj.out_prefix
+        oyaml.add_representer(collections.defaultdict, oyaml.representer.Representer.represent_dict)
         with open(config_file, 'w') as fh:
-            yaml.dump(config, fh)
-        print("[+] Wrote file %r" % str(config_file))
+            oyaml.dump(config, fh)
+        print("[+] Wrote CONFIG file %r" % str(config_file))
 
     def write_model(self, parameterObj):
         #print("[+] Calculating model ...")
@@ -343,7 +337,7 @@ class StateGraph(object):
 
                 path_idx += 1
         #print(rows)
-        lib.functions.create_csv("%s.model.tsv" % parameterObj.out_prefix, None, header, rows, sep="\t")
+        lib.functions.create_csv("%s.tsv" % parameterObj.out_prefix, None, header, rows, sep="\t")
         print("[+] Paths \n[+]\t%s => all\n[+]\t%s" % (
             path_counter_by_origin['all'], 
             "\n[+]\t".join(["%s => %s" % (count, origin) for origin, count in sorted(path_counter_by_origin.items()) if not origin == 'all'])))
