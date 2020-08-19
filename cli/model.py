@@ -123,7 +123,8 @@ def main(params):
         stateGraph = lib.model.graph_generator(parameterObj)
         if parameterObj.model_output:
             stateGraph.write_model(parameterObj)
-            stateGraph.write_yaml(parameterObj)
+            #stateGraph.write_yaml(parameterObj)
+            stateGraph.write_config(parameterObj)
         if parameterObj.graph_output:
             stateGraph.plot_dot_graph(parameterObj)
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
