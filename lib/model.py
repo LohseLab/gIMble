@@ -7,6 +7,7 @@ from tqdm import tqdm
 import sys
 import pathlib
 import oyaml
+import configparser
 import lib.functions
 
 ################################### Constants #################################
@@ -282,8 +283,8 @@ class StateGraph(object):
             'parameters': collections.defaultdict(dict), 
             'boundaries': collections.defaultdict(list),
             }
-        parameters = ['mu', 'theta', 'tau', 'T'] + [event for event in sorted(self.events_counter.keys()) if event[0:2] in CM]
-        boundaries = ['mu', 'theta', 'tau', 'T'] + [event for event in sorted(self.events_counter.keys()) if event[0:2] in CM]
+        parameters = ['mu', 'theta', 'T'] + [event for event in sorted(self.events_counter.keys()) if event[0:2] in CM]
+        boundaries = ['theta', 'T'] + [event for event in sorted(self.events_counter.keys()) if event[0:2] in CM]
         for parameter in parameters:
             config['parameters'][parameter] = 'FLOAT'
         for boundary in boundaries:
@@ -292,6 +293,66 @@ class StateGraph(object):
         oyaml.add_representer(collections.defaultdict, oyaml.representer.Representer.represent_dict)
         with open(config_file, 'w') as fh:
             oyaml.dump(config, fh)
+        print("[+] Wrote CONFIG file %r" % str(config_file))
+
+    def write_config(self, parameterObj):
+        events = [event for event in sorted(self.events_counter.keys()) if event[0:2] in CM]
+        lineages = sorted([lineage for lineage in self.set_of_lineages if not lineage == self.lca_label])
+        mutypes = sorted(set([mutype for mutype in [lineage_to_mutype(lineage) for lineage in lineages] if not mutype is None]))
+        config = configparser.ConfigParser(inline_comment_prefixes="#", allow_no_value=True)
+        config.optionxform=str
+        config['gimble'] = {
+            'version': parameterObj._VERSION,
+            'random_seed' : 19,
+            'precision': 25,
+        }
+        # populations
+        config.add_section('populations')
+        config.set('populations', "# Link model to data")
+        for population in sorted(self.pop_ids):
+            if "_" not in population:
+                config.set('populations', population, "")
+        config.set('populations', "# Pick reference population (optional)")
+        config.set('populations', "# possible values : # %s" % ", ".join(sorted(self.pop_ids)))
+        config.set('populations', 'reference_pop', "")
+        config.set('populations', "# Simplify model by synchronising Ne's (optional)")
+        config.set('populations', "# possible values : %s" % " | ".join([",".join(combination) for combination in itertools.combinations(['A', 'A_B', 'B'], 2)]))
+        config.set('populations', 'sync_pop_sizes', "")
+        # kmax
+        config.add_section('k_max')
+        config.set('k_max', "# max dimensionsionality of bSFSs")
+        for mutype, comment in zip(mutypes, ['# hetB', '# hetA', '# hetAB', '# fixed']):
+            config.set('k_max', "m_%s" % (mutype), "2    %s" % comment)
+        # sims
+        config.add_section('simulations')
+        config.set('simulations', "# Number of blocks to simulate")
+        config.set('simulations', 'blocks', "")
+        config.set('simulations', "# Number of replicates")
+        config.set('simulations', 'replicates', "")
+        config.set('simulations', "# Recombination rate (optional)")
+        config.set('simulations', 'recombination_rate', "")
+        # mu
+        config.add_section('mu')
+        config.set('mu', '# mutation rate (in mutations/site/generation) (gridsearch: required)')
+        config.set('mu', 'mu', "")
+        # parameters
+        config.add_section('parameters')
+        config.set('parameters', "## param: floats")
+        config.set('parameters', "## param: (mid, min, max, n, lin|log)")
+        for event in events:
+            if event.startswith("C_"):
+                config.set('parameters', '# Effective population size of %s' % event[2:])
+                config.set('parameters', 'Ne_%s' % event[2:], "")
+            if event.startswith("M_"):
+                config.set('parameters', '# Migration rate (in migrants/generation) from %s to %s (backwards in time)' % (event.split("_")[1], event.split("_")[2]))
+                config.set('parameters', 'me_%s' % event[2:], "")
+        config.set('parameters', "# Split time (in generations)")
+        config.set('parameters', 'T', "")
+        config.set('parameters', "# Mutation rate (in coalescence time scale) (optional)")
+        config.set('parameters', 'theta', "")
+        config_file = "%s.ini" % parameterObj.out_prefix
+        with open(config_file, 'w') as fp:
+            config.write(fp)
         print("[+] Wrote CONFIG file %r" % str(config_file))
 
     def write_model(self, parameterObj):

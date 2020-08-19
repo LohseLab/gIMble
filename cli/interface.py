@@ -11,8 +11,7 @@ Usage: gimble <module> [<args>...] [-D -V -h]
     model                 Build demographic model
     simulate              Simulate data [TBI] 
     inference             Make inference [TBI] (requires blocks)
-    grid                  Make grid [TBI]
-    scan                  Scan using grid [TBI] (requires windows)
+    gridsearch            Make grid [TBI]
     
     partitioncds          Partition CDS sites in BED file by degeneracy in sample GTs 
     plotbed               Plot BED file [TBR]
@@ -82,6 +81,9 @@ def main(gimble_dir):
         elif args['<module>'] == 'simulate':
             import cli.simulate as simulate
             simulate.main(params)
+        elif args['<module>'] == 'gridsearch':
+            import cli.gridsearch as gridsearch
+            gridsearch.main(params)
         else:
             sys.exit("%r is not a gimble module. See 'gimble -help'." % args['<module>'])
     except KeyboardInterrupt:
