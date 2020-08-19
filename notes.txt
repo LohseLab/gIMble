@@ -6,9 +6,11 @@
 
 # current 
 - saving of blocks based on validity (max_missing/max_multiallelic), probably causes discard of certain blocks
+- info
   
 # v0.6.0
 - save count of total possible (valid+invalid) blocks, display info ... should be same as previous version
+- gridsearch
 
 # v0.7.0
 
@@ -17,8 +19,9 @@
 # v0.9.0
 
 # v1.0.0
-- module makegrid
 
+# v1.1
+- derivative-based optimization (jacobian, hessian, etc)
 
 # Resources 
 - Parsing CSV faster: https://medium.com/casual-inference/the-most-time-efficient-ways-to-import-csv-data-in-python-cc159b44063d
