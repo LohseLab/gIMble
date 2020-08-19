@@ -120,7 +120,7 @@ class GridsearchParameterObj(lib.gimble.ParameterObj):
         self.model_file = self._get_path(args['--model_file'])
         self.config_file = self._get_path(args['--config_file'])
         self.threads = self._get_int(args['--threads'])
-        self._config = self._get_or_write_config()
+        self.config = self._parse_config()
         self.data_type = self._get_datatype([args['--blocks'], args['--windows']])
         self.probcheck_file = self._get_path(args['--probcheck']) if args['--probcheck'] is not None else None
 
@@ -134,94 +134,46 @@ class GridsearchParameterObj(lib.gimble.ParameterObj):
         else:
             sys.exit("[X1] This should not have happened.")
 
-    def _get_or_write_config(self):
-        '''
-        [To Do] 
-            - write_config has to be moved somewhere
-            - numerical params: equal values mean equality (simplifies equation).
-            - boundary params: need equality list, parameters in equality list MUST have equal values and are then collapsed.
-        '''
-        if self.config_file is None:
-            print("[-] No config file found.")
-            print("[+] Generating config file for model %r" % self.model_file)
-            '''for now we use the following dict until columns are fixed in gimble model''' 
-            config = {
-                'version': self._VERSION,
-                'random_seed' : 12345,
-                'precision': 25,
-                #'model' : self.model_file,
-                'population_ids': collections.defaultdict(dict),
-                'k_max': collections.defaultdict(dict),
-                'parameters': collections.defaultdict(dict), 
-                'boundaries': collections.defaultdict(list),
-                }
-            config['parameters']['theta'] = 'FLOAT'
-            for column in self._parse_model_file(target='header'):
-                if column.startswith('C_'): 
-                    config['parameters'][column] = 'FLOAT'
-                    population_id = column.replace('C_', '') 
-                    if len(population_id) == 1:
-                        config['population_ids'][population_id] = 'STRING'
-                if column.startswith('M_'):
-                    config['parameters'][column] = 'FLOAT'
-                elif column.startswith('m_'):
-                    config['k_max'][column] = 'INT'
-            config['parameters']['T'] = 'FLOAT'
-            for parameter in config['parameters']:
-                config['boundaries'][parameter] = ['MIN', 'MAX']
-            config_file = pathlib.Path(self.model_file).with_suffix('.config.yaml')
-            yaml.add_representer(collections.defaultdict, yaml.representer.Representer.represent_dict)
-            with open(config_file, 'w') as fh:
-                yaml.dump(config, fh)
-            print("[+] Wrote file %r" % str(config_file))
-            sys.exit("[X] Please specify parameters in config file %r" % str(config_file))
-        else:
-            print("[+] Reading config %r" % self.config_file)
-            config_raw = yaml.safe_load(open(self.config_file, 'r'))
-            config = {}
-            for k, v in config_raw.items():
-                if k == 'version':
-                    config[k] = v
-                elif k == 'population_ids':
-                    config[k] = v
-                #elif k == 'model':
-                #    config[k] = v
-                elif isinstance(v, str):
-                    sys.exit("[X] Config file error: %r should be a number (not %r)." % (k, v))
-                elif k == 'parameters':
-                    config['parameters'], config['boundaries'] = {}, {}
-                    for v_k, v_v in config_raw[k].items():
-                        if isinstance(v_v, str): # parameter not set
-                            if any([isinstance(bound, str) for bound in config_raw['boundaries'][v_k]]):
-                                sys.exit("[X] Config file error: set parameter or boundaries for %r (not %r)." % (v_k, v_v))
-                            else:
-                                config['boundaries'][v_k] = config_raw['boundaries'][v_k]
-                        else:
-                            config[k][v_k] = v_v
-                elif k == 'boundaries':
-                    pass
-                elif k == 'k_max':
-                    config['k_max'] = {}
-                    for v_k, v_v in config_raw[k].items():
-                        if isinstance(v_v, int): # k_max not set
-                            config[k][v_k] = v_v
-                        else:
-                            sys.exit("[X] Config file error: set value for k_max %r (not %r)." % (v_k, v_v))
-                else:
-                    config[k] = v
-            return config
-
-    def _parse_model_file(self, target='model_name'):
-        '''# model = s_A_B.p2.n_1_1.m_AtoB.j_A_B'''
-        with open(self.model_file) as fh:
-            for l in fh:
-                if target == 'model_name':
-                    if l.startswith("# model ="):
-                        return l.split(" = ")[1].rstrip("\n")
-                if target == 'header':
-                    if l.startswith("path_idx"):
-                        return l.split()
-
+    # def _parse_config(self):
+    #     '''
+    #     [To Do] 
+    #         - numerical params: equal values mean equality (simplifies equation).
+    #         - boundary params: need equality list, parameters in equality list MUST have equal values and are then collapsed.
+    #     - Cerberus docs here: https://docs.python-cerberus.org/en/stable/validation-rules.html#valuesrules-rule
+    #     '''
+    #     print("[+] Reading config %r" % self.config_file)
+    #     import oyaml
+    #     import cerberus
+    #     import sys
+    #     validator = cerberus.Validator()
+    #     schema = {
+    #         'version': {'type': 'string'},
+    #         'precision': {'type': 'integer'},
+    #         'random_seed': {'type': 'integer'},
+    #         'population_ids': {'type': 'dict', 'valuesrules': {'type': 'string'}},
+    #         'k_max': {'type': 'dict', 'valuesrules': {'type': 'integer', 'min': 1}},
+    #         'parameters': {'type': 'dict', 'valuesrules': {'type': 'float', 'nullable': True}},
+    #         'boundaries': {'type': 'dict', 'valuesrules': {'type': 'list', 'nullable': True}}} # does not check for type IN list, has to be done afterwards
+    #     config = oyaml.safe_load(open(self.config_file, 'r'))
+    #     output = ["[X] YAML Config file format error(s) ..."]
+    #     if not validator.validate(config, schema):
+    #         for level in validator.errors:
+    #             output.append("[X] %r ..." % level)
+    #             for error_dict in validator.errors[level]:
+    #                 for key, error_list in error_dict.items():
+    #                     output.append("[X] \t %r : %s" % (key, "; ".join(error_list)))
+    #     # boundary validation
+    #     for key, value_list in config['boundaries'].items():
+    #         if value_list:
+    #             print(key, value_list)
+    #             floats, string = value_list[0:4], value_list[4]
+    #             if not all([isinstance(value, float) for value in floats]):
+    #                 output.append("[X] \t %r : first 4 values should be floats" % (key))
+    #             if not isinstance(string, str):
+    #                 output.append("[X] \t %r : last value should be 'linear' or 'log'" % (key))
+    #     if len(output) > 1:
+    #         sys.exit("\n".join(output))
+    #     return config
 
     def _make_grid(self):
         '''
@@ -236,30 +188,24 @@ class GridsearchParameterObj(lib.gimble.ParameterObj):
                         if not any(np.isin(sim_range, value[3])):
                             print(f"[-] Specified range for {key} does not contain specified grid center value")  
                     self._config["parameters"][key] = sim_range
-
-def param_generator(pcentre, pmin, pmax, psamples, distr):
-    starts = [pmin, pcentre]
-    ends = [pcentre, pmax]
-    nums = [round(psamples/2) + 1, round(psamples/2)] if psamples % 2 == 0 else [round(psamples/2) + 1, round(psamples/2) + 1]
-    if distr == 'linear':
-        return np.unique(np.concatenate([np.linspace(start, stop, num=num, endpoint=True, dtype=np.float64) for start, stop, num in zip(starts, ends, nums)]))
-    else:
-        raise NotImplmentedError
         
 def main(params):
-    '''ETP = exact table of probabilities'''
     try:
         start_time = timer()
         args = docopt(__doc__)
         parameterObj = GridsearchParameterObj(params, args)
-        gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
         print(parameterObj._config)
+        # grid
+        grid_points = lib.math.get_grid(parameterObj) # LoD
+        # data
+        gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
         data = gimbleStore.get_bsfs_matrix(
             data='blocks', 
             population_by_letter=parameterObj._config['population_ids'], 
             cartesian_only=True, 
             kmax_by_mutype=parameterObj._config['k_max'])
-        print('data.shape', data.shape)
+
+
         #data = lib.math.get_data_array(parameterObj)
         #print(data)
         equationSystem = lib.math.EquationSystemObj(parameterObj)

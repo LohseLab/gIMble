@@ -147,6 +147,15 @@ def place_mutations(parameter_batch):
         equations.append(equation)
     return (mutation_tuple, sum(equations))
 
+def param_generator(pcentre, pmin, pmax, psamples, distr):
+    starts = [pmin, pcentre]
+    ends = [pcentre, pmax]
+    nums = [round(psamples/2) + 1, round(psamples/2)] if psamples % 2 == 0 else [round(psamples/2) + 1, round(psamples/2) + 1]
+    if distr == 'linear':
+        return np.unique(np.concatenate([np.linspace(start, stop, num=num, endpoint=True, dtype=np.float64) for start, stop, num in zip(starts, ends, nums)]))
+    else:
+        raise NotImplmentedError
+
 def calculate_inverse_laplace(params):
     '''
     [To Do]
@@ -217,6 +226,14 @@ class EquationSystemObj(object):
         self.equation_batch_by_idx = collections.defaultdict(list)
         self.probcheck_file = parameterObj.probcheck_file
         self.ETPs = None
+        self.grid_points = self._get_grid_points(parameterObj)
+
+    def _get_grid_points(self, parameterObj):
+        '''parameterObj should already by scaled when this point is reached'''
+        if not parameterObj._MODULE == 'gridsearch':
+            return None
+
+
 
     def check_ETPs(self):
         '''
