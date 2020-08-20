@@ -13,6 +13,7 @@ import collections
 import sys
 import warnings
 import pathlib
+import configparser
 import matplotlib.pyplot as plt
 # np.set_printoptions(threshold=sys.maxsize)
 
@@ -319,9 +320,34 @@ class ParameterObj(object):
             sys.exit("[X] %r can't be converted to float." % string)
 
     def _parse_config(self, config_file):
-        #config = configparser.ConfigParser(inline_comment_prefixes="#", allow_no_value=True)
+        '''parsing is controlled by module name'''
+        config = configparser.ConfigParser(inline_comment_prefixes="#", allow_no_value=True)
+        config.optionxform=str # otherwise keys are lowercase
+        config.read(config_file)
+        params = {
+            'migration': False,
+            'population_count': 0,
+        }
+        if self._MODULE == 'gridsearch':
+            populations_by_letter = {}
+            for population, value in config.items('populations'):
+                populations_by_letter[population] = value
+            reference_pop = config.get('populations', 'reference_pop')
+            sync_pop_sizes = config.get('populations', 'sync_pop_sizes')
+            kmax_by_mutype = {}
+            for mutype, kmax in config.items('k_max'):
+                kmax_by_mutype[mutype] = int(kmax)
+            mu = config.get('mu', 'mu') 
+            for parameter, values in config.items('parameters'):
+                if parameter.startswith('me'):
+                    params['migration'] = True
+                params[parameter] = values
+            print('populations_by_letter', populations_by_letter)
+            print('reference_pop', reference_pop, bool(reference_pop))
+            print('sync_pop_sizes', sync_pop_sizes, bool(sync_pop_sizes))
+            print('kmax_by_mutype', kmax_by_mutype, bool(kmax_by_mutype))
+            print('mu', mu, bool(mu))
         #config.optionxform=str
-        pass
         # config['gimble'] = {
         #     'version': parameterObj._VERSION,
         #     'random_seed' : 19,

@@ -120,9 +120,9 @@ class GridsearchParameterObj(lib.gimble.ParameterObj):
         self.model_file = self._get_path(args['--model_file'])
         self.config_file = self._get_path(args['--config_file'])
         self.threads = self._get_int(args['--threads'])
-        self.config = self._parse_config()
+        self.config = self._parse_config(self.config_file)
         self.data_type = self._get_datatype([args['--blocks'], args['--windows']])
-        self.probcheck_file = self._get_path(args['--probcheck']) if args['--probcheck'] is not None else None
+        #self.probcheck_file = self._get_path(args['--probcheck']) if args['--probcheck'] is not None else None
 
     def _get_datatype(self, args):
         if not any(args):
@@ -175,27 +175,28 @@ class GridsearchParameterObj(lib.gimble.ParameterObj):
     #         sys.exit("\n".join(output))
     #     return config
 
-    def _make_grid(self):
-        '''
-        - no need to be an "actual" grid
-        '''
-        if len(self._config["parameters"])>0:
-            for key, value in self._config["parameters"].items():
-                if len(value) > 1 and key!="recombination":
-                    assert len(value) >= 3, "MIN, MAX and STEPSIZE need to be specified"
-                    sim_range = np.arange(value[0], value[1]+value[2], value[2], dtype=float)
-                    if len(value)==4:
-                        if not any(np.isin(sim_range, value[3])):
-                            print(f"[-] Specified range for {key} does not contain specified grid center value")  
-                    self._config["parameters"][key] = sim_range
+    #def _make_grid(self):
+    #    '''
+    #    - no need to be an "actual" grid
+    #    '''
+    #    if len(self._config["parameters"])>0:
+    #        for key, value in self._config["parameters"].items():
+    #            if len(value) > 1 and key!="recombination":
+    #                assert len(value) >= 3, "MIN, MAX and STEPSIZE need to be specified"
+    #                sim_range = np.arange(value[0], value[1]+value[2], value[2], dtype=float)
+    #                if len(value)==4:
+    #                    if not any(np.isin(sim_range, value[3])):
+    #                        print(f"[-] Specified range for {key} does not contain specified grid center value")  
+    #                self._config["parameters"][key] = sim_range
         
 def main(params):
     try:
         start_time = timer()
         args = docopt(__doc__)
         parameterObj = GridsearchParameterObj(params, args)
-        print(parameterObj._config)
+        print(parameterObj.config)
         # grid
+        sys.exit("done.")
         grid_points = lib.math.get_grid(parameterObj) # LoD
         # data
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)

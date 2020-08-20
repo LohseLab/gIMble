@@ -300,7 +300,7 @@ class StateGraph(object):
         lineages = sorted([lineage for lineage in self.set_of_lineages if not lineage == self.lca_label])
         mutypes = sorted(set([mutype for mutype in [lineage_to_mutype(lineage) for lineage in lineages] if not mutype is None]))
         config = configparser.ConfigParser(inline_comment_prefixes="#", allow_no_value=True)
-        config.optionxform=str
+        config.optionxform=str # otherwise keys are lowercase
         config['gimble'] = {
             'version': parameterObj._VERSION,
             'random_seed' : 19,
