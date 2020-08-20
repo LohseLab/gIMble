@@ -312,10 +312,10 @@ class StateGraph(object):
         for population in sorted(self.pop_ids):
             if "_" not in population:
                 config.set('populations', population, "")
-        config.set('populations', "# Pick reference population (optional)")
-        config.set('populations', "# possible values : # %s" % ", ".join(sorted(self.pop_ids)))
+        config.set('populations', "# Pick reference population (required)")
+        config.set('populations', "# possible values : %s" % " | ".join(sorted(self.pop_ids)))
         config.set('populations', 'reference_pop', "")
-        config.set('populations', "# Simplify model by synchronising Ne's (optional)")
+        config.set('populations', "# Simplify model by assuming equality of Ne's (optional)")
         config.set('populations', "# possible values : %s" % " | ".join([",".join(combination) for combination in itertools.combinations(['A', 'A_B', 'B'], 2)]))
         config.set('populations', 'sync_pop_sizes', "")
         # kmax
@@ -348,7 +348,7 @@ class StateGraph(object):
                 config.set('parameters', 'me_%s' % event[2:], "")
         config.set('parameters', "# Split time (in generations)")
         config.set('parameters', 'T', "")
-        config.set('parameters', "# Mutation rate (in coalescence time scale) (optional)")
+        config.set('parameters', "# Scaled mutation rate (on the coalescence time scale) (optional)")
         config.set('parameters', 'theta', "")
         config_file = "%s.ini" % parameterObj.out_prefix
         with open(config_file, 'w') as fp:
