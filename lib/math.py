@@ -230,7 +230,9 @@ class EquationSystemObj(object):
 
     def _get_grid_points(self, parameterObj):
         '''parameterObj should already by scaled when this point is reached'''
+        config = parameterObj.config
         if not parameterObj._MODULE == 'gridsearch':
+
             return None
 
 

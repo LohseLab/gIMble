@@ -307,46 +307,73 @@ class ParameterObj(object):
             sys.exit("[X] File not found: %r" % str(infile))
         return str(path)
 
-    def _get_int(self, string):
+    def _get_int(self, string, ret_none=False):
         try:
-            return(int(string))
+            return int(string)
         except TypeError():
-            sys.exit("[X] %r can't be converted to interger." % string)
+            if not ret_none:
+                sys.exit("[X] %r can't be converted to interger." % string)
+            return None
 
-    def _get_float(self, string):
+    def _get_float(self, string, ret_none=False):
         try:
-            return(float(string))
+            return float(string)
         except TypeError():
-            sys.exit("[X] %r can't be converted to float." % string)
+            if not ret_none:
+                sys.exit("[X] %r can't be converted to float." % string)
+            return None
 
     def _parse_config(self, config_file):
         '''parsing is controlled by module name'''
-        config = configparser.ConfigParser(inline_comment_prefixes="#", allow_no_value=True)
-        config.optionxform=str # otherwise keys are lowercase
-        config.read(config_file)
-        params = {
-            'migration': False,
-            'population_count': 0,
+        # def parse_float_or_distibution(string):
+            # try:
+                # return float(string)
+            # except ValueError:
+                # values = string.replace(" ", "").split(",")
+                # if not len()
+
+        raw_config = configparser.ConfigParser(inline_comment_prefixes="#", allow_no_value=True)
+        raw_config.optionxform=str # otherwise keys are lowercase
+        raw_config.read(config_file)
+        config = {s: dict(raw_config.items(s)) for s in raw_config.sections()}
+        schema = {
+            'k_max': lambda x: self.getint(x),
+            'k_max': lambda x: self.getint(x),
+            
         }
-        if self._MODULE == 'gridsearch':
-            populations_by_letter = {}
-            for population, value in config.items('populations'):
-                populations_by_letter[population] = value
-            reference_pop = config.get('populations', 'reference_pop')
-            sync_pop_sizes = config.get('populations', 'sync_pop_sizes')
-            kmax_by_mutype = {}
-            for mutype, kmax in config.items('k_max'):
-                kmax_by_mutype[mutype] = int(kmax)
-            mu = config.get('mu', 'mu') 
-            for parameter, values in config.items('parameters'):
-                if parameter.startswith('me'):
-                    params['migration'] = True
-                params[parameter] = values
-            print('populations_by_letter', populations_by_letter)
-            print('reference_pop', reference_pop, bool(reference_pop))
-            print('sync_pop_sizes', sync_pop_sizes, bool(sync_pop_sizes))
-            print('kmax_by_mutype', kmax_by_mutype, bool(kmax_by_mutype))
-            print('mu', mu, bool(mu))
+        section = 'k_max'
+        errors = []
+        for key, value in config[section].items():
+            sane_value = schema[section](value)
+            if sane_value is None:
+                errors.append('[X] Wrong value in %s: %s' % (key, value))
+            else:
+                print('[+] sane_value', sane_value, type(sane_value))
+        if len(errors):
+            sys.exit("\n".join(errors))
+        # params = {
+            # 'migration': False,
+            # 'population_count': 0,
+        # }
+        # 
+            # populations_by_letter = {}
+            # for population, value in config.items('populations'):
+                # populations_by_letter[population] = value
+            # reference_pop = config.get('populations', 'reference_pop')
+            # sync_pop_sizes = config.get('populations', 'sync_pop_sizes')
+            # kmax_by_mutype = {}
+            # for mutype, kmax in config.items('k_max'):
+                # kmax_by_mutype[mutype] = int(kmax)
+            # mu = config.get('mu', 'mu') 
+            # for parameter, values in config.items('parameters'):
+                # if parameter.startswith('me'):
+                    # params['migration'] = True
+                # params[parameter] = values
+            # print('populations_by_letter', populations_by_letter)
+            # print('reference_pop', reference_pop, bool(reference_pop))
+            # print('sync_pop_sizes', sync_pop_sizes, bool(sync_pop_sizes))
+            # print('kmax_by_mutype', kmax_by_mutype, bool(kmax_by_mutype))
+            # print('mu', mu, bool(mu))
         #config.optionxform=str
         # config['gimble'] = {
         #     'version': parameterObj._VERSION,
