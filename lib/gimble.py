@@ -277,6 +277,15 @@ def ordered_intersect(a=[], b=[], order='a'):
         B, A = a, b
     return [_a for _a in A if _a in set(B)] 
         
+def param_generator(pcentre, pmin, pmax, psamples, distr):
+    starts = [pmin, pcentre]
+    ends = [pcentre, pmax]
+    nums = [round(psamples/2) + 1, round(psamples/2)] if psamples % 2 == 0 else [round(psamples/2) + 1, round(psamples/2) + 1]
+    if distr == 'linear':
+        return np.unique(np.concatenate([np.linspace(start, stop, num=num, endpoint=True, dtype=np.float64) for start, stop, num in zip(starts, ends, nums)]))
+    else:
+        raise NotImplmentedError
+
 class ParameterObj(object):
     '''Superclass ParameterObj'''
     def __init__(self, params):
@@ -323,34 +332,119 @@ class ParameterObj(object):
                 sys.exit("[X] %r can't be converted to float." % string)
             return None
 
+    def _get_distribution_or_float(self, string):
+        try: 
+            return float(string)
+        except ValueError:
+            valid_scales = set(['lin', 'log'])
+            values = string.split(",") 
+            if not len(values) == 5:
+                return None
+            if not values[4] in valid_scales:
+                return None
+            try:
+                return [float(value) for value in values[0:4]] + values[4]
+            except ValueError:
+                return None
+        
     def _parse_config(self, config_file):
-        '''parsing is controlled by module name'''
-        # def parse_float_or_distibution(string):
-            # try:
-                # return float(string)
-            # except ValueError:
-                # values = string.replace(" ", "").split(",")
-                # if not len()
+        '''validates types in INI config, returns dict with keys, values as sections/params/etc
+        - does not deal with missing/incompatible values (should be dealt with in ParameterObj subclasses)
+
+        https://docs.python-cerberus.org/en/stable/usage.html
+        
+        '''
 
         raw_config = configparser.ConfigParser(inline_comment_prefixes="#", allow_no_value=True)
         raw_config.optionxform=str # otherwise keys are lowercase
         raw_config.read(config_file)
         config = {s: dict(raw_config.items(s)) for s in raw_config.sections()}
+        # schema = {
+            # '''either by section or key'''
+            # 'random_seed': lambda x: self._get_int(x, ret_none=True),
+            # 'precision': lambda x: self._get_int(x, ret_none=True),
+            # 'k_max': lambda x: self._get_int(x, ret_none=True),
+            # 'blocks': lambda x: self._get_int(x, ret_none=True),
+            # 'replicates': lambda x: self._get_int(x, ret_none=True),
+            # 'mu': lambda x: self._get_float(x, ret_none=True),
+            # 'parameters' : lambda x: self._get_distribution_or_float(x)
+        # }
+        # guideline_msg = {
+            # 'random_seed': 'must be integer.',
+            # 'precision': 'must be integer.',
+            # 'k_max': 'must be integer.',
+            # 'blocks': 'must be integer.',
+            # 'replicates': 'must be integer.',
+            # 'mu': 'must be float.',
+            # 'parameters' : 'must be float or distribution (mid, min, max, n, lin|log)'
+        # }
+        #section = 'k_max'
+        #errors = []
+        print(raw_config)
+        print(config)
+        import cerberus
+        import sys
         schema = {
-            'k_max': lambda x: self.getint(x),
-            'k_max': lambda x: self.getint(x),
-            
-        }
-        section = 'k_max'
-        errors = []
-        for key, value in config[section].items():
-            sane_value = schema[section](value)
-            if sane_value is None:
-                errors.append('[X] Wrong value in %s: %s' % (key, value))
-            else:
-                print('[+] sane_value', sane_value, type(sane_value))
-        if len(errors):
-            sys.exit("\n".join(errors))
+            'gimble': {
+                'type': 'dict',
+                'schema': {
+                    'version': {'required': True, 'type': 'string'},
+                    'precision': {'required': True, 'type': 'integer', 'coerce': int},
+                    'random_seed': {'required': True, 'type': 'integer', 'coerce': int}}},
+            'populations': {'required': True, 'type': 'dict', 'valuesrules': {'type': 'string'}},
+            'k_max': {'type': 'dict', 'valuesrules': {'required': True, 'type': 'integer', 'min': 1}},
+            'mu': {'required': False, 'type': 'float'},
+            'simulations': {
+                'type': 'dict',
+                'schema': {
+                    'blocks': {'required': False, 'type': 'integer'},
+                    'replicates': {'required': False, 'type': 'integer'},
+                    'recombination_rate': {'required': False, 'type': 'float'}
+                }},
+            'parameters': {'type': 'dict', 'valuesrules': {'anyof': [{'type': 'float'}, {'type': 'list'}]}}}
+        validator = cerberus.Validator(schema)
+        output = ["[X] INI Config file format error(s) ..."]
+        if not validator.validate(config):
+            print("[X] validator.errors", validator.errors)
+
+        config = validator.normalized(config)
+        print("[X] VALIDATED", validator.normalized(config))
+        #if not validator.validate(config, schema):
+        #    for level in validator.errors:
+        #        output.append("[X] %r ..." % level)
+        #        for error_dict in validator.errors[level]:
+        #            for key, error_list in error_dict.items():
+        #                output.append("[X] \t %r : %s" % (key, "; ".join(error_list)))
+        # boundary validation
+        for key, raw_value in config['parameters'].items():
+            value = self._get_distribution_or_float(raw_value)
+            if value is None:
+                output.append("[X] \t %r : should be float or distribution" % (key))
+            if isinstance(value, float):
+                config['parameters'][key] = value
+            if isinstance(value, list):
+                config['parameters'][key] = param_generator(value)
+        if len(output) > 1:
+            sys.exit("\n".join(output))
+        return config
+
+        # for section in config.keys():
+            # print('section', section)
+            # if section in 
+            # for key, raw_value in config[section].items():
+                # print('key =', key, ",", 'raw_value =', raw_value, "(%s)" % type(raw_value))
+                # if key in schema:
+# 
+                # value = schema[section](raw_value) if key in schema else raw_value
+                # print('value =', value, "(%s)" % type(value))
+                # if value is None:
+                    # errors.append('[X] Wrong value in %s: %s' % (key, value))
+                # else:
+                    # pass
+        # if len(errors):
+            # sys.exit("\n".join(errors))
+        # return config
+
         # params = {
             # 'migration': False,
             # 'population_count': 0,
