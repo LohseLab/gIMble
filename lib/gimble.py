@@ -293,6 +293,38 @@ class ParameterObj(object):
             self._get_cmd()
             ))
 
+    def _dict_product(self):
+        if len(self.config["parameters"])>0:
+            return [dict(zip(self.config["parameters"], x)) for x in itertools.product(*self.config["parameters"].values())]
+
+    def _expand_params(self):
+        if len(self.config['parameters'])>0:
+            for key, value in self.config['parameters'].items():
+                if len(value) > 1:
+                    midv, minv, maxv, n, scale = value
+                    if scale.startswith('lin'):
+                        sim_range = self._expand_params_lin(midv, minv, maxv, n)
+                    elif scale.startswith('log'):
+                        sim_range = self._expand_params_log(midv, minv, maxv, n)
+                    else:
+                        raise NotImplmentedError
+                self.config['parameters'][key] = sim_range
+
+    def _expand_params_lin(self, pcentre, pmin, pmax, psamples):
+        starts = [pmin, pcentre]
+        ends = [pcentre, pmax]
+        nums = [round(psamples/2) + 1, round(psamples/2)] if psamples % 2 == 0 else [round(psamples/2) + 1, round(psamples/2) + 1]
+        return np.unique(np.concatenate([np.linspace(start, stop, num=num, endpoint=True, dtype=np.float64) for start, stop, num in zip(starts, ends, nums)]))    
+
+    def _expand_params_log(self, pcentre, pmin, pmax, psamples):
+        plogcentre, plogmin, plogmax = np.log10([pcentre, pmin, pmax])
+        temp =  np.logspace(plogmin, plogmax, num=psamples, endpoint=True, dtype=np.float64)
+        left = (temp<pcentre).sum()
+        right = psamples-left
+        left = np.logspace(plogmin, plogcentre, num=left, endpoint=False, dtype=np.float64)
+        right = np.logspace(plogcentre, plogmax, num=right, endpoint=True, dtype=np.float64)
+        return np.unique(np.concatenate([left, right]))
+
     def _get_cmd(self):
         return "%s/gimble %s %s" % (
             self._PATH, 
@@ -428,6 +460,33 @@ class ParameterObj(object):
         # with open(config_file, 'w') as fp:
         #     config.write(fp)
         # print("[+] Wrote CONFIG file %r" % str(config_file))
+    
+    def _process_config(self):
+        self.config = self._expand_params()
+        self.config = self._dict_product()
+        if self._MODULE == 'gridsearch':
+            self.config = [self._scale_param_combo(combo, reference_pop) for combo in self.config]
+        
+    def _scale_param_combo(self, combo, reference_pop):
+        # gimble inference grid:
+        #Ne = theta/4mu 
+        #theta_block = theta * block_length
+        #Ne_A, Ne_B, Ne_A_B = Ne/C_A, Ne/C_B, Ne/C_A_B
+        #T = 2Ne*tau
+        #M = 4Ne*m_e
+        rdict = {}
+        if self._MODULE == 'gridsearch':
+            block_length = self.zstore.attrs['seqs/blocklength']
+            Ne_ref = combo[f"Ne_{reference_pop}"]
+            rdict['theta'] = 4*Ne_ref*combo['mu']*block_length
+            rdict['C_A']=Ne_ref/combo['Ne_A']
+            rdict['C_B'] = Ne_ref/combo['Ne_B']
+            rdict['C_A_B'] = Ne_ref/combo['Ne_A_B'] #if present
+            rdict['T'] = 2*Ne_ref*combo['T']
+            rdict['m_e'] = 4*Ne_ref*combo[f'm_e_{mig_dir}']
+            return rdict
+        else:
+            raise NotImplmentedError
 
 class Store(object):
     def __init__(self, prefix=None, path=None, create=False, overwrite=False):
