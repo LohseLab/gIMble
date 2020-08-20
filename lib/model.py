@@ -348,8 +348,8 @@ class StateGraph(object):
                 config.set('parameters', 'me_%s' % event[2:], "")
         config.set('parameters', "# Split time (in generations)")
         config.set('parameters', 'T', "")
-        config.set('parameters', "# Scaled mutation rate (on the coalescence time scale) (optional)")
-        config.set('parameters', 'theta', "")
+        #config.set('parameters', "# Scaled mutation rate (on the coalescence time scale) (optional)")
+        #config.set('parameters', 'theta', "")
         config_file = "%s.ini" % parameterObj.out_prefix
         with open(config_file, 'w') as fp:
             config.write(fp)
