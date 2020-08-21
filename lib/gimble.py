@@ -640,7 +640,7 @@ class Store(object):
                 'Blocks'.center(SPACING, '-'), 
                 format_count(blocks_count_total), 
                 format_percentage(block_validity), 
-                format_count(blocks_count_total),
+                format_count(blocks_raw_count_total),
                 format_bases(blocks_span_mean)
                 ))
             for sample_set_idx, (sample_set, sample_set_cartesian) in enumerate(zip(meta['sample_sets'], meta['sample_sets_cartesian'])):
