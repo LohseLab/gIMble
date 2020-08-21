@@ -20,12 +20,12 @@ import matplotlib.pyplot as plt
 
 '''
 [Rules for better living]
-- GimbleStore.data.attrs (meta): ZARR JSON encoder does not like numpy/pandas dtypes, have to be converted to python dtypes
+- gimbleStore.data.attrs (meta): ZARR JSON encoder does not like numpy/pandas dtypes, have to be converted to python dtypes
 '''
 
 '''
 [Done]
-- rewrite of ZARR GimbleStore
+- rewrite of ZARR gimbleStore
     - now only 'valid' blocks get saved (previously missing/multiallelic filter was applied for dumping/) 
     - all metadata (for 'seqs') is handled via .zattrs
         - now trivial to add/remove metadata 
@@ -352,9 +352,8 @@ class ParameterObj(object):
         - does not deal with missing/incompatible values (should be dealt with in ParameterObj subclasses)
 
         https://docs.python-cerberus.org/en/stable/usage.html
-        
-        '''
 
+        '''
         raw_config = configparser.ConfigParser(inline_comment_prefixes="#", allow_no_value=True)
         raw_config.optionxform=str # otherwise keys are lowercase
         raw_config.read(config_file)
@@ -633,11 +632,14 @@ class Store(object):
                     format_percentage(meta['intervals_span_sample'][interval_idx] / meta['intervals_span'])
                     ))
         if self.has_stage('blocks'):
-            blocks_total = sum(meta['blocks_by_sample_set_idx'].values())
-            blocks_span_mean = int(blocks_total * meta['blocks_length'] / len(meta['sample_sets']))
-            info_string.append("[+] [%s] %s blocks with mean span per sample set of %s)" % (
+            blocks_raw_count_total = sum(meta['blocks_raw_per_sample_set_idx'].values())
+            blocks_count_total = sum(meta['blocks_by_sample_set_idx'].values())
+            block_validity = blocks_count_total / blocks_raw_count_total
+            blocks_span_mean = int(blocks_count_total * meta['blocks_length'] / len(meta['sample_sets']))
+            info_string.append("[+] [%s] %s valid blocks (%s of possible blocks) with mean span per sample set of %s" % (
                 'Blocks'.center(SPACING, '-'), 
-                format_count(blocks_total), 
+                format_count(blocks_count_total), 
+                format_percentage(block_validity), 
                 format_bases(blocks_span_mean)
                 ))
             for sample_set_idx, (sample_set, sample_set_cartesian) in enumerate(zip(meta['sample_sets'], meta['sample_sets_cartesian'])):
@@ -681,9 +683,114 @@ class Store(object):
         self._make_windows(parameterObj)
         self.log_stage(parameterObj)
 
+    def query(self, parameterObj):
+        print("[#] Preflight...")
+        self._preflight_query(parameterObj)
+        print("[#] Query...")
+        self._write_bed(parameterObj, cartesian_only=True)
+
+    # def _write_query_old(self, parameterObj):
+    #     sample_sets_idxs = self.data.attrs['idx_cartesian_sample_sets']
+    #     data_by_key = collections.defaultdict(list)
+    #     with tqdm(total=(len(self.data.attrs['sequence_ids']) * len(sample_sets_idxs)), desc="[%] Writing bSFSs ", ncols=100, unit_scale=True) as pbar: 
+    #         for seq_id in self.data.attrs['sequence_ids']: 
+    #             for sample_set_idx in sample_sets_idxs:
+    #                 missing = np.array(self.data["%s/%s/blocks/missing" % (seq_id, sample_set_idx)])
+    #                 multiallelic = np.array(self.data["%s/%s/blocks/multiallelic" % (seq_id, sample_set_idx)])
+    #                 valid = np.less_equal(missing, parameterObj.block_max_missing) & np.less_equal(multiallelic, parameterObj.block_max_multiallelic)
+    #                 data_by_key['sequence'].append(np.full_like(valid, seq_id, dtype='object'))
+    #                 data_by_key['sample_set_idx'].append(np.full_like(valid, sample_set_idx, dtype='object'))
+    #                 data_by_key['start'].append(np.array(self.data["%s/%s/blocks/starts" % (seq_id, sample_set_idx)])[valid])
+    #                 data_by_key['end'].append(np.array(self.data["%s/%s/blocks/ends" % (seq_id, sample_set_idx)])[valid])
+    #                 data_by_key['variation'].append(np.array(self.data[variation_key]))#[valid]
+    #                 variation_key = 'seqs/%s/blocks/%s/variation' % (seq_name, sample_set_idx)
+    #                 variation_global.append(np.array(self.data[variation_key]))#[valid]
+    #                 if parameterObj.extended_bsfs:
+    #                     data_by_key['missing'] = missing[valid]
+    #                     data_by_key['multiallelic'] = multiallelic[valid]
+    #                 pbar.update()
+    #     header = ["# gimble %s" % parameterObj._VERSION] + ["# %s = %s" % (sample_set_idx, ", ".join(self.data.attrs['sample_sets'][sample_set_idx])) for sample_set_idx in sample_sets_idxs]
+    #     out_f = 'gimble.blocks.bed'
+    #     with open(out_f, 'w') as out_fh:
+    #         out_fh.write("\n".join(header) + "\n")
+
+    #     array = np.array([
+    #             np.concatenate(data_by_key['sequence']),
+    #             np.concatenate(data_by_key['start']),
+    #             np.concatenate(data_by_key['end']),
+    #             np.concatenate(data_by_key['sample_set_idx'])
+    #         ]).T
+    #     bed_df = pd.DataFrame(
+    #         data=array,
+    #         columns=['sequence', 'start', 'end', 'sample_set_idx'])
+    #     bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, mode='a', sep='\t', index=False, header=False)
+
+    def _write_bed(self, parameterObj, cartesian_only=True):
+        '''new gimblestore'''
+        meta = self.data['seqs'].attrs
+        sample_set_idxs = [idx for (idx, is_cartesian) in enumerate(meta['sample_sets_cartesian']) if is_cartesian] if cartesian_only else range(len(meta['sample_sets']))
+        blocks_count_total = sum([meta['blocks_by_sample_set_idx'][str(idx)] for idx in sample_set_idxs])
+        starts = np.zeros(blocks_count_total, dtype=np.uint64)
+        ends = np.zeros(blocks_count_total, dtype=np.uint64)
+        # dynamically set string dtype for sequence names
+        MAX_SEQNAME_LENGTH = max([len(seq_name) for seq_name in meta['seq_names']])
+        sequences = np.zeros(blocks_count_total, dtype='<U%s' % MAX_SEQNAME_LENGTH) 
+        sample_sets = np.zeros(blocks_count_total, dtype=np.uint64) 
+        # if extended_bed
+        variation = np.zeros((blocks_count_total, meta['mutypes_count']), dtype=np.uint64)
+        missing = np.zeros(blocks_count_total, dtype=np.uint64) 
+        multiallelic = np.zeros(blocks_count_total, dtype=np.uint64) 
+        with tqdm(total=(len(meta['seq_names']) * len(sample_set_idxs)), desc="[%] Preparing data...", ncols=100, unit_scale=True) as pbar: 
+            offset = 0
+            for seq_name in meta['seq_names']: 
+                for sample_set_idx in sample_set_idxs:
+                    start_key = 'seqs/%s/blocks/%s/starts' % (seq_name, sample_set_idx)
+                    end_key = 'seqs/%s/blocks/%s/ends' % (seq_name, sample_set_idx)
+                    start_array = np.array(self.data[start_key])
+                    block_count = start_array.shape[0]
+                    starts[offset:offset+block_count] = start_array
+                    ends[offset:offset+block_count] = np.array(self.data[end_key])
+                    sequences[offset:offset+block_count] = np.full_like(block_count, seq_name, dtype='<U%s' % MAX_SEQNAME_LENGTH)
+                    sample_sets[offset:offset+block_count] = np.full_like(block_count, sample_set_idx)
+                    if parameterObj.extended_bed:
+                        variation_key = 'seqs/%s/blocks/%s/variation' % (seq_name, sample_set_idx)
+                        missing_key = 'seqs/%s/blocks/%s/missing' % (seq_name, sample_set_idx)
+                        multiallelic_key = 'seqs/%s/blocks/%s/missing' % (seq_name, sample_set_idx)
+                        variation[offset:offset+block_count] = np.array(self.data[variation_key])
+                        missing[offset:offset+block_count] = np.array(self.data[missing_key]).flatten()
+                        multiallelic[offset:offset+block_count] = np.array(self.data[multiallelic_key]).flatten()
+                    offset += block_count
+                    pbar.update()
+        columns = ['sequence', 'start', 'end', 'sample_set']
+        if not parameterObj.extended_bed:
+            int_bed = np.vstack([starts, ends, sample_sets]).T    
+        else:
+            int_bed = np.vstack([starts, ends, sample_sets, missing, multiallelic, variation.T]).T
+            mutypes_count = ["m_%s" % str(x+1) for x in range(meta['mutypes_count'])]
+            columns += ['missing', 'multiallelic'] + mutypes_count    
+        # header
+        header = ["# %s" % parameterObj._VERSION]
+        header += ["# %s = %s" % (sample_set_idx, ", ".join(meta['sample_sets'][sample_set_idx])) for sample_set_idx in sample_set_idxs] 
+        header += ["# %s" % "\t".join(columns)]  
+        out_f = '%s.blocks.bed' % self.prefix
+        with open(out_f, 'w') as out_fh:
+            out_fh.write("\n".join(header) + "\n")
+        # bed
+        bed_df = pd.DataFrame(data=int_bed, columns=columns[1:])
+        bed_df['sequence'] = sequences
+        bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, mode='a', sep='\t', index=False, header=False, columns=columns)
+
+    def _preflight_query(self, parameterObj):
+        if parameterObj.blocks:
+            if not self.has_stage('blocks'):
+                sys.exit("[X] GStore %r has no blocks. Please run 'gimble blocks'." % self.path)
+        if parameterObj.windows:
+            if not self.has_stage('windows'):
+                sys.exit("[X] GStore %r has no windows. Please run 'gimble windows'." % self.path)
+
     def _preflight_windows(self, parameterObj):
         if not self.has_stage('blocks'):
-            sys.exit("[X] GStore %r has no blocks. Please run 'gIMble blocks'." % self.path)
+            sys.exit("[X] GStore %r has no blocks. Please run 'gimble blocks'." % self.path)
         if self.has_stage('windows'):
             if not parameterObj.overwrite:
                 sys.exit("[X] GStore %r already contains windows.\n[X] These windows => %r\n[X] Please specify '--force' to overwrite." % (self.path, self.get_stage('windows')))
@@ -691,7 +798,7 @@ class Store(object):
     
     def _preflight_blocks(self, parameterObj):
         if not self.has_stage('setup'):
-            sys.exit("[X] GStore %r has no data. Please run 'gIMble setup'." % self.path)
+            sys.exit("[X] GStore %r has no data. Please run 'gimble setup'." % self.path)
         if self.has_stage('blocks'):
             if not parameterObj.overwrite:
                 sys.exit("[X] GStore %r already contains blocks.\n[X] These blocks => %r\n[X] Please specify '--force' to overwrite." % (self.path, self.get_stage('blocks')))
@@ -740,7 +847,8 @@ class Store(object):
         meta['blocks_gap_run'] = parameterObj.block_gap_run
         meta['blocks_max_missing'] = parameterObj.block_max_missing
         meta['blocks_max_multiallelic'] = parameterObj.block_max_multiallelic
-        blocks_per_sample_set_idx = collections.Counter()
+        blocks_raw_per_sample_set_idx = collections.Counter()   # all possible blocks
+        blocks_per_sample_set_idx = collections.Counter()       # all valid blocks => only these get saved to store
         with tqdm(total=(len(meta['seq_names']) * len(meta['sample_sets'])), desc="[%] Calculating bSFSs ", ncols=100, unit_scale=True) as pbar:        
             for seq_name in meta['seq_names']:        
                 # [TBC]: what happens when no variants and/or intervals on sequence?
@@ -752,6 +860,8 @@ class Store(object):
                     starts, ends = self._get_interval_coordinates_for_sample_set(seq_name=seq_name, sample_set=sample_set)
                     # Cut blocks based on intervals and block-algoritm parameters
                     block_sites = cut_blocks(starts, ends, meta['blocks_length'], meta['blocks_span'], meta['blocks_gap_run']) 
+                    block_starts = np.array(block_sites[:,0])
+                    block_ends = np.array(block_sites[:,-1] + 1)
                     if debug:
                         print("#", seq_name, sample_set_idx, sample_set)
                         print("# Block_sites 1", block_sites.shape)
@@ -767,13 +877,12 @@ class Store(object):
                         block_sites[:] = 2 # if no variants, all invariant
                     multiallelic, missing, monomorphic, variation = block_sites_to_variation_arrays(block_sites, meta['mutypes_count'])
                     valid = (np.less_equal(missing, meta['blocks_max_missing']) & np.less_equal(multiallelic, meta['blocks_max_multiallelic'])).flatten()
-                    block_starts = np.array(block_sites[:,0])[valid]
-                    block_ends = np.array(block_sites[:,-1] + 1)[valid]
-                    blocks_per_sample_set_idx[sample_set_idx] += valid.shape[0]
+                    blocks_raw_per_sample_set_idx[sample_set_idx] += valid.shape[0]
+                    blocks_per_sample_set_idx[sample_set_idx] += valid[valid==True].shape[0]
                     blocks_starts_key = 'seqs/%s/blocks/%s/starts' % (seq_name, sample_set_idx)
-                    self.data.create_dataset(blocks_starts_key, data=block_starts, overwrite=True)
+                    self.data.create_dataset(blocks_starts_key, data=block_starts[valid], overwrite=True)
                     blocks_ends_key = 'seqs/%s/blocks/%s/ends' % (seq_name, sample_set_idx)
-                    self.data.create_dataset(blocks_ends_key, data=block_ends, overwrite=True)
+                    self.data.create_dataset(blocks_ends_key, data=block_ends[valid], overwrite=True)
                     blocks_variation_key = 'seqs/%s/blocks/%s/variation' % (seq_name, sample_set_idx)
                     self.data.create_dataset(blocks_variation_key, data=variation[valid], overwrite=True)
                     blocks_missing_key = 'seqs/%s/blocks/%s/missing' % (seq_name, sample_set_idx)
@@ -789,6 +898,7 @@ class Store(object):
                         print("[+] Pi_%s = %s; Pi_%s = %s; D_xy = %s; F_st = %s; FGV = %s" % (self.data.attrs['pop_ids'][0], pi_1, self.data.attrs['pop_ids'][1], pi_2, d_xy, f_st, fgv)) 
                     pbar.update(1)
         meta['blocks_by_sample_set_idx'] = dict(blocks_per_sample_set_idx) # keys are strings
+        meta['blocks_raw_per_sample_set_idx'] = dict(blocks_raw_per_sample_set_idx) # keys are strings
         
     def _init_data(self, create, overwrite):
         if create:
@@ -838,6 +948,7 @@ class Store(object):
                 'blocks_max_multiallelic': 0, 
                 'mutypes_count': 4,
                 'blocks_by_sample_set_idx': {},
+                'blocks_raw_per_sample_set_idx': {},
                 'window_size': 0, 
                 'window_step': 0, 
                 'window_count': 0, 
@@ -988,32 +1099,14 @@ class Store(object):
         #count_samples = len(query_samples)
 
     def dump_blocks(self, parameterObj, cartesian_only=True):
-        # applies the missing & multiallelic thresholds
         meta = self.data['seqs'].attrs
         sample_set_idxs = [idx for (idx, is_cartesian) in enumerate(meta['sample_sets_cartesian']) if is_cartesian] if cartesian_only else range(len(meta['sample_sets']))
-        #data_by_key_by_sample_set_idx = collections.defaultdict(lambda: collections.defaultdict(list))
         variation_global = []
         with tqdm(total=(len(meta['seq_names']) * len(sample_set_idxs)), desc="[%] Writing bSFSs ", ncols=100, unit_scale=True) as pbar: 
             for seq_name in meta['seq_names']: 
                 for sample_set_idx in sample_set_idxs:
-                    # aggregate interval/block sites as determined from BED file and blocking algorithm
-                    #data_by_key_by_sample_set_idx[sample_set_idx]['interval_sites'].append(np.array(self.data["%s/%s/interval_sites" % (seq_id, sample_set_idx)]))
-                    #data_by_key_by_sample_set_idx[sample_set_idx]['block_sites'].append(np.array(self.data["%s/%s/block_sites" % (seq_id, sample_set_idx)]))
-                    # missing & multiallelic thresholds determine validity of blocks ...
-                    #missing = np.array(self.data["%s/%s/blocks/missing" % (seq_id, sample_set_idx)])
-                    #multiallelic = np.array(self.data["%s/%s/blocks/multiallelic" % (seq_id, sample_set_idx)])
-                    #valid = np.less_equal(missing, parameterObj.block_max_missing) & np.less_equal(multiallelic, parameterObj.block_max_multiallelic)
-                    #data_by_key_by_sample_set_idx[sample_set_idx]['block_sites_valid'].append(np.array([valid[valid == True].shape[0] * self.data.attrs['block_length']]))
-                    # aggregate variation/location data of valid blocks 
-                    #data_by_key_by_sample_set_idx[sample_set_idx]['missing'].append(missing[valid])
-                    #data_by_key_by_sample_set_idx[sample_set_idx]['multiallelic'].append(multiallelic[valid])
                     variation_key = 'seqs/%s/blocks/%s/variation' % (seq_name, sample_set_idx)
                     variation_global.append(np.array(self.data[variation_key]))#[valid]
-                    #data_by_key_by_sample_set_idx[sample_set_idx]['variation'].append(variation)
-                    #variation_global.append(variation)
-                    #data_by_key_by_sample_set_idx[sample_set_idx]['starts'].append(np.array(self.data["%s/%s/blocks/starts" % (seq_id, sample_set_idx)])[valid])
-                    #data_by_key_by_sample_set_idx[sample_set_idx]['ends'].append(np.array(self.data["%s/%s/blocks/ends" % (seq_id, sample_set_idx)])[valid])
-                    #sample_set.append(np.full_like(end[valid], sample_set_idx)) 
                     pbar.update()
         variation_global_array = np.concatenate(variation_global, axis=0)
         # popgen
