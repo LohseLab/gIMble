@@ -10,6 +10,7 @@
         -m, --model_file FILE                       Model file to analyse
         -z, --zarr_file FILE                        ZARR datastore
         -c, --config_file FILE                      Config file with parameters (if not present, empty config file is created)
+        -g, --grid_file FILE                        Grid file
         -P, --precision INT                         Floating point precision of probabilities [default: 30]
         -b, --blocks                                                               
         -w, --windows
