@@ -1,21 +1,24 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gimble query                  -z FILE -b [-u <INT> -i <INT>] [-h|--help]
+"""usage: gimble query                  -z FILE [-b -w --extended_bed --popgen_metrics] 
+                                            [-h|--help]
                                             
     Options:
         -h --help                                   show this
         -z, --zarr_file FILE                        ZARR datastore
         -b, --blocks                                Writes BED file of blocks
-        -B, --blocks_bsfs                           Writes bSFS of blocks
-        -w, --windows                               Writes BED file of windows
-        -W, --windows_bsfs                          Writes bSFS of windows
-        -u, --max_multiallelic <INT>                Max multiallelics per block [default: 2]
-        -i, --max_missing <INT>                     Max missing per block [default: 2]
-        --popgen_metrics
+        -w, --windows                               Writes BED file of windows [TBI]
+        --extended_bed                              Adds variation/multiallelic/missing to BED
+        --popgen_metrics                            [TBI]
+
 """
 
 '''
+-u, --max_multiallelic <INT>                Max multiallelics per block [default: 2]
+        -i, --max_missing <INT>                     Max missing per block [default: 2]
+-W, --windows_bsfs                          Writes bSFS of windows
+-B, --blocks_bsfs                           Writes bSFS of blocks
 --popgen_metrics -B
 causes
     - global bSFS tally as tsv
@@ -38,17 +41,19 @@ class QueryParameterObj(lib.gimble.ParameterObj):
         super().__init__(params)
         self.zstore = self._get_path(args['--zarr_file'])
         self.blocks = args['--blocks']
-        self.block_max_multiallelic = int(args['--max_multiallelic'])
-        self.block_max_missing = int(args['--max_missing'])
+        #self.blocks_bsfs = args['--blocks_bsfs']
+        self.windows = args['--windows']
+        #self.windows_bsfs = args['--windows_bsfs']
+        self.extended_bed = args['--extended_bed']
+        self.popgen_metrics = args['--popgen_metrics']
 
 def main(params):
     try:
         start_time = timer()
         args = docopt(__doc__)
         parameterObj = QueryParameterObj(params, args)
-        store = lib.gimble.load_store(parameterObj)
-        #print(store.tree())
-        store.write_block_bed(parameterObj)
+        gimbleStore = lib.gimble.Store(path=parameterObj.zstore)
+        gimbleStore.query(parameterObj)
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
         print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
