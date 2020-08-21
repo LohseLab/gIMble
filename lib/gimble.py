@@ -636,10 +636,11 @@ class Store(object):
             blocks_count_total = sum(meta['blocks_by_sample_set_idx'].values())
             block_validity = blocks_count_total / blocks_raw_count_total
             blocks_span_mean = int(blocks_count_total * meta['blocks_length'] / len(meta['sample_sets']))
-            info_string.append("[+] [%s] %s valid blocks (%s of possible blocks) with mean span per sample set of %s" % (
+            info_string.append("[+] [%s] %s valid blocks (%s of %s possible blocks) with mean span per sample set of %s" % (
                 'Blocks'.center(SPACING, '-'), 
                 format_count(blocks_count_total), 
                 format_percentage(block_validity), 
+                format_count(blocks_count_total),
                 format_bases(blocks_span_mean)
                 ))
             for sample_set_idx, (sample_set, sample_set_cartesian) in enumerate(zip(meta['sample_sets'], meta['sample_sets_cartesian'])):
@@ -687,7 +688,10 @@ class Store(object):
         print("[#] Preflight...")
         self._preflight_query(parameterObj)
         print("[#] Query...")
-        self._write_bed(parameterObj, cartesian_only=True)
+        if parameterObj.blocks:
+            self._write_block_bed(parameterObj, cartesian_only=True)
+        if parameterObj.windows:
+            self._write_window_bed(parameterObj, cartesian_only=True)
 
     # def _write_query_old(self, parameterObj):
     #     sample_sets_idxs = self.data.attrs['idx_cartesian_sample_sets']
@@ -725,7 +729,7 @@ class Store(object):
     #         columns=['sequence', 'start', 'end', 'sample_set_idx'])
     #     bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, mode='a', sep='\t', index=False, header=False)
 
-    def _write_bed(self, parameterObj, cartesian_only=True):
+    def _write_block_bed(self, parameterObj, cartesian_only=True):
         '''new gimblestore'''
         meta = self.data['seqs'].attrs
         sample_set_idxs = [idx for (idx, is_cartesian) in enumerate(meta['sample_sets_cartesian']) if is_cartesian] if cartesian_only else range(len(meta['sample_sets']))
