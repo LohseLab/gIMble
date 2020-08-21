@@ -632,17 +632,40 @@ class Store(object):
                     format_percentage(meta['intervals_span_sample'][interval_idx] / meta['intervals_span'])
                     ))
         if self.has_stage('blocks'):
-            blocks_raw_count_total = sum(meta['blocks_raw_per_sample_set_idx'].values())
+            # all
             blocks_count_total = sum(meta['blocks_by_sample_set_idx'].values())
+            blocks_raw_count_total = sum(meta['blocks_raw_per_sample_set_idx'].values())
             block_validity = blocks_count_total / blocks_raw_count_total
             blocks_span_mean = int(blocks_count_total * meta['blocks_length'] / len(meta['sample_sets']))
+            # inter
+            blocks_count_total_inter = sum([meta['blocks_by_sample_set_idx'][str(idx)] for idx, cartesian in enumerate(meta['sample_sets_cartesian']) if cartesian]) 
+            blocks_raw_count_total_inter = sum([meta['blocks_raw_per_sample_set_idx'][str(idx)] for idx, cartesian in enumerate(meta['sample_sets_cartesian']) if cartesian])
+            block_validity_inter = blocks_count_total_inter / blocks_raw_count_total_inter
+            blocks_span_mean_inter = int(blocks_count_total_inter * meta['blocks_length'] / len(meta['sample_sets']))
+            # intra
+            blocks_count_total_intra = sum([meta['blocks_by_sample_set_idx'][str(idx)] for idx, cartesian in enumerate(meta['sample_sets_cartesian']) if not cartesian]) 
+            blocks_raw_count_total_intra = sum([meta['blocks_raw_per_sample_set_idx'][str(idx)] for idx, cartesian in enumerate(meta['sample_sets_cartesian']) if not cartesian])
+            block_validity_intra = blocks_count_total_intra / blocks_raw_count_total_intra
+            blocks_span_mean_intra = int(blocks_count_total_intra * meta['blocks_length'] / len(meta['sample_sets']))
             info_string.append("[+] [%s] %s valid blocks (%s of %s possible blocks) with mean span per sample set of %s" % (
                 'Blocks'.center(SPACING, '-'), 
                 format_count(blocks_count_total), 
                 format_percentage(block_validity), 
                 format_count(blocks_raw_count_total),
-                format_bases(blocks_span_mean)
+                format_bases(blocks_span_mean)))
+            info_string.append("[+] [%s] %s valid blocks (%s of %s possible blocks) with mean span per sample set of %s" % (
+                'INTRA-pop-[ ]'.center(SPACING, '-'), 
+                format_count(blocks_count_total_intra), 
+                format_percentage(block_validity_intra), 
+                format_count(blocks_raw_count_total_intra),
+                format_bases(blocks_span_mean_intra)
                 ))
+            info_string.append("[+] [%s] %s valid blocks (%s of %s possible blocks) with mean span per sample set of %s" % (
+                'INTER-pop-[*]'.center(SPACING, '-'), 
+                format_count(blocks_count_total_inter), 
+                format_percentage(block_validity_inter), 
+                format_count(blocks_raw_count_total_inter),
+                format_bases(blocks_span_mean_inter)))
             for sample_set_idx, (sample_set, sample_set_cartesian) in enumerate(zip(meta['sample_sets'], meta['sample_sets_cartesian'])):
                 blocks_count = meta['blocks_by_sample_set_idx'][str(sample_set_idx)]
                 blocks_span = blocks_count * meta['blocks_length']
