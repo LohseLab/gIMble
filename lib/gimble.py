@@ -20,32 +20,25 @@ import matplotlib.pyplot as plt
 
 '''
 [Rules for better living]
+
 - gimbleStore.data.attrs (meta): ZARR JSON encoder does not like numpy/pandas dtypes, have to be converted to python dtypes
+
+- Coordinate systems:
+    {GIMBLE}                    : 0-based       | {GIMBLE}  
+    -----------------------------------------------------------
+    {GENOME_FILE} : LENGTH      : 0-based   =>  | [0, l)
+    {BED_FILE}    : START:END   : 0-based   =>  | [START, END)
+    {VCF_FILE}    : POS         : 1-based   =>  | [POS-1)
 '''
 
 '''
-[Done]
-- rewrite of ZARR gimbleStore
-    - now only 'valid' blocks get saved (previously missing/multiallelic filter was applied for dumping/) 
-    - all metadata (for 'seqs') is handled via .zattrs
-        - now trivial to add/remove metadata 
-- less memory needed, looks like 'heliconius intergenic' blocks take less than 1h
-
-- blocks:
-    - made for all sample_sets (not just cartesian ones)
-        - necessary to calculate different Pi's
-
-- new modules
-    - info 
-    - query
-
 [To Do]
+- generalise prefligth-checks for relevant modules
+
 - inference
-    - clean up config file
-        - move config-file-writer to model.py
-    - make grid
+    - calculate different Pi's
+
 -info:
-    - mean span of intervals occupied by each sample
     - window
     
 - QC plots
@@ -54,9 +47,11 @@ import matplotlib.pyplot as plt
     - intervals
         - plot length
         - plot distance
+    - mutuples
+        - mutuple pcp
+
 - data dumping 
 - metrics dumping
-- generalise prefligth-checks for relevant modules
 
 '''
 
@@ -184,8 +179,6 @@ def calculate_popgen_from_array(mutype_array, sites):
     return (pi_1, pi_2, d_xy, f_st, fgv)
 
 def genotype_to_mutype_array(sa_genotype_array, idx_block_sites_in_pos, block_sites, debug=True):
-    if debug == True:
-        print("# Blocksites", block_sites)
     np_genotype_array = np.array(sa_genotype_array)
     np_allele_count_array = np.ma.masked_equal(sa_genotype_array.count_alleles(), 0, copy=False)    
     allele_map = np.ones((np_allele_count_array.shape), dtype='int8') * np.arange(np_allele_count_array.shape[-1])
@@ -217,7 +210,9 @@ def genotype_to_mutype_array(sa_genotype_array, idx_block_sites_in_pos, block_si
     block_sites[idx_block_sites_in_pos] = szudzik_pairing(folded_minor_allele_counts) + 2               # add 2 so that not negative for bincount
     block_sites[~idx_block_sites_in_pos] = 2                                                            # monomorphic = 2 (0 = multiallelic, 1 = missing)
     if debug == True:
-        pos_df = pd.DataFrame(block_sites_pos[idx_block_sites_in_pos.flatten()], dtype='int8', columns=['pos'])
+        print("# block_sites as mutype array", block_sites)
+    if debug == True:
+        pos_df = pd.DataFrame(block_sites_pos[idx_block_sites_in_pos.flatten()], dtype='int64', columns=['pos'])
         genotypes_df = pd.DataFrame(np_genotype_array.reshape(np_genotype_array.shape[0], 4), dtype='i4', columns=['a1', 'a2', 'b1', 'b2'])        
         block_sites_df = pos_df.join(genotypes_df)
         folded_minor_allele_count_df = pd.DataFrame(folded_minor_allele_counts, dtype='int8', columns=['fmAC_a', 'fmAC_b'])
@@ -600,8 +595,19 @@ class Store(object):
                     format_count(len(population_samples)),
                     ", ".join(population_samples)
                     ))
-                if verbose:
-                    info_string.append("[+] [%s] %s" % ('Samples in %s'.center(SPACING) % letter, ", ".join(population_samples)))
+            # sample sets
+            samples_sets_count_total = len(meta['sample_sets'])
+            samples_sets_count_inter = len([idx for idx, cartesian in enumerate(meta['sample_sets_cartesian']) if cartesian])
+            samples_sets_count_intra = len([idx for idx, cartesian in enumerate(meta['sample_sets_cartesian']) if not cartesian])
+            info_string.append("[+] [%s] %s sample sets" % (
+                'Sample Sets'.center(SPACING, '-'),
+                format_count(samples_sets_count_total)))
+            info_string.append("[+] [%s] \t %s sample sets" % (
+                'INTRA-pop'.center(SPACING, ' '),
+                format_count(samples_sets_count_intra)))
+            info_string.append("[+] [%s] \t %s sample sets" % (
+                'INTER-pop'.center(SPACING, ' '),
+                format_count(samples_sets_count_inter)))
             # variants
             info_string.append("[+] [%s] %s VCF records (%s per 1 kb)" % (
                 'Variants'.center(SPACING, '-'),
@@ -638,30 +644,32 @@ class Store(object):
             block_validity = blocks_count_total / blocks_raw_count_total
             blocks_span_mean = int(blocks_count_total * meta['blocks_length'] / len(meta['sample_sets']))
             # inter
-            blocks_count_total_inter = sum([meta['blocks_by_sample_set_idx'][str(idx)] for idx, cartesian in enumerate(meta['sample_sets_cartesian']) if cartesian]) 
-            blocks_raw_count_total_inter = sum([meta['blocks_raw_per_sample_set_idx'][str(idx)] for idx, cartesian in enumerate(meta['sample_sets_cartesian']) if cartesian])
+            sample_set_idxs_inter = [idx for idx, cartesian in enumerate(meta['sample_sets_cartesian']) if cartesian]
+            blocks_count_total_inter = sum([meta['blocks_by_sample_set_idx'][str(idx)] for idx in sample_set_idxs_inter]) 
+            blocks_raw_count_total_inter = sum([meta['blocks_raw_per_sample_set_idx'][str(idx)] for idx in sample_set_idxs_inter])
             block_validity_inter = blocks_count_total_inter / blocks_raw_count_total_inter
-            blocks_span_mean_inter = int(blocks_count_total_inter * meta['blocks_length'] / len(meta['sample_sets']))
+            blocks_span_mean_inter = int(blocks_count_total_inter * meta['blocks_length'] / len(sample_set_idxs_inter))
             # intra
-            blocks_count_total_intra = sum([meta['blocks_by_sample_set_idx'][str(idx)] for idx, cartesian in enumerate(meta['sample_sets_cartesian']) if not cartesian]) 
-            blocks_raw_count_total_intra = sum([meta['blocks_raw_per_sample_set_idx'][str(idx)] for idx, cartesian in enumerate(meta['sample_sets_cartesian']) if not cartesian])
+            sample_set_idxs_intra = [idx for idx, cartesian in enumerate(meta['sample_sets_cartesian']) if not cartesian]
+            blocks_count_total_intra = sum([meta['blocks_by_sample_set_idx'][str(idx)] for idx in sample_set_idxs_intra]) 
+            blocks_raw_count_total_intra = sum([meta['blocks_raw_per_sample_set_idx'][str(idx)] for idx in sample_set_idxs_intra])
             block_validity_intra = blocks_count_total_intra / blocks_raw_count_total_intra
-            blocks_span_mean_intra = int(blocks_count_total_intra * meta['blocks_length'] / len(meta['sample_sets']))
+            blocks_span_mean_intra = int(blocks_count_total_intra * meta['blocks_length'] / len(sample_set_idxs_intra))
             info_string.append("[+] [%s] %s valid blocks (%s of %s possible blocks) with mean span per sample set of %s" % (
                 'Blocks'.center(SPACING, '-'), 
                 format_count(blocks_count_total), 
                 format_percentage(block_validity), 
                 format_count(blocks_raw_count_total),
                 format_bases(blocks_span_mean)))
-            info_string.append("[+] [%s] %s valid blocks (%s of %s possible blocks) with mean span per sample set of %s" % (
-                'INTRA-pop-[ ]'.center(SPACING, '-'), 
+            info_string.append("[+] [%s] \t %s valid blocks (%s of %s possible blocks); mean span is %s [ ]" % (
+                'INTRA-pop'.center(SPACING, ' '), 
                 format_count(blocks_count_total_intra), 
                 format_percentage(block_validity_intra), 
                 format_count(blocks_raw_count_total_intra),
                 format_bases(blocks_span_mean_intra)
                 ))
-            info_string.append("[+] [%s] %s valid blocks (%s of %s possible blocks) with mean span per sample set of %s" % (
-                'INTER-pop-[*]'.center(SPACING, '-'), 
+            info_string.append("[+] [%s] \t %s valid blocks (%s of %s possible blocks); mean span is %s [*]" % (
+                'INTER-pop'.center(SPACING, ' '), 
                 format_count(blocks_count_total_inter), 
                 format_percentage(block_validity_inter), 
                 format_count(blocks_raw_count_total_inter),
@@ -921,8 +929,15 @@ class Store(object):
                         print(block_sites)
                         print('# Variation: 0=HetB, 1=HetA, 2=HetAB, 3=Fixed')
                         print(self.data[blocks_variation_key])
-                        pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(self.data[blocks_variation_key], (meta['blocks_length'] * self.data[blocks_variation_key].shape[0])) 
-                        print("[+] Pi_%s = %s; Pi_%s = %s; D_xy = %s; F_st = %s; FGV = %s" % (self.data.attrs['pop_ids'][0], pi_1, self.data.attrs['pop_ids'][1], pi_2, d_xy, f_st, fgv)) 
+                        pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation[valid], (meta['blocks_length'] * self.data[blocks_variation_key].shape[0])) 
+                        print("[+] Pi_%s = %s; Pi_%s = %s; D_xy = %s; F_st = %s; FGV = %s" % (
+                            meta['population_id_by_letter']['A'], 
+                            pi_1, 
+                            meta['population_id_by_letter']['B'], 
+                            pi_2, 
+                            d_xy, 
+                            f_st, 
+                            fgv)) 
                     pbar.update(1)
         meta['blocks_by_sample_set_idx'] = dict(blocks_per_sample_set_idx) # keys are strings
         meta['blocks_raw_per_sample_set_idx'] = dict(blocks_raw_per_sample_set_idx) # keys are strings
@@ -1080,14 +1095,15 @@ class Store(object):
 
     def _set_intervals(self, parameterObj):
         meta = self.data['seqs'].attrs
+        query_sequences = meta['seq_names']
         df = parse_csv(
             csv_f=parameterObj.bed_f, 
             sep="\t", 
             usecols=[0, 1, 2, 4], 
             dtype={'sequence': 'category', 'start': 'int64', 'end': 'int64', 'samples': 'category'},
             header=None)
-        df = df.sort_values(['sequence', 'start'], ascending=[True, True]).reset_index(drop=True)
-        intervals_df = df[df['sequence'].isin(meta['seq_names'])]
+        df = df[df['sequence'].isin(meta['seq_names'])].sort_values(['sequence', 'start'], ascending=[True, True]).reset_index(drop=True)
+        intervals_df = df[df['sequence'].isin(query_sequences)]
         intervals_df = pd.concat([intervals_df, intervals_df.samples.str.get_dummies(sep=',').filter(meta['samples'])], axis=1).drop(columns=['samples'])
         intervals_df_samples = [sample for sample in intervals_df.columns[3:]]
         query_samples = ordered_intersect(a=intervals_df_samples, b=meta['samples'], order='a')
@@ -1101,13 +1117,14 @@ class Store(object):
         count_shape = (len(meta['seq_names']), len(query_samples))
         count_bases_samples = np.zeros(count_shape, dtype=np.uint64)
         for idx, (sequence, _df) in tqdm(enumerate(intervals_df.groupby(['sequence'])), total=len(meta['seq_names']), desc="[%] Reading intervals...", ncols=100):
-            interval_matrix = _df[query_samples].to_numpy()
-            length_matrix = np.repeat(_df['length'].to_numpy(), interval_matrix.shape[1]).reshape(interval_matrix.shape)
-            length_matrix[interval_matrix == 0] = 0 # sets length to 0 if interval not present in interval_matrix 
-            count_bases_samples[idx,:] = np.sum(length_matrix, axis=0)
-            self.data.create_dataset("seqs/%s/intervals/matrix" % sequence, data=interval_matrix)
-            self.data.create_dataset("seqs/%s/intervals/starts" % sequence, data=_df['start'].to_numpy())
-            self.data.create_dataset("seqs/%s/intervals/ends" % sequence, data=_df['end'].to_numpy())
+            if sequence in query_sequences:
+                interval_matrix = _df[query_samples].to_numpy()
+                length_matrix = np.repeat(_df['length'].to_numpy(), interval_matrix.shape[1]).reshape(interval_matrix.shape)
+                length_matrix[interval_matrix == 0] = 0 # sets length to 0 if interval not present in interval_matrix 
+                count_bases_samples[idx,:] = np.sum(length_matrix, axis=0)
+                self.data.create_dataset("seqs/%s/intervals/matrix" % sequence, data=interval_matrix)
+                self.data.create_dataset("seqs/%s/intervals/starts" % sequence, data=_df['start'].to_numpy())
+                self.data.create_dataset("seqs/%s/intervals/ends" % sequence, data=_df['end'].to_numpy())
         meta['intervals_span_sample'] = [int(x) for x in np.sum(count_bases_samples, axis=0)] # JSON encoder does not like numpy dtypes   
         meta['intervals_count'] = len(intervals_df.index)
         meta['intervals_span'] = int(intervals_df['length'].sum())
@@ -1209,6 +1226,82 @@ class Store(object):
         # block coordinates (BED format)
         #header = ['block_id', 'start', 'end', 'sample_set', 'multiallelic', 'missing']
         #pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.blocks.h5" % self.prefix, 'bed', format='table')
+
+    def plot_mutuple_pcp(mutype_counter):
+        # https://stackoverflow.com/questions/8230638/parallel-coordinates-plot-in-matplotlib
+        # http://www.shengdongzhao.com/publication/tracing-tuples-across-dimensions-a-comparison-of-scatterplots-and-parallel-coordinate-plots/
+        import matplotlib.pyplot as plt
+        from matplotlib.path import Path
+        import matplotlib.patches as patches
+        import numpy as np
+        
+        fig, host = plt.subplots()
+        
+        # create some dummy data
+        ynames = ['P1', 'P2', 'P3', 'P4', 'P5']
+        N1, N2, N3 = 10, 5, 8
+        N = N1 + N2 + N3
+        category = np.concatenate([np.full(N1, 1), np.full(N2, 2), np.full(N3, 3)])
+        y1 = np.random.uniform(0, 10, N) + 7 * category
+        y2 = np.sin(np.random.uniform(0, np.pi, N)) ** category
+        y3 = np.random.binomial(300, 1 - category / 10, N)
+        y4 = np.random.binomial(200, (category / 6) ** 1/3, N)
+        y5 = np.random.uniform(0, 800, N)
+        
+        # organize the data
+        ys = np.dstack([y1, y2, y3, y4, y5])[0]
+        ymins = ys.min(axis=0)
+        ymaxs = ys.max(axis=0)
+        dys = ymaxs - ymins
+        ymins -= dys * 0.05  # add 5% padding below and above
+        ymaxs += dys * 0.05
+        dys = ymaxs - ymins
+        
+        # transform all data to be compatible with the main axis
+        zs = np.zeros_like(ys)
+        zs[:, 0] = ys[:, 0]
+        zs[:, 1:] = (ys[:, 1:] - ymins[1:]) / dys[1:] * dys[0] + ymins[0]
+        
+        
+        axes = [host] + [host.twinx() for i in range(ys.shape[1] - 1)]
+        for i, ax in enumerate(axes):
+            ax.set_ylim(ymins[i], ymaxs[i])
+            ax.spines['top'].set_visible(False)
+            ax.spines['bottom'].set_visible(False)
+            if ax != host:
+                ax.spines['left'].set_visible(False)
+                ax.yaxis.set_ticks_position('right')
+                ax.spines["right"].set_position(("axes", i / (ys.shape[1] - 1)))
+        
+        host.set_xlim(0, ys.shape[1] - 1)
+        host.set_xticks(range(ys.shape[1]))
+        host.set_xticklabels(ynames, fontsize=14)
+        host.tick_params(axis='x', which='major', pad=7)
+        host.spines['right'].set_visible(False)
+        host.xaxis.tick_top()
+        host.set_title('Parallel Coordinates Plot', fontsize=18)
+        
+        colors = plt.cm.tab10.colors
+        for j in range(N):
+            # to just draw straight lines between the axes:
+            # host.plot(range(ys.shape[1]), zs[j,:], c=colors[(category[j] - 1) % len(colors) ])
+        
+            # create bezier curves
+            # for each axis, there will a control vertex at the point itself, one at 1/3rd towards the previous and one
+            #   at one third towards the next axis; the first and last axis have one less control vertex
+            # x-coordinate of the control vertices: at each integer (for the axes) and two inbetween
+            # y-coordinate: repeat every point three times, except the first and last only twice
+            verts = list(zip([x for x in np.linspace(0, len(ys) - 1, len(ys) * 3 - 2, endpoint=True)],
+                             np.repeat(zs[j, :], 3)[1:-1]))
+            # for x,y in verts: host.plot(x, y, 'go') # to show the control points of the beziers
+            codes = [Path.MOVETO] + [Path.CURVE4 for _ in range(len(verts) - 1)]
+            path = Path(verts, codes)
+            patch = patches.PathPatch(path, facecolor='none', lw=1, edgecolor=colors[category[j] - 1])
+            host.add_patch(patch)
+        plt.tight_layout()
+        plt.show()
+
+
 
     def dump_windows(self, parameterObj):
         window_info_rows = []
