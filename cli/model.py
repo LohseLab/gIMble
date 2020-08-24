@@ -7,7 +7,7 @@
         -h --help                         show this
         -p, --ploidy <INT>                Ploidy of samples [default: 2]
         -s, --pop_ids <STR>               User defined populations (single letters) [default: 'A,B']
-        -n, --samples <STR>               Number of samples by population (same order) [default: '1,1']
+        -n, --samples <STR>               Number of samples by population (same order as pop_ids) [default: '1,1']
         -j, --join_string <STR>           Newick string of population-join history (Ne changes) [default: '']
         -m, --migration_string <STR>      Migration string, e.g. 'A>B' or 'B<A' [default: '']
         --nomodel                         No model output
