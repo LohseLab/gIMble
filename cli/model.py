@@ -24,16 +24,8 @@ import ast
 import re
 import collections
 import sys
+
 '''
-conda install -c conda-forge networkx matplotlib docopt tqdm pandas numpy psutil pygraphviz
-
-./gIMble model -s A,B -p 2 -n 1,1 -m 'A>B' -j '(A,B)' -o graph.s_A_B.p2.n_1_1.m_AtoB.j_A_B.post_fix.new ; \
-./gIMble model -s A,B -p 2 -n 1,1 -m 'B>A' -j '(A,B)' -o graph.s_A_B.p2.n_1_1.m_BtoA.j_A_B.post_fix.new ; \
-./gIMble model -s A,B -p 2 -n 2,0 -m 'A>B' -j '(A,B)' -o graph.s_A_B.p2.n_2_0.m_AtoB.j_A_B.post_fix.new ; \
-./gIMble model -s A,B -p 2 -n 2,0 -m 'B>A' -j '(A,B)' -o graph.s_A_B.p2.n_2_0.m_BtoA.j_A_B.post_fix.new ; \
-./gIMble model -s A,B -p 2 -n 0,2 -m 'A>B' -j '(A,B)' -o graph.s_A_B.p2.n_0_2.m_AtoB.j_A_B.post_fix.new ; \
-./gIMble model -s A,B -p 2 -n 0,2 -m 'B>A' -j '(A,B)' -o graph.s_A_B.p2.n_0_2.m_BtoA.j_A_B.post_fix.new
-
 [ To Do ]
 - Output config file for simulation/inference based on model
 - add header to model file : -s A,B -p 2 -n 1,1

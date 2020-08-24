@@ -15,8 +15,13 @@ import warnings
 import pathlib
 import configparser
 import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
+from matplotlib.path import Path
+import matplotlib.patches as patches
+import numpy as np
 import cerberus
 import lib.simulate
+
 # np.set_printoptions(threshold=sys.maxsize)
 
 
@@ -460,9 +465,7 @@ class ParameterObj(object):
     def _parse_config(self, config_file):
         '''validates types in INI config, returns dict with keys, values as sections/params/etc
         - does not deal with missing/incompatible values (should be dealt with in ParameterObj subclasses)
-
-        https://docs.python-cerberus.org/en/stable/usage.html
-        
+            https://docs.python-cerberus.org/en/stable/usage.html
         '''
         raw_config = configparser.ConfigParser(inline_comment_prefixes='#', allow_no_value=True)
         raw_config.optionxform=str # otherwise keys are lowercase
@@ -475,28 +478,6 @@ class ParameterObj(object):
         possible_values_dict = {s: dict(possible_values_config.items(s)) for s in possible_values_config.sections()}
         valid_pop_ids = [population.strip(" ") for population in possible_values_dict["populations"]["# possible values reference_pop"].split("|")]
         sample_pop_ids = [population for population in valid_pop_ids if "_" not in population]
-        # schema = {
-            # '''either by section or key'''
-            # 'random_seed': lambda x: self._get_int(x, ret_none=True),
-            # 'precision': lambda x: self._get_int(x, ret_none=True),
-            # 'k_max': lambda x: self._get_int(x, ret_none=True),
-            # 'blocks': lambda x: self._get_int(x, ret_none=True),
-            # 'replicates': lambda x: self._get_int(x, ret_none=True),
-            # 'mu': lambda x: self._get_float(x, ret_none=True),
-            # 'parameters' : lambda x: self._get_distribution_or_float(x)
-        # }
-        # guideline_msg = {
-            # 'random_seed': 'must be integer.',
-            # 'precision': 'must be integer.',
-            # 'k_max': 'must be integer.',
-            # 'blocks': 'must be integer.',
-            # 'replicates': 'must be integer.',
-            # 'mu': 'must be float.',
-            # 'parameters' : 'must be float or distribution (mid, min, max, n, lin|log)'
-        # }
-        #section = 'k_max'
-        #errors = []
-        #print(raw_config)
         schema = {
             'gimble': {
                 'type': 'dict',
@@ -517,7 +498,7 @@ class ParameterObj(object):
                 'valuesrules': {'required': True, 'empty':False, 'type': 'integer', 'min': 1, 'coerce':int}},
             'mu': {
                 'type':'dict', 
-                'valuesrules':{'required': False, 'empty':True, 'type': 'float', 'coerce':float}},
+                'valuesrules': {'required': False, 'empty':True, 'type': 'float', 'coerce':float}},
             'parameters': {
                 'type': 'dict', 'required':True, 'empty':False, 
                 'valuesrules': {'coerce':'float_or_list', 'notNone':True}
@@ -530,17 +511,17 @@ class ParameterObj(object):
                 'type': 'dict',
                 'required':True,
                 'schema': {
-                    'ploidy':{'empty':False, 'required':True, 'type':'integer', 'min':1, 'coerce':int},
-                    'blocks':{'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
-                    'blocklength':{'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+                    'ploidy': {'empty':False, 'required':True, 'type':'integer', 'min':1, 'coerce':int},
+                    'blocks': {'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+                    'blocklength': {'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
                     'replicates': {'empty': False, 'type': 'integer', 'min':1, 'coerce':int},
-                    'sample_size_A':{'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
-                    'sample_size_B':{'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+                    'sample_size_A': {'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+                    'sample_size_B': {'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
                     'recombination_rate': {'empty': True, 'notNoneFloat':True, 'coerce':'float_or_empty', 'min':0.0},
                     'recombination_map': {'empty': True, 'type': 'string', 'isPath':True, 'dependencies':['number_bins', 'cutoff', 'scale']},
                     'number_bins': {'empty': True, 'notNoneInt': True, 'coerce':'int_or_empty', 'min':1},
                     'cutoff': {'empty': True, 'notNoneFloat': True, 'coerce':'float_or_empty', 'min':0},
-                    'scale':{'empty':True, 'type':'string', 'allowed':['lin', 'log']}
+                    'scale': {'empty':True, 'type':'string', 'allowed':['lin', 'log']}
                 }}
         sync_pops = config["populations"]["sync_pop_sizes"].strip(" ")
         valid_sync_pops = [population.strip(" ") for population in possible_values_dict["populations"]["# possible values sync_pop_sizes"].split("|")]
@@ -564,101 +545,6 @@ class ParameterObj(object):
         config['populations']['sample_pop_ids'] = sample_pop_ids
         print("[+] Config file validated.")
         return config
-
-        # for section in config.keys():
-            # print('section', section)
-            # if section in 
-            # for key, raw_value in config[section].items():
-                # print('key =', key, ",", 'raw_value =', raw_value, "(%s)" % type(raw_value))
-                # if key in schema:
-# 
-                # value = schema[section](raw_value) if key in schema else raw_value
-                # print('value =', value, "(%s)" % type(value))
-                # if value is None:
-                    # errors.append('[X] Wrong value in %s: %s' % (key, value))
-                # else:
-                    # pass
-        # if len(errors):
-            # sys.exit("\n".join(errors))
-        # return config
-
-        # params = {
-            # 'migration': False,
-            # 'population_count': 0,
-        # }
-        # 
-            # populations_by_letter = {}
-            # for population, value in config.items('populations'):
-                # populations_by_letter[population] = value
-            # reference_pop = config.get('populations', 'reference_pop')
-            # sync_pop_sizes = config.get('populations', 'sync_pop_sizes')
-            # kmax_by_mutype = {}
-            # for mutype, kmax in config.items('k_max'):
-                # kmax_by_mutype[mutype] = int(kmax)
-            # mu = config.get('mu', 'mu') 
-            # for parameter, values in config.items('parameters'):
-                # if parameter.startswith('me'):
-                    # params['migration'] = True
-                # params[parameter] = values
-            # print('populations_by_letter', populations_by_letter)
-            # print('reference_pop', reference_pop, bool(reference_pop))
-            # print('sync_pop_sizes', sync_pop_sizes, bool(sync_pop_sizes))
-            # print('kmax_by_mutype', kmax_by_mutype, bool(kmax_by_mutype))
-            # print('mu', mu, bool(mu))
-        #config.optionxform=str
-        # config['gimble'] = {
-        #     'version': parameterObj._VERSION,
-        #     'random_seed' : 19,
-        #     'precision': 25,
-        # }
-        # # populations
-        # config.add_section('populations')
-        # config.set('populations', "# Link model to data")
-        # for population in sorted(self.pop_ids):
-        #     if "_" not in population:
-        #         config.set('populations', population, "")
-        # config.set('populations', "# Pick reference population (optional)")
-        # config.set('populations', "# possible values : # %s" % ", ".join(sorted(self.pop_ids)))
-        # config.set('populations', 'reference_pop', "")
-        # config.set('populations', "# Simplify model by synchronising Ne's (optional)")
-        # config.set('populations', "# possible values : %s" % " | ".join([",".join(combination) for combination in itertools.combinations(['A', 'A_B', 'B'], 2)]))
-        # config.set('populations', 'sync_pop_sizes', "")
-        # # kmax
-        # config.add_section('k_max')
-        # config.set('k_max', "# max dimensionsionality of bSFSs")
-        # for mutype, comment in zip(mutypes, ['# hetB', '# hetA', '# hetAB', '# fixed']):
-        #     config.set('k_max', "m_%s" % (mutype), "2    %s" % comment)
-        # # sims
-        # config.add_section('simulations')
-        # config.set('simulations', "# Number of blocks to simulate")
-        # config.set('simulations', 'blocks', "")
-        # config.set('simulations', "# Number of replicates")
-        # config.set('simulations', 'replicates', "")
-        # config.set('simulations', "# Recombination rate (optional)")
-        # config.set('simulations', 'recombination_rate', "")
-        # # mu
-        # config.add_section('mu')
-        # config.set('mu', '# mutation rate (in mutations/site/generation) (gridsearch: required)')
-        # config.set('mu', 'mu', "")
-        # # parameters
-        # config.add_section('parameters')
-        # config.set('parameters', "## param: floats")
-        # config.set('parameters', "## param: (mid, min, max, n, lin|log)")
-        # for event in events:
-        #     if event.startswith("C_"):
-        #         config.set('parameters', '# Effective population size of %s' % event[2:])
-        #         config.set('parameters', 'Ne_%s' % event[2:], "")
-        #     if event.startswith("M_"):
-        #         config.set('parameters', '# Migration rate (in migrants/generation) from %s to %s (backwards in time)' % (event.split("_")[1], event.split("_")[2]))
-        #         config.set('parameters', 'me_%s' % event[2:], "")
-        # config.set('parameters', "# Split time (in generations)")
-        # config.set('parameters', 'T', "")
-        # config.set('parameters', "# Mutation rate (in coalescence time scale) (optional)")
-        # config.set('parameters', 'theta', "")
-        # config_file = "%s.ini" % parameterObj.out_prefix
-        # with open(config_file, 'w') as fp:
-        #     config.write(fp)
-        # print("[+] Wrote CONFIG file %r" % str(config_file))
 
     def _process_config(self):
         self.config = self._expand_params()
@@ -834,7 +720,9 @@ class Store(object):
             blocks_span_mean_inter = int(blocks_count_total_inter * meta['blocks_length'] / len(sample_set_idxs_inter))
             # intra
             sample_set_idxs_intra = [idx for idx, cartesian in enumerate(meta['sample_sets_inter']) if not cartesian]
+            print('sample_set_idxs_intra', sample_set_idxs_intra)
             blocks_count_total_intra = sum([meta['blocks_by_sample_set_idx'][str(idx)] for idx in sample_set_idxs_intra]) 
+            print('blocks_count_total_intra', blocks_count_total_intra)
             blocks_raw_count_total_intra = sum([meta['blocks_raw_per_sample_set_idx'][str(idx)] for idx in sample_set_idxs_intra])
             block_validity_intra = blocks_count_total_intra / blocks_raw_count_total_intra
             blocks_span_mean_intra = int(blocks_count_total_intra * meta['blocks_length'] / len(sample_set_idxs_intra))
@@ -895,17 +783,25 @@ class Store(object):
 
     def dump_bsfs(self, parameterObj):
         meta = self.data['seqs'].attrs
-        bsfs = self.get_bsfs_matrix(data='blocks', sample_set_type='inter', as_matrix=False)
-        #print('bsfs', bsfs.shape, type(bsfs), bsfs)
         header = ['count'] + [x+1 for x in range(meta['mutypes_count'])]
-        pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.blocks.h5" % self.prefix, 'tally', format='table')
-        pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_csv("%s.blocks.tsv" % self.prefix, index=False, sep='\t')
+        bsfs = self.get_bsfs_matrix(data='blocks', sample_set_type='inter', as_matrix=False)
+        pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.inter.blocks.h5" % self.prefix, 'tally', format='table')
+        pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_csv("%s.inter.blocks.tsv" % self.prefix, index=False, sep='\t')
+        bsfs = self.get_bsfs_matrix(data='blocks', sample_set_type='intra_A', as_matrix=False)
+        pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.intra_A.blocks.h5" % self.prefix, 'tally', format='table')
+        pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_csv("%s.intra_A.blocks.tsv" % self.prefix, index=False, sep='\t')
+        bsfs = self.get_bsfs_matrix(data='blocks', sample_set_type='intra_B', as_matrix=False)
+        pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.intra_B.blocks.h5" % self.prefix, 'tally', format='table')
+        pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_csv("%s.intra_B.blocks.tsv" % self.prefix, index=False, sep='\t')
 
     def _plot_blocks(self, parameterObj):
         # mutuple barchart
-        mutypes, counts = np.unique(variation_global_array, return_counts=True, axis=0)
-        mutype_counter = collections.Counter({tuple(i):j for i,j in zip(mutypes, counts)})
-        plot_mutuple_barchart('%s.mutuple_barchart.png' % self.prefix, mutype_counter)
+        meta = self.data['seqs'].attrs
+        mutypes_inter_key = 'seqs/bsfs/inter/mutypes' 
+        counts_inter_key = 'seqs/bsfs/inter/counts' 
+        mutypes_inter = self.data[mutypes_inter_key]
+        counts_inter = self.data[counts_inter_key]
+        self.plot_bsfs_pcp('%s.bsfs_pcp.png' % self.prefix, mutypes_inter, counts_inter)
         
     def dump_blocks(self, parameterObj, cartesian_only=True):
         meta = self.data['seqs'].attrs
@@ -1211,7 +1107,7 @@ class Store(object):
         variation_inter = np.zeros(shape_inter, np.int64)
         variation_intra_A = np.zeros(shape_intra_A, np.int64)
         variation_intra_B = np.zeros(shape_intra_B, np.int64)
-        with tqdm(total=(len(meta['seq_names']) * len(sample_set_idxs_all)), desc="[%] Counting bSFSs ...", ncols=100, unit_scale=True) as pbar: 
+        with tqdm(total=(len(meta['seq_names']) * len(sample_set_idxs_all)), desc="[%] Counting bSFSs", ncols=100, unit_scale=True) as pbar: 
             offset_all = 0
             offset_inter = 0
             offset_intra_A = 0 
@@ -1469,79 +1365,109 @@ class Store(object):
         #count_intervals = len(intervals_df.index)
         #count_samples = len(query_samples)
 
-    def plot_mutuple_pcp(mutype_counter):
+    def plot_bsfs_pcp(self, out_f, mutypes, counts):
         # https://stackoverflow.com/questions/8230638/parallel-coordinates-plot-in-matplotlib
         # http://www.shengdongzhao.com/publication/tracing-tuples-across-dimensions-a-comparison-of-scatterplots-and-parallel-coordinate-plots/
-        import matplotlib.pyplot as plt
-        from matplotlib.path import Path
-        import matplotlib.patches as patches
-        import numpy as np
-        
-        fig, host = plt.subplots()
-        
-        # create some dummy data
-        ynames = ['P1', 'P2', 'P3', 'P4', 'P5']
-        N1, N2, N3 = 10, 5, 8
-        N = N1 + N2 + N3
-        category = np.concatenate([np.full(N1, 1), np.full(N2, 2), np.full(N3, 3)])
-        y1 = np.random.uniform(0, 10, N) + 7 * category
-        y2 = np.sin(np.random.uniform(0, np.pi, N)) ** category
-        y3 = np.random.binomial(300, 1 - category / 10, N)
-        y4 = np.random.binomial(200, (category / 6) ** 1/3, N)
-        y5 = np.random.uniform(0, 800, N)
-        
-        # organize the data
-        ys = np.dstack([y1, y2, y3, y4, y5])[0]
-        ymins = ys.min(axis=0)
-        ymaxs = ys.max(axis=0)
-        dys = ymaxs - ymins
-        ymins -= dys * 0.05  # add 5% padding below and above
-        ymaxs += dys * 0.05
-        dys = ymaxs - ymins
-        
-        # transform all data to be compatible with the main axis
-        zs = np.zeros_like(ys)
-        zs[:, 0] = ys[:, 0]
-        zs[:, 1:] = (ys[:, 1:] - ymins[1:]) / dys[1:] * dys[0] + ymins[0]
-        
-        
-        axes = [host] + [host.twinx() for i in range(ys.shape[1] - 1)]
+        meta = self.data['seqs'].attrs
+        fig = plt.figure(figsize=(18,4), dpi=200, frameon=True)
+        #connecting dots
+        fig, axes = plt.subplots(1, len(mutypes)-1, sharey=False, figsize=(15,5))
+        min_max_range = {}
+        print('mutypes', np.array(mutypes))
+        # Plot each row
         for i, ax in enumerate(axes):
-            ax.set_ylim(ymins[i], ymaxs[i])
-            ax.spines['top'].set_visible(False)
-            ax.spines['bottom'].set_visible(False)
-            if ax != host:
-                ax.spines['left'].set_visible(False)
-                ax.yaxis.set_ticks_position('right')
-                ax.spines["right"].set_position(("axes", i / (ys.shape[1] - 1)))
-        
-        host.set_xlim(0, ys.shape[1] - 1)
-        host.set_xticks(range(ys.shape[1]))
-        host.set_xticklabels(ynames, fontsize=14)
-        host.tick_params(axis='x', which='major', pad=7)
-        host.spines['right'].set_visible(False)
-        host.xaxis.tick_top()
-        host.set_title('Parallel Coordinates Plot', fontsize=18)
-        
-        colors = plt.cm.tab10.colors
-        for j in range(N):
-            # to just draw straight lines between the axes:
-            # host.plot(range(ys.shape[1]), zs[j,:], c=colors[(category[j] - 1) % len(colors) ])
-        
-            # create bezier curves
-            # for each axis, there will a control vertex at the point itself, one at 1/3rd towards the previous and one
-            #   at one third towards the next axis; the first and last axis have one less control vertex
-            # x-coordinate of the control vertices: at each integer (for the axes) and two inbetween
-            # y-coordinate: repeat every point three times, except the first and last only twice
-            verts = list(zip([x for x in np.linspace(0, len(ys) - 1, len(ys) * 3 - 2, endpoint=True)],
-                             np.repeat(zs[j, :], 3)[1:-1]))
-            # for x,y in verts: host.plot(x, y, 'go') # to show the control points of the beziers
-            codes = [Path.MOVETO] + [Path.CURVE4 for _ in range(len(verts) - 1)]
-            path = Path(verts, codes)
-            patch = patches.PathPatch(path, facecolor='none', lw=1, edgecolor=colors[category[j] - 1])
-            host.add_patch(patch)
+            for idx in range(4):
+                ax.plot(idx, mutypes[:,idx])
+
+        #     min_max_range[mutype] = [np.min(, df[col].max(), np.ptp(df[col])]
+        #         df[col] = np.true_divide(df[col] - df[col].min(), np.ptp(df[col]))
+
+        # ynames = ['m_%s' for idx in range(1, meta['mutypes_count'] + 1)]
+        # import pandas as pd
+        # from pandas.tools.plotting import parallel_coordinates
+        # ax = pd.tools.plotting.parallel_coordinates(mutypes)
+
+        # #ax.plot(window_df['rel_pos'], window_df[pi_A_key], color='orange', alpha=0.8, linestyle='-', linewidth=1, label=pi_A_key.replace('pi_', ''))
+        # #ax.plot(window_df['rel_pos'], window_df[pi_B_key], color='dodgerblue', alpha=0.8, linestyle='-', linewidth=1, label=pi_B_key.replace('pi_', ''))
+        # #y_lim = (min(window_df[pi_A_key].min(), window_df[pi_B_key].min()), max(window_df[pi_A_key].max(), window_df[pi_B_key].max()))
+        # #ax.vlines(x_boundaries, y_lim[0], y_lim[1], colors=['lightgrey'], linestyles='dashed', linewidth=1)
+        # #ax.set_ylim(y_lim)
+        # #ax.spines['right'].set_visible(False)
+        # #ax.spines['top'].set_visible(False)
+        # #ax.legend(numpoints=1)
+        # #plt.ylabel('Pi')
+        # #plt.xlabel("Genome coordinate")
+        out_f = '%s.pi_genome_scan.png' % self.prefix
         plt.tight_layout()
-        plt.show()
+        fig.savefig(out_f, format="png")
+        #print("[>] Created: %r" % str(out_f))
+        plt.close(fig)
+
+        #fig, host = plt.subplots()
+        #
+        ## create some dummy data
+        #ynames = ['P1', 'P2', 'P3', 'P4', 'P5']
+        #N1, N2, N3 = 10, 5, 8
+        #N = N1 + N2 + N3
+        #category = np.concatenate([np.full(N1, 1), np.full(N2, 2), np.full(N3, 3)])
+        #y1 = np.random.uniform(0, 10, N) + 7 * category
+        #y2 = np.sin(np.random.uniform(0, np.pi, N)) ** category
+        #y3 = np.random.binomial(300, 1 - category / 10, N)
+        #y4 = np.random.binomial(200, (category / 6) ** 1/3, N)
+        #y5 = np.random.uniform(0, 800, N)
+        #
+        ## organize the data
+        #ys = np.dstack([y1, y2, y3, y4, y5])[0]
+        #ymins = ys.min(axis=0)
+        #ymaxs = ys.max(axis=0)
+        #dys = ymaxs - ymins
+        #ymins -= dys * 0.05  # add 5% padding below and above
+        #ymaxs += dys * 0.05
+        #dys = ymaxs - ymins
+        #
+        ## transform all data to be compatible with the main axis
+        #zs = np.zeros_like(ys)
+        #zs[:, 0] = ys[:, 0]
+        #zs[:, 1:] = (ys[:, 1:] - ymins[1:]) / dys[1:] * dys[0] + ymins[0]
+        #
+        #
+        #axes = [host] + [host.twinx() for i in range(ys.shape[1] - 1)]
+        #for i, ax in enumerate(axes):
+        #    ax.set_ylim(ymins[i], ymaxs[i])
+        #    ax.spines['top'].set_visible(False)
+        #    ax.spines['bottom'].set_visible(False)
+        #    if ax != host:
+        #        ax.spines['left'].set_visible(False)
+        #        ax.yaxis.set_ticks_position('right')
+        #        ax.spines["right"].set_position(("axes", i / (ys.shape[1] - 1)))
+        #
+        #host.set_xlim(0, ys.shape[1] - 1)
+        #host.set_xticks(range(ys.shape[1]))
+        #host.set_xticklabels(ynames, fontsize=14)
+        #host.tick_params(axis='x', which='major', pad=7)
+        #host.spines['right'].set_visible(False)
+        #host.xaxis.tick_top()
+        #host.set_title('Parallel Coordinates Plot', fontsize=18)
+        #
+        #colors = plt.cm.tab10.colors
+        #for j in range(N):
+        #    # to just draw straight lines between the axes:
+        #    # host.plot(range(ys.shape[1]), zs[j,:], c=colors[(category[j] - 1) % len(colors) ])
+        #
+        #    # create bezier curves
+        #    # for each axis, there will a control vertex at the point itself, one at 1/3rd towards the previous and one
+        #    #   at one third towards the next axis; the first and last axis have one less control vertex
+        #    # x-coordinate of the control vertices: at each integer (for the axes) and two inbetween
+        #    # y-coordinate: repeat every point three times, except the first and last only twice
+        #    verts = list(zip([x for x in np.linspace(0, len(ys) - 1, len(ys) * 3 - 2, endpoint=True)],
+        #                     np.repeat(zs[j, :], 3)[1:-1]))
+        #    # for x,y in verts: host.plot(x, y, 'go') # to show the control points of the beziers
+        #    codes = [Path.MOVETO] + [Path.CURVE4 for _ in range(len(verts) - 1)]
+        #    path = Path(verts, codes)
+        #    patch = patches.PathPatch(path, facecolor='none', lw=1, edgecolor=colors[category[j] - 1])
+        #    host.add_patch(patch)
+        #plt.tight_layout()
+        #plt.show()
 
     def dump_windows(self, parameterObj):
         window_info_rows = []
