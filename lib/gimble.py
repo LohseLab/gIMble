@@ -15,6 +15,8 @@ import warnings
 import pathlib
 import configparser
 import matplotlib.pyplot as plt
+import cerberus
+import lib.simulate
 # np.set_printoptions(threshold=sys.maxsize)
 
 
@@ -270,16 +272,95 @@ def ordered_intersect(a=[], b=[], order='a'):
     A, B = a, b
     if order == 'b' :
         B, A = a, b
-    return [_a for _a in A if _a in set(B)] 
+    return [_a for _a in A if _a in set(B)]
+
+class CustomNormalizer(cerberus.Validator):
+    def __init__(self, *args, **kwargs):
+        super(CustomNormalizer, self).__init__(*args, **kwargs)
+        self.valid_pop_ids = kwargs['valid_pop_ids']
+        self.valid_sync_pops = kwargs['valid_sync_pops']
         
-def param_generator(pcentre, pmin, pmax, psamples, distr):
-    starts = [pmin, pcentre]
-    ends = [pcentre, pmax]
-    nums = [round(psamples/2) + 1, round(psamples/2)] if psamples % 2 == 0 else [round(psamples/2) + 1, round(psamples/2) + 1]
-    if distr == 'linear':
-        return np.unique(np.concatenate([np.linspace(start, stop, num=num, endpoint=True, dtype=np.float64) for start, stop, num in zip(starts, ends, nums)]))
-    else:
-        raise NotImplmentedError
+    def _normalize_coerce_float_or_list(self, value):
+        try:
+            return float(value)
+        except:
+            values = value.strip('()[]').split(",")
+            if len(values) == 3:
+                try:
+                    return [float(v) for v in values]
+                except ValueError:
+                    return None
+            elif len(values) == 5:
+                valid_scales = ['lin', 'log']
+                if not values[4].strip(' ') in valid_scales:
+                    return None
+                try:
+                    return [float(v) for v in values[:3]]+[int(values[3]),values[4].strip(' ')]
+                except ValueError:
+                    return None
+            else:
+                return None
+
+    def _normalize_coerce_float_or_empty(self, value):
+        try:
+            return float(value)
+        except:
+            if value.strip(' ') =='':
+                return ''
+            else:
+                return None
+
+    def _normalize_coerce_int_or_empty(self, value):
+        try:
+            return int(value)
+        except:
+            if value.strip(' ')=='':
+                return ''
+            else:
+                return None
+
+    def _validate_notNoneInt(self, notNoneNumeric, field, value):
+        """
+        {'type':'boolean'}
+        """
+        if value == None and notNoneNumeric:
+            self._error(field, "Must be an int value or empty")
+    
+    def _validate_notNoneFloat(self, notNoneNumeric, field, value):
+        """
+        {'type':'boolean'}
+        """
+        if value == None and notNoneNumeric:
+            self._error(field, "Must be a float or empty")
+
+    def _validate_notNone(self, notNone, field, value):
+        """
+        {'type':'boolean'}
+        """
+        if not value and notNone:
+            self._error(field, "Must be a float, or a list of length 3 or 5.")
+
+    def _validate_isPop(self, isPop, field, value):
+        """
+        {'type':'boolean'}
+        """
+        if value.strip(" ") not in self.valid_pop_ids:
+            self._error(field, "Must be either A, B or A_B")
+
+    def _validate_isPopSync(self, isPopSync, field, value):
+        """
+        {'type':'boolean'}
+        """
+        if value.strip(" ") !='':
+            if value.strip(" ") not in self.valid_sync_pops:
+                self._error(field, "Must be either A,A_B, A,B or A_B,B")
+
+    def _validate_isPath(self, isPath, field, value):
+        """
+        {'type':'boolean'}
+        """
+        if value.strip(" ") != '' and not os.path.isfile(value):
+            self._error(field, 'Must be a valid path to the recombination map.')
 
 class ParameterObj(object):
     '''Superclass ParameterObj'''
@@ -297,19 +378,39 @@ class ParameterObj(object):
             self._get_cmd()
             ))
 
-    def _get_cmd(self):
-        return "%s/gimble %s %s" % (
-            self._PATH, 
-            self._MODULE, 
-            "".join(["--%s " % " ".join((k, str(v))) for k,v in self.__dict__.items() if not k.startswith("_")]))
+    def _dict_product(self):
+        if len(self.config["parameters"])>0:
+            return [dict(zip(self.config["parameters"], x)) for x in itertools.product(*self.config["parameters"].values())]
 
-    def _get_path(self, infile):
-        if infile is None:
-            return None
-        path = pathlib.Path(infile).resolve()
-        if not path.exists():
-            sys.exit("[X] File not found: %r" % str(infile))
-        return str(path)
+    def _expand_params(self):
+        if len(self.config['parameters'])>0:
+            for key, value in self.config['parameters'].items():
+                if isinstance(value, float):
+                    self.config['parameters'][key] = [value,]
+                else:
+                    midv, minv, maxv, n, scale = value
+                    if scale.startswith('lin'):
+                        sim_range = self._expand_params_lin(midv, minv, maxv, n)
+                    elif scale.startswith('log'):
+                        sim_range = self._expand_params_log(midv, minv, maxv, n)
+                    else:
+                        raise NotImplmentedError
+                    self.config['parameters'][key] = sim_range
+
+    def _expand_params_lin(self, pcentre, pmin, pmax, psamples):
+        starts = [pmin, pcentre]
+        ends = [pcentre, pmax]
+        nums = [round(psamples/2) + 1, round(psamples/2)] if psamples % 2 == 0 else [round(psamples/2) + 1, round(psamples/2) + 1]
+        return np.unique(np.concatenate([np.linspace(start, stop, num=num, endpoint=True, dtype=np.float64) for start, stop, num in zip(starts, ends, nums)]))    
+
+    def _expand_params_log(self, pcentre, pmin, pmax, psamples):
+        plogcentre, plogmin, plogmax = np.log10([pcentre, pmin, pmax])
+        temp =  np.logspace(plogmin, plogmax, num=psamples, endpoint=True, dtype=np.float64)
+        left = (temp<pcentre).sum()
+        right = psamples-left
+        left = np.logspace(plogmin, plogcentre, num=left, endpoint=False, dtype=np.float64)
+        right = np.logspace(plogcentre, plogmax, num=right, endpoint=True, dtype=np.float64)
+        return np.unique(np.concatenate([left, right]))
 
     def _get_int(self, string, ret_none=False):
         try:
@@ -327,32 +428,38 @@ class ParameterObj(object):
                 sys.exit("[X] %r can't be converted to float." % string)
             return None
 
-    def _get_distribution_or_float(self, string):
-        try: 
-            return float(string)
-        except ValueError:
-            valid_scales = set(['lin', 'log'])
-            values = string.split(",") 
-            if not len(values) == 5:
-                return None
-            if not values[4] in valid_scales:
-                return None
-            try:
-                return [float(value) for value in values[0:4]] + values[4]
-            except ValueError:
-                return None
-        
+    def _get_cmd(self):
+        return "%s/gimble %s %s" % (
+            self._PATH, 
+            self._MODULE, 
+            "".join(["--%s " % " ".join((k, str(v))) for k,v in self.__dict__.items() if not k.startswith("_")]))
+
+    def _get_path(self, infile):
+        if infile is None:
+            return None
+        path = pathlib.Path(infile).resolve()
+        if not path.exists():
+            sys.exit("[X] File not found: %r" % str(infile))
+        return str(path)
+
     def _parse_config(self, config_file):
         '''validates types in INI config, returns dict with keys, values as sections/params/etc
         - does not deal with missing/incompatible values (should be dealt with in ParameterObj subclasses)
 
         https://docs.python-cerberus.org/en/stable/usage.html
-
+        
         '''
-        raw_config = configparser.ConfigParser(inline_comment_prefixes="#", allow_no_value=True)
+        raw_config = configparser.ConfigParser(inline_comment_prefixes='#', allow_no_value=True)
         raw_config.optionxform=str # otherwise keys are lowercase
         raw_config.read(config_file)
         config = {s: dict(raw_config.items(s)) for s in raw_config.sections()}
+        
+        possible_values_config = configparser.ConfigParser(allow_no_value=True, strict=False, comment_prefixes=None)
+        possible_values_config.optionxform=str # otherwise keys are lowercase
+        possible_values_config.read(config_file)
+        possible_values_dict = {s: dict(possible_values_config.items(s)) for s in possible_values_config.sections()}
+        valid_pop_ids = [population.strip(" ") for population in possible_values_dict["populations"]["# possible values reference_pop"].split("|")]
+        sample_pop_ids = [population for population in valid_pop_ids if "_" not in population]
         # schema = {
             # '''either by section or key'''
             # 'random_seed': lambda x: self._get_int(x, ret_none=True),
@@ -374,52 +481,73 @@ class ParameterObj(object):
         # }
         #section = 'k_max'
         #errors = []
-        print(raw_config)
-        print(config)
-        import cerberus
-        import sys
+        #print(raw_config)
         schema = {
             'gimble': {
                 'type': 'dict',
                 'schema': {
-                    'version': {'required': True, 'type': 'string'},
-                    'precision': {'required': True, 'type': 'integer', 'coerce': int},
-                    'random_seed': {'required': True, 'type': 'integer', 'coerce': int}}},
-            'populations': {'required': True, 'type': 'dict', 'valuesrules': {'type': 'string'}},
-            'k_max': {'type': 'dict', 'valuesrules': {'required': True, 'type': 'integer', 'min': 1}},
-            'mu': {'required': False, 'type': 'float'},
-            'simulations': {
-                'type': 'dict',
+                    'version': {'required': True, 'empty':False, 'type': 'string'},
+                    'precision': {'required': True, 'empty':False, 'type': 'integer', 'coerce': int},
+                    'random_seed': {'required': True, 'empty':False, 'type': 'integer', 'coerce': int}}},
+            'populations': {
+                'required': True, 'type': 'dict', 
                 'schema': {
-                    'blocks': {'required': False, 'type': 'integer'},
-                    'replicates': {'required': False, 'type': 'integer'},
-                    'recombination_rate': {'required': False, 'type': 'float'}
-                }},
-            'parameters': {'type': 'dict', 'valuesrules': {'anyof': [{'type': 'float'}, {'type': 'list'}]}}}
-        validator = cerberus.Validator(schema)
+                    'A': {'required':True, 'empty':True, 'type':'string'},
+                    'B': {'required':True, 'empty':True, 'type':'string'},
+                    'reference_pop': {'required':True, 'empty':False, 'isPop':True},
+                    'sync_pop_sizes': {'required':False, 'empty':True, 'isPopSync':True},
+                    }},
+            'k_max': {
+                'type': 'dict', 
+                'valuesrules': {'required': True, 'empty':False, 'type': 'integer', 'min': 1, 'coerce':int}},
+            'mu': {
+                'type':'dict', 
+                'valuesrules':{'required': False, 'empty':True, 'type': 'float', 'coerce':float}},
+            'parameters': {
+                'type': 'dict', 'required':True, 'empty':False, 
+                'valuesrules': {'coerce':'float_or_list', 'notNone':True}
+            },
+            'simulations':{
+                'required':False, 'empty':True}
+            }
+        if self._MODULE=='simulate':
+            schema['simulations'] = {
+                'type': 'dict',
+                'required':True,
+                'schema': {
+                    'ploidy':{'empty':False, 'required':True, 'type':'integer', 'min':1, 'coerce':int},
+                    'blocks':{'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+                    'blocklength':{'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+                    'replicates': {'empty': False, 'type': 'integer', 'min':1, 'coerce':int},
+                    'sample_size_A':{'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+                    'sample_size_B':{'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+                    'recombination_rate': {'empty': True, 'notNoneFloat':True, 'coerce':'float_or_empty', 'min':0.0},
+                    'recombination_map': {'empty': True, 'type': 'string', 'isPath':True, 'dependencies':['number_bins', 'cutoff', 'scale']},
+                    'number_bins': {'empty': True, 'notNoneInt': True, 'coerce':'int_or_empty', 'min':1},
+                    'cutoff': {'empty': True, 'notNoneFloat': True, 'coerce':'float_or_empty', 'min':0},
+                    'scale':{'empty':True, 'type':'string', 'allowed':['lin', 'log']}
+                }}
+        sync_pops = config["populations"]["sync_pop_sizes"].strip(" ")
+        valid_sync_pops = [population.strip(" ") for population in possible_values_dict["populations"]["# possible values sync_pop_sizes"].split("|")]
+        if sync_pops in valid_sync_pops:
+            equal_pops = sync_pops.strip(' ').split(',')
+            if len(equal_pops) == 2:
+                first, last = equal_pops
+                config['parameters'][f'Ne_{last}'] = config['parameters'][f'Ne_{first}']
+            elif len(equal_pops) == 3:
+                config['parameters']['Ne_A_B'] = config['parameters']['Ne_A']
+                config['parameters']['Ne_B'] = config['parameters']['Ne_A']
+            else:
+                sys.exit('[X] Provided sync_pop_sizes are invalid.')
+        validator = CustomNormalizer(schema, valid_pop_ids=valid_pop_ids, valid_sync_pops=valid_sync_pops)
+        validator.validate(config)
         output = ["[X] INI Config file format error(s) ..."]
         if not validator.validate(config):
             print("[X] validator.errors", validator.errors)
-
+            sys.exit()
         config = validator.normalized(config)
-        print("[X] VALIDATED", validator.normalized(config))
-        #if not validator.validate(config, schema):
-        #    for level in validator.errors:
-        #        output.append("[X] %r ..." % level)
-        #        for error_dict in validator.errors[level]:
-        #            for key, error_list in error_dict.items():
-        #                output.append("[X] \t %r : %s" % (key, "; ".join(error_list)))
-        # boundary validation
-        for key, raw_value in config['parameters'].items():
-            value = self._get_distribution_or_float(raw_value)
-            if value is None:
-                output.append("[X] \t %r : should be float or distribution" % (key))
-            if isinstance(value, float):
-                config['parameters'][key] = value
-            if isinstance(value, list):
-                config['parameters'][key] = param_generator(value)
-        if len(output) > 1:
-            sys.exit("\n".join(output))
+        config['populations']['sample_pop_ids'] = sample_pop_ids
+        print("[+] Config file validated.")
         return config
 
         # for section in config.keys():
@@ -517,6 +645,34 @@ class ParameterObj(object):
         #     config.write(fp)
         # print("[+] Wrote CONFIG file %r" % str(config_file))
 
+    def _process_config(self):
+        self.config = self._expand_params()
+        self.config = self._dict_product()
+        if self._MODULE == 'gridsearch':
+            self.config = [self._scale_param_combo(combo, reference_pop) for combo in self.config]
+        
+    def _scale_param_combo(self, combo, reference_pop):
+        # gimble inference grid:
+        #Ne = theta/4mu 
+        #theta_block = theta * block_length
+        #Ne_A, Ne_B, Ne_A_B = Ne/C_A, Ne/C_B, Ne/C_A_B
+        #T = 2Ne*tau
+        #M = 4Ne*m_e
+        rdict = {}
+        if self._MODULE == 'gridsearch':
+            block_length = self.zstore.attrs['seqs/blocklength']
+            Ne_ref = combo[f"Ne_{reference_pop}"]
+            rdict['theta'] = 4*Ne_ref*combo['mu']*block_length
+            rdict['C_A']=Ne_ref/combo['Ne_A']
+            rdict['C_B'] = Ne_ref/combo['Ne_B']
+            if 'Ne_A_B' in combo:
+                rdict['C_A_B'] = Ne_ref/combo['Ne_A_B'] #if present
+            rdict['T'] = 2*Ne_ref*combo['T']
+            rdict['m_e'] = 4*Ne_ref*combo[f'm_e_{mig_dir}']
+            return rdict
+        else:
+            raise NotImplmentedError
+
 class Store(object):
     def __init__(self, prefix=None, path=None, create=False, overwrite=False):
         self.prefix = prefix if not prefix is None else str(pathlib.Path(path).resolve().stem)
@@ -566,8 +722,8 @@ class Store(object):
                 bsfs_matrix[(tuple(np.clip(mutype, 0, kmax_array)))] = count
             return bsfs_matrix
 
-    def info(self, verbose = False):
-        meta = self.data['seqs'].attrs
+    def info(self, module='seqs' ,verbose = False):
+        meta = self.data[module].attrs
         SPACING = meta['spacing']
         divider = "[=] [%s]" % (SPACING * '=')
         info_string = []
@@ -685,6 +841,7 @@ class Store(object):
                     format_count(blocks_count),
                     "%s%s" % ('+' if blocks_span_deviation > 0 else '', format_percentage(blocks_span_deviation))
                     ))
+        
         info_string.append(divider)
         print("\n".join(info_string))
 
@@ -713,6 +870,13 @@ class Store(object):
         self._preflight_windows(parameterObj)
         print("[#] Making windows...")
         self._make_windows(parameterObj)
+        self.log_stage(parameterObj)
+
+    def simulate(self, parameterObj):
+        print("[#] Preflight...")
+        self._preflight_simulate(parameterObj)
+        print("[+] Checks passed.")
+        lib.simulate.run_sim(parameterObj, self)
         self.log_stage(parameterObj)
 
     def query(self, parameterObj):
@@ -839,6 +1003,13 @@ class Store(object):
                 sys.exit("[X] GStore %r already contains blocks.\n[X] These blocks => %r\n[X] Please specify '--force' to overwrite." % (self.path, self.get_stage('blocks')))
             print('[-] GStore %r already contains blocks. But these will be overwritten...' % (self.path))
 
+    def _preflight_simulate(self, parameterObj):
+        if 'sims' not in self.data.group_keys():
+            self._init_meta(overwrite=False, module='sims')
+        self.data['sims'].attrs['run_count'] += 1
+        new_run_number = self.data['sims'].attrs['run_count']
+        self.data.create_group(f'sims/run_{new_run_number}')
+
     def _make_windows(self, parameterObj, cartesian_only=True):
         meta = self.data['seqs'].attrs
         meta['window_size'] = parameterObj.window_size
@@ -956,7 +1127,7 @@ class Store(object):
         print("[+] Loading GStore from %r" % self.path)
         return zarr.open(str(self.path), mode='r+')
     
-    def _init_meta(self, overwrite=False):
+    def _init_meta(self, overwrite=False, module=None):
         attrs_by_group = {
             'seqs' : {
                 'vcf_f': None, 
@@ -1000,12 +1171,19 @@ class Store(object):
                 'grid' : None
             },
             'sims': {
-                'meta': None
+                'run_count': 0
             }
         }
-        for group, attrs in attrs_by_group.items():
-            self.data.require_group(group, overwrite=overwrite)
-            self.data[group].attrs.put(attrs_by_group[group])
+        if module:
+            if module in attrs_by_group:
+                self.data.require_group(module, overwrite=overwrite)
+                self.data[module].attrs.put(attrs_by_group[module])    
+            else:
+                sys.exit("[X] Specified module does not exist.")
+        else:
+            for group, attrs in attrs_by_group.items():
+                self.data.require_group(group, overwrite=overwrite)
+                self.data[group].attrs.put(attrs_by_group[group])
 
     def _set_sequences(self, parameterObj):
         meta = self.data['seqs'].attrs

@@ -14,18 +14,22 @@ import pandas as pd
 from functools import partial
 import collections
 
-def run_sim(parameterObj):
+def run_sim(parameterObj, gimbleStore):
     threads = parameterObj.threads
-    ploidy = parameterObj._config["ploidy"]
-    params = parameterObj._config["parameters"]
-    blocks = parameterObj._config["blocks"]
-    blocklength = parameterObj._config["blocklength"]
-    replicates = parameterObj._config["replicates"]
-    sim_configs = parameterObj.sim_configs
-    A,B = parameterObj.pop_names    
-    msprime_configs = (make_sim_configs(config, ploidy, (A,B), blocks, blocklength) for config in sim_configs)
+    global_info = parameterObj.config["simulations"]
+    ploidy = global_info["ploidy"]
+    blocks = global_info["blocks"]
+    blocklength = global_info["blocklength"]
+    replicates = global_info["replicates"]
+    sim_configs = parameterObj.grid
+    global_info['sample_pop_ids'] = parameterObj.config['populations']['sample_pop_ids']
+    A,B = global_info['sample_pop_ids']
+    global_info['reference_pop'] = parameterObj.config['populations']['reference_pop']
+    global_info['mu'] = parameterObj.config['mu']['mu']
+    
+    msprime_configs = (make_sim_configs(config, global_info) for config in sim_configs)
     all_interpop_comparisons = all_interpopulation_comparisons(
-        params[f"sample_size_{A}"][0], params[f"sample_size_{B}"][0]
+        global_info[f"sample_size_{A}"], global_info[f"sample_size_{B}"]
     )
     
     print(f"[+] simulating {replicates} replicate(s) of {blocks} block(s) for {len(sim_configs)} parameter combinations")
@@ -60,29 +64,33 @@ def run_sim(parameterObj):
                 )
             
         name = f"parameter_combination_{idx}"
-        g = parameterObj.root.create_dataset(name, data=np.array(result_list), overwrite=True)
+        run_count = gimbleStore.data['sims'].attrs['run_count']
+        g = gimbleStore.data[f'sims/run_{run_count}'].create_dataset(name, data=np.array(result_list), overwrite=True)
         g.attrs.put(zarr_attrs)
         g.attrs['seeds']=tuple([int(s) for s in seeds])
             
-def make_sim_configs(params, ploidy, pop_names, blocks, blocklength):
-    A, B = pop_names
-    sample_size_A = params[f"sample_size_{A}"]
-    sample_size_B = params[f"sample_size_{B}"]
+def make_sim_configs(params, global_info):
+    A, B = global_info["sample_pop_ids"]
+    sample_size_A = global_info[f"sample_size_{A}"]
+    sample_size_B = global_info[f"sample_size_{B}"]
     num_samples = sample_size_A + sample_size_B
-    C_A = params[f"C_{A}"]
-    C_B = params[f"C_{B}"]
-    if f"C_{A}_{B}" in params:
-        C_AB = params[f"C_{A}_{B}"]
-    else: C_AB = C_A #what do we do here??
-    theta = params["theta"]/2
+    C_A = params[f"Ne_{A}"]
+    C_B = params[f"Ne_{B}"]
+    if f"Ne_{A}_{B}" in params:
+        C_AB = params[f"Ne_{A}_{B}"]
+    elif f"Ne_{B}_{A}" in params:
+        C_AB = params[f"Ne_{B}_{A}"]
+    else: 
+        C_AB = params[f"Ne_{global_info['reference_pop']}"]
+    mu = global_info["mu"]
     rec_rate = params["recombination"]
 
     population_configurations = [
         msprime.PopulationConfiguration(
-            sample_size=sample_size_A * ploidy, initial_size=C_A
+            sample_size=sample_size_A * global_info["ploidy"], initial_size=C_A
         ),
         msprime.PopulationConfiguration(
-            sample_size=sample_size_B * ploidy, initial_size=C_B
+            sample_size=sample_size_B * global_info["ploidy"], initial_size=C_B
         ),
         msprime.PopulationConfiguration(
             sample_size=0, initial_size=C_AB
@@ -93,12 +101,12 @@ def make_sim_configs(params, ploidy, pop_names, blocks, blocklength):
     #migration matirx: M[i,j]=k k is the fraction of population i consisting of migrants
     # from population j, FORWARDS in time.
     #here migration is defined backwards in time
-    if f"M_{A}_{B}" in params:
+    if f"me_{A}_{B}" in params:
         # migration A to B backwards, forwards in time, migration from B to A
-        migration_matrix[0, 1] = params[f"M_{A}_{B}"]/(4*C_AB) #this needs to be verified
-    if f"M_{B}_{A}" in params:
+        migration_matrix[0, 1] = params[f"me_{A}_{B}"] #this needs to be verified
+    if f"me_{B}_{A}" in params:
         # migration B to A, forwards in time, migration from A to B
-        migration_matrix[1, 0] = params[f"M_{B}_{A}"]/(4*C_AB)
+        migration_matrix[1, 0] = params[f"me_{B}_{A}"]
     
     # demographic events: specify in the order they occur backwards in time
     demographic_events = []
@@ -117,7 +125,7 @@ def make_sim_configs(params, ploidy, pop_names, blocks, blocklength):
         population_configurations,
         demographic_events,
         migration_matrix,
-        theta,
+        mu,
         num_samples,
         rec_rate,
     )
@@ -135,7 +143,7 @@ def run_ind_sim(
         population_configurations,
         demographic_events,
         migration_matrix,
-        theta,
+        mu,
         num_samples,
         rec_rate
     ) = msprime_config
@@ -146,7 +154,7 @@ def run_ind_sim(
         population_configurations=population_configurations,
         demographic_events=demographic_events,
         migration_matrix=migration_matrix,
-        mutation_rate=theta,
+        mutation_rate=mu,
         random_seed=seed, #error was when 3582573439
     )
     
@@ -157,7 +165,7 @@ def run_ind_sim(
         demographic_events=demographic_events,
         migration_matrix=migration_matrix,
         length=blocklength,
-        mutation_rate=params["theta"],
+        mutation_rate=params["mu"],
         recombination_rate=0.0,
     )
     tsm = msprime.mutate(ts, rate=mutation_rate, discrete=True)
@@ -212,17 +220,5 @@ def dict_product(d):
     if len(d)>0:
         return [dict(zip(d, x)) for x in itertools.product(*d.values())]
 
-
-#def expand_params(d):
-#    if len(d)>0:
-#        for key, value in d.items():
-#            if len(value) > 1 and key!="recombination":
-#                assert len(value) >= 3, "MIN, MAX and STEPSIZE need to be specified"
-#                sim_range = np.arange(value[0], value[1]+value[2], value[2], dtype=float)
-#                if len(value)==4:
-#                    if not any(np.isin(sim_range, value[3])):
-#                        print(f"[-] Specified range for {key} does not contain specified grid center value")  
-#                d[key] = sim_range
-#
 def all_interpopulation_comparisons(popA, popB):
     return list(itertools.product(range(popA), range(popA, popA + popB)))

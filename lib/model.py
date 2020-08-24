@@ -306,6 +306,9 @@ class StateGraph(object):
             'random_seed' : 19,
             'precision': 25,
         }
+        A,B=parameterObj.pop_ids
+        sample_size_A = parameterObj.samples_by_pop_id[A]
+        sample_size_B = parameterObj.samples_by_pop_id[B]
         # populations
         config.add_section('populations')
         config.set('populations', "# Link model to data")
@@ -313,10 +316,11 @@ class StateGraph(object):
             if "_" not in population:
                 config.set('populations', population, "")
         config.set('populations', "# Pick reference population (required)")
-        config.set('populations', "# possible values : %s" % " | ".join(sorted(self.pop_ids)))
+        config.set('populations', "# possible values reference_pop: %s" % " | ".join(sorted(self.pop_ids)))
         config.set('populations', 'reference_pop', "")
         config.set('populations', "# Simplify model by assuming equality of Ne's (optional)")
-        config.set('populations', "# possible values : %s" % " | ".join([",".join(combination) for combination in itertools.combinations(['A', 'A_B', 'B'], 2)]))
+        populations_possible = [event[2:] for event in events if event.startswith("C_")]
+        config.set('populations', "# possible values sync_pop_sizes: %s" % " | ".join([",".join(combination) for combination in itertools.combinations(populations_possible, 2)]+[','.join(populations_possible),]))
         config.set('populations', 'sync_pop_sizes', "")
         # kmax
         config.add_section('k_max')
@@ -325,12 +329,21 @@ class StateGraph(object):
             config.set('k_max', "m_%s" % (mutype), "2    %s" % comment)
         # sims
         config.add_section('simulations')
+        config.set('simulations', 'ploidy', str(parameterObj.ploidy))
         config.set('simulations', "# Number of blocks to simulate")
         config.set('simulations', 'blocks', "")
+        config.set('simulations', 'blocklength', "")
         config.set('simulations', "# Number of replicates")
         config.set('simulations', 'replicates', "")
-        config.set('simulations', "# Recombination rate (optional)")
+        config.set('simulations', f'sample_size_{A}', str(sample_size_A))
+        config.set('simulations', f'sample_size_{B}', str(sample_size_B))
+        config.set('simulations', "# Set recombination rate or provide path to recombination map (optional)")
         config.set('simulations', 'recombination_rate', "")
+        config.set('simulations', 'recombination_map', "")
+        config.set('simulations', "# If recombination map is provide the number of bins and cutoff")
+        config.set('simulations', 'number_bins', "")
+        config.set('simulations', 'cutoff', "")
+        config.set('simulations', 'scale', "")
         # mu
         config.add_section('mu')
         config.set('mu', '# mutation rate (in mutations/site/generation) (gridsearch: required)')
