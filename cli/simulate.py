@@ -16,7 +16,6 @@
         
 """
 import pathlib
-import oyaml as yaml
 import collections
 from timeit import default_timer as timer
 from docopt import docopt
