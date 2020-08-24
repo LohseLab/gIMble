@@ -890,18 +890,16 @@ class Store(object):
         self._preflight_blocks(parameterObj)
         print("[#] Making blocks...")
         self._make_blocks(parameterObj)
-        print("[#] Writing bSFSs...")
-        self._write_bsfs(parameterObj)
         #self._plot_blocks(parameterObj)
         self.log_stage(parameterObj)
 
-    def _write_bsfs(self, parameterObj):
+    def dump_bsfs(self, parameterObj):
         meta = self.data['seqs'].attrs
         bsfs = self.get_bsfs_matrix(data='blocks', sample_set_type='inter', as_matrix=False)
         #print('bsfs', bsfs.shape, type(bsfs), bsfs)
         header = ['count'] + [x+1 for x in range(meta['mutypes_count'])]
         pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.blocks.h5" % self.prefix, 'tally', format='table')
-        pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_csv("%s.blocks.tsv" % self.prefix, sep='\t')
+        pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_csv("%s.blocks.tsv" % self.prefix, index=False, sep='\t')
 
     def _plot_blocks(self, parameterObj):
         # mutuple barchart
@@ -979,20 +977,6 @@ class Store(object):
 
         #pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation_global_array, (self.data.attrs['block_length'] * variation_global_array.shape[0]))
         #print("[+] Pi_%s = %s; Pi_%s = %s; D_xy = %s; F_st = %s; FGVs = %s / %s blocks (%s)" % (self.data.attrs['pop_ids'][0], pi_1, self.data.attrs['pop_ids'][1], pi_2, d_xy, f_st, fgv, variation_global_array.shape[0], format_percentage(fgv / variation_global_array.shape[0]))) 
-        
-        # mutuple barchart
-        mutypes, counts = np.unique(variation_global_array, return_counts=True, axis=0)
-        mutype_counter = collections.Counter({tuple(i):j for i,j in zip(mutypes, counts)})
-        plot_mutuple_barchart('%s.mutuple_barchart.png' % self.prefix, mutype_counter)
-
-        # mutuple tally
-        bsfs = np.concatenate([counts[:, np.newaxis], mutypes], axis =-1)
-        header = ['count'] + [x+1 for x in range(meta['mutypes_count'])]
-        pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.blocks.h5" % self.prefix, 'tally', format='table')
-
-        # block coordinates (BED format)
-        #header = ['block_id', 'start', 'end', 'sample_set', 'multiallelic', 'missing']
-        #pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.blocks.h5" % self.prefix, 'bed', format='table')
 
 
     def windows(self, parameterObj):
@@ -1034,42 +1018,6 @@ class Store(object):
         d_xy, 
         f_st, 
         fgv)) 
-
-    # def _write_query_old(self, parameterObj):
-    #     sample_sets_idxs = self.data.attrs['idx_cartesian_sample_sets']
-    #     data_by_key = collections.defaultdict(list)
-    #     with tqdm(total=(len(self.data.attrs['sequence_ids']) * len(sample_sets_idxs)), desc="[%] Writing bSFSs ", ncols=100, unit_scale=True) as pbar: 
-    #         for seq_id in self.data.attrs['sequence_ids']: 
-    #             for sample_set_idx in sample_sets_idxs:
-    #                 missing = np.array(self.data["%s/%s/blocks/missing" % (seq_id, sample_set_idx)])
-    #                 multiallelic = np.array(self.data["%s/%s/blocks/multiallelic" % (seq_id, sample_set_idx)])
-    #                 valid = np.less_equal(missing, parameterObj.block_max_missing) & np.less_equal(multiallelic, parameterObj.block_max_multiallelic)
-    #                 data_by_key['sequence'].append(np.full_like(valid, seq_id, dtype='object'))
-    #                 data_by_key['sample_set_idx'].append(np.full_like(valid, sample_set_idx, dtype='object'))
-    #                 data_by_key['start'].append(np.array(self.data["%s/%s/blocks/starts" % (seq_id, sample_set_idx)])[valid])
-    #                 data_by_key['end'].append(np.array(self.data["%s/%s/blocks/ends" % (seq_id, sample_set_idx)])[valid])
-    #                 data_by_key['variation'].append(np.array(self.data[variation_key]))#[valid]
-    #                 variation_key = 'seqs/%s/blocks/%s/variation' % (seq_name, sample_set_idx)
-    #                 variation_global.append(np.array(self.data[variation_key]))#[valid]
-    #                 if parameterObj.extended_bsfs:
-    #                     data_by_key['missing'] = missing[valid]
-    #                     data_by_key['multiallelic'] = multiallelic[valid]
-    #                 pbar.update()
-    #     header = ["# gimble %s" % parameterObj._VERSION] + ["# %s = %s" % (sample_set_idx, ", ".join(self.data.attrs['sample_sets'][sample_set_idx])) for sample_set_idx in sample_sets_idxs]
-    #     out_f = 'gimble.blocks.bed'
-    #     with open(out_f, 'w') as out_fh:
-    #         out_fh.write("\n".join(header) + "\n")
-
-    #     array = np.array([
-    #             np.concatenate(data_by_key['sequence']),
-    #             np.concatenate(data_by_key['start']),
-    #             np.concatenate(data_by_key['end']),
-    #             np.concatenate(data_by_key['sample_set_idx'])
-    #         ]).T
-    #     bed_df = pd.DataFrame(
-    #         data=array,
-    #         columns=['sequence', 'start', 'end', 'sample_set_idx'])
-    #     bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, mode='a', sep='\t', index=False, header=False)
 
     def _write_block_bed(self, parameterObj, cartesian_only=True):
         '''new gimblestore'''
@@ -1182,7 +1130,6 @@ class Store(object):
                 self.data.create_dataset("seqs/%s/windows/ends" % seq_name, data=window_ends, overwrite=True)
                 self.data.create_dataset("seqs/%s/windows/pos_mean" % seq_name, data=window_pos_mean, overwrite=True)
                 self.data.create_dataset("seqs/%s/windows/pos_median" % seq_name, data=window_pos_median, overwrite=True)
-        self.log_stage(parameterObj)
 
     def _get_interval_coordinates_for_sample_set(self, seq_name='', sample_set=[]):
         meta = self.data['seqs'].attrs

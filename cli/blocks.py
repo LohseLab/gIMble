@@ -51,7 +51,7 @@ def main(params):
         parameterObj = BlockParameterObj(params, args)
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore)
         gimbleStore.blocks(parameterObj)
-        gimbleStore.dump_blocks(parameterObj)
+        gimbleStore.dump_bsfs(parameterObj)
         gimbleStore.info()
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
