@@ -10,8 +10,9 @@ Usage: gimble <module> [<args>...] [-D -V -h]
     query                 Query BED file of blocks (windows [TBI])
     model                 Build demographic model
     simulate              Simulate data [TBI] 
+    makegrid              Make grid [TBI]
+    gridsearch            Search grid [TBI]
     inference             Make inference [TBI] (requires blocks)
-    gridsearch            Make grid [TBI]
     
     partitioncds          Partition CDS sites in BED file by degeneracy in sample GTs 
     plotbed               Plot BED file [TBR]
@@ -84,6 +85,9 @@ def main(gimble_dir):
         elif args['<module>'] == 'gridsearch':
             import cli.gridsearch as gridsearch
             gridsearch.main(params)
+        elif args['<module>'] == 'makegrid':
+            import cli.makegrid as makegrid
+            makegrid.main(params)
         else:
             sys.exit("%r is not a gimble module. See 'gimble -help'." % args['<module>'])
     except KeyboardInterrupt:
