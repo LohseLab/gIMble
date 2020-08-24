@@ -212,21 +212,21 @@ class EquationSystemObj(object):
         '''
         self.events = []
         self.threads = parameterObj.threads
-        self.boundaries = parameterObj._config['boundaries']
-        self.k_max_by_mutype = parameterObj._config['k_max']
+        #self.boundaries = parameterObj._config['boundaries'] #this needs to be changed
+        self.k_max_by_mutype = parameterObj.config['k_max']
         self.mutypes = sorted(self.k_max_by_mutype.keys())
         self.model_file = parameterObj.model_file
         self.event_tuples_by_idx = self._get_event_tuples_by_idx()
-        self.user_rate_by_event = self._get_user_rate_by_event(parameterObj)
+        self.user_rate_by_event = self._get_user_rate_by_event(parameterObj) #one rate per variable?
         self.base_rate_by_variable = self._get_base_rate_by_variable()
-        self.split_time = self.user_rate_by_event.get('T', None)
+        self.split_time = self.user_rate_by_event.get('T', None) #one split time?
         self.dummy_variable = self._get_dummy_variable()
         self.rate_by_event = self._get_rate_by_variable(prefix=set(['C', 'M']))
         self.rate_by_mutation = self._get_rate_by_variable(prefix=set(['m']))
         self.equation_batch_by_idx = collections.defaultdict(list)
-        self.probcheck_file = parameterObj.probcheck_file
+        #self.probcheck_file = parameterObj.probcheck_file
         self.ETPs = None
-        self.grid_points = self._get_grid_points(parameterObj)
+        #self.grid_points = self._get_grid_points(parameterObj) #should this contain all parameter combos?
 
     def _get_grid_points(self, parameterObj):
         '''parameterObj should already by scaled when this point is reached'''

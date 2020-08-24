@@ -359,8 +359,9 @@ class StateGraph(object):
             if event.startswith("M_"):
                 config.set('parameters', '# Migration rate (in migrants/generation) from %s to %s (backwards in time)' % (event.split("_")[1], event.split("_")[2]))
                 config.set('parameters', 'me_%s' % event[2:], "")
-        config.set('parameters', "# Split time (in generations)")
-        config.set('parameters', 'T', "")
+        if parameterObj.join_events:
+            config.set('parameters', "# Split time (in generations)")
+            config.set('parameters', 'T', "")
         #config.set('parameters', "# Scaled mutation rate (on the coalescence time scale) (optional)")
         #config.set('parameters', 'theta', "")
         config_file = "%s.ini" % parameterObj.out_prefix

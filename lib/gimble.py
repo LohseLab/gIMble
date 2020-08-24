@@ -442,6 +442,15 @@ class ParameterObj(object):
             sys.exit("[X] File not found: %r" % str(infile))
         return str(path)
 
+    def _verify_parent(self, infile):
+        if infile is None:
+            return None
+        path = pathlib.Path(infile).resolve()
+        parent = path.parent
+        if not parent.exists():
+            sys.exit("[X] Parent directory not found: %r" % str(infile))
+        return str(path)        
+
     def _parse_config(self, config_file):
         '''validates types in INI config, returns dict with keys, values as sections/params/etc
         - does not deal with missing/incompatible values (should be dealt with in ParameterObj subclasses)
@@ -550,107 +559,15 @@ class ParameterObj(object):
         print("[+] Config file validated.")
         return config
 
-        # for section in config.keys():
-            # print('section', section)
-            # if section in 
-            # for key, raw_value in config[section].items():
-                # print('key =', key, ",", 'raw_value =', raw_value, "(%s)" % type(raw_value))
-                # if key in schema:
-# 
-                # value = schema[section](raw_value) if key in schema else raw_value
-                # print('value =', value, "(%s)" % type(value))
-                # if value is None:
-                    # errors.append('[X] Wrong value in %s: %s' % (key, value))
-                # else:
-                    # pass
-        # if len(errors):
-            # sys.exit("\n".join(errors))
-        # return config
-
-        # params = {
-            # 'migration': False,
-            # 'population_count': 0,
-        # }
-        # 
-            # populations_by_letter = {}
-            # for population, value in config.items('populations'):
-                # populations_by_letter[population] = value
-            # reference_pop = config.get('populations', 'reference_pop')
-            # sync_pop_sizes = config.get('populations', 'sync_pop_sizes')
-            # kmax_by_mutype = {}
-            # for mutype, kmax in config.items('k_max'):
-                # kmax_by_mutype[mutype] = int(kmax)
-            # mu = config.get('mu', 'mu') 
-            # for parameter, values in config.items('parameters'):
-                # if parameter.startswith('me'):
-                    # params['migration'] = True
-                # params[parameter] = values
-            # print('populations_by_letter', populations_by_letter)
-            # print('reference_pop', reference_pop, bool(reference_pop))
-            # print('sync_pop_sizes', sync_pop_sizes, bool(sync_pop_sizes))
-            # print('kmax_by_mutype', kmax_by_mutype, bool(kmax_by_mutype))
-            # print('mu', mu, bool(mu))
-        #config.optionxform=str
-        # config['gimble'] = {
-        #     'version': parameterObj._VERSION,
-        #     'random_seed' : 19,
-        #     'precision': 25,
-        # }
-        # # populations
-        # config.add_section('populations')
-        # config.set('populations', "# Link model to data")
-        # for population in sorted(self.pop_ids):
-        #     if "_" not in population:
-        #         config.set('populations', population, "")
-        # config.set('populations', "# Pick reference population (optional)")
-        # config.set('populations', "# possible values : # %s" % ", ".join(sorted(self.pop_ids)))
-        # config.set('populations', 'reference_pop', "")
-        # config.set('populations', "# Simplify model by synchronising Ne's (optional)")
-        # config.set('populations', "# possible values : %s" % " | ".join([",".join(combination) for combination in itertools.combinations(['A', 'A_B', 'B'], 2)]))
-        # config.set('populations', 'sync_pop_sizes', "")
-        # # kmax
-        # config.add_section('k_max')
-        # config.set('k_max', "# max dimensionsionality of bSFSs")
-        # for mutype, comment in zip(mutypes, ['# hetB', '# hetA', '# hetAB', '# fixed']):
-        #     config.set('k_max', "m_%s" % (mutype), "2    %s" % comment)
-        # # sims
-        # config.add_section('simulations')
-        # config.set('simulations', "# Number of blocks to simulate")
-        # config.set('simulations', 'blocks', "")
-        # config.set('simulations', "# Number of replicates")
-        # config.set('simulations', 'replicates', "")
-        # config.set('simulations', "# Recombination rate (optional)")
-        # config.set('simulations', 'recombination_rate', "")
-        # # mu
-        # config.add_section('mu')
-        # config.set('mu', '# mutation rate (in mutations/site/generation) (gridsearch: required)')
-        # config.set('mu', 'mu', "")
-        # # parameters
-        # config.add_section('parameters')
-        # config.set('parameters', "## param: floats")
-        # config.set('parameters', "## param: (mid, min, max, n, lin|log)")
-        # for event in events:
-        #     if event.startswith("C_"):
-        #         config.set('parameters', '# Effective population size of %s' % event[2:])
-        #         config.set('parameters', 'Ne_%s' % event[2:], "")
-        #     if event.startswith("M_"):
-        #         config.set('parameters', '# Migration rate (in migrants/generation) from %s to %s (backwards in time)' % (event.split("_")[1], event.split("_")[2]))
-        #         config.set('parameters', 'me_%s' % event[2:], "")
-        # config.set('parameters', "# Split time (in generations)")
-        # config.set('parameters', 'T', "")
-        # config.set('parameters', "# Mutation rate (in coalescence time scale) (optional)")
-        # config.set('parameters', 'theta', "")
-        # config_file = "%s.ini" % parameterObj.out_prefix
-        # with open(config_file, 'w') as fp:
-        #     config.write(fp)
-        # print("[+] Wrote CONFIG file %r" % str(config_file))
-
-    def _process_config(self):
-        self.config = self._expand_params()
-        self.config = self._dict_product()
-        if self._MODULE == 'gridsearch':
-            self.config = [self._scale_param_combo(combo, reference_pop) for combo in self.config]
-        
+    def _process_config(self, module='makegrid'):
+        if self._MODULE==module:
+            self.config['parameters']['mu'] = self.config['mu']['mu']
+            self._expand_params()
+            self.grid = self._dict_product()
+            if self._MODULE == 'makegrid':
+                reference_pop = self.config['populations']['reference_pop']
+                self.grid = [self._scale_param_combo(combo, reference_pop) for combo in self.grid]
+            
     def _scale_param_combo(self, combo, reference_pop):
         # gimble inference grid:
         #Ne = theta/4mu 
@@ -659,8 +576,14 @@ class ParameterObj(object):
         #T = 2Ne*tau
         #M = 4Ne*m_e
         rdict = {}
-        if self._MODULE == 'gridsearch':
-            block_length = self.zstore.attrs['seqs/blocklength']
+        if self._MODULE == 'makegrid':
+            if self.block_length:
+                block_length = self.block_length
+            else:
+                try:
+                    block_length = self.zstore.attrs['seqs/blocklength']
+                except KeyError:
+                    sys.exit("No block length in zstore meta-data.")
             Ne_ref = combo[f"Ne_{reference_pop}"]
             rdict['theta'] = 4*Ne_ref*combo['mu']*block_length
             rdict['C_A']=Ne_ref/combo['Ne_A']
@@ -668,7 +591,8 @@ class ParameterObj(object):
             if 'Ne_A_B' in combo:
                 rdict['C_A_B'] = Ne_ref/combo['Ne_A_B'] #if present
             rdict['T'] = 2*Ne_ref*combo['T']
-            rdict['m_e'] = 4*Ne_ref*combo[f'm_e_{mig_dir}']
+            mig_dir = [key for key in combo.keys() if key.startswith("me_")][0]
+            rdict['me'] = 4*Ne_ref*combo[mig_dir]
             return rdict
         else:
             raise NotImplmentedError
