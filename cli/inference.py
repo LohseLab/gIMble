@@ -252,19 +252,16 @@ def main(params):
     try:
         start_time = timer()
         args = docopt(__doc__)
-        print(args)
         #log = lib.log.get_logger(params)
         parameterObj = InferenceParameterObj(params, args)
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
-        print(parameterObj._config)
-        print(parameterObj._config['k_max'])
         data = gimbleStore.get_bsfs_matrix(
             data='blocks', 
             population_by_letter=parameterObj._config['population_ids'], 
             sample_set_type='inter', 
             kmax_by_mutype=parameterObj._config['k_max'])
-
-        print('data.shape', data.shape)
+        import numpy as np
+        print('data.shape', data.shape, 'np.sum(data)', np.sum(data))
         #data = lib.math.get_data_array(parameterObj)
         #print(data)
         equationSystem = lib.math.EquationSystemObj(parameterObj)
@@ -273,10 +270,10 @@ def main(params):
         equationSystem.calculate_ETPs()
         if parameterObj.probcheck_file is not None:
             equationSystem.check_ETPs()
-        from scipy.special import xlogy
-        import numpy as np
-        composite_likelihood = -np.sum((xlogy(np.sign(equationSystem.ETPs), equationSystem.ETPs) * data))
-        print('[+] L=-%s' % (composite_likelihood))
+        ETP_log = np.zeros(equationSystem.ETPs.shape)
+        np.log(equationSystem.ETPs, where=equationSystem.ETPs>0, out=ETP_log)
+        composite_likelihood = np.sum(ETP_log * data)
+        print('[+] L=%s' % (composite_likelihood))
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
         print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
