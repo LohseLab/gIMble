@@ -304,7 +304,7 @@ class EquationSystemObj(object):
         print("[+] Parsed parameters ...")
         print("[+] K_max := %s" % self.k_max_by_mutype)
         #print("[+] User-provided rates := %s" % self.user_rate_by_event)
-        print("[+] Event rates := %s" % self.rate_by_variable)
+        #print("[+] Event rates := %s" % self.rate_by_variable)
         #print("[+] Mutation rates := %s" % self.rate_by_mutation)
         print("[+] Split time (T) := %s" % self.split_times)
         print("[+] Dummy variable := %s" % self.dummy_variable)
