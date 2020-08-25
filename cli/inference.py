@@ -264,7 +264,7 @@ def main(params):
         print('data.shape', data.shape, 'np.sum(data)', np.sum(data))
         #data = lib.math.get_data_array(parameterObj)
         #print(data)
-        equationSystem = lib.math.EquationSystemObj(parameterObj)
+        equationSystem = lib.math.EquationSystemObj(parameterObj,legacy=True)
         equationSystem.info()
         equationSystem.initiate_model()
         equationSystem.calculate_ETPs()

@@ -579,16 +579,20 @@ class ParameterObj(object):
                 try:
                     block_length = self.zstore.attrs['seqs/blocklength']
                 except KeyError:
-                    sys.exit("No block length in zstore meta-data.")
+                    sys.exit("No block length in zstore meta-data. Provide blocklength to makegrid.")
             Ne_ref = combo[f"Ne_{reference_pop}"]
             rdict['theta'] = 4*Ne_ref*combo['mu']*block_length
             rdict['C_A']=Ne_ref/combo['Ne_A']
             rdict['C_B'] = Ne_ref/combo['Ne_B']
             if 'Ne_A_B' in combo:
                 rdict['C_A_B'] = Ne_ref/combo['Ne_A_B'] #if present
-            rdict['T'] = 2*Ne_ref*combo['T']
-            mig_dir = [key for key in combo.keys() if key.startswith("me_")][0]
-            rdict['me'] = 4*Ne_ref*combo[mig_dir]
+            if 'T' in combo:
+                rdict['T'] = combo['T']/(2*Ne_ref)
+            mig_dir = [key for key in combo.keys() if key.startswith("me_")]
+            if mig_dir:
+                mig_dir = mig_dir[0]
+                mig_pop = mig_dir.lstrip("me_")
+                rdict[f'M_{mig_pop}'] = 4*Ne_ref*combo[mig_dir]
             return rdict
         else:
             raise NotImplmentedError

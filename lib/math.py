@@ -168,6 +168,7 @@ def calculate_inverse_laplace(params):
         equationObj.result = equation
     else:
         equationObj.result = sage.all.inverse_laplace(equation / dummy_variable, dummy_variable, sage.all.SR.var('T'), algorithm='giac').substitute(T=split_time)
+    
     return equationObj
 
 class Constructor(object):
@@ -204,7 +205,7 @@ class EquationObj(object):
         return '[+] EquationObj : %s\n%s' % (self.matrix_idx, self.equation)
 
 class EquationSystemObj(object):
-    def __init__(self, parameterObj):
+    def __init__(self, parameterObj, legacy=False):
         '''
         Step 1 : 
             - parsing of model : self._get_event_tuples_by_idx
@@ -216,23 +217,33 @@ class EquationSystemObj(object):
 
             - 
         '''
-        self.events = []
+        #parameters
         self.threads = parameterObj.threads
-        #self.boundaries = parameterObj._config['boundaries'] #this needs to be changed
-        self.k_max_by_mutype = parameterObj._config['k_max']
+        self.k_max_by_mutype = parameterObj.config['k_max']
         self.mutypes = sorted(self.k_max_by_mutype.keys())
+        #needed to generate the equationObjs
         self.model_file = parameterObj.model_file
+        self.events = []
         self.event_tuples_by_idx = self._get_event_tuples_by_idx()
-        self.user_rate_by_event = self._get_user_rate_by_event(parameterObj) #one rate per variable?
-        self.base_rate_by_variable = self._get_base_rate_by_variable()
-        self.split_time = self.user_rate_by_event.get('T', None) #one split time?
-        self.dummy_variable = self._get_dummy_variable()
-        self.rate_by_event = self._get_rate_by_variable(prefix=set(['C', 'M']))
-        self.rate_by_mutation = self._get_rate_by_variable(prefix=set(['m']))
+        self.dummy_variable = self._get_dummy_variable() 
         self.equation_batch_by_idx = collections.defaultdict(list)
-        #self.probcheck_file = parameterObj.probcheck_file
-        self.ETPs = None
-        #self.grid_points = self._get_grid_points(parameterObj) #should this contain all parameter combos?
+        self.ETPs=None
+
+        if not legacy:
+            self.rate_by_variable = [self._get_base_rate_by_variable(params) for params in parameterObj.grid]
+            self.split_times = [self._get_split_time(params) for params in parameterObj.grid]
+        
+        else:  
+            #user provided rates, legacy code
+            self.user_rate_by_event = self._get_user_rate_by_event(parameterObj)
+            self.base_rate_by_variable = self._get_base_rate_by_variable()
+            self.split_time = self.user_rate_by_event.get('T', None)
+        
+            #self.boundaries = parameterObj._config['boundaries'] #this needs to be changed
+            self.rate_by_event = self._get_rate_by_variable(prefix=set(['C', 'M']))
+            self.rate_by_mutation = self._get_rate_by_variable(prefix=set(['m']))
+            self.probcheck_file = parameterObj.probcheck_file
+            #self.grid_points = self._get_grid_points(parameterObj) #should this contain all parameter combos?
 
     def _get_grid_points(self, parameterObj):
         '''parameterObj should already by scaled when this point is reached'''
@@ -292,16 +303,22 @@ class EquationSystemObj(object):
         print("[=] ==================================================")
         print("[+] Parsed parameters ...")
         print("[+] K_max := %s" % self.k_max_by_mutype)
-        print("[+] User-provided rates := %s" % self.user_rate_by_event)
-        print("[+] Event rates := %s" % self.rate_by_event)
-        print("[+] Mutation rates := %s" % self.rate_by_mutation)
-        print("[+] Split time (T) := %s" % self.split_time)
+        #print("[+] User-provided rates := %s" % self.user_rate_by_event)
+        #print("[+] Event rates := %s" % self.rate_by_variable)
+        #print("[+] Mutation rates := %s" % self.rate_by_mutation)
+        print("[+] Split time (T) := %s" % self.split_times)
         print("[+] Dummy variable := %s" % self.dummy_variable)
 
     def _get_rate_by_variable(self, prefix=None):
         if not prefix is None:
             return {event: rate for event, rate in self.base_rate_by_variable.items() if str(event)[0] in prefix}
         return {}
+
+    def _get_split_time(self, params):
+        time = params.get('T')
+        if time:
+            time = sage.all.Rational(float(time)) 
+        return time
 
     def _get_dummy_variable(self):
         '''CAUTION: only works for 2-pop case with single J_* event'''
@@ -331,12 +348,12 @@ class EquationSystemObj(object):
             user_rate_by_event[event] = sage.all.Rational(float(rate))
         return user_rate_by_event
 
-    def _get_base_rate_by_variable(self):
+    def _get_base_rate_by_variable(self, rateDict):
         '''Substitution values used in equations. 
         Does not include ``T`` (since it gets substituted later?).
         Any adjustments to user rates happen here'''
         base_rate_by_variable = {}
-        for event, rate in self.user_rate_by_event.items():
+        for event, rate in rateDict.items():
             if event.startswith('theta'):
                 for mutype in self.mutypes:
                     base_rate_by_variable[sage.all.SR.var(mutype)] = sage.all.Rational(rate * 0.5)         
@@ -368,17 +385,24 @@ class EquationSystemObj(object):
         #    else:
         #        print("[+] Monomorphic check passed: P(monomorphic) = %s" % equationObj.result)
 
-    
-    def calculate_ETPs(self):
+    def calculate_all_ETPs(self):
+        #iterate over zip(self.rate_by_variable, self.split_times)
+        self.ETPs = [] 
+        for rates, split_time in zip(self.rate_by_variable, self.split_times):
+            self.ETPs.append(self.calculate_ETPs(rates, split_time))
+
+    def calculate_ETPs(self, rates=None, split_time=None, threads=1):
         print("[=] ==================================================")
         print("[+] Calculating ETPs ...")
+        print(f'rates sage vars: {rates}')
         parameter_batches = []
         for equationObj in self.equationObjs:
-            rates = {**self.rate_by_event, **self.rate_by_mutation}
-            parameter_batches.append((equationObj, rates, self.split_time, self.dummy_variable))
+            if not rates: 
+                rates = {**self.rate_by_event, **self.rate_by_mutation}
+            parameter_batches.append((equationObj, rates, split_time, self.dummy_variable))
         desc = "[%] Solving equations"
         equationObj_by_matrix_idx = {}
-        if self.threads <= 1:
+        if threads <= 1:
             for parameter_batch in tqdm(parameter_batches, desc=desc, ncols=100):
                 equationObj = calculate_inverse_laplace(parameter_batch)
                 equationObj_by_matrix_idx[equationObj.matrix_idx] = equationObj
@@ -390,7 +414,7 @@ class EquationSystemObj(object):
 
             Maybe the solution is to import multiprocessing library under a different name? so that it does not clash
             '''
-            with poolcontext(processes=self.threads) as pool:
+            with poolcontext(processes=threads) as pool:
                 with tqdm(parameter_batches, desc=desc, ncols=100) as pbar:
                     for resultObj in pool.imap_unordered(calculate_inverse_laplace, parameter_batches):
                         equationObj_by_matrix_idx[resultObj.matrix_idx] = resultObj
@@ -403,10 +427,10 @@ class EquationSystemObj(object):
                 ETPs[matrix_id] = equationObj.result - sum(ETPs[equationObj.marginal_idx].flatten())
             print(matrix_id, ETPs[matrix_id])
         if not math.isclose(np.sum(ETPs.flatten()), 1, rel_tol=1e-5):
-            print("[-]\t∑(ETPs) != 1 (rel_tol=1e-5)")
+            print("[-] sum(ETPs) != 1 (rel_tol=1e-5)")
         else:
-            print("[+]\t∑(ETPs) == 1 ")
-        self.ETPs = ETPs
+            print("[+] sum(ETPs) == 1 ")
+        return ETPs
 
     def optimise_parameters(symbolic_equations_by_mutuple, mutuple_count_matrix, parameterObj):
         '''
