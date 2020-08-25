@@ -640,10 +640,12 @@ class Store(object):
             if as_matrix:
                 bsfs_matrix = np.zeros(tuple(kmax_by_mutype["m_%s" % mutype] + 2 for mutype in range(1, meta['mutypes_count'] + 1)), np.int64)
                 for mutype, count in zip(mutypes, counts):
-                    #print("=>", mutype, count)
-                    bsfs_matrix[np.clip(mutype, 0, kmax_array, dtype=np.int64)] += count
-                    #print(bsfs_matrix)
-                #print('bsfs_matrix', bsfs_matrix.shape, bsfs_matrix)
+                    # print("=>", mutype, count)
+                    # print("=>", np.clip(mutype, 0, kmax_array, dtype=np.int64))
+
+                    bsfs_matrix[tuple(np.clip(mutype, 0, kmax_array, dtype=np.int64))] += count
+                    # print(bsfs_matrix)
+                # print('bsfs_matrix', bsfs_matrix.shape, bsfs_matrix)
                 return bsfs_matrix
             mutypes_clipped_counter = collections.Counter()
             for mutype, count in zip(mutypes, counts):
