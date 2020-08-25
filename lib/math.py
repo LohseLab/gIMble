@@ -387,6 +387,8 @@ class EquationSystemObj(object):
             # replicate with `-t 2`
             '''
             pexpect.exceptions.ExceptionPexpect: isalive() encountered condition where "terminated" is 0, but there was no child process. Did someone else call waitpid() on our process?
+
+            Maybe the solution is to import multiprocessing library under a different name? so that it does not clash
             '''
             with poolcontext(processes=self.threads) as pool:
                 with tqdm(parameter_batches, desc=desc, ncols=100) as pbar:
