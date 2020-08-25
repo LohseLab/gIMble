@@ -636,11 +636,12 @@ class Store(object):
                 kmax_by_mutype = {"m_%s" % idx: np.max(mutypes[:, idx-1]) for idx in range(1, meta['mutypes_count'] + 1)}
             #print('kmax_by_mutype', kmax_by_mutype)
             kmax_array = np.array(list(kmax_by_mutype.values())) + 1
+            #print('kmax_array', kmax_array)
             if as_matrix:
                 bsfs_matrix = np.zeros(tuple(kmax_by_mutype["m_%s" % mutype] + 2 for mutype in range(1, meta['mutypes_count'] + 1)), np.int64)
                 for mutype, count in zip(mutypes, counts):
                     #print("=>", mutype, count)
-                    bsfs_matrix[(tuple(np.clip(mutype, 0, kmax_array)))] += count
+                    bsfs_matrix[np.clip(mutype, 0, kmax_array, dtype=np.int64)] += count
                     #print(bsfs_matrix)
                 #print('bsfs_matrix', bsfs_matrix.shape, bsfs_matrix)
                 return bsfs_matrix
@@ -653,6 +654,7 @@ class Store(object):
                 bsfs_array[idx, 1:] = np.array(mutypes_clipped_tuple)
             #print('bsfs_array', bsfs_array.shape, bsfs_array)
             return bsfs_array
+
 
     def info(self, module='seqs' ,verbose = False):
         meta = self.data[module].attrs
@@ -778,398 +780,6 @@ class Store(object):
         
         info_string.append(divider)
         print("\n".join(info_string))
-
-    def setup(self, parameterObj):
-        print("[#] Preparing store...")
-        self._init_meta(overwrite=True)
-        print("[#] Processing GENOME_FILE %r..." % parameterObj.genome_f)
-        self._set_sequences(parameterObj)
-        print("[#] Processing SAMPLE_FILE %r..." % parameterObj.sample_f)
-        self._set_samples(parameterObj)
-        print("[#] Processing VCF_FILE %r..." % parameterObj.vcf_f)
-        self._set_variants(parameterObj)
-        print("[#] Processing BED_FILE %r..." % parameterObj.bed_f)
-        self._set_intervals(parameterObj)
-        self.log_stage(parameterObj)
-
-    def blocks(self, parameterObj):
-        print("[#] Preflight...")
-        self._preflight_blocks(parameterObj)
-        print("[#] Making blocks...")
-        self._make_blocks(parameterObj)
-        #self._plot_blocks(parameterObj)
-        self.log_stage(parameterObj)
-
-    def dump_bsfs(self, parameterObj):
-        meta = self.data['seqs'].attrs
-        header = ['count'] + [x+1 for x in range(meta['mutypes_count'])]
-        bsfs = self.get_bsfs_matrix(data='blocks', sample_set_type='inter', as_matrix=False)
-        pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.inter.blocks.h5" % self.prefix, 'tally', format='table')
-        pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_csv("%s.inter.blocks.tsv" % self.prefix, index=False, sep='\t')
-        bsfs = self.get_bsfs_matrix(data='blocks', sample_set_type='intra_A', as_matrix=False)
-        pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.intra_A.blocks.h5" % self.prefix, 'tally', format='table')
-        pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_csv("%s.intra_A.blocks.tsv" % self.prefix, index=False, sep='\t')
-        bsfs = self.get_bsfs_matrix(data='blocks', sample_set_type='intra_B', as_matrix=False)
-        pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.intra_B.blocks.h5" % self.prefix, 'tally', format='table')
-        pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_csv("%s.intra_B.blocks.tsv" % self.prefix, index=False, sep='\t')
-
-    def _plot_blocks(self, parameterObj):
-        # mutuple barchart
-        meta = self.data['seqs'].attrs
-        mutypes_inter_key = 'seqs/bsfs/inter/mutypes' 
-        counts_inter_key = 'seqs/bsfs/inter/counts' 
-        mutypes_inter = self.data[mutypes_inter_key]
-        counts_inter = self.data[counts_inter_key]
-        self.plot_bsfs_pcp('%s.bsfs_pcp.png' % self.prefix, mutypes_inter, counts_inter)
-        
-    def dump_blocks(self, parameterObj, cartesian_only=True):
-        meta = self.data['seqs'].attrs
-        sample_set_idxs = [idx for (idx, is_cartesian) in enumerate(meta['sample_sets_inter']) if is_cartesian] if cartesian_only else range(len(meta['sample_sets']))
-        variation_global = []
-        with tqdm(total=(len(meta['seq_names']) * len(sample_set_idxs)), desc="[%] Writing bSFSs ", ncols=100, unit_scale=True) as pbar: 
-            for seq_name in meta['seq_names']: 
-                for sample_set_idx in sample_set_idxs:
-                    variation_key = 'seqs/%s/blocks/%s/variation' % (seq_name, sample_set_idx)
-                    variation_global.append(np.array(self.data[variation_key]))#[valid]
-                    pbar.update()
-        variation_global_array = np.concatenate(variation_global, axis=0)
-        # popgen
-        variation_global = []
-        #metrics_rows = []
-        # is order (pi_1, pi_2, d_xy, f_st, fgv) correct?
-        # for sample_set_idx in data_by_key_by_sample_set_idx:
-        #     sample_set_ids = self.data.attrs['sample_sets'][sample_set_idx]
-        #     #print(data_by_key_by_sample_set_idx)
-        #     block_sites = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['block_sites'], axis=0))
-        #     interval_sites = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['interval_sites'], axis=0))
-        #     block_sites_valid = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['block_sites_valid'], axis=0))
-        #     variation_array = np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['variation'], axis=0)
-        #     missing_count = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['missing'], axis=0))
-        #     multiallelic_count = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['multiallelic'], axis=0))
-        #     hetB_count, hetA_count, hetAB_count, fixed_count = np.sum(variation_array, axis=0)
-        #     #pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation_array, (self.data.attrs['block_length'] * variation_array.shape[0]))    
-        #     pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation_array, block_sites_valid)    
-        #     metrics_rows.append([
-        #         sample_set_ids[0], 
-        #         sample_set_ids[1],     
-        #         block_sites,
-        #         interval_sites,
-        #         block_sites_valid,
-        #         np.divide(block_sites_valid, self.data.attrs['block_length']),
-        #         fgv,
-        #         missing_count,
-        #         multiallelic_count,
-        #         hetA_count, 
-        #         hetB_count, 
-        #         hetAB_count, 
-        #         fixed_count,
-        #         pi_1, 
-        #         pi_2, 
-        #         d_xy, 
-        #         f_st
-        #         ])
-        # # output metrics 
-        # header = [
-        #     self.data.attrs['pop_ids'][0], 
-        #     self.data.attrs['pop_ids'][1], 
-        #     'block_sites', 
-        #     'interval_sites', 
-        #     'block_sites_valid', 
-        #     'blocks', 
-        #     'fgv', 
-        #     'missing', 
-        #     'multiallelic', 
-        #     'hetA', 
-        #     'hetB', 
-        #     'hetAB', 
-        #     'fixed', 
-        #     'piA', 
-        #     'piB', 
-        #     'dxy', 
-        #     'fst'
-        #     ]
-        # pd.DataFrame(data=metrics_rows, columns=header, dtype='int64').to_hdf("%s.block_stats.h5" % self.prefix, 'bsfs', format='table')
-
-        #pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation_global_array, (self.data.attrs['block_length'] * variation_global_array.shape[0]))
-        #print("[+] Pi_%s = %s; Pi_%s = %s; D_xy = %s; F_st = %s; FGVs = %s / %s blocks (%s)" % (self.data.attrs['pop_ids'][0], pi_1, self.data.attrs['pop_ids'][1], pi_2, d_xy, f_st, fgv, variation_global_array.shape[0], format_percentage(fgv / variation_global_array.shape[0]))) 
-
-
-    def windows(self, parameterObj):
-        print("[#] Preflight...")
-        self._preflight_windows(parameterObj)
-        print("[#] Making windows...")
-        self._make_windows(parameterObj)
-        self.log_stage(parameterObj)
-
-    def simulate(self, parameterObj):
-        print("[#] Preflight...")
-        self._preflight_simulate(parameterObj)
-        print("[+] Checks passed.")
-        lib.simulate.run_sim(parameterObj, self)
-        self.log_stage(parameterObj)
-
-    def query(self, parameterObj):
-        print("[#] Preflight...")
-        self._preflight_query(parameterObj)
-        print("[#] Query...")
-        if parameterObj.blocks:
-            self._write_block_bed(parameterObj, cartesian_only=True)
-        if parameterObj.windows:
-            self._write_window_bed(parameterObj, cartesian_only=True)
-
-    def popgen_metrics_from(self, data='blocks', cartesian_only=True):
-        '''
-            data := 'blocks", 'windows'
-
-        '''
-        sample_set_idxs = [idx for (idx, is_cartesian) in enumerate(meta['sample_sets_inter']) if is_cartesian] if cartesian_only else range(len(meta['sample_sets']))
-        if data == 'blocks':
-            result = calculate_popgen_from_array(variation[valid], (meta['blocks_length'] * self.data[blocks_variation_key].shape[0])) 
-            print("[+] Pi_%s = %s; Pi_%s = %s; D_xy = %s; F_st = %s; FGV = %s" % (
-        meta['population_by_letter']['A'], 
-        pi_1, 
-        meta['population_by_letter']['B'], 
-        pi_2, 
-        d_xy, 
-        f_st, 
-        fgv)) 
-
-    def _write_block_bed(self, parameterObj, cartesian_only=True):
-        '''new gimblestore'''
-        meta = self.data['seqs'].attrs
-        sample_set_idxs = [idx for (idx, is_cartesian) in enumerate(meta['sample_sets_inter']) if is_cartesian] if cartesian_only else range(len(meta['sample_sets']))
-        blocks_count_total = sum([meta['blocks_by_sample_set_idx'][str(idx)] for idx in sample_set_idxs])
-        starts = np.zeros(blocks_count_total, dtype=np.uint64)
-        ends = np.zeros(blocks_count_total, dtype=np.uint64)
-        # dynamically set string dtype for sequence names
-        MAX_SEQNAME_LENGTH = max([len(seq_name) for seq_name in meta['seq_names']])
-        sequences = np.zeros(blocks_count_total, dtype='<U%s' % MAX_SEQNAME_LENGTH) 
-        sample_sets = np.zeros(blocks_count_total, dtype=np.uint64) 
-        # if extended_bed
-        variation = np.zeros((blocks_count_total, meta['mutypes_count']), dtype=np.uint64)
-        missing = np.zeros(blocks_count_total, dtype=np.uint64) 
-        multiallelic = np.zeros(blocks_count_total, dtype=np.uint64) 
-        with tqdm(total=(len(meta['seq_names']) * len(sample_set_idxs)), desc="[%] Preparing data...", ncols=100, unit_scale=True) as pbar: 
-            offset = 0
-            for seq_name in meta['seq_names']: 
-                for sample_set_idx in sample_set_idxs:
-                    start_key = 'seqs/%s/blocks/%s/starts' % (seq_name, sample_set_idx)
-                    end_key = 'seqs/%s/blocks/%s/ends' % (seq_name, sample_set_idx)
-                    start_array = np.array(self.data[start_key])
-                    block_count = start_array.shape[0]
-                    starts[offset:offset+block_count] = start_array
-                    ends[offset:offset+block_count] = np.array(self.data[end_key])
-                    sequences[offset:offset+block_count] = np.full_like(block_count, seq_name, dtype='<U%s' % MAX_SEQNAME_LENGTH)
-                    sample_sets[offset:offset+block_count] = np.full_like(block_count, sample_set_idx)
-                    if parameterObj.extended_bed:
-                        variation_key = 'seqs/%s/blocks/%s/variation' % (seq_name, sample_set_idx)
-                        missing_key = 'seqs/%s/blocks/%s/missing' % (seq_name, sample_set_idx)
-                        multiallelic_key = 'seqs/%s/blocks/%s/missing' % (seq_name, sample_set_idx)
-                        variation[offset:offset+block_count] = np.array(self.data[variation_key])
-                        missing[offset:offset+block_count] = np.array(self.data[missing_key]).flatten()
-                        multiallelic[offset:offset+block_count] = np.array(self.data[multiallelic_key]).flatten()
-                    offset += block_count
-                    pbar.update()
-        columns = ['sequence', 'start', 'end', 'sample_set']
-        if not parameterObj.extended_bed:
-            int_bed = np.vstack([starts, ends, sample_sets]).T    
-        else:
-            int_bed = np.vstack([starts, ends, sample_sets, missing, multiallelic, variation.T]).T
-            mutypes_count = ["m_%s" % str(x+1) for x in range(meta['mutypes_count'])]
-            columns += ['missing', 'multiallelic'] + mutypes_count    
-        # header
-        header = ["# %s" % parameterObj._VERSION]
-        header += ["# %s = %s" % (sample_set_idx, ", ".join(meta['sample_sets'][sample_set_idx])) for sample_set_idx in sample_set_idxs] 
-        header += ["# %s" % "\t".join(columns)]  
-        out_f = '%s.blocks.bed' % self.prefix
-        with open(out_f, 'w') as out_fh:
-            out_fh.write("\n".join(header) + "\n")
-        # bed
-        bed_df = pd.DataFrame(data=int_bed, columns=columns[1:])
-        bed_df['sequence'] = sequences
-        bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, mode='a', sep='\t', index=False, header=False, columns=columns)
-
-    def _preflight_query(self, parameterObj):
-        if parameterObj.blocks:
-            if not self.has_stage('blocks'):
-                sys.exit("[X] GStore %r has no blocks. Please run 'gimble blocks'." % self.path)
-        if parameterObj.windows:
-            if not self.has_stage('windows'):
-                sys.exit("[X] GStore %r has no windows. Please run 'gimble windows'." % self.path)
-
-    def _preflight_windows(self, parameterObj):
-        if not self.has_stage('blocks'):
-            sys.exit("[X] GStore %r has no blocks. Please run 'gimble blocks'." % self.path)
-        if self.has_stage('windows'):
-            if not parameterObj.overwrite:
-                sys.exit("[X] GStore %r already contains windows.\n[X] These windows => %r\n[X] Please specify '--force' to overwrite." % (self.path, self.get_stage('windows')))
-            print('[-] GStore %r already contains windows. But these will be overwritten...' % (self.path))
-    
-    def _preflight_blocks(self, parameterObj):
-        if not self.has_stage('setup'):
-            sys.exit("[X] GStore %r has no data. Please run 'gimble setup'." % self.path)
-        if self.has_stage('blocks'):
-            if not parameterObj.overwrite:
-                sys.exit("[X] GStore %r already contains blocks.\n[X] These blocks => %r\n[X] Please specify '--force' to overwrite." % (self.path, self.get_stage('blocks')))
-            print('[-] GStore %r already contains blocks. But these will be overwritten...' % (self.path))
-
-    def _preflight_simulate(self, parameterObj):
-        if 'sims' not in self.data.group_keys():
-            self._init_meta(overwrite=False, module='sims')
-        self.data['sims'].attrs['run_count'] += 1
-        new_run_number = self.data['sims'].attrs['run_count']
-        self.data.create_group(f'sims/run_{new_run_number}')
-
-    def _make_windows(self, parameterObj, cartesian_only=True):
-        meta = self.data['seqs'].attrs
-        meta['window_size'] = parameterObj.window_size
-        meta['window_step'] = parameterObj.window_step
-        sample_set_idxs = [idx for (idx, is_cartesian) in enumerate(meta['sample_sets_inter']) if is_cartesian] if cartesian_only else range(len(meta['sample_sets']))
-        with tqdm(meta['seq_names'], total=(len(meta['seq_names']) * len(sample_set_idxs)), desc="[%] Making windows ", ncols=100, unit_scale=True) as pbar: 
-            for seq_name in meta['seq_names']:
-                variation, starts, ends = [], [], []
-                for sample_set_idx in sample_set_idxs:
-                    variation_key = 'seqs/%s/blocks/%s/variation' % (seq_name, sample_set_idx)
-                    variation.append(np.array(self.data[variation_key]))
-                    start_key = 'seqs/%s/blocks/%s/starts' % (seq_name, sample_set_idx)
-                    starts.append(np.array(self.data[start_key]))
-                    end_key = 'seqs/%s/blocks/%s/ends' % (seq_name, sample_set_idx)
-                    ends.append(np.array(self.data[end_key]))
-                    pbar.update()
-                variation_array = np.concatenate(variation, axis=0)
-                start_array = np.concatenate(starts, axis=0)
-                end_array = np.concatenate(ends, axis=0)
-                window_variation, window_starts, window_ends, window_pos_mean, window_pos_median = cut_windows(variation_array, sample_set_idxs, start_array, end_array, num_blocks=parameterObj.window_size, num_steps=parameterObj.window_step)
-                self.data.create_dataset("seqs/%s/windows/variation" % seq_name, data=window_variation, overwrite=True)
-                self.data.create_dataset("seqs/%s/windows/starts" % seq_name, data=window_starts, overwrite=True)
-                self.data.create_dataset("seqs/%s/windows/ends" % seq_name, data=window_ends, overwrite=True)
-                self.data.create_dataset("seqs/%s/windows/pos_mean" % seq_name, data=window_pos_mean, overwrite=True)
-                self.data.create_dataset("seqs/%s/windows/pos_median" % seq_name, data=window_pos_median, overwrite=True)
-
-    def _get_interval_coordinates_for_sample_set(self, seq_name='', sample_set=[]):
-        meta = self.data['seqs'].attrs
-        sample_set_key = np.array([meta['intervals_idx_by_sample'][sample] for sample in sample_set]) # order should not matter...
-        matrix_key = 'seqs/%s/intervals/matrix' % seq_name
-        start_key = 'seqs/%s/intervals/starts' % seq_name
-        end_key = 'seqs/%s/intervals/ends' % seq_name
-        mask = np.all(np.array(self.data[matrix_key])[:,sample_set_key], axis=1)
-        return (np.array(self.data[start_key])[mask], np.array(self.data[end_key])[mask])
-
-    def _make_blocks(self, parameterObj, debug=False):
-        '''
-        - makes and stores blocks
-        - computes and stores bSFSs 
-        '''
-        meta = self.data['seqs'].attrs
-        meta['blocks_length'] = parameterObj.block_length
-        meta['blocks_span'] = parameterObj.block_span
-        meta['blocks_gap_run'] = parameterObj.block_gap_run
-        meta['blocks_max_missing'] = parameterObj.block_max_missing
-        meta['blocks_max_multiallelic'] = parameterObj.block_max_multiallelic
-        blocks_raw_per_sample_set_idx = collections.Counter()   # all possible blocks
-        blocks_per_sample_set_idx = collections.Counter()       # all valid blocks => only these get saved to store
-        with tqdm(total=(len(meta['seq_names']) * len(meta['sample_sets'])), desc="[%] Calculating bSFSs ", ncols=100, unit_scale=True) as pbar:        
-            for seq_name in meta['seq_names']:        
-                pos_key = "seqs/%s/variants/pos" % (seq_name)
-                gt_key = "seqs/%s/variants/matrix" % (seq_name)
-                pos = self.data[pos_key] if pos_key in self.data else np.array([])
-                sa_genotype_array = allel.GenotypeArray(self.data[gt_key])
-                for sample_set_idx, (sample_set, sample_set_cartesian) in enumerate(zip(meta['sample_sets'], meta['sample_sets_inter'])):
-                    starts, ends = self._get_interval_coordinates_for_sample_set(seq_name=seq_name, sample_set=sample_set)
-                    # Cut sample-set specific blocks based on intervals and block-algoritm parameters
-                    block_sites = cut_blocks(starts, ends, meta['blocks_length'], meta['blocks_span'], meta['blocks_gap_run'])
-                    if debug:
-                        print("#", seq_name, sample_set_idx, sample_set)
-                        print("# Block_sites 1", block_sites.shape, block_sites)
-                    # Allocate starts/ends before overwriting position ints 
-                    block_starts = np.array(block_sites[:, 0])
-                    block_ends = np.array(block_sites[:, -1] + 1)
-                    if pos:
-                        # seq_name has >= 1 records in VCF file
-                        idx_pos_in_block_sites = np.isin(pos, block_sites, assume_unique=True) 
-                        if np.any(idx_pos_in_block_sites):
-                            sample_set_vcf_idxs = [meta['variants_idx_by_sample'][sample] for sample in sample_set]
-                            idx_block_sites_in_pos = np.isin(block_sites, pos, assume_unique=True) 
-                            sa_sample_set_genotype_array = sa_genotype_array.subset(idx_pos_in_block_sites, sample_set_vcf_idxs)
-                            block_sites = genotype_to_mutype_array(sa_sample_set_genotype_array, idx_block_sites_in_pos, block_sites, debug)
-                        else:
-                            block_sites[:] = 2 # if no variants, set all to invariant    
-                    else:
-                        block_sites[:] = 2 # if no variants, set all to invariant
-                    multiallelic, missing, monomorphic, variation = block_sites_to_variation_arrays(block_sites, meta['mutypes_count'])
-                    valid = (np.less_equal(missing, meta['blocks_max_missing']) & np.less_equal(multiallelic, meta['blocks_max_multiallelic'])).flatten()
-                    blocks_raw_per_sample_set_idx[sample_set_idx] += valid.shape[0]
-                    blocks_per_sample_set_idx[sample_set_idx] += valid[valid==True].shape[0]
-                    blocks_starts_key = 'seqs/%s/blocks/%s/starts' % (seq_name, sample_set_idx)
-                    self.data.create_dataset(blocks_starts_key, data=block_starts[valid], overwrite=True)
-                    blocks_ends_key = 'seqs/%s/blocks/%s/ends' % (seq_name, sample_set_idx)
-                    self.data.create_dataset(blocks_ends_key, data=block_ends[valid], overwrite=True)
-                    blocks_variation_key = 'seqs/%s/blocks/%s/variation' % (seq_name, sample_set_idx)
-                    self.data.create_dataset(blocks_variation_key, data=variation[valid], overwrite=True)
-                    blocks_missing_key = 'seqs/%s/blocks/%s/missing' % (seq_name, sample_set_idx)
-                    self.data.create_dataset(blocks_missing_key, data=missing[valid], overwrite=True)
-                    blocks_multiallelic_key = 'seqs/%s/blocks/%s/multiallelic' % (seq_name, sample_set_idx)
-                    self.data.create_dataset(blocks_multiallelic_key, data=multiallelic[valid], overwrite=True)
-                    pbar.update(1)
-        meta['blocks_by_sample_set_idx'] = dict(blocks_per_sample_set_idx) # keys are strings
-        meta['blocks_raw_per_sample_set_idx'] = dict(blocks_raw_per_sample_set_idx) # keys are strings
-        # bsfs
-        sample_set_idxs_all = [str(idx) for idx in range(len(meta['sample_sets']))]
-        sample_set_idxs_inter = [str(idx) for (idx, is_cartesian) in enumerate(meta['sample_sets_inter']) if is_cartesian]
-        sample_set_idxs_intra_A = [str(idx) for (idx, is_intra_A) in enumerate(meta['sample_sets_intra_A']) if is_intra_A]
-        sample_set_idxs_intra_B = [str(idx) for (idx, is_intra_B) in enumerate(meta['sample_sets_intra_B']) if not is_intra_B]
-        shape_all = (sum([meta['blocks_by_sample_set_idx'][idx] for idx in sample_set_idxs_all]), meta['mutypes_count'])
-        shape_inter = (sum([meta['blocks_by_sample_set_idx'][idx] for idx in sample_set_idxs_inter]), meta['mutypes_count'])
-        shape_intra_A = (sum([meta['blocks_by_sample_set_idx'][idx] for idx in sample_set_idxs_intra_A]), meta['mutypes_count'])
-        shape_intra_B = (sum([meta['blocks_by_sample_set_idx'][idx] for idx in sample_set_idxs_intra_B]), meta['mutypes_count'])
-        variation_all = np.zeros(shape_all, np.int64)
-        variation_inter = np.zeros(shape_inter, np.int64)
-        variation_intra_A = np.zeros(shape_intra_A, np.int64)
-        variation_intra_B = np.zeros(shape_intra_B, np.int64)
-        with tqdm(total=(len(meta['seq_names']) * len(sample_set_idxs_all)), desc="[%] Counting bSFSs", ncols=100, unit_scale=True) as pbar: 
-            offset_all = 0
-            offset_inter = 0
-            offset_intra_A = 0 
-            offset_intra_B = 0
-            sample_set_idxs_inter_sets = set(sample_set_idxs_inter)
-            sample_set_idxs_intra_A_sets = set(sample_set_idxs_intra_A)
-            sample_set_idxs_intra_B_sets = set(sample_set_idxs_intra_B)
-            for seq_name in meta['seq_names']: 
-                for sample_set_idx in sample_set_idxs_all:
-                    variation_key = 'seqs/%s/blocks/%s/variation' % (seq_name, sample_set_idx)
-                    block_array_end = self.data[variation_key].shape[0]
-                    variation_all[offset_all:offset_all + block_array_end,:] = self.data[variation_key]
-                    offset_all += block_array_end
-                    if sample_set_idx in sample_set_idxs_inter_sets:
-                        variation_inter[offset_inter:offset_inter + block_array_end,:] = self.data[variation_key]
-                        offset_inter += block_array_end
-                    if sample_set_idx in sample_set_idxs_intra_A_sets:
-                        variation_intra_A[offset_intra_A:offset_intra_A + block_array_end,:] = self.data[variation_key]
-                        offset_intra_A += block_array_end
-                    if sample_set_idx in sample_set_idxs_intra_B_sets:
-                        variation_intra_B[offset_intra_B:offset_intra_B + block_array_end,:] = self.data[variation_key]
-                        offset_intra_B += block_array_end
-                    pbar.update()
-        mutypes_all, counts_all = np.unique(variation_all, return_counts=True, axis=0)
-        mutypes_inter, counts_inter = np.unique(variation_inter, return_counts=True, axis=0)
-        mutypes_intra_A, counts_intra_A = np.unique(variation_intra_A, return_counts=True, axis=0)
-        mutypes_intra_B, counts_intra_B = np.unique(variation_intra_B, return_counts=True, axis=0)
-        mutypes_all_key = 'seqs/bsfs/all/mutypes' 
-        self.data.create_dataset(mutypes_all_key, data=mutypes_all, overwrite=True)
-        counts_all_key = 'seqs/bsfs/all/counts' 
-        self.data.create_dataset(counts_all_key, data=counts_all, overwrite=True)
-        mutypes_inter_key = 'seqs/bsfs/inter/mutypes' 
-        self.data.create_dataset(mutypes_inter_key, data=mutypes_inter, overwrite=True)
-        counts_inter_key = 'seqs/bsfs/inter/counts' 
-        self.data.create_dataset(counts_inter_key, data=counts_inter, overwrite=True)
-        mutypes_intra_A_key = 'seqs/bsfs/intra_A/mutypes' 
-        self.data.create_dataset(mutypes_intra_A_key, data=mutypes_intra_A, overwrite=True)
-        counts_intra_A_key = 'seqs/bsfs/intra_A/counts' 
-        self.data.create_dataset(counts_intra_A_key, data=counts_intra_A, overwrite=True)
-        mutypes_intra_B_key = 'seqs/bsfs/intra_B/mutypes' 
-        self.data.create_dataset(mutypes_intra_B_key, data=mutypes_intra_B, overwrite=True)
-        counts_intra_B_key = 'seqs/bsfs/intra_B/counts' 
-        self.data.create_dataset(counts_intra_B_key, data=counts_intra_B, overwrite=True)    
 
     def _init_data(self, create, overwrite):
         if create:
@@ -1383,6 +993,438 @@ class Store(object):
         #count_sequences = intervals_df['sequence'].nunique()
         #count_intervals = len(intervals_df.index)
         #count_samples = len(query_samples)
+
+    def setup(self, parameterObj):
+        print("[#] Preparing store...")
+        self._init_meta(overwrite=True)
+        print("[#] Processing GENOME_FILE %r..." % parameterObj.genome_f)
+        self._set_sequences(parameterObj)
+        print("[#] Processing SAMPLE_FILE %r..." % parameterObj.sample_f)
+        self._set_samples(parameterObj)
+        print("[#] Processing VCF_FILE %r..." % parameterObj.vcf_f)
+        self._set_variants(parameterObj)
+        print("[#] Processing BED_FILE %r..." % parameterObj.bed_f)
+        self._set_intervals(parameterObj)
+        self.log_stage(parameterObj)
+
+    def blocks(self, parameterObj):
+        print("[#] Preflight...")
+        self._preflight_blocks(parameterObj)
+        print("[#] Making blocks...")
+        self._make_blocks(parameterObj)
+        #self._plot_blocks(parameterObj)
+        self.log_stage(parameterObj)
+
+    def windows(self, parameterObj):
+        print("[#] Preflight...")
+        self._preflight_windows(parameterObj)
+        print("[#] Making windows...")
+        self._make_windows(parameterObj)
+        self.log_stage(parameterObj)
+
+    def simulate(self, parameterObj):
+        print("[#] Preflight...")
+        self._preflight_simulate(parameterObj)
+        print("[+] Checks passed.")
+        lib.simulate.run_sim(parameterObj, self)
+        self.log_stage(parameterObj)
+
+    def query(self, parameterObj):
+        print("[#] Preflight...")
+        self._preflight_query(parameterObj)
+        print("[#] Query...")
+        if parameterObj.blocks:
+            self._write_block_bed(parameterObj, cartesian_only=True)
+        if parameterObj.windows:
+            self._write_window_bed(parameterObj, cartesian_only=True)
+
+    def popgen_metrics_from(self, data='blocks', cartesian_only=True):
+        '''
+            data := 'blocks", 'windows'
+
+        '''
+        sample_set_idxs = [idx for (idx, is_cartesian) in enumerate(meta['sample_sets_inter']) if is_cartesian] if cartesian_only else range(len(meta['sample_sets']))
+        if data == 'blocks':
+            result = calculate_popgen_from_array(variation[valid], (meta['blocks_length'] * self.data[blocks_variation_key].shape[0])) 
+            print("[+] Pi_%s = %s; Pi_%s = %s; D_xy = %s; F_st = %s; FGV = %s" % (
+        meta['population_by_letter']['A'], 
+        pi_1, 
+        meta['population_by_letter']['B'], 
+        pi_2, 
+        d_xy, 
+        f_st, 
+        fgv)) 
+
+    def dump_bsfs(self, parameterObj):
+        meta = self.data['seqs'].attrs
+        header = ['count'] + [x+1 for x in range(meta['mutypes_count'])]
+        bsfs = self.get_bsfs_matrix(data='blocks', sample_set_type='inter', as_matrix=False)
+        pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.inter.blocks.h5" % self.prefix, 'tally', format='table')
+        pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_csv("%s.inter.blocks.tsv" % self.prefix, index=False, sep='\t')
+        bsfs = self.get_bsfs_matrix(data='blocks', sample_set_type='intra_A', as_matrix=False)
+        pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.intra_A.blocks.h5" % self.prefix, 'tally', format='table')
+        pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_csv("%s.intra_A.blocks.tsv" % self.prefix, index=False, sep='\t')
+        bsfs = self.get_bsfs_matrix(data='blocks', sample_set_type='intra_B', as_matrix=False)
+        pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.intra_B.blocks.h5" % self.prefix, 'tally', format='table')
+        pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_csv("%s.intra_B.blocks.tsv" % self.prefix, index=False, sep='\t')
+
+    def _plot_blocks(self, parameterObj):
+        # mutuple barchart
+        meta = self.data['seqs'].attrs
+        mutypes_inter_key = 'seqs/bsfs/inter/mutypes' 
+        counts_inter_key = 'seqs/bsfs/inter/counts' 
+        mutypes_inter = self.data[mutypes_inter_key]
+        counts_inter = self.data[counts_inter_key]
+        self.plot_bsfs_pcp('%s.bsfs_pcp.png' % self.prefix, mutypes_inter, counts_inter)
+        
+    def dump_blocks(self, parameterObj, cartesian_only=True):
+        meta = self.data['seqs'].attrs
+        sample_set_idxs = [idx for (idx, is_cartesian) in enumerate(meta['sample_sets_inter']) if is_cartesian] if cartesian_only else range(len(meta['sample_sets']))
+        variation_global = []
+        with tqdm(total=(len(meta['seq_names']) * len(sample_set_idxs)), desc="[%] Writing bSFSs ", ncols=100, unit_scale=True) as pbar: 
+            for seq_name in meta['seq_names']: 
+                for sample_set_idx in sample_set_idxs:
+                    variation_key = 'seqs/%s/blocks/%s/variation' % (seq_name, sample_set_idx)
+                    variation_global.append(np.array(self.data[variation_key]))#[valid]
+                    pbar.update()
+        variation_global_array = np.concatenate(variation_global, axis=0)
+        # popgen
+        variation_global = []
+        #metrics_rows = []
+        # is order (pi_1, pi_2, d_xy, f_st, fgv) correct?
+        # for sample_set_idx in data_by_key_by_sample_set_idx:
+        #     sample_set_ids = self.data.attrs['sample_sets'][sample_set_idx]
+        #     #print(data_by_key_by_sample_set_idx)
+        #     block_sites = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['block_sites'], axis=0))
+        #     interval_sites = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['interval_sites'], axis=0))
+        #     block_sites_valid = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['block_sites_valid'], axis=0))
+        #     variation_array = np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['variation'], axis=0)
+        #     missing_count = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['missing'], axis=0))
+        #     multiallelic_count = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['multiallelic'], axis=0))
+        #     hetB_count, hetA_count, hetAB_count, fixed_count = np.sum(variation_array, axis=0)
+        #     #pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation_array, (self.data.attrs['block_length'] * variation_array.shape[0]))    
+        #     pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation_array, block_sites_valid)    
+        #     metrics_rows.append([
+        #         sample_set_ids[0], 
+        #         sample_set_ids[1],     
+        #         block_sites,
+        #         interval_sites,
+        #         block_sites_valid,
+        #         np.divide(block_sites_valid, self.data.attrs['block_length']),
+        #         fgv,
+        #         missing_count,
+        #         multiallelic_count,
+        #         hetA_count, 
+        #         hetB_count, 
+        #         hetAB_count, 
+        #         fixed_count,
+        #         pi_1, 
+        #         pi_2, 
+        #         d_xy, 
+        #         f_st
+        #         ])
+        # # output metrics 
+        # header = [
+        #     self.data.attrs['pop_ids'][0], 
+        #     self.data.attrs['pop_ids'][1], 
+        #     'block_sites', 
+        #     'interval_sites', 
+        #     'block_sites_valid', 
+        #     'blocks', 
+        #     'fgv', 
+        #     'missing', 
+        #     'multiallelic', 
+        #     'hetA', 
+        #     'hetB', 
+        #     'hetAB', 
+        #     'fixed', 
+        #     'piA', 
+        #     'piB', 
+        #     'dxy', 
+        #     'fst'
+        #     ]
+        # pd.DataFrame(data=metrics_rows, columns=header, dtype='int64').to_hdf("%s.block_stats.h5" % self.prefix, 'bsfs', format='table')
+
+        #pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation_global_array, (self.data.attrs['block_length'] * variation_global_array.shape[0]))
+        #print("[+] Pi_%s = %s; Pi_%s = %s; D_xy = %s; F_st = %s; FGVs = %s / %s blocks (%s)" % (self.data.attrs['pop_ids'][0], pi_1, self.data.attrs['pop_ids'][1], pi_2, d_xy, f_st, fgv, variation_global_array.shape[0], format_percentage(fgv / variation_global_array.shape[0]))) 
+
+
+    def _write_block_bed(self, parameterObj, cartesian_only=True):
+        '''new gimblestore'''
+        meta = self.data['seqs'].attrs
+        sample_set_idxs = [idx for (idx, is_cartesian) in enumerate(meta['sample_sets_inter']) if is_cartesian] if cartesian_only else range(len(meta['sample_sets']))
+        blocks_count_total = sum([meta['blocks_by_sample_set_idx'][str(idx)] for idx in sample_set_idxs])
+        starts = np.zeros(blocks_count_total, dtype=np.uint64)
+        ends = np.zeros(blocks_count_total, dtype=np.uint64)
+        # dynamically set string dtype for sequence names
+        MAX_SEQNAME_LENGTH = max([len(seq_name) for seq_name in meta['seq_names']])
+        sequences = np.zeros(blocks_count_total, dtype='<U%s' % MAX_SEQNAME_LENGTH) 
+        sample_sets = np.zeros(blocks_count_total, dtype=np.uint64) 
+        # if extended_bed
+        variation = np.zeros((blocks_count_total, meta['mutypes_count']), dtype=np.uint64)
+        missing = np.zeros(blocks_count_total, dtype=np.uint64) 
+        multiallelic = np.zeros(blocks_count_total, dtype=np.uint64) 
+        with tqdm(total=(len(meta['seq_names']) * len(sample_set_idxs)), desc="[%] Preparing data...", ncols=100, unit_scale=True) as pbar: 
+            offset = 0
+            for seq_name in meta['seq_names']: 
+                for sample_set_idx in sample_set_idxs:
+                    start_key = 'seqs/%s/blocks/%s/starts' % (seq_name, sample_set_idx)
+                    end_key = 'seqs/%s/blocks/%s/ends' % (seq_name, sample_set_idx)
+                    start_array = np.array(self.data[start_key])
+                    block_count = start_array.shape[0]
+                    starts[offset:offset+block_count] = start_array
+                    ends[offset:offset+block_count] = np.array(self.data[end_key])
+                    sequences[offset:offset+block_count] = np.full_like(block_count, seq_name, dtype='<U%s' % MAX_SEQNAME_LENGTH)
+                    sample_sets[offset:offset+block_count] = np.full_like(block_count, sample_set_idx)
+                    if parameterObj.extended_bed:
+                        variation_key = 'seqs/%s/blocks/%s/variation' % (seq_name, sample_set_idx)
+                        missing_key = 'seqs/%s/blocks/%s/missing' % (seq_name, sample_set_idx)
+                        multiallelic_key = 'seqs/%s/blocks/%s/missing' % (seq_name, sample_set_idx)
+                        variation[offset:offset+block_count] = np.array(self.data[variation_key])
+                        missing[offset:offset+block_count] = np.array(self.data[missing_key]).flatten()
+                        multiallelic[offset:offset+block_count] = np.array(self.data[multiallelic_key]).flatten()
+                    offset += block_count
+                    pbar.update()
+        columns = ['sequence', 'start', 'end', 'sample_set']
+        if not parameterObj.extended_bed:
+            int_bed = np.vstack([starts, ends, sample_sets]).T    
+        else:
+            int_bed = np.vstack([starts, ends, sample_sets, missing, multiallelic, variation.T]).T
+            mutypes_count = ["m_%s" % str(x+1) for x in range(meta['mutypes_count'])]
+            columns += ['missing', 'multiallelic'] + mutypes_count    
+        # header
+        header = ["# %s" % parameterObj._VERSION]
+        header += ["# %s = %s" % (sample_set_idx, ", ".join(meta['sample_sets'][sample_set_idx])) for sample_set_idx in sample_set_idxs] 
+        header += ["# %s" % "\t".join(columns)]  
+        out_f = '%s.blocks.bed' % self.prefix
+        with open(out_f, 'w') as out_fh:
+            out_fh.write("\n".join(header) + "\n")
+        # bed
+        bed_df = pd.DataFrame(data=int_bed, columns=columns[1:])
+        bed_df['sequence'] = sequences
+        bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, mode='a', sep='\t', index=False, header=False, columns=columns)
+
+    def _preflight_query(self, parameterObj):
+        if parameterObj.blocks:
+            if not self.has_stage('blocks'):
+                sys.exit("[X] GStore %r has no blocks. Please run 'gimble blocks'." % self.path)
+        if parameterObj.windows:
+            if not self.has_stage('windows'):
+                sys.exit("[X] GStore %r has no windows. Please run 'gimble windows'." % self.path)
+
+    def _preflight_windows(self, parameterObj):
+        if not self.has_stage('blocks'):
+            sys.exit("[X] GStore %r has no blocks. Please run 'gimble blocks'." % self.path)
+        if self.has_stage('windows'):
+            if not parameterObj.overwrite:
+                sys.exit("[X] GStore %r already contains windows.\n[X] These windows => %r\n[X] Please specify '--force' to overwrite." % (self.path, self.get_stage('windows')))
+            print('[-] GStore %r already contains windows. But these will be overwritten...' % (self.path))
+    
+    def _preflight_blocks(self, parameterObj):
+        if not self.has_stage('setup'):
+            sys.exit("[X] GStore %r has no data. Please run 'gimble setup'." % self.path)
+        if self.has_stage('blocks'):
+            if not parameterObj.overwrite:
+                sys.exit("[X] GStore %r already contains blocks.\n[X] These blocks => %r\n[X] Please specify '--force' to overwrite." % (self.path, self.get_stage('blocks')))
+            print('[-] GStore %r already contains blocks. But these will be overwritten...' % (self.path))
+
+    def _preflight_simulate(self, parameterObj):
+        if 'sims' not in self.data.group_keys():
+            self._init_meta(overwrite=False, module='sims')
+        self.data['sims'].attrs['run_count'] += 1
+        new_run_number = self.data['sims'].attrs['run_count']
+        self.data.create_group(f'sims/run_{new_run_number}')
+
+    def _make_windows(self, parameterObj, cartesian_only=True):
+        meta = self.data['seqs'].attrs
+        meta['window_size'] = parameterObj.window_size
+        meta['window_step'] = parameterObj.window_step
+        sample_set_idxs = [idx for (idx, is_cartesian) in enumerate(meta['sample_sets_inter']) if is_cartesian] if cartesian_only else range(len(meta['sample_sets']))
+        with tqdm(meta['seq_names'], total=(len(meta['seq_names']) * len(sample_set_idxs)), desc="[%] Making windows ", ncols=100, unit_scale=True) as pbar: 
+            for seq_name in meta['seq_names']:
+                variation, starts, ends = [], [], []
+                for sample_set_idx in sample_set_idxs:
+                    variation_key = 'seqs/%s/blocks/%s/variation' % (seq_name, sample_set_idx)
+                    variation.append(np.array(self.data[variation_key]))
+                    start_key = 'seqs/%s/blocks/%s/starts' % (seq_name, sample_set_idx)
+                    starts.append(np.array(self.data[start_key]))
+                    end_key = 'seqs/%s/blocks/%s/ends' % (seq_name, sample_set_idx)
+                    ends.append(np.array(self.data[end_key]))
+                    pbar.update()
+                variation_array = np.concatenate(variation, axis=0)
+                start_array = np.concatenate(starts, axis=0)
+                end_array = np.concatenate(ends, axis=0)
+                window_variation, window_starts, window_ends, window_pos_mean, window_pos_median = cut_windows(variation_array, sample_set_idxs, start_array, end_array, num_blocks=parameterObj.window_size, num_steps=parameterObj.window_step)
+                self.data.create_dataset("seqs/%s/windows/variation" % seq_name, data=window_variation, overwrite=True)
+                self.data.create_dataset("seqs/%s/windows/starts" % seq_name, data=window_starts, overwrite=True)
+                self.data.create_dataset("seqs/%s/windows/ends" % seq_name, data=window_ends, overwrite=True)
+                self.data.create_dataset("seqs/%s/windows/pos_mean" % seq_name, data=window_pos_mean, overwrite=True)
+                self.data.create_dataset("seqs/%s/windows/pos_median" % seq_name, data=window_pos_median, overwrite=True)
+        #variation_key = "seqs/toy1/windows/variation"
+        #mutypes, counts = np.unique(np.array(self.data[variation_key]), return_counts=True, axis=1)
+        #print('mutypes',mutypes.shape, mutypes)
+        #print('counts', counts.shape, counts)
+        #window_info_rows = []
+        #window_mutuple_tally = []
+        #for seq_name in tqdm(meta['seq_names'], total=len(meta['seq_names']), desc="[%] Generating output ", ncols=100):
+        #    window_ids = np.array(["_".join([seq_name, _start, _end]) for (_start, _end) in zip(
+        #        np.array(self.data["seqs/%s/windows/starts" % sequence_id]).astype(str), 
+        #        np.array(self.data["seqs/%s/windows/ends" % sequence_id]).astype(str))])
+        #    variations = self.data["seqs/%s/windows/variation" % seq_name]
+        #    midpoint_means = self.data["seqs/%s/windows/pos_mean" % sequence_id]
+        #    midpoint_medians = self.data["seqs/%s/windows/pos_median" % sequence_id]
+        #    for window_id, variation, midpoint_mean, midpoint_median in zip(window_ids, variations, midpoint_means, midpoint_medians):
+        #        pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation, (self.data.attrs['block_length'] * variation.shape[0]))
+        #        blocks = variation.shape[0]
+        #        window_info_rows.append([window_id, sequence_id, midpoint_mean, midpoint_median, pi_1, pi_2, d_xy, f_st, fgv, blocks])
+        #        # bsfs for each window
+        #        mutuple, counts = np.unique(variation, return_counts=True, axis=0)
+        #        tally = np.concatenate([counts[:, np.newaxis], mutypes], axis =-1)
+        #        windows = np.array([window_id] * tally.shape[0])
+        #        window_mutuple_tally.append(np.concatenate([windows[:, np.newaxis], tally], axis =-1))
+        #window_bsfs_cols = ['window_id', 'count'] + [x+1 for x in range(self.data.attrs['mutypes_count'])]
+        #window_bsfs_df = pd.DataFrame(np.vstack(window_mutuple_tally), columns=window_bsfs_cols)
+        #print("[+] Made %s windows" % window_bsfs_df['window_id'].nunique()) 
+        #window_bsfs_f = "%s.window_bsfs.tsv" % self.prefix
+        #window_bsfs_df.to_csv(window_bsfs_f, sep='\t', index=False)
+        #print("[>] Created: %r" % str(window_bsfs_f))
+        #window_info_cols = ['window_id', 'sequence_id', 'midpoint_mean', 'midpoint_median', 'pi_%s' % self.data.attrs['pop_ids'][0], 'pi_%s' % self.data.attrs['pop_ids'][1], 'd_xy', 'f_st', 'f']
+        #window_info_df = pd.DataFrame(window_info_rows, columns=window_info_cols)
+        #window_info_f = "%s.window_info.tsv" % self.prefix
+        #window_info_df.to_csv(window_info_f, sep='\t', index=False)
+        #print("[>] Created: %r" % str(window_info_f))
+        #self.plot_fst_genome_scan(window_info_df)
+        #self.plot_pi_genome_scan(window_info_df)
+        ##     plot_pi_scatter(window_df, '%s.pi_scatter.png' % parameterObj.dataset)
+
+    def _get_interval_coordinates_for_sample_set(self, seq_name='', sample_set=[]):
+        meta = self.data['seqs'].attrs
+        sample_set_key = np.array([meta['intervals_idx_by_sample'][sample] for sample in sample_set]) # order should not matter...
+        matrix_key = 'seqs/%s/intervals/matrix' % seq_name
+        start_key = 'seqs/%s/intervals/starts' % seq_name
+        end_key = 'seqs/%s/intervals/ends' % seq_name
+        mask = np.all(np.array(self.data[matrix_key])[:,sample_set_key], axis=1)
+        return (np.array(self.data[start_key])[mask], np.array(self.data[end_key])[mask])
+
+    def _make_blocks(self, parameterObj, debug=False):
+        '''
+        - makes and stores blocks
+        - computes and stores bSFSs 
+        '''
+        meta = self.data['seqs'].attrs
+        meta['blocks_length'] = parameterObj.block_length
+        meta['blocks_span'] = parameterObj.block_span
+        meta['blocks_gap_run'] = parameterObj.block_gap_run
+        meta['blocks_max_missing'] = parameterObj.block_max_missing
+        meta['blocks_max_multiallelic'] = parameterObj.block_max_multiallelic
+        blocks_raw_per_sample_set_idx = collections.Counter()   # all possible blocks
+        blocks_per_sample_set_idx = collections.Counter()       # all valid blocks => only these get saved to store
+        with tqdm(total=(len(meta['seq_names']) * len(meta['sample_sets'])), desc="[%] Calculating bSFSs ", ncols=100, unit_scale=True) as pbar:        
+            for seq_name in meta['seq_names']:        
+                pos_key = "seqs/%s/variants/pos" % (seq_name)
+                gt_key = "seqs/%s/variants/matrix" % (seq_name)
+                pos = self.data[pos_key] if pos_key in self.data else np.array([])
+                sa_genotype_array = allel.GenotypeArray(self.data[gt_key])
+                for sample_set_idx, (sample_set, sample_set_cartesian) in enumerate(zip(meta['sample_sets'], meta['sample_sets_inter'])):
+                    starts, ends = self._get_interval_coordinates_for_sample_set(seq_name=seq_name, sample_set=sample_set)
+                    # Cut sample-set specific blocks based on intervals and block-algoritm parameters
+                    block_sites = cut_blocks(starts, ends, meta['blocks_length'], meta['blocks_span'], meta['blocks_gap_run'])
+                    if debug:
+                        print("#", seq_name, sample_set_idx, sample_set)
+                        print("# Block_sites 1", block_sites.shape, block_sites)
+                    # Allocate starts/ends before overwriting position ints 
+                    block_starts = np.array(block_sites[:, 0])
+                    block_ends = np.array(block_sites[:, -1] + 1)
+                    if pos:
+                        # seq_name has >= 1 records in VCF file
+                        idx_pos_in_block_sites = np.isin(pos, block_sites, assume_unique=True) 
+                        if np.any(idx_pos_in_block_sites):
+                            sample_set_vcf_idxs = [meta['variants_idx_by_sample'][sample] for sample in sample_set]
+                            idx_block_sites_in_pos = np.isin(block_sites, pos, assume_unique=True) 
+                            sa_sample_set_genotype_array = sa_genotype_array.subset(idx_pos_in_block_sites, sample_set_vcf_idxs)
+                            block_sites = genotype_to_mutype_array(sa_sample_set_genotype_array, idx_block_sites_in_pos, block_sites, debug)
+                        else:
+                            block_sites[:] = 2 # if no variants, set all to invariant    
+                    else:
+                        block_sites[:] = 2 # if no variants, set all to invariant
+                    multiallelic, missing, monomorphic, variation = block_sites_to_variation_arrays(block_sites, meta['mutypes_count'])
+                    valid = (np.less_equal(missing, meta['blocks_max_missing']) & np.less_equal(multiallelic, meta['blocks_max_multiallelic'])).flatten()
+                    blocks_raw_per_sample_set_idx[sample_set_idx] += valid.shape[0]
+                    blocks_per_sample_set_idx[sample_set_idx] += valid[valid==True].shape[0]
+                    blocks_starts_key = 'seqs/%s/blocks/%s/starts' % (seq_name, sample_set_idx)
+                    self.data.create_dataset(blocks_starts_key, data=block_starts[valid], overwrite=True)
+                    blocks_ends_key = 'seqs/%s/blocks/%s/ends' % (seq_name, sample_set_idx)
+                    self.data.create_dataset(blocks_ends_key, data=block_ends[valid], overwrite=True)
+                    blocks_variation_key = 'seqs/%s/blocks/%s/variation' % (seq_name, sample_set_idx)
+                    self.data.create_dataset(blocks_variation_key, data=variation[valid], overwrite=True)
+                    blocks_missing_key = 'seqs/%s/blocks/%s/missing' % (seq_name, sample_set_idx)
+                    self.data.create_dataset(blocks_missing_key, data=missing[valid], overwrite=True)
+                    blocks_multiallelic_key = 'seqs/%s/blocks/%s/multiallelic' % (seq_name, sample_set_idx)
+                    self.data.create_dataset(blocks_multiallelic_key, data=multiallelic[valid], overwrite=True)
+                    pbar.update(1)
+        meta['blocks_by_sample_set_idx'] = dict(blocks_per_sample_set_idx) # keys are strings
+        meta['blocks_raw_per_sample_set_idx'] = dict(blocks_raw_per_sample_set_idx) # keys are strings
+        # bsfs
+        sample_set_idxs_all = [str(idx) for idx in range(len(meta['sample_sets']))]
+        sample_set_idxs_inter = [str(idx) for (idx, is_cartesian) in enumerate(meta['sample_sets_inter']) if is_cartesian]
+        sample_set_idxs_intra_A = [str(idx) for (idx, is_intra_A) in enumerate(meta['sample_sets_intra_A']) if is_intra_A]
+        sample_set_idxs_intra_B = [str(idx) for (idx, is_intra_B) in enumerate(meta['sample_sets_intra_B']) if not is_intra_B]
+        shape_all = (sum([meta['blocks_by_sample_set_idx'][idx] for idx in sample_set_idxs_all]), meta['mutypes_count'])
+        shape_inter = (sum([meta['blocks_by_sample_set_idx'][idx] for idx in sample_set_idxs_inter]), meta['mutypes_count'])
+        shape_intra_A = (sum([meta['blocks_by_sample_set_idx'][idx] for idx in sample_set_idxs_intra_A]), meta['mutypes_count'])
+        shape_intra_B = (sum([meta['blocks_by_sample_set_idx'][idx] for idx in sample_set_idxs_intra_B]), meta['mutypes_count'])
+        variation_all = np.zeros(shape_all, np.uint64)
+        variation_inter = np.zeros(shape_inter, np.uint64)
+        variation_intra_A = np.zeros(shape_intra_A, np.uint64)
+        variation_intra_B = np.zeros(shape_intra_B, np.uint64)
+        with tqdm(total=(len(meta['seq_names']) * len(sample_set_idxs_all)), desc="[%] Counting bSFSs", ncols=100, unit_scale=True) as pbar: 
+            offset_all = 0
+            offset_inter = 0
+            offset_intra_A = 0 
+            offset_intra_B = 0
+            sample_set_idxs_inter_sets = set(sample_set_idxs_inter)
+            sample_set_idxs_intra_A_sets = set(sample_set_idxs_intra_A)
+            sample_set_idxs_intra_B_sets = set(sample_set_idxs_intra_B)
+            for seq_name in meta['seq_names']: 
+                for sample_set_idx in sample_set_idxs_all:
+                    variation_key = 'seqs/%s/blocks/%s/variation' % (seq_name, sample_set_idx)
+                    block_array_end = self.data[variation_key].shape[0]
+                    variation_all[offset_all:offset_all + block_array_end,:] = self.data[variation_key]
+                    offset_all += block_array_end
+                    if sample_set_idx in sample_set_idxs_inter_sets:
+                        variation_inter[offset_inter:offset_inter + block_array_end,:] = self.data[variation_key]
+                        offset_inter += block_array_end
+                    if sample_set_idx in sample_set_idxs_intra_A_sets:
+                        variation_intra_A[offset_intra_A:offset_intra_A + block_array_end,:] = self.data[variation_key]
+                        offset_intra_A += block_array_end
+                    if sample_set_idx in sample_set_idxs_intra_B_sets:
+                        variation_intra_B[offset_intra_B:offset_intra_B + block_array_end,:] = self.data[variation_key]
+                        offset_intra_B += block_array_end
+                    pbar.update()
+        
+        mutypes_all, counts_all = np.unique(variation_all, return_counts=True, axis=0)
+        mutypes_all_key = 'seqs/bsfs/all/mutypes' 
+        self.data.create_dataset(mutypes_all_key, data=mutypes_all, overwrite=True)
+        counts_all_key = 'seqs/bsfs/all/counts' 
+        self.data.create_dataset(counts_all_key, data=counts_all, overwrite=True)
+        
+        mutypes_inter, counts_inter = np.unique(variation_inter, return_counts=True, axis=0)
+        mutypes_inter_key = 'seqs/bsfs/inter/mutypes' 
+        self.data.create_dataset(mutypes_inter_key, data=mutypes_inter, overwrite=True)
+        counts_inter_key = 'seqs/bsfs/inter/counts' 
+        self.data.create_dataset(counts_inter_key, data=counts_inter, overwrite=True)
+        
+        mutypes_intra_A, counts_intra_A = np.unique(variation_intra_A, return_counts=True, axis=0)
+        mutypes_intra_A_key = 'seqs/bsfs/intra_A/mutypes' 
+        self.data.create_dataset(mutypes_intra_A_key, data=mutypes_intra_A, overwrite=True)
+        counts_intra_A_key = 'seqs/bsfs/intra_A/counts' 
+        self.data.create_dataset(counts_intra_A_key, data=counts_intra_A, overwrite=True)
+
+        mutypes_intra_B, counts_intra_B = np.unique(variation_intra_B, return_counts=True, axis=0)
+        mutypes_intra_B_key = 'seqs/bsfs/intra_B/mutypes' 
+        self.data.create_dataset(mutypes_intra_B_key, data=mutypes_intra_B, overwrite=True)
+        counts_intra_B_key = 'seqs/bsfs/intra_B/counts' 
+        self.data.create_dataset(counts_intra_B_key, data=counts_intra_B, overwrite=True)
 
     def plot_bsfs_pcp(self, out_f, mutypes, counts):
         # https://stackoverflow.com/questions/8230638/parallel-coordinates-plot-in-matplotlib

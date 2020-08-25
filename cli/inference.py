@@ -257,11 +257,13 @@ def main(params):
         parameterObj = InferenceParameterObj(params, args)
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
         print(parameterObj._config)
+        print(parameterObj._config['k_max'])
         data = gimbleStore.get_bsfs_matrix(
             data='blocks', 
             population_by_letter=parameterObj._config['population_ids'], 
-            cartesian_only=True, 
+            sample_set_type='inter', 
             kmax_by_mutype=parameterObj._config['k_max'])
+
         print('data.shape', data.shape)
         #data = lib.math.get_data_array(parameterObj)
         #print(data)

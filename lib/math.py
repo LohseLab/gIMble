@@ -200,15 +200,21 @@ class EquationObj(object):
         self.equation = equation
         self.result = None
 
+    def __repr__(self):
+        return '[+] EquationObj : %s\n%s' % (self.matrix_idx, self.equation)
+
 class EquationSystemObj(object):
     def __init__(self, parameterObj):
         '''
-        get list of equations by mutuple
-        start with 
-            1. Join-model (all Ne's == 1)
-            2. Migration-model (all Ne's == 1)
-            3. IM-model
-        - what's the proportion of rare blocks as one add pairs
+        Step 1 : 
+            - parsing of model : self._get_event_tuples_by_idx
+            - building of equations: self._get_equationObjs
+
+        Grid search:
+            - build grid from config
+            - for each grid point:
+
+            - 
         '''
         self.events = []
         self.threads = parameterObj.threads
@@ -347,6 +353,7 @@ class EquationSystemObj(object):
         print("[=] ==================================================")
         print("[+] Initiating model ...")
         self.equationObjs = self._get_equationObjs()
+
         #if check_monomorphic:
         #    rates = {
         #        **{event: random.randint(1, 4) for event, rate in self.rate_by_event.items()}, 
@@ -386,8 +393,6 @@ class EquationSystemObj(object):
                     for resultObj in pool.imap_unordered(calculate_inverse_laplace, parameter_batches):
                         equationObj_by_matrix_idx[resultObj.matrix_idx] = resultObj
                         pbar.update()
-    
-            
         ETPs = np.zeros(tuple(self.k_max_by_mutype[mutype] + 2 for mutype in self.mutypes), np.float64)
         for matrix_id, equationObj in equationObj_by_matrix_idx.items():
             if equationObj.marginal_idx is None:
@@ -478,7 +483,8 @@ class EquationSystemObj(object):
                 # booleans : False := count <= kmax / Trues := count > kmax
                 boolean_by_mutype = {mutype: (False if count <= self.k_max_by_mutype[mutype] else True) for mutype, count in mutation_profile.items()}
                 equation_idx = tuple([(0 if boolean_by_mutype[mutype] else count) for mutype, count in mutation_profile.items()])    
-                marginal_idx = tuple([(slice(0, self.k_max_by_mutype[mutype] + 2) if boolean else mutation_profile[mutype]) for mutype, boolean in boolean_by_mutype.items()])
+                # marginal idx is a slice obj which contains all mutuples under its marginality 
+                marginal_idx = tuple([(slice(0, self.k_max_by_mutype[mutype] + 2) if boolean else mutation_profile[mutype]) for mutype, boolean in boolean_by_mutype.items()]) 
                 mutation_rates = {sage.all.SR.var(mutype): 0 for mutype, boolean in boolean_by_mutype.items() if boolean} 
             # equation_batch has all except rates and split_time 
             equationObj = EquationObj(
