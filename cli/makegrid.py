@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gIMble makegrid -g <FILE> -c <FILE> -m <FILE> [-z <FILE> | -b <INT>] [-t <INT>] [-h|--help]
+"""usage: gIMble makegrid -c <FILE> -m <FILE> -z <FILE> [-b <INT>] [-t <INT>] [-h|--help]
                                             
     Options:
         -h --help                                show this
-        -g, --grid_file <FILE>                   Path for grid
         -c, --config_file <FILE>                 Config file with parameters
         -m, --model_file <FILE>                  Model file
         -z, --zarr <FILE>                        Path to zarr store
@@ -64,33 +63,53 @@ class MakeGridParameterObj(lib.gimble.ParameterObj):
 
     def __init__(self, params, args):
         super().__init__(params)
-        self.zstore = self._get_path(args['--zarr'])
+        self.not_existing, self.zstore = self._get_path(args["--zarr"])
         self.block_length= self._get_int(args['--blocklength'], ret_none=True)
-        self.config_file = self._get_path(args['--config_file'])
-        self.model_file = self._get_path(args['--model_file'])
-        self.grid_path = self._verify_parent(args['--grid_file'])
+        _, self.config_file = self._get_path(args['--config_file'], doesNotExistError=True)
+        _, self.model_file = self._get_path(args['--model_file'], doesNotExistError=True)
+        #self.grid_path = self._verify_parent(args['--grid_file'])
         self.threads = self._get_int(args["--threads"])
         self.config = self._parse_config(self.config_file)
         self._process_config()
+
+    def _get_path(self, infile, doesNotExistError=False):
+        if infile is None:
+            return None
+        path = pathlib.Path(infile).resolve()
+        if not path.exists():
+            if doesNotExistError:
+                sys.exit("[X] File not found: %r" % str(infile))
+            else:
+                parent_path=pathlib.Path(path.parent).resolve()
+                if not parent_path.exists():
+                    sys.exit("[X] Parent directory not found: %r" % str(parent_path))
+                else:
+                    print("[+] Creating new zarr store.")
+                    return (True, str(path))
+        return (False, str(path))
 
 def main(params):
     try:
         start_time = timer()
         args = docopt(__doc__)
         parameterObj = MakeGridParameterObj(params, args)
-        print("[+] Generated all parameter combinations.")
-        print(parameterObj.grid)
-
+        print("[+] Generated all parameter combinations.") #in parameterObj.grid
+        
         equationSystem = lib.math.EquationSystemObj(parameterObj)
-        equationSystem.info()
+        print(f'rates by variable: {equationSystem.rate_by_variable}')
+        print(f'split times:{equationSystem.split_times}')
+        
+        #build the equations
         equationSystem.initiate_model()
-        equationSystem.calculate_ETPs()
-        if parameterObj.probcheck_file is not None:
-            equationSystem.check_ETPs()
-        from scipy.special import xlogy
-        import numpy as np
-        composite_likelihood = -np.sum((xlogy(np.sign(equationSystem.ETPs), equationSystem.ETPs) * data))
-        print('[+] L=-%s' % (composite_likelihood))
+        equationSystem.calculate_all_ETPs()
+        sys.exit()
+        #for zarr store: require grid
+        gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=parameterObj.not_existing)
+        gimbleStore.require('makegrid')
+        for idx, (paramset,ETP) in enumerate(zip(paramObj.grid, equationSystem.ETPs)):
+            g = gimbleStore.data['makegrid'].create_dataset(f'parameterset_{idx}', data=ETP)
+            g.attrs.put(paramset)
+
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
         print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
