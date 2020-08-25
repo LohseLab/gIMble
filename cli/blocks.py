@@ -4,8 +4,8 @@
     
     -l, --block_length <INT>                    Successively genotyped sites per block [default: 64] 
     -m, --block_span <INT>                      Maximum distance between first and last site of a block (default: '-l' * 2)
-    -u, --max_multiallelic <INT>                Max multiallelics per block [default: 2]
-    -i, --max_missing <INT>                     Max missing per block [default: 2]
+    -u, --max_multiallelic <INT>                Max multiallelics per block (default: round('-l' * 0.05))
+    -i, --max_missing <INT>                     Max missing per block (default: round('-l' * 0.05))
 
     -f, --force                                 Force overwrite of existing data
     -d, --debug                                 Write debugging logs
@@ -26,9 +26,14 @@ class BlockParameterObj(lib.gimble.ParameterObj):
         self.block_length = self._get_int(args['--block_length'])
         self.block_span = self._get_block_span(args['--block_span'])
         self.block_gap_run = self._get_block_gap_run()
-        self.block_max_multiallelic = int(args['--max_multiallelic'])
-        self.block_max_missing = int(args['--max_missing'])
+        self.block_max_multiallelic = self._get_max_values(args['--max_multiallelic'])
+        self.block_max_missing = self._get_max_values(args['--max_missing'])
         self.overwrite = True if args['--force'] else False
+
+    def _get_max_values(self, max_value):
+        if max_value is None:
+            return round(self.block_length * 0.05)
+        return self._get_int(max_value)
 
     def _get_block_gap_run(self):
         return (self.block_span - self.block_length - 1)
@@ -49,6 +54,11 @@ def main(params):
         print("[+] Running 'gimble blocks'")
         args = docopt(__doc__)
         parameterObj = BlockParameterObj(params, args)
+        print("[+] Parameters = [-l %s -m %s -u %s -i %s]" % (
+            parameterObj.block_length, 
+            parameterObj.block_span, 
+            parameterObj.block_max_multiallelic, 
+            parameterObj.block_max_missing))
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore)
         gimbleStore.blocks(parameterObj)
         gimbleStore.dump_bsfs(parameterObj)

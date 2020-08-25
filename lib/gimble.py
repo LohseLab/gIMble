@@ -21,6 +21,7 @@ import matplotlib.patches as patches
 import numpy as np
 import cerberus
 import lib.simulate
+from timeit import default_timer as timer
 
 # np.set_printoptions(threshold=sys.maxsize)
 
@@ -190,7 +191,7 @@ def calculate_popgen_from_array(mutype_array, sites):
 def genotype_to_mutype_array(sa_genotype_array, idx_block_sites_in_pos, block_sites, debug=True):
     '''
     - possible errors:
-        - if only missing GTs in genotypes, then np_allele_count_array will be empty  
+        - if whole sequence has only missing GTs in genotypes for a sample set, then np_allele_count_array will be empty ... (should never happen)
     '''
     np_genotype_array = np.array(sa_genotype_array)
     np_allele_count_array = np.ma.masked_equal(sa_genotype_array.count_alleles(), 0, copy=False)    
@@ -627,29 +628,20 @@ class Store(object):
             try:
                 mutypes_all_key = 'seqs/bsfs/%s/mutypes' % sample_set_type
                 counts_all_key = 'seqs/bsfs/%s/counts' % sample_set_type
-                mutypes = np.array(self.data[mutypes_all_key])
-                counts = np.array(self.data[counts_all_key])
+                mutypes = np.array(self.data[mutypes_all_key], dtype=np.uint64)
+                counts = np.array(self.data[counts_all_key], dtype=np.uint64)
             except KeyError:
                 raise NotImplementedError    
             if populations_inverted(population_by_letter, meta['population_by_letter']):
                 mutypes[0], mutypes[1] = mutypes[1], mutypes[0]
-            #raw_count = np.concatenate([counts[:, np.newaxis], mutypes], axis =-1)
-            #print('raw_count', raw_count.shape, raw_count)
+            raw_count = np.concatenate([counts[:, np.newaxis], mutypes], axis =-1)
             if not kmax_by_mutype:
-                #print('mutypes', mutypes.shape, mutypes)
                 kmax_by_mutype = {"m_%s" % idx: np.max(mutypes[:, idx-1]) for idx in range(1, meta['mutypes_count'] + 1)}
-            #print('kmax_by_mutype', kmax_by_mutype)
             kmax_array = np.array(list(kmax_by_mutype.values())) + 1
-            #print('kmax_array', kmax_array)
             if as_matrix:
                 bsfs_matrix = np.zeros(tuple(kmax_by_mutype["m_%s" % mutype] + 2 for mutype in range(1, meta['mutypes_count'] + 1)), np.int64)
                 for mutype, count in zip(mutypes, counts):
-                    # print("=>", mutype, count)
-                    # print("=>", np.clip(mutype, 0, kmax_array, dtype=np.int64))
-
                     bsfs_matrix[tuple(np.clip(mutype, 0, kmax_array, dtype=np.int64))] += count
-                    # print(bsfs_matrix)
-                # print('bsfs_matrix', bsfs_matrix.shape, bsfs_matrix)
                 return bsfs_matrix
             mutypes_clipped_counter = collections.Counter()
             for mutype, count in zip(mutypes, counts):
@@ -658,7 +650,6 @@ class Store(object):
             for idx, (mutypes_clipped_tuple, mutypes_clipped_count) in enumerate(mutypes_clipped_counter.items()):
                 bsfs_array[idx, 0] = mutypes_clipped_count
                 bsfs_array[idx, 1:] = np.array(mutypes_clipped_tuple)
-            #print('bsfs_array', bsfs_array.shape, bsfs_array)
             return bsfs_array
 
 
@@ -705,20 +696,19 @@ class Store(object):
                 'INTER-pop'.center(SPACING, ' '),
                 format_count(samples_sets_count_inter)))
             # variants
-            info_string.append("[+] [%s] %s VCF records (%s per 1 kb)" % (
+            info_string.append("[+] [%s] %s VCF records (%s/kb)" % (
                 'Variants'.center(SPACING, '-'),
                 format_count(meta['variants_counts']),
                 format_proportion(1000 * meta['variants_counts'] / sum(meta['seq_lengths']))
                 ))
             for sample in meta['samples']:
                 variant_idx = meta['variants_idx_by_sample'][sample]
-                info_string.append("[+] [%s] \t missing = %s; called = %s (homref = %s; homalt = %s; het = %s)" % (
+                info_string.append("[+] [%s] \t homref = %s; homalt = %s; het = %s; missing = %s" % (
                     ('%s' % sample).center(SPACING),
-                    meta['variants_counts_missing'][variant_idx],
-                    meta['variants_counts_called'][variant_idx],
-                    format_percentage(meta['variants_counts_hom_ref'][variant_idx] / meta['variants_counts_called'][variant_idx]) if meta['variants_counts_called'][variant_idx] else 0,
-                    format_percentage(meta['variants_counts_hom_alt'][variant_idx] / meta['variants_counts_called'][variant_idx]) if meta['variants_counts_called'][variant_idx] else 0,
-                    format_percentage(meta['variants_counts_het'][variant_idx] / meta['variants_counts_called'][variant_idx]) if meta['variants_counts_called'][variant_idx] else 0,
+                    format_percentage(meta['variants_counts_hom_ref'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
+                    format_percentage(meta['variants_counts_hom_alt'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
+                    format_percentage(meta['variants_counts_het'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
+                    format_percentage(meta['variants_counts_missing'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0
                     ))
             info_string.append("[+] [%s] %s BED intervals containing %s (%s of genome)" % (
                 'Intervals'.center(SPACING, '-'),
@@ -747,9 +737,7 @@ class Store(object):
             blocks_span_mean_inter = int(blocks_count_total_inter * meta['blocks_length'] / len(sample_set_idxs_inter))
             # intra
             sample_set_idxs_intra = [idx for idx, cartesian in enumerate(meta['sample_sets_inter']) if not cartesian]
-            print('sample_set_idxs_intra', sample_set_idxs_intra)
             blocks_count_total_intra = sum([meta['blocks_by_sample_set_idx'][str(idx)] for idx in sample_set_idxs_intra]) 
-            print('blocks_count_total_intra', blocks_count_total_intra)
             blocks_raw_count_total_intra = sum([meta['blocks_raw_per_sample_set_idx'][str(idx)] for idx in sample_set_idxs_intra])
             block_validity_intra = blocks_count_total_intra / blocks_raw_count_total_intra
             blocks_span_mean_intra = int(blocks_count_total_intra * meta['blocks_length'] / len(sample_set_idxs_intra))
@@ -783,7 +771,6 @@ class Store(object):
                     format_count(blocks_count),
                     "%s%s" % ('+' if blocks_span_deviation > 0 else '', format_percentage(blocks_span_deviation))
                     ))
-        
         info_string.append(divider)
         print("\n".join(info_string))
 
@@ -1065,13 +1052,13 @@ class Store(object):
         meta = self.data['seqs'].attrs
         header = ['count'] + [x+1 for x in range(meta['mutypes_count'])]
         bsfs = self.get_bsfs_matrix(data='blocks', sample_set_type='inter', as_matrix=False)
-        pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.inter.blocks.h5" % self.prefix, 'tally', format='table')
+        #pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.inter.blocks.h5" % self.prefix, 'tally', format='table')
         pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_csv("%s.inter.blocks.tsv" % self.prefix, index=False, sep='\t')
         bsfs = self.get_bsfs_matrix(data='blocks', sample_set_type='intra_A', as_matrix=False)
-        pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.intra_A.blocks.h5" % self.prefix, 'tally', format='table')
+        #pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.intra_A.blocks.h5" % self.prefix, 'tally', format='table')
         pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_csv("%s.intra_A.blocks.tsv" % self.prefix, index=False, sep='\t')
         bsfs = self.get_bsfs_matrix(data='blocks', sample_set_type='intra_B', as_matrix=False)
-        pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.intra_B.blocks.h5" % self.prefix, 'tally', format='table')
+        #pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.intra_B.blocks.h5" % self.prefix, 'tally', format='table')
         pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_csv("%s.intra_B.blocks.tsv" % self.prefix, index=False, sep='\t')
 
     def _plot_blocks(self, parameterObj):
@@ -1329,9 +1316,10 @@ class Store(object):
             for seq_name in meta['seq_names']:        
                 pos_key = "seqs/%s/variants/pos" % (seq_name)
                 gt_key = "seqs/%s/variants/matrix" % (seq_name)
-                pos = self.data[pos_key] if pos_key in self.data else np.array([])
+                pos = np.array(self.data[pos_key], dtype=np.uint64) if pos_key in self.data else np.array([])
                 sa_genotype_array = allel.GenotypeArray(self.data[gt_key])
                 for sample_set_idx, (sample_set, sample_set_cartesian) in enumerate(zip(meta['sample_sets'], meta['sample_sets_inter'])):
+                    sample_set_start_time = timer()
                     starts, ends = self._get_interval_coordinates_for_sample_set(seq_name=seq_name, sample_set=sample_set)
                     # Cut sample-set specific blocks based on intervals and block-algoritm parameters
                     block_sites = cut_blocks(starts, ends, meta['blocks_length'], meta['blocks_span'], meta['blocks_gap_run'])
@@ -1341,7 +1329,7 @@ class Store(object):
                     # Allocate starts/ends before overwriting position ints 
                     block_starts = np.array(block_sites[:, 0])
                     block_ends = np.array(block_sites[:, -1] + 1)
-                    if pos:
+                    if np.any(pos):
                         # seq_name has >= 1 records in VCF file
                         idx_pos_in_block_sites = np.isin(pos, block_sites, assume_unique=True) 
                         if np.any(idx_pos_in_block_sites):
@@ -1367,6 +1355,7 @@ class Store(object):
                     self.data.create_dataset(blocks_missing_key, data=missing[valid], overwrite=True)
                     blocks_multiallelic_key = 'seqs/%s/blocks/%s/multiallelic' % (seq_name, sample_set_idx)
                     self.data.create_dataset(blocks_multiallelic_key, data=multiallelic[valid], overwrite=True)
+                    print("[*] Sample_set runtime: %.3fs" % (timer() - sample_set_start_time))
                     pbar.update(1)
         meta['blocks_by_sample_set_idx'] = dict(blocks_per_sample_set_idx) # keys are strings
         meta['blocks_raw_per_sample_set_idx'] = dict(blocks_raw_per_sample_set_idx) # keys are strings
