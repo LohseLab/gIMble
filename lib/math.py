@@ -219,7 +219,7 @@ class EquationSystemObj(object):
         self.events = []
         self.threads = parameterObj.threads
         #self.boundaries = parameterObj._config['boundaries'] #this needs to be changed
-        self.k_max_by_mutype = parameterObj.config['k_max']
+        self.k_max_by_mutype = parameterObj._config['k_max']
         self.mutypes = sorted(self.k_max_by_mutype.keys())
         self.model_file = parameterObj.model_file
         self.event_tuples_by_idx = self._get_event_tuples_by_idx()
