@@ -556,15 +556,24 @@ class ParameterObj(object):
         print("[+] Config file validated.")
         return config
 
-    def _process_config(self, module='makegrid'):
-        if self._MODULE==module:
+    def _process_config(self):
+        if self._MODULE=='makegrid':
             self.config['parameters']['mu'] = self.config['mu']['mu']
             self._expand_params()
             self.grid = self._dict_product()
             if self._MODULE == 'makegrid':
                 reference_pop = self.config['populations']['reference_pop']
                 self.grid = [self._scale_param_combo(combo, reference_pop) for combo in self.grid]
-            
+        elif self._MODULE=='inference':
+            self.config['parameters']['mu'] = self.config['mu']['mu']
+            self._expand_params()
+            self.grid = self._dict_product()
+            if self._MODULE == 'makegrid':
+                reference_pop = self.config['populations']['reference_pop']
+                self.grid = [self._scale_param_combo(combo, reference_pop) for combo in self.grid]
+        else:
+            sys.exit("[X] Not implemented yet.")    
+
     def _scale_param_combo(self, combo, reference_pop):
         # gimble inference grid:
         #Ne = theta/4mu 
@@ -573,7 +582,7 @@ class ParameterObj(object):
         #T = 2Ne*tau
         #M = 4Ne*m_e
         rdict = {}
-        if self._MODULE == 'makegrid':
+        if self._MODULE in ['makegrid', 'inference']:
             if self.block_length:
                 block_length = self.block_length
             else:
