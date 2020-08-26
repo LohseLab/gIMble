@@ -219,7 +219,7 @@ class EquationSystemObj(object):
         '''
         #parameters
         self.threads = parameterObj.threads
-        self.k_max_by_mutype = parameterObj.config['k_max']
+        self.k_max_by_mutype = parameterObj._config['k_max']
         self.mutypes = sorted(self.k_max_by_mutype.keys())
         #needed to generate the equationObjs
         self.model_file = parameterObj.model_file
@@ -236,9 +236,8 @@ class EquationSystemObj(object):
         else:  
             #user provided rates, legacy code
             self.user_rate_by_event = self._get_user_rate_by_event(parameterObj)
-            self.base_rate_by_variable = self._get_base_rate_by_variable()
-            self.split_time = self.user_rate_by_event.get('T', None)
-        
+            self.base_rate_by_variable = self._get_base_rate_by_variable(self.user_rate_by_event)
+            self.split_times = [self.user_rate_by_event.get('T', None)]
             #self.boundaries = parameterObj._config['boundaries'] #this needs to be changed
             self.rate_by_event = self._get_rate_by_variable(prefix=set(['C', 'M']))
             self.rate_by_mutation = self._get_rate_by_variable(prefix=set(['m']))
@@ -389,6 +388,7 @@ class EquationSystemObj(object):
         #iterate over zip(self.rate_by_variable, self.split_times)
         self.ETPs = [] 
         for rates, split_time in zip(self.rate_by_variable, self.split_times):
+            print("HEEEERE", rates, split_time)
             self.ETPs.append(self.calculate_ETPs(rates, split_time))
 
     def calculate_ETPs(self, rates=None, split_time=None, threads=1):
@@ -397,8 +397,10 @@ class EquationSystemObj(object):
         print(f'rates sage vars: {rates}')
         parameter_batches = []
         for equationObj in self.equationObjs:
-            if not rates: 
+            if rates is None: 
                 rates = {**self.rate_by_event, **self.rate_by_mutation}
+                split_time = self.split_times[0]
+            #print((equationObj, rates, split_time, self.dummy_variable))
             parameter_batches.append((equationObj, rates, split_time, self.dummy_variable))
         desc = "[%] Solving equations"
         equationObj_by_matrix_idx = {}

@@ -390,7 +390,7 @@ class ParameterObj(object):
         self._VERSION = params['version']
         self._MODULE = params['module']
         self._CWD = params['cwd']
-        self.config = None
+        self._config = None
 
     def __repr__(self):
         return("[+] VER := %s\n[+] CWD := %s\n[+] CMD := %s\n" % (
