@@ -255,13 +255,13 @@ def main(params):
         #log = lib.log.get_logger(params)
         parameterObj = InferenceParameterObj(params, args)
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
-        data = gimbleStore.get_bsfs_matrix(
-            data='blocks', 
-            population_by_letter=parameterObj._config['population_ids'], 
-            sample_set_type='inter', 
-            kmax_by_mutype=parameterObj._config['k_max'])
-        import numpy as np
-        print('data.shape', data.shape, 'np.sum(data)', np.sum(data))
+        #data = gimbleStore.get_bsfs_matrix(
+        #    data='blocks', 
+        #    population_by_letter=parameterObj._config['population_ids'], 
+        #    sample_set_type='inter', 
+        #    kmax_by_mutype=parameterObj._config['k_max'])
+        #import numpy as np
+        #print('data.shape', data.shape, 'np.sum(data)', np.sum(data))
         #data = lib.math.get_data_array(parameterObj)
         #print(data)
         equationSystem = lib.math.EquationSystemObj(parameterObj, legacy=True)
@@ -270,6 +270,7 @@ def main(params):
         ETPs = equationSystem.calculate_ETPs()
         if parameterObj.probcheck_file is not None:
             equationSystem.check_ETPs()
+        sys.exit()
         ETP_log = np.zeros(ETPs.shape)
         np.log(ETPs, where=ETPs>0, out=ETP_log)
         composite_likelihood = np.sum(ETP_log * data)

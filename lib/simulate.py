@@ -34,6 +34,8 @@ def run_sim(parameterObj, gimbleStore):
     
     print(f"[+] simulating {replicates} replicate(s) of {blocks} block(s) for {len(sim_configs)} parameter combinations")
     #with tqdm(total=replicates*len(sim_configs), desc="[%] running sims ", ncols=100, unit_scale=True) as pbar:
+    run_count = gimbleStore._return_group_last_integer('sims')
+    gimbleStore.data.require_group(f'sims/run_{run_count}')
     for idx, (config, zarr_attrs) in enumerate(tqdm(zip(msprime_configs, sim_configs),desc='Overall simulation progress',ncols=100, unit_scale=True, total=len(sim_configs))):
         seeds = np.random.randint(1, 2 ** 32, replicates)
         result_list = []
@@ -64,7 +66,6 @@ def run_sim(parameterObj, gimbleStore):
                 )
             
         name = f"parameter_combination_{idx}"
-        run_count = gimbleStore.data['sims'].attrs['run_count']
         g = gimbleStore.data[f'sims/run_{run_count}'].create_dataset(name, data=np.array(result_list), overwrite=True)
         g.attrs.put(zarr_attrs)
         g.attrs['seeds']=tuple([int(s) for s in seeds])

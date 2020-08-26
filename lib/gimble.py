@@ -23,6 +23,7 @@ import cerberus
 import lib.simulate
 from timeit import default_timer as timer
 
+
 # np.set_printoptions(threshold=sys.maxsize)
 
 
@@ -436,7 +437,7 @@ class ParameterObj(object):
     def _get_int(self, string, ret_none=False):
         try:
             return int(string)
-        except TypeError():
+        except TypeError:
             if not ret_none:
                 sys.exit("[X] %r can't be converted to interger." % string)
             return None
@@ -444,7 +445,7 @@ class ParameterObj(object):
     def _get_float(self, string, ret_none=False):
         try:
             return float(string)
-        except TypeError():
+        except TypeError:
             if not ret_none:
                 sys.exit("[X] %r can't be converted to float." % string)
             return None
@@ -587,7 +588,8 @@ class ParameterObj(object):
                 block_length = self.block_length
             else:
                 try:
-                    block_length = self.zstore.attrs['seqs/blocklength']
+                    z = zarr.open(self.zstore, mode='r')
+                    block_length = z['seqs'].attrs['blocklength']
                 except KeyError:
                     sys.exit("No block length in zstore meta-data. Provide blocklength to makegrid.")
             Ne_ref = combo[f"Ne_{reference_pop}"]
@@ -783,6 +785,9 @@ class Store(object):
         info_string.append(divider)
         print("\n".join(info_string))
 
+    def _count_groups(self, name):
+        return len(list(self.data[name]))
+
     def _init_data(self, create, overwrite):
         if create:
             if os.path.isdir(self.path):
@@ -857,6 +862,22 @@ class Store(object):
             for group, attrs in attrs_by_group.items():
                 self.data.require_group(group, overwrite=overwrite)
                 self.data[group].attrs.put(attrs_by_group[group])
+
+    def _is_zarr_group(self, name, subgroup=None):
+        if not subgroup:
+            return name in list(self.data.group_keys())
+        else:
+            return name in list(self.data[subgroup].group_keys())
+
+    def _return_group_last_integer(self, name):
+        try:
+            all_groups = [int([namestring for namestring in groupnames.split('_')][-1]) for groupnames in list(self.data[name])]
+        except KeyError:
+            return 0
+        if len(all_groups):
+            return max(all_groups)+1
+        else:
+            return 0
 
     def _set_sequences(self, parameterObj):
         meta = self.data['seqs'].attrs

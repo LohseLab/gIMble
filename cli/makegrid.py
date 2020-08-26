@@ -63,8 +63,10 @@ class MakeGridParameterObj(lib.gimble.ParameterObj):
 
     def __init__(self, params, args):
         super().__init__(params)
-        self.not_existing, self.zstore = self._get_path(args["--zarr"])
+        self.zarr_not_existing, self.zstore = self._get_path(args["--zarr"])
         self.block_length= self._get_int(args['--blocklength'], ret_none=True)
+        if not (self.block_length or self.zstore):
+            sys.exit('[X] Provide either blocklength or zarr store with block length in attrs.')
         _, self.config_file = self._get_path(args['--config_file'], doesNotExistError=True)
         _, self.model_file = self._get_path(args['--model_file'], doesNotExistError=True)
         #self.grid_path = self._verify_parent(args['--grid_file'])
@@ -96,19 +98,20 @@ def main(params):
         print("[+] Generated all parameter combinations.") #in parameterObj.grid
         
         equationSystem = lib.math.EquationSystemObj(parameterObj)
-        print(f'rates by variable: {equationSystem.rate_by_variable}')
-        print(f'split times:{equationSystem.split_times}')
-        
         #build the equations
         equationSystem.initiate_model()
         equationSystem.calculate_all_ETPs()
-        sys.exit()
+        
         #for zarr store: require grid
-        gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=parameterObj.not_existing)
-        gimbleStore.require('makegrid')
-        for idx, (paramset,ETP) in enumerate(zip(paramObj.grid, equationSystem.ETPs)):
-            g = gimbleStore.data['makegrid'].create_dataset(f'parameterset_{idx}', data=ETP)
-            g.attrs.put(paramset)
+        gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=parameterObj.zarr_not_existing)
+        gimbleStore.data.require_group('grids')
+        if parameterObj.zarr_not_existing:
+            gridcount = 0
+        else:
+            gridcount = gimbleStore._return_group_last_integer('grids')
+        paramdict = {i:paramset for i, paramset in enumerate(parameterObj.grid)}
+        g = gimbleStore.data['grids'].create_dataset(f'grid_{gridcount}', data=equationSystem.ETPs)
+        g.attrs.put(paramdict)
 
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:

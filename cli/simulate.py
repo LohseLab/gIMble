@@ -170,6 +170,7 @@ def main(params):
         args = docopt(__doc__)
         parameterObj = SimulateParameterObj(params, args)
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=parameterObj.not_existing)
+        gimbleStore.data.require_group('sims')
         gimbleStore.simulate(parameterObj)
 
         print("[*] Total runtime: %.3fs" % (timer() - start_time))

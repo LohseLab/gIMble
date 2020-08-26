@@ -11,6 +11,8 @@ from tqdm import tqdm
 import multiprocessing
 import contextlib
 import lib.gimble
+from scipy.special import xlogy
+
 #sage.all.numerical_approx(value, digits=1)
 
 '''
@@ -171,6 +173,9 @@ def calculate_inverse_laplace(params):
     
     return equationObj
 
+def calculate_composite_likelihood(ETPs, data):
+    return -np.sum((xlogy(np.sign(ETPs), ETPs) * data))
+
 class Constructor(object):
     def __init__(self, constructor_id):
         self.constructor_id = constructor_id
@@ -219,7 +224,7 @@ class EquationSystemObj(object):
         '''
         #parameters
         self.threads = parameterObj.threads
-        self.k_max_by_mutype = parameterObj._config['k_max']
+        self.k_max_by_mutype = parameterObj._config['k_max'] if legacy else parameterObj.config['k_max']
         self.mutypes = sorted(self.k_max_by_mutype.keys())
         #needed to generate the equationObjs
         self.model_file = parameterObj.model_file
@@ -388,13 +393,14 @@ class EquationSystemObj(object):
         #iterate over zip(self.rate_by_variable, self.split_times)
         self.ETPs = [] 
         for rates, split_time in zip(self.rate_by_variable, self.split_times):
-            print("HEEEERE", rates, split_time)
+            #print("HEEEERE", rates, split_time)
             self.ETPs.append(self.calculate_ETPs(rates, split_time))
+        self.ETPs = np.array(self.ETPs)
 
     def calculate_ETPs(self, rates=None, split_time=None, threads=1):
         print("[=] ==================================================")
         print("[+] Calculating ETPs ...")
-        print(f'rates sage vars: {rates}')
+        #print(f'rates sage vars: {rates}')
         parameter_batches = []
         for equationObj in self.equationObjs:
             if rates is None: 
