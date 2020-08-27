@@ -394,7 +394,6 @@ class EquationSystemObj(object):
     def calculate_all_ETPs(self):
         #iterate over zip(self.rate_by_variable, self.split_times)
         self.ETPs = [] 
-        """
         for rates, split_time in zip(self.rate_by_variable, self.split_times):
             self.ETPs.append(self.calculate_ETPs(rates, split_time))
         self.ETPs = np.array(self.ETPs)
