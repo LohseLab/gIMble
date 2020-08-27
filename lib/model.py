@@ -6,7 +6,6 @@ mat.use("agg")
 from tqdm import tqdm
 import sys
 import pathlib
-import oyaml
 import configparser
 import lib.functions
 
@@ -269,31 +268,6 @@ class StateGraph(object):
 
     def get_origins(self):
         self.origin_idx_by_label = {self.graph.nodes[node_idx]['label']: node_idx for node_idx, out_degree in self.graph.out_degree() if out_degree == 0}
-
-    def write_yaml(self, parameterObj):
-        events = sorted(self.events_counter.keys())
-        lineages = sorted([lineage for lineage in self.set_of_lineages if not lineage == self.lca_label])
-        mutypes = sorted(set([mutype for mutype in [lineage_to_mutype(lineage) for lineage in lineages] if not mutype is None]))
-        config = {
-            'version': parameterObj._VERSION,
-            'random_seed' : 19,
-            'precision': 25,
-            'population_ids': {pop_id: '' for pop_id in sorted(self.pop_ids) if "_" not in pop_id},
-            'k_max': {"m_%s" % (mutype): 2 for mutype in mutypes},
-            'parameters': collections.defaultdict(dict), 
-            'boundaries': collections.defaultdict(list),
-            }
-        parameters = ['mu', 'theta', 'T'] + [event for event in sorted(self.events_counter.keys()) if event[0:2] in CM]
-        boundaries = ['theta', 'T'] + [event for event in sorted(self.events_counter.keys()) if event[0:2] in CM]
-        for parameter in parameters:
-            config['parameters'][parameter] = 'FLOAT'
-        for boundary in boundaries:
-            config['boundaries'][boundary] = ['CENTRE', 'MIN', 'MAX', 'STEPS', 'SCALE']
-        config_file = "%s.yaml" % parameterObj.out_prefix
-        oyaml.add_representer(collections.defaultdict, oyaml.representer.Representer.represent_dict)
-        with open(config_file, 'w') as fh:
-            oyaml.dump(config, fh)
-        print("[+] Wrote CONFIG file %r" % str(config_file))
 
     def write_config(self, parameterObj):
         events = [event for event in sorted(self.events_counter.keys()) if event[0:2] in CM]
