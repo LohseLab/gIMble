@@ -11,7 +11,7 @@ git clone https://github.com/DRL/gimble.git
 # create conda enviroment with dependencies
 conda create -n gimble && \
 source activate gimble && \
-conda install bedtools bcftools samtools vcflib mosdepth pysam numpy docopt tqdm pandas tabulate oyaml zarr scikit-allel parallel more-itertools networkx sagelib matplotlib msprime networkx pygraphviz -c conda-forge -c bioconda 
+conda install bedtools bcftools samtools vcflib mosdepth pysam numpy docopt tqdm pandas tabulate zarr scikit-allel parallel more-itertools networkx giac sagelib matplotlib msprime networkx pygraphviz cerberus -c conda-forge -c bioconda 
 ```
 
 Usage
@@ -19,21 +19,22 @@ Usage
 
 ```
 Usage: gimble <module> [<args>...] [-D -V -h]
+
   [Modules]
     preprocess            Preprocess input files
-    setup                 Setup data store (GStore)
-    info                  Print information about GStore [TBI]
-    blocks                Generate blocks from data in GStore 
-    windows               Generate windows from blocks in GStore (requires blocks)
+    setup                 Setup data store
+    info                  Print information about DataStore
+    blocks                Generate blocks from data in DataStore 
+    windows               Generate windows from blocks in DataStore (requires blocks)
+    query                 Query BED file of blocks (windows [TBI])
     model                 Build demographic model
     simulate              Simulate data [TBI] 
+    makegrid              Make grid [TBI]
+    gridsearch            Search grid [TBI]
     inference             Make inference [TBI] (requires blocks)
-    grid                  Make grid [TBI]
-    scan                  Scan using grid [TBI] (requires windows)
     
     partitioncds          Partition CDS sites in BED file by degeneracy in sample GTs 
     plotbed               Plot BED file [TBR]
-
 ```
  
 [0] preprocess
