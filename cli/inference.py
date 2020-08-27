@@ -274,11 +274,12 @@ def main(params):
         if parameterObj.probcheck_file is not None:
             equationSystem.check_ETPs()
         ETPs = equationSystem.ETPs
-        for ETP in ETPs:
+        for grid_point, ETP in zip(parameterObj.grid, ETPs):
+            grid_point_string = "; ".join(["%s = %s" % (key, value) for key, value in grid_point.items()]) 
             ETP_log = np.zeros(equationSystem.ETPs.shape)
             np.log(ETP, where=ETPs>0, out=ETP_log)
             composite_likelihood = np.sum(ETP_log * data)
-            print('[+] L=%s' % (composite_likelihood))
+            print('[+] %s => L=%s' % (grid_point_string, composite_likelihood))
             print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
         print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))

@@ -348,6 +348,8 @@ class StateGraph(object):
         config.add_section('mu')
         config.set('mu', '# mutation rate (in mutations/site/generation) (gridsearch: required)')
         config.set('mu', 'mu', "")
+        config.set('mu', '# blocklength in bases (required, if no blocking has been done on BED file)')
+        config.set('mu', 'blocklength', "")
         # parameters
         config.add_section('parameters')
         config.set('parameters', "## param: floats")

@@ -11,7 +11,7 @@ from tqdm import tqdm
 import multiprocessing
 import contextlib
 import lib.gimble
-from scipy.special import xlogy
+#from scipy.special import xlogy
 
 #sage.all.numerical_approx(value, digits=1)
 
@@ -436,38 +436,38 @@ class EquationSystemObj(object):
             print("[+] sum(ETPs) == 1 ")
         return ETPs
 
-    def optimise_parameters(symbolic_equations_by_mutuple, mutuple_count_matrix, parameterObj):
-        '''
-        search-bounds vs. real-bounds vs parameterObj.boundaries
-        '''
-
-        print("[+] Optimising parameters: %s ..." % (", ".join(parameterObj.boundaries.keys())))    
-        start_time = timer()
-        simplex_values, simplex_parameters = generate_initial_simplex(parameterObj.boundaries, parameterObj.seed)
-        x0 = tuple([0] * len(parameterObj.boundaries.keys()))
-        #block_count = mutuple_count_matrix.flatten().sum()
-        res = scipy.optimize.minimize(
-            infer_composite_likelihood, 
-            x0, 
-            args=(simplex_parameters, symbolic_equations_by_mutuple, mutuple_count_matrix, parameterObj), 
-            method="Nelder-Mead", 
-            options={
-                'initial_simplex': simplex_values, 
-                'maxfev' : 200,
-                'maxiter': 200,
-                'disp': False, 
-                'xatol': 1e-1, 
-                'fatol': 1e-1, # * block_count, # needs to be scaled by number of blocks
-                'adaptive': True})
-        print()
-        if res.success:
-            estimated_parameters = collections.OrderedDict({key: value for (key, _), value in zip(parameterObj.boundaries.items(), res.x)})
-            print_params = { (param):(value if not param == 'theta' else value * 2) for param, value in estimated_parameters.items()}
-            estimated_parameters_string = ", ".join(["%s=%s" % (key, round(value, 4)) for key, value in print_params.items()])
-            print("[+] Parameters estimated in %ss using %s iterations (Composite Likelihood = -%s): %s" % (timer() - start_time, res.nit, res.fun, estimated_parameters_string))
-        else:
-            print("[-] No covergence reached after %s iterations (%ss elapsed)" % (res.nit, timer() - start_time))
-        return estimated_parameters
+    #def optimise_parameters(symbolic_equations_by_mutuple, mutuple_count_matrix, parameterObj):
+    #    '''
+    #    search-bounds vs. real-bounds vs parameterObj.boundaries
+    #    '''
+#
+    #    print("[+] Optimising parameters: %s ..." % (", ".join(parameterObj.boundaries.keys())))    
+    #    start_time = timer()
+    #    simplex_values, simplex_parameters = generate_initial_simplex(parameterObj.boundaries, parameterObj.seed)
+    #    x0 = tuple([0] * len(parameterObj.boundaries.keys()))
+    #    #block_count = mutuple_count_matrix.flatten().sum()
+    #    res = scipy.optimize.minimize(
+    #        infer_composite_likelihood, 
+    #        x0, 
+    #        args=(simplex_parameters, symbolic_equations_by_mutuple, mutuple_count_matrix, parameterObj), 
+    #        method="Nelder-Mead", 
+    #        options={
+    #            'initial_simplex': simplex_values, 
+    #            'maxfev' : 200,
+    #            'maxiter': 200,
+    #            'disp': False, 
+    #            'xatol': 1e-1, 
+    #            'fatol': 1e-1, # * block_count, # needs to be scaled by number of blocks
+    #            'adaptive': True})
+    #    print()
+    #    if res.success:
+    #        estimated_parameters = collections.OrderedDict({key: value for (key, _), value in zip(parameterObj.boundaries.items(), res.x)})
+    #        print_params = { (param):(value if not param == 'theta' else value * 2) for param, value in estimated_parameters.items()}
+    #        estimated_parameters_string = ", ".join(["%s=%s" % (key, round(value, 4)) for key, value in print_params.items()])
+    #        print("[+] Parameters estimated in %ss using %s iterations (Composite Likelihood = -%s): %s" % (timer() - start_time, res.nit, res.fun, estimated_parameters_string))
+    #    else:
+    #        print("[-] No covergence reached after %s iterations (%ss elapsed)" % (res.nit, timer() - start_time))
+    #    return estimated_parameters
     
     def _get_equationObjs(self):
         constructors = []

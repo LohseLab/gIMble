@@ -60,7 +60,7 @@ def main(params):
         args = docopt(__doc__)
         parameterObj = SetupParameterObj(params, args)
         gimbleStore = lib.gimble.Store(prefix=parameterObj.outprefix, create=True, overwrite=parameterObj.overwrite)
-        gimbleStore.setup(parameterObj)
+        gimbleStore.setup_seq(parameterObj)
         gimbleStore.info()
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:

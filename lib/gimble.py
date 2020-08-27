@@ -859,7 +859,7 @@ class Store(object):
         print("[+] Loading GStore from %r" % self.path)
         return zarr.open(str(self.path), mode='r+')
     
-    def _init_meta(self, overwrite=False, module=None):
+    def _init_meta(self, overwrite=False):
         attrs_by_group = {
             'seqs' : {
                 'vcf_f': None, 
@@ -909,17 +909,21 @@ class Store(object):
                 'run_count': 0
             }
         }
-        if module:
-            if module in attrs_by_group:
-                self.data.require_group(module, overwrite=overwrite)
-                self.data[module].attrs.put(attrs_by_group[module])    
-            else:
-                sys.exit("[X] Specified module does not exist.")
-        else:
-            for group, attrs in attrs_by_group.items():
-                self.data.require_group(group, overwrite=overwrite)
-                self.data[group].attrs.put(attrs_by_group[group])
+        for group, attrs in attrs_by_group.items():
+            self.data.require_group(group, overwrite=overwrite)
+            self.data[group].attrs.put(attrs_by_group[group])
 
+        #if module:
+        #    if module in attrs_by_group:
+        #        self.data.require_group(module, overwrite=overwrite)
+        #        self.data[module].attrs.put(attrs_by_group[module])    
+        #    else:
+        #        sys.exit("[X] Specified module does not exist.")
+        #else:
+        #    for group, attrs in attrs_by_group.items():
+        #        self.data.require_group(group, overwrite=overwrite)
+        #        self.data[group].attrs.put(attrs_by_group[group])
+#
     def _is_zarr_group(self, name, subgroup=None):
         if not subgroup:
             return name in list(self.data.group_keys())
@@ -1074,7 +1078,17 @@ class Store(object):
         #count_intervals = len(intervals_df.index)
         #count_samples = len(query_samples)
 
-    def setup(self, parameterObj):
+    def setup_sim(self, parameterObj):
+        print("[#] Preparing store...")
+        self._init_meta(overwrite=True)
+
+    def setup_debug(self, parameterObj):
+        print("[#] Preparing store...")
+        self._init_meta(overwrite=True)
+        self._set_bsfs(parameterObj)
+        # inference can be done on ETP-counts
+
+    def setup_seq(self, parameterObj):
         print("[#] Preparing store...")
         self._init_meta(overwrite=True)
         print("[#] Processing GENOME_FILE %r..." % parameterObj.genome_f)
