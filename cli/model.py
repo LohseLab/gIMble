@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gIMble model -s <STR> [-n <STR> -j <STR> -m <STR> -p <INT> -c --nograph --nomodel --noyaml] [-h|--help]
+"""usage: gIMble model -s <STR> [-n <STR> -j <STR> -m <STR> -p <INT> -c --nograph --nomodel --noini] [-h|--help]
 
     Options:
         -h --help                         show this
@@ -12,7 +12,7 @@
         -m, --migration_string <STR>      Migration string, e.g. 'A>B' or 'B<A' [default: '']
         --nomodel                         No model output
         --nograph                         No graph output 
-        --noyaml                          No yaml output 
+        --noini                           No INI config output 
 """
 
 from docopt import docopt
@@ -53,7 +53,7 @@ class ModelParameterObj(lib.gimble.ParameterObj):
         self.out_prefix = self._get_outprefix()
         self.model_output = False if args['--nomodel'] else True 
         self.graph_output = False if args['--nograph'] else True
-        self.yaml_output = False if args['--noyaml'] else True
+        self.yaml_output = False if args['--noini'] else True
         #print(self.__dict__) 
 
     def _get_outprefix(self):
@@ -115,7 +115,6 @@ def main(params):
         stateGraph = lib.model.graph_generator(parameterObj)
         if parameterObj.model_output:
             stateGraph.write_model(parameterObj)
-            #stateGraph.write_yaml(parameterObj)
             stateGraph.write_config(parameterObj)
         if parameterObj.graph_output:
             stateGraph.plot_dot_graph(parameterObj)
