@@ -1,6 +1,7 @@
 import itertools
 import sys
 import sage.all
+import sage.parallel.multiprocessing_sage
 import pandas as pd
 import collections
 import numpy as np
@@ -393,13 +394,15 @@ class EquationSystemObj(object):
     def calculate_all_ETPs(self):
         #iterate over zip(self.rate_by_variable, self.split_times)
         self.ETPs = [] 
+        """
         for rates, split_time in zip(self.rate_by_variable, self.split_times):
             self.ETPs.append(self.calculate_ETPs(rates, split_time))
         self.ETPs = np.array(self.ETPs)
-
-    def calculate_ETPs(self, rates=None, split_time=None, threads=1):
-        print("[=] ==================================================")
-        print("[+] Calculating ETPs ...")
+    
+    def calculate_ETPs(self, rates=None, split_time=None, threads=1, verbose=True):
+        verboseprint = print if verbose else lambda *a, **k: None
+        verboseprint("[=] ==================================================")
+        verboseprint("[+] Calculating ETPs ...")
         #print(f'rates sage vars: {rates}')
         parameter_batches = []
         for equationObj in self.equationObjs:
@@ -407,7 +410,7 @@ class EquationSystemObj(object):
         desc = "[%] Solving equations"
         equationObj_by_matrix_idx = {}
         if threads <= 1:
-            for parameter_batch in tqdm(parameter_batches, desc=desc, ncols=100):
+            for parameter_batch in tqdm(parameter_batches, desc=desc, ncols=100, disable=not verbose):
                 equationObj = calculate_inverse_laplace(parameter_batch)
                 equationObj_by_matrix_idx[equationObj.matrix_idx] = equationObj
         else:
@@ -419,7 +422,7 @@ class EquationSystemObj(object):
             Maybe the solution is to import multiprocessing library under a different name? so that it does not clash
             '''
             with poolcontext(processes=threads) as pool:
-                with tqdm(parameter_batches, desc=desc, ncols=100) as pbar:
+                with tqdm(parameter_batches, desc=desc, ncols=100, disable=not verbose) as pbar:
                     for resultObj in pool.imap_unordered(calculate_inverse_laplace, parameter_batches):
                         equationObj_by_matrix_idx[resultObj.matrix_idx] = resultObj
                         pbar.update()
@@ -429,11 +432,12 @@ class EquationSystemObj(object):
                 ETPs[matrix_id] = equationObj.result
             else:
                 ETPs[matrix_id] = equationObj.result - sum(ETPs[equationObj.marginal_idx].flatten())
-            print(matrix_id, ETPs[matrix_id])
-        if not math.isclose(np.sum(ETPs.flatten()), 1, rel_tol=1e-5):
-            print("[-] sum(ETPs) != 1 (rel_tol=1e-5)")
-        else:
-            print("[+] sum(ETPs) == 1 ")
+            verboseprint(matrix_id, ETPs[matrix_id])
+        if verbose:
+            if not math.isclose(np.sum(ETPs.flatten()), 1, rel_tol=1e-5):
+                print("[-] sum(ETPs) != 1 (rel_tol=1e-5)")
+            else:
+                print("[+] sum(ETPs) == 1 ")
         return ETPs
 
     #def optimise_parameters(symbolic_equations_by_mutuple, mutuple_count_matrix, parameterObj):
