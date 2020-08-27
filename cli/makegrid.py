@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gIMble makegrid -c <FILE> -m <FILE> -z <FILE> [-b <INT>] [-t <INT>] [-h|--help]
+"""usage: gIMble makegrid -c <FILE> -m <FILE> [-z <FILE>] [-p <STR> -b <INT>] [-t <INT>] [-h|--help]
                                             
     Options:
         -h --help                                show this
@@ -9,6 +9,7 @@
         -m, --model_file <FILE>                  Model file
         -z, --zarr <FILE>                        Path to zarr store
         -b, --blocklength <INT>                  Blocklength
+        -o, --outprefix <STR>                    Prefix to use for gimble store [default: gimble]
         -t, --threads <INT>                      Threads [default: 1]
         
 """
@@ -63,10 +64,8 @@ class MakeGridParameterObj(lib.gimble.ParameterObj):
 
     def __init__(self, params, args):
         super().__init__(params)
-        self.zarr_not_existing, self.zstore = self._get_path(args["--zarr"])
+        self.not_existing, self.zstore = self._get_path(args["--zarr"])
         self.block_length= self._get_int(args['--blocklength'], ret_none=True)
-        if not (self.block_length or self.zstore):
-            sys.exit('[X] Provide either blocklength or zarr store with block length in attrs.')
         _, self.config_file = self._get_path(args['--config_file'], doesNotExistError=True)
         _, self.model_file = self._get_path(args['--model_file'], doesNotExistError=True)
         #self.grid_path = self._verify_parent(args['--grid_file'])
@@ -95,23 +94,34 @@ def main(params):
         start_time = timer()
         args = docopt(__doc__)
         parameterObj = MakeGridParameterObj(params, args)
+        '''
+        Workflows
+            - a : we have datastore, seqs 
+                Args z: 
+                    does z exist, get blocklength
+
+            - b : we have datastore, sims
+                Args z:
+                    does z exist, get blocklength
+            - c : we have no datastore
+                Args p+b 
+        '''
         print("[+] Generated all parameter combinations.") #in parameterObj.grid
         
         equationSystem = lib.math.EquationSystemObj(parameterObj)
+        print(f'rates by variable: {equationSystem.rate_by_variable}')
+        print(f'split times:{equationSystem.split_times}')
+        
         #build the equations
         equationSystem.initiate_model()
         equationSystem.calculate_all_ETPs()
-        
+        sys.exit()
         #for zarr store: require grid
-        gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=parameterObj.zarr_not_existing)
-        gimbleStore.data.require_group('grids')
-        if parameterObj.zarr_not_existing:
-            gridcount = 0
-        else:
-            gridcount = gimbleStore._return_group_last_integer('grids')
-        paramdict = {i:paramset for i, paramset in enumerate(parameterObj.grid)}
-        g = gimbleStore.data['grids'].create_dataset(f'grid_{gridcount}', data=equationSystem.ETPs)
-        g.attrs.put(paramdict)
+        gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=parameterObj.not_existing)
+        gimbleStore.require('makegrid')
+        for idx, (paramset,ETP) in enumerate(zip(paramObj.grid, equationSystem.ETPs)):
+            g = gimbleStore.data['makegrid'].create_dataset(f'parameterset_{idx}', data=ETP)
+            g.attrs.put(paramset)
 
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:

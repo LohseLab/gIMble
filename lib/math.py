@@ -165,6 +165,7 @@ def calculate_inverse_laplace(params):
     - or is there a way to sort out model-coherenece as pre-flight check? 
     '''
     equationObj, rates, split_time, dummy_variable = params
+    #print(equationObj, rates, split_time, dummy_variable)
     equation = (equationObj.equation).substitute(rates)
     if split_time is None:
         equationObj.result = equation
@@ -224,7 +225,7 @@ class EquationSystemObj(object):
         '''
         #parameters
         self.threads = parameterObj.threads
-        self.k_max_by_mutype = parameterObj._config['k_max'] if legacy else parameterObj.config['k_max']
+        self.k_max_by_mutype = parameterObj.config['k_max'] #if legacy else parameterObj.config['k_max']
         self.mutypes = sorted(self.k_max_by_mutype.keys())
         #needed to generate the equationObjs
         self.model_file = parameterObj.model_file
@@ -348,7 +349,7 @@ class EquationSystemObj(object):
 
     def _get_user_rate_by_event(self, parameterObj):
         user_rate_by_event = {}
-        for event, rate in parameterObj._config['parameters'].items():
+        for event, rate in parameterObj.config['parameters'].items():
             user_rate_by_event[event] = sage.all.Rational(float(rate))
         return user_rate_by_event
 
@@ -393,7 +394,6 @@ class EquationSystemObj(object):
         #iterate over zip(self.rate_by_variable, self.split_times)
         self.ETPs = [] 
         for rates, split_time in zip(self.rate_by_variable, self.split_times):
-            #print("HEEEERE", rates, split_time)
             self.ETPs.append(self.calculate_ETPs(rates, split_time))
         self.ETPs = np.array(self.ETPs)
 
@@ -403,10 +403,6 @@ class EquationSystemObj(object):
         #print(f'rates sage vars: {rates}')
         parameter_batches = []
         for equationObj in self.equationObjs:
-            if rates is None: 
-                rates = {**self.rate_by_event, **self.rate_by_mutation}
-                split_time = self.split_times[0]
-            #print((equationObj, rates, split_time, self.dummy_variable))
             parameter_batches.append((equationObj, rates, split_time, self.dummy_variable))
         desc = "[%] Solving equations"
         equationObj_by_matrix_idx = {}

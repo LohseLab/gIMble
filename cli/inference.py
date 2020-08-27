@@ -121,9 +121,10 @@ class InferenceParameterObj(lib.gimble.ParameterObj):
         self.model_file = self._get_path(args['--model_file'])
         self.config_file = self._get_path(args['--config_file'])
         self.threads = self._get_int(args['--threads'])
-        self._config = self._get_or_write_config()
+        self.config = self._parse_config(self.config_file)
         self.data_type = self._get_datatype([args['--blocks'], args['--windows']])
         self.probcheck_file = self._get_path(args['--probcheck']) if args['--probcheck'] is not None else None
+        self._process_config()
 
     def _get_datatype(self, args):
         if not any(args):
@@ -228,15 +229,15 @@ class InferenceParameterObj(lib.gimble.ParameterObj):
         '''
         - no need to be an "actual" grid
         '''
-        if len(self._config["parameters"])>0:
-            for key, value in self._config["parameters"].items():
+        if len(self.config["parameters"])>0:
+            for key, value in self.config["parameters"].items():
                 if len(value) > 1 and key!="recombination":
                     assert len(value) >= 3, "MIN, MAX and STEPSIZE need to be specified"
                     sim_range = np.arange(value[0], value[1]+value[2], value[2], dtype=float)
                     if len(value)==4:
                         if not any(np.isin(sim_range, value[3])):
                             print(f"[-] Specified range for {key} does not contain specified grid center value")  
-                    self._config["parameters"][key] = sim_range
+                    self.config["parameters"][key] = sim_range
 
 def param_generator(pcentre, pmin, pmax, psamples, distr):
     starts = [pmin, pcentre]
@@ -255,27 +256,30 @@ def main(params):
         #log = lib.log.get_logger(params)
         parameterObj = InferenceParameterObj(params, args)
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
-        #data = gimbleStore.get_bsfs_matrix(
-        #    data='blocks', 
-        #    population_by_letter=parameterObj._config['population_ids'], 
-        #    sample_set_type='inter', 
-        #    kmax_by_mutype=parameterObj._config['k_max'])
-        #import numpy as np
+        print(parameterObj.__dict__)
+        data = gimbleStore.get_bsfs_matrix(
+            data='blocks', 
+            population_by_letter={
+                pop_id: parameterObj.config['populations'][pop_id] for pop_id in parameterObj.config['populations']['sample_pop_ids']}, 
+            sample_set_type='inter', 
+            kmax_by_mutype=parameterObj.config['k_max'])
+        import numpy as np
         #print('data.shape', data.shape, 'np.sum(data)', np.sum(data))
         #data = lib.math.get_data_array(parameterObj)
         #print(data)
-        equationSystem = lib.math.EquationSystemObj(parameterObj, legacy=True)
+        equationSystem = lib.math.EquationSystemObj(parameterObj, legacy=False)
         equationSystem.info()
         equationSystem.initiate_model()
-        ETPs = equationSystem.calculate_ETPs()
+        equationSystem.calculate_all_ETPs()
         if parameterObj.probcheck_file is not None:
             equationSystem.check_ETPs()
-        sys.exit()
-        ETP_log = np.zeros(ETPs.shape)
-        np.log(ETPs, where=ETPs>0, out=ETP_log)
-        composite_likelihood = np.sum(ETP_log * data)
-        print('[+] L=%s' % (composite_likelihood))
-        print("[*] Total runtime: %.3fs" % (timer() - start_time))
+        ETPs = equationSystem.ETPs
+        for ETP in ETPs:
+            ETP_log = np.zeros(equationSystem.ETPs.shape)
+            np.log(ETP, where=ETPs>0, out=ETP_log)
+            composite_likelihood = np.sum(ETP_log * data)
+            print('[+] L=%s' % (composite_likelihood))
+            print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
         print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
         exit(-1)
