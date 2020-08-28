@@ -412,8 +412,10 @@ class ParameterObj(object):
     def _expand_params(self):
         if len(self.config['parameters'])>0:
             for key, value in self.config['parameters'].items():
-                if isinstance(value, float):
+                if isinstance(value, float) or isinstance(value, int):
                     self.config['parameters'][key] = [value,]
+                elif key=='recombination':
+                    pass
                 else:
                     midv, minv, maxv, n, scale = value
                     if scale.startswith('lin'):
@@ -438,6 +440,23 @@ class ParameterObj(object):
         left = np.logspace(plogmin, plogcentre, num=left, endpoint=False, dtype=np.float64)
         right = np.logspace(plogcentre, plogmax, num=right, endpoint=True, dtype=np.float64)
         return np.unique(np.concatenate([left, right]))
+
+    def _get_blocks_length(self, zstore=None):
+        blocks_length_zarr = None
+        blocks_length_ini = self._get_int(self.config['mu']['blocklength'], ret_none=True)
+        if zstore:
+            z = zarr.open(self.zstore, mode='r')
+            blocks_length_zarr =  z['seqs'].attrs.get('blocks_length')
+        if blocks_length_zarr and blocks_length_ini:
+            if blocks_length_zarr != blocks_length_ini:
+                print("[-] block length in ini file and used in GStore differ. Using blocks_length_ini.")
+                return blocks_length_ini
+        if blocks_length_ini:
+            return blocks_length_ini
+        elif blocks_length_zarr:
+            return blocks_length_zarr
+        else:
+            sys.exit("[X] Blocklength needs to be specified in ini file.")
 
     def _get_int(self, string, ret_none=False):
         try:
@@ -468,6 +487,42 @@ class ParameterObj(object):
         if not path.exists():
             sys.exit("[X] File not found: %r" % str(infile))
         return str(path)
+
+    def _get_prefix(self, prefix):
+        if prefix is None:
+            return None
+        path = pathlib.Path(prefix).resolve()
+        new_path = pathlib.Path(prefix+'.z').resolve()
+        if new_path.exists():
+            sys.exit("[X] zstore already exists. Specify using -z or provide new prefix.")
+        parent_path = pathlib.Path(prefix).resolve().parent
+        if not parent_path.exists():
+            sys.exit("[X] File not found: %r" % str(infile))
+        return str(path)
+
+
+    def _get_pops_to_sync(self):
+        reference, to_be_synced = None, None
+        syncing =  self.config['populations']['sync_pop_sizes']
+        if syncing:
+            if len(syncing)>0:
+                syncing = syncing.split(',')
+                reference = syncing[0]
+                to_be_synced = syncing[1:]
+                if any(isinstance(self.config['parameters'][f'Ne_{pop}'], list) for pop in to_be_synced):
+                    print(f"[-] Ne_{pop} is specified in config file but synced with Ne_{reference}.")
+        return (reference, to_be_synced)
+
+    def _remove_pop_from_dict(self, toRemove):
+        if toRemove:
+            for pop in toRemove:
+                del self.config['parameters'][f'Ne_{pop}']
+
+    def _sync_pop_sizes(self, reference, toBeSynced):
+        if toBeSynced and reference:
+            for pop in toBeSynced:
+                for paramCombo in self.parameter_combinations:
+                    paramCombo[f'Ne_{pop}'] = paramCombo[f'Ne_{reference}']
 
     def _verify_parent(self, infile):
         if infile is None:
@@ -514,7 +569,10 @@ class ParameterObj(object):
                 'valuesrules': {'required': True, 'empty':False, 'type': 'integer', 'min': 1, 'coerce':int}},
             'mu': {
                 'type':'dict', 
-                'valuesrules': {'required': False, 'empty':True, 'type': 'float', 'coerce':float}},
+                'schema':{
+                    'mu': {'required': False, 'empty':True, 'type': 'float', 'coerce':float},
+                    'blocklength': {'required': False, 'empty':True, 'type': 'integer', 'coerce':int}
+                    }},
             'parameters': {
                 'type': 'dict', 'required':True, 'empty':False, 
                 'valuesrules': {'coerce':'float_or_list', 'notNone':True}
@@ -539,6 +597,13 @@ class ParameterObj(object):
                     'cutoff': {'empty': True, 'notNoneFloat': True, 'coerce':'float_or_empty', 'min':0},
                     'scale': {'empty':True, 'type':'string', 'allowed':['lin', 'log']}
                 }}
+            schema['mu'] = {
+                'type':'dict', 
+                'schema':{
+                    'mu': {'required': True, 'empty':False, 'type': 'float', 'coerce':float},
+                    'blocklength': {'required': False, 'empty':True, 'min':1, 'type': 'integer', 'coerce':int}
+                    }}
+
         sync_pops = config["populations"]["sync_pop_sizes"].strip(" ")
         valid_sync_pops = [population.strip(" ") for population in possible_values_dict["populations"]["# possible values sync_pop_sizes"].split("|")]
         if sync_pops in valid_sync_pops:
@@ -563,67 +628,25 @@ class ParameterObj(object):
         return config
 
     def _process_config(self):
-        if self._MODULE=='makegrid':
+        if self._MODULE in ['makegrid', 'inference', 'simulate']:
+            self.config['mu']['blockslength'] = self._get_blocks_length(self.zstore)
             self.config['parameters']['mu'] = self.config['mu']['mu']
             self._expand_params()
-            self.grid = self._dict_product()
-            if self._MODULE == 'makegrid':
-                reference_pop = self.config['populations']['reference_pop']
-                self.grid = [self._scale_param_combo(combo, reference_pop) for combo in self.grid]
-        elif self._MODULE=='inference':
-            try:
-                z = zarr.open(self.zstore, mode='r')
-                self.block_length = z['seqs'].attrs['blocks_length']
-            except KeyError:
-                sys.exit("No block length in zstore meta-data. Provide blocklength to makegrid.")
-            self.config['parameters']['mu'] = self.config['mu']['mu']
-            self._expand_params()
-            self.grid = self._dict_product()
-            if self._MODULE == 'inference':
-                reference_pop = self.config['populations']['reference_pop']
-                self.grid = [self._scale_param_combo(combo, reference_pop) for combo in self.grid]
+            reference, toBeSynced = self._get_pops_to_sync()
+            self._remove_pop_from_dict(toBeSynced)
+            self.parameter_combinations = self._dict_product()
+            self._sync_pop_sizes(reference, toBeSynced)
+            
         else:
             sys.exit("[X] Not implemented yet.")    
-
-    def _scale_param_combo(self, combo, reference_pop):
-        # gimble inference grid:
-        #Ne = theta/4mu 
-        #theta_block = theta * block_length
-        #Ne_A, Ne_B, Ne_A_B = Ne/C_A, Ne/C_B, Ne/C_A_B
-        #T = 2Ne*tau
-        #M = 4Ne*m_e
-        rdict = {}
-        if self._MODULE in ['makegrid', 'inference']:
-            if self.block_length:
-                block_length = self.block_length
-            else:
-                try:
-                    z = zarr.open(self.zstore, mode='r')
-                    block_length = z['seqs'].attrs['blocklength']
-                except KeyError:
-                    sys.exit("No block length in zstore meta-data. Provide blocklength to makegrid.")
-            Ne_ref = combo[f"Ne_{reference_pop}"]
-            rdict['theta'] = 4*Ne_ref*combo['mu']*block_length
-            rdict['C_A']=Ne_ref/combo['Ne_A']
-            rdict['C_B'] = Ne_ref/combo['Ne_B']
-            if 'Ne_A_B' in combo:
-                rdict['C_A_B'] = Ne_ref/combo['Ne_A_B'] #if present
-            if 'T' in combo:
-                rdict['T'] = combo['T']/(2*Ne_ref)
-            mig_dir = [key for key in combo.keys() if key.startswith("me_")]
-            if mig_dir:
-                mig_dir = mig_dir[0]
-                mig_pop = mig_dir.lstrip("me_")
-                rdict[f'M_{mig_pop}'] = 4*Ne_ref*combo[mig_dir]
-            return rdict
-        else:
-            raise NotImplmentedError
 
 class Store(object):
     def __init__(self, prefix=None, path=None, create=False, overwrite=False):
         self.prefix = prefix if not prefix is None else str(pathlib.Path(path).resolve().stem)
         self.path = path if not path is None else "%s.z" % prefix
         self.data = self._init_data(create, overwrite)
+        if create:
+            self._init_meta(overwrite=overwrite)
 
     def tree(self):
         print(self.data.tree())
@@ -902,28 +925,14 @@ class Store(object):
                 'window_count': 0, 
                 'windows_by_sample_set': {}
             },
-            'inference': {
-                'grid' : None
-            },
-            'sims': {
-                'run_count': 0
-            }
+            'inference': {},
+            'grids': {},
+            'sims': {},
         }
         for group, attrs in attrs_by_group.items():
             self.data.require_group(group, overwrite=overwrite)
             self.data[group].attrs.put(attrs_by_group[group])
 
-        #if module:
-        #    if module in attrs_by_group:
-        #        self.data.require_group(module, overwrite=overwrite)
-        #        self.data[module].attrs.put(attrs_by_group[module])    
-        #    else:
-        #        sys.exit("[X] Specified module does not exist.")
-        #else:
-        #    for group, attrs in attrs_by_group.items():
-        #        self.data.require_group(group, overwrite=overwrite)
-        #        self.data[group].attrs.put(attrs_by_group[group])
-#
     def _is_zarr_group(self, name, subgroup=None):
         if not subgroup:
             return name in list(self.data.group_keys())
@@ -1326,10 +1335,7 @@ class Store(object):
     def _preflight_simulate(self, parameterObj):
         if 'sims' not in self.data.group_keys():
             self._init_meta(overwrite=False, module='sims')
-        self.data['sims'].attrs['run_count'] += 1
-        new_run_number = self.data['sims'].attrs['run_count']
-        self.data.create_group(f'sims/run_{new_run_number}')
-
+        
     def _make_windows(self, parameterObj, cartesian_only=True):
         meta = self.data['seqs'].attrs
         meta['window_size'] = parameterObj.window_size
