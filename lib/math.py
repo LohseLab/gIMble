@@ -235,10 +235,11 @@ class EquationSystemObj(object):
         self.dummy_variable = self._get_dummy_variable() 
         self.equation_batch_by_idx = collections.defaultdict(list)
         self.ETPs=None
+        self.scaled_parameter_combinations = self._scale_all_parameter_combinations(parameterObj) 
 
         if not legacy:
-            self.rate_by_variable = [self._get_base_rate_by_variable(params) for params in parameterObj.grid]
-            self.split_times = [self._get_split_time(params) for params in parameterObj.grid]
+            self.rate_by_variable = [self._get_base_rate_by_variable(params) for params in self.scaled_parameter_combinations]
+            self.split_times = [self._get_split_time(params) for params in self.scaled_parameter_combinations]
         
         else:  
             #user provided rates, legacy code
@@ -371,6 +372,31 @@ class EquationSystemObj(object):
                 base_rate_by_variable[sage.all.SR.var(event)] = sage.all.SR.var(event)
         return base_rate_by_variable
 
+    def _scale_all_parameter_combinations(self, parameterObj):
+        reference_pop = parameterObj.config['populations']['reference_pop']
+        block_length = sage.all.Rational(parameterObj.config['mu']['blocklength'])
+        return [self._scale_parameter_combination(combo, reference_pop, block_length, parameterObj) for combo in parameterObj.parameter_combinations]
+
+    def _scale_parameter_combination(self, combo, reference_pop, block_length, parameterObj):
+        rdict = {}
+        if parameterObj._MODULE in ['makegrid', 'inference']:
+            Ne_ref = sage.all.Rational(combo[f"Ne_{reference_pop}"])
+            rdict['theta'] = 4*sage.all.Rational(Ne_ref*combo['mu'])*block_length
+            rdict['C_A']=Ne_ref/sage.all.Rational(combo['Ne_A'])
+            rdict['C_B'] = Ne_ref/sage.all.Rational(combo['Ne_B'])
+            if 'Ne_A_B' in combo:
+                rdict['C_A_B'] = Ne_ref/sage.all.Rational(combo['Ne_A_B'])
+            if 'T' in combo:
+                rdict['T'] = sage.all.Rational(combo['T'])/(2*Ne_ref)
+            mig_dir = [key for key in combo.keys() if key.startswith("me_")]
+            if mig_dir:
+                mig_dir = mig_dir[0]
+                mig_pop = mig_dir.lstrip("me_")
+                rdict[f'M_{mig_pop}'] = 4*Ne_ref*sage.all.Rational(combo[mig_dir])
+            return rdict
+        else:
+            return parameterObj.parameter_combinations
+
 
     def initiate_model(self, check_monomorphic=True):
         print("[=] ==================================================")
@@ -393,11 +419,10 @@ class EquationSystemObj(object):
 
     def calculate_all_ETPs(self):
         #iterate over zip(self.rate_by_variable, self.split_times)
-        self.ETPs = [] 
-        """
+        ETPs = []
         for rates, split_time in zip(self.rate_by_variable, self.split_times):
-            self.ETPs.append(self.calculate_ETPs(rates, split_time))
-        self.ETPs = np.array(self.ETPs)
+            ETPs.append(self.calculate_ETPs(rates, split_time))
+        return np.array(ETPs)
     
     def calculate_ETPs(self, rates=None, split_time=None, threads=1, verbose=True):
         verboseprint = print if verbose else lambda *a, **k: None

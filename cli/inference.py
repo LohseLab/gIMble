@@ -270,7 +270,7 @@ def main(params):
         equationSystem = lib.math.EquationSystemObj(parameterObj, legacy=False)
         equationSystem.info()
         equationSystem.initiate_model()
-        equationSystem.calculate_all_ETPs()
+        equationSystem.ETPs = equationSystem.calculate_all_ETPs()
         if parameterObj.probcheck_file is not None:
             equationSystem.check_ETPs()
         ETPs = equationSystem.ETPs

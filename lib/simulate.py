@@ -17,11 +17,11 @@ import collections
 def run_sim(parameterObj, gimbleStore):
     threads = parameterObj.threads
     global_info = parameterObj.config["simulations"]
+    blocklength = parameterObj.config['mu']['blocklength']
     ploidy = global_info["ploidy"]
     blocks = global_info["blocks"]
-    blocklength = global_info["blocklength"]
     replicates = global_info["replicates"]
-    sim_configs = parameterObj.grid
+    sim_configs = parameterObj.parameter_combinations
     global_info['sample_pop_ids'] = parameterObj.config['populations']['sample_pop_ids']
     A,B = global_info['sample_pop_ids']
     global_info['reference_pop'] = parameterObj.config['populations']['reference_pop']
@@ -156,7 +156,7 @@ def run_ind_sim(
         demographic_events=demographic_events,
         migration_matrix=migration_matrix,
         mutation_rate=mu,
-        random_seed=seed, #error was when 3582573439
+        random_seed=seed,
     )
     
     """
@@ -216,10 +216,6 @@ def get_genotypes(ts, ploidy, num_samples):
         return np.zeros((1,num_samples, ploidy), dtype='int8')
     shape = (ts.num_mutations, num_samples, ploidy)
     return np.reshape(ts.genotype_matrix(), shape)
-
-def dict_product(d):
-    if len(d)>0:
-        return [dict(zip(d, x)) for x in itertools.product(*d.values())]
 
 def all_interpopulation_comparisons(popA, popB):
     return list(itertools.product(range(popA), range(popA, popA + popB)))

@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gIMble simulate                   -z DIR
-                                            [-c FILE] 
-                                            [-b INT] [-r INT]
+"""usage: gIMble simulate                   [-z DIR] [-o DIR | -b INT]
+                                            -c FILE 
+                                            [-r INT]
                                             [-t INT] [-h|--help]
                                             
     Options:
         -h --help                                   show this
-        -z, --zarr DIR                            Path to zarr store
+        -z, --zarr DIR                              Path to zarr store
+        -o, --outprefix DIR                            prefix to make new zarr store
         -c, --config_file FILE                      Config file with parameters (if not present, empty config file is created)
         -b, --blocks INT                            Number of blocks per replicate
         -r, --replicates INT                        Number of replicates per parametercombo
@@ -47,28 +48,15 @@ class SimulateParameterObj(lib.gimble.ParameterObj):
 
     def __init__(self, params, args):
         super().__init__(params)
-        self.config_file = self._get_path(args["--config_file"], doesNotExistError=True)[1]
+        self.config_file = self._get_path(args["--config_file"])
+        self.zstore = self._get_path(args["--zarr"])
+        self.prefix = self._get_prefix(args["--outprefix"])
         self.threads = self._get_int(args["--threads"])
-        self.not_existing, self.zstore = self._get_path(args["--zarr"])
-        self._get_or_write_config(args["--blocks"], args["--replicates"])
+        self._set_or_write_config(args["--blocks"], args["--replicates"])
+        self._set_recombination_rate()
+        self._process_config()  
 
-    def _get_path(self, infile, doesNotExistError=False):
-        if infile is None:
-            return None
-        path = pathlib.Path(infile).resolve()
-        if not path.exists():
-            if doesNotExistError:
-                sys.exit("[X] File not found: %r" % str(infile))
-            else:
-                parent_path=pathlib.Path(path.parent).resolve()
-                if not parent_path.exists():
-                    sys.exit("[X] Parent directory not found: %r" % str(parent_path))
-                else:
-                    print("[+] Creating new zarr store.")
-                    return (True, str(path))
-        return (False, str(path))
-
-    def _get_or_write_config(self, blocks, replicates):
+    def _set_or_write_config(self, blocks, replicates):
         #in case no config file is provided
         if self.config_file is None:
             print("[-] No config file found.")
@@ -83,19 +71,17 @@ class SimulateParameterObj(lib.gimble.ParameterObj):
                 replicates = self._get_int(replicates)
                 self.config['simulations']['replicates'] = replicates
 
-            self._expand_params()
-            #add recombination rate to parameters
-            rmap_path = self.config["simulations"]["recombination_map"]
-            if os.path.isfile(rmap_path):
-                #check validity of recombinatin map in _parse_recombination_map()
-                rbins = self.config["simulations"]["number_bins"]
-                cutoff = self.config["simulations"]["cutoff"]
-                scale = self.config["simulations"]["scale"]
-                window_bin, to_be_simulated = self._parse_recombination_map(rmap_path, cutoff, rbins, scale)
-                self.config["parameters"]["recombination"] = to_be_simulated
-            else:
-                self.config["parameters"]["recombination"] = [self.config["simulations"]["recombination_rate"]]
-            self.grid = self._dict_product()
+    def _set_recombination_rate(self):        
+        rmap_path = self.config["simulations"]["recombination_map"]
+        if os.path.isfile(rmap_path):
+            #check validity of recombinatin map in _parse_recombination_map()
+            rbins = self.config["simulations"]["number_bins"]
+            cutoff = self.config["simulations"]["cutoff"]
+            scale = self.config["simulations"]["scale"]
+            window_bin, to_be_simulated = self._parse_recombination_map(rmap_path, cutoff, rbins, scale)
+            self.config["parameters"]["recombination"] = to_be_simulated
+        else:
+            self.config["parameters"]["recombination"] = [self.config["simulations"]["recombination_rate"]]
 
     def _parse_recombination_map(self, v, cutoff, bins, scale):
         #load bedfile
@@ -132,7 +118,7 @@ class SimulateParameterObj(lib.gimble.ParameterObj):
         window_bin = np.digitize(clip_array, bin_edges, right=True)
         return (window_bin, list(to_be_simulated))
 
-    def _check_recombination_map(self, store, df):
+    def _validate_recombination_map(self, store, df):
         starts = store.data[chrom]['windows/starts'][:]
         ends = store.data[chrom]['windows/ends'][:]
         if set(starts) != set(df['starts']):
@@ -140,37 +126,18 @@ class SimulateParameterObj(lib.gimble.ParameterObj):
         if set(ends) != set(df['ends']):
             sys.exit("[X] Ends recombination map do not match window coordinates")
 
-    def _generate_parameter_grid(self):
-        parameters_df = None
-        if len(self._config["parameters"])>0:
-            self._expand_params()
-            sim_configs = self._dict_product()
-            parameters_df = pd.DataFrame(sim_configs)
-        if not self.parameter_grid.empty:
-            if len(self._config["parameters"])>0:
-                for df in [parameters_df, self.parameter_grid]:
-                    df['key'] = 1
-                parameters_df = pd.merge(parameters_df, self.parameter_grid,on='key')
-                parameters_df.drop(['key',], inplace=True, axis=1)
-                sim_configs = parameters_df.to_dict(orient='records')
-            else:
-                sim_configs = self.parameter_grid.to_dict(orient='records')
-        self._dump_parameters_df(parameters_df)
-        return sim_configs
-        
-    def _dump_parameters_df(self, parameters_df):
-        #save parameters file
-        csv_path = os.path.split(self.zstore)[0]+f'/run_{self.new_run_number}_parametergrid.tsv'
-        parameters_df.to_csv(csv_path, sep='\t')
-        print(f"[+] Saved parametergrid as {csv_path}")
-
 def main(params):
     try:
         start_time = timer()
         args = docopt(__doc__)
         parameterObj = SimulateParameterObj(params, args)
-        gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=parameterObj.not_existing)
-        gimbleStore.data.require_group('sims')
+        if parameterObj.zstore:
+            gimbleStore = lib.gimble.Store(path=parameterObj.zstore)
+        elif parameterObj.prefix:
+            gimbleStore = lib.gimble.Store(prefix=parameterObj.prefix, create=True)
+        else:
+            sys.exit("[X] No config and no prefix specified. Should have been caught.")
+        
         gimbleStore.simulate(parameterObj)
 
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
