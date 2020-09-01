@@ -405,9 +405,22 @@ class ParameterObj(object):
             self._get_cmd()
             ))
 
+    def _cast_to_repeated_list(self, x, repeat=1):
+        if isinstance(x, list):
+            return x
+        elif isinstance(x, str):
+            return [x]*repeat
+        try:
+            return list(x)*repeat
+        except TypeError:
+            return [x]*repeat
+
     def _dict_product(self):
         if len(self.config["parameters"])>0:
             return [dict(zip(self.config["parameters"], x)) for x in itertools.product(*self.config["parameters"].values())]
+
+    def _dict_zip(self, pdict):
+        return [dict(zip(pdict, x)) for x in zip(*pdict.values())]
 
     def _expand_params(self):
         if len(self.config['parameters'])>0:
@@ -509,8 +522,8 @@ class ParameterObj(object):
                 syncing = syncing.split(',')
                 reference = syncing[0]
                 to_be_synced = syncing[1:]
-                if any(isinstance(self.config['parameters'][f'Ne_{pop}'], list) for pop in to_be_synced):
-                    print(f"[-] Ne_{pop} is specified in config file but synced with Ne_{reference}.")
+                if any(isinstance(self.config['parameters'][f'Ne_{pop}'], list) or isinstance(self.config['parameters'][f'Ne_{pop}'], float) for pop in to_be_synced):
+                    print(f"[-] Ne_{', Ne_'.join(to_be_synced)} is specified in config file but synced with Ne_{reference}.")
         return (reference, to_be_synced)
 
     def _remove_pop_from_dict(self, toRemove):
@@ -523,6 +536,11 @@ class ParameterObj(object):
             for pop in toBeSynced:
                 for paramCombo in self.parameter_combinations:
                     paramCombo[f'Ne_{pop}'] = paramCombo[f'Ne_{reference}']
+
+    def _sync_pop_sizes_optimise(self, reference, toBeSynced):
+        if toBeSynced and reference:
+            for pop in toBeSynced:
+                self.config['parameters'][f'Ne_{pop}']=self.config['parameters'][f'Ne_{reference}']
 
     def _verify_parent(self, infile):
         if infile is None:
@@ -636,9 +654,20 @@ class ParameterObj(object):
             self._remove_pop_from_dict(toBeSynced)
             self.parameter_combinations = self._dict_product()
             self._sync_pop_sizes(reference, toBeSynced)
-            
+        elif self._MODULE=='optimise':
+            self.config['mu']['blockslength'] = self._get_blocks_length(self.zstore)
+            self.config['parameters']['mu'] = self.config['mu']['mu']
+            #parameters either float or [mid, min, max]
+            reference, toBeSynced = self._get_pops_to_sync()
+            self._sync_pop_sizes_optimise(reference, toBeSynced)
+            self.parameter_combinations = self._return_boundaries()
+            #ready to be scaled
         else:
-            sys.exit("[X] Not implemented yet.")    
+            sys.exit("[X] Not implemented yet.")
+
+    def _return_boundaries(self, length_boundary_set=3):
+        parameter_combinations = {k:self._cast_to_repeated_list(v, length_boundary_set)[:length_boundary_set] for k,v in self.config['parameters'].items()}    
+        return self._dict_zip(parameter_combinations)
 
 class Store(object):
     def __init__(self, prefix=None, path=None, create=False, overwrite=False):

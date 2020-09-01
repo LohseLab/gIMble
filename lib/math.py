@@ -12,7 +12,8 @@ from tqdm import tqdm
 import multiprocessing
 import contextlib
 import lib.gimble
-#from scipy.special import xlogy
+from functools import partial
+import nlopt
 
 #sage.all.numerical_approx(value, digits=1)
 
@@ -176,7 +177,22 @@ def calculate_inverse_laplace(params):
     return equationObj
 
 def calculate_composite_likelihood(ETPs, data):
-    return -np.sum((xlogy(np.sign(ETPs), ETPs) * data))
+    ETP_log = np.zeros(ETPs.shape)
+    np.log(ETPs, where=ETPs>0, out=ETP_log)
+    return np.sum(ETP_log * data)
+
+def objective_function(paramsToOptimise, grad, paramNames, fixedParams, equationObj, data, threads=4, verbose=False):
+    if grad.size:
+        raise ValueError('no optimization with derivatives implemented')
+    rates = {k:v for k,v in zip(paramNames, paramsToOptimise)}
+    rates = {**rates, **fixedParams}
+    split_time = rates['T']
+    del rates['T']
+    ETPs = equationObj.calculate_ETPs(rates=rates, split_time=split_time, threads=threads, verbose=verbose)
+
+    result =  calculate_composite_likelihood(ETPs, data)
+    print(result)
+    return result
 
 class Constructor(object):
     def __init__(self, constructor_id):
@@ -240,8 +256,7 @@ class EquationSystemObj(object):
         if not legacy:
             self.rate_by_variable = [self._get_base_rate_by_variable(params) for params in self.scaled_parameter_combinations]
             self.split_times = [self._get_split_time(params) for params in self.scaled_parameter_combinations]
-        
-        else:  
+        else:
             #user provided rates, legacy code
             self.user_rate_by_event = self._get_user_rate_by_event(parameterObj)
             self.base_rate_by_variable = self._get_base_rate_by_variable(self.user_rate_by_event)
@@ -251,15 +266,6 @@ class EquationSystemObj(object):
             self.rate_by_mutation = self._get_rate_by_variable(prefix=set(['m']))
             self.probcheck_file = parameterObj.probcheck_file
             #self.grid_points = self._get_grid_points(parameterObj) #should this contain all parameter combos?
-
-    def _get_grid_points(self, parameterObj):
-        '''parameterObj should already by scaled when this point is reached'''
-        config = parameterObj.config
-        if not parameterObj._MODULE == 'gridsearch':
-
-            return None
-
-
 
     def check_ETPs(self):
         '''
@@ -379,7 +385,7 @@ class EquationSystemObj(object):
 
     def _scale_parameter_combination(self, combo, reference_pop, block_length, parameterObj):
         rdict = {}
-        if parameterObj._MODULE in ['makegrid', 'inference']:
+        if parameterObj._MODULE in ['makegrid', 'inference','optimise']:
             Ne_ref = sage.all.Rational(combo[f"Ne_{reference_pop}"])
             rdict['theta'] = 4*sage.all.Rational(Ne_ref*combo['mu'])*block_length
             rdict['C_A']=Ne_ref/sage.all.Rational(combo['Ne_A'])
@@ -417,11 +423,11 @@ class EquationSystemObj(object):
         #    else:
         #        print("[+] Monomorphic check passed: P(monomorphic) = %s" % equationObj.result)
 
-    def calculate_all_ETPs(self):
+    def calculate_all_ETPs(self, threads=1):
         #iterate over zip(self.rate_by_variable, self.split_times)
         ETPs = []
         for rates, split_time in zip(self.rate_by_variable, self.split_times):
-            ETPs.append(self.calculate_ETPs(rates, split_time))
+            ETPs.append(self.calculate_ETPs(rates, split_time, threads=threads))
         return np.array(ETPs)
     
     def calculate_ETPs(self, rates=None, split_time=None, threads=1, verbose=True):
@@ -439,20 +445,12 @@ class EquationSystemObj(object):
                 equationObj = calculate_inverse_laplace(parameter_batch)
                 equationObj_by_matrix_idx[equationObj.matrix_idx] = equationObj
         else:
-            # This does not work due to problem with multiprocessing library
-            # replicate with `-t 2`
-            '''
-            pexpect.exceptions.ExceptionPexpect: isalive() encountered condition where "terminated" is 0, but there was no child process. Did someone else call waitpid() on our process?
-
-            Maybe the solution is to import multiprocessing library under a different name? so that it does not clash
-            '''
-            with poolcontext(processes=threads) as pool:
-                with tqdm(parameter_batches, desc=desc, ncols=100, disable=not verbose) as pbar:
-                    for resultObj in pool.imap_unordered(calculate_inverse_laplace, parameter_batches):
-                        equationObj_by_matrix_idx[resultObj.matrix_idx] = resultObj
-                        pbar.update()
+            parameter_batches = [((pbatch,),{}) for pbatch in parameter_batches]
+            result = sage.parallel.multiprocessing_sage.parallel_iter(threads,calculate_inverse_laplace,parameter_batches)
+            equationObj_by_matrix_idx = {equationObj.matrix_idx:equationObj for equationObj in [el[-1] for el in result]}
+        
         ETPs = np.zeros(tuple(self.k_max_by_mutype[mutype] + 2 for mutype in self.mutypes), np.float64)
-        for matrix_id, equationObj in equationObj_by_matrix_idx.items():
+        for matrix_id, equationObj in sorted(equationObj_by_matrix_idx.items()):
             if equationObj.marginal_idx is None:
                 ETPs[matrix_id] = equationObj.result
             else:
@@ -464,6 +462,60 @@ class EquationSystemObj(object):
             else:
                 print("[+] sum(ETPs) == 1 ")
         return ETPs
+
+    def optimise_parameters(self, data, maxeval, localOptimum=True):
+        algorithm = 'nlopt.LN_SBPLX'
+        print(f"[+] Running optimization. Algorithm: {algorithm}")
+        #seperate parameters that are fixed from those that are not
+        inverse_scaled_parameter_combinations = {k:[d[k] for d in self.rate_by_variable] for k in self.rate_by_variable[0].keys()}
+        boundaries = {k:sorted(v) for k,v in inverse_scaled_parameter_combinations.items() if len(set(v))==3}
+        boundaryNames = list(boundaries.keys())
+        fixedParams = {k:v[0] for k,v in inverse_scaled_parameter_combinations.items() if len(set(v))==1}
+        #figure out whether split time is fixed or not, add to boundaries or fixedParams
+        if len(set(self.split_times))==1:
+            fixedParams['T'] = self.split_times[0]
+        else:
+            boundaryNames.append('T')    
+            boundaries['T'] = sorted(self.split_times)
+        #boundaries
+        lower = np.array([boundaries[k][0] for k in boundaryNames])
+        upper = np.array([boundaries[k][2] for k in boundaryNames])
+        p0 =  np.array([boundaries[k][1] for k in boundaryNames])
+        
+        xtol_abs = 0.01
+        xtol_rel = 0.001
+        maxeval=maxeval
+        evalCounter = 0
+        specified_objective_function = partial(
+                objective_function,
+                paramNames=boundaryNames,
+                fixedParams=fixedParams,
+                equationObj=self,
+                data=data,
+                threads=4,
+                verbose=False
+                )
+
+        #opt = nlopt.opt(nlopt.G_MLSL_LDS, len(p0)) #nlopt.LN_NELDERMEAD, LN_SBPLX
+        opt = nlopt.opt(nlopt.LN_SBPLX, len(p0))
+        opt.set_lower_bounds(lower)
+        opt.set_upper_bounds(upper)
+        opt.set_max_objective(specified_objective_function)
+        opt.set_xtol_rel(xtol_rel)
+        opt.set_maxeval(200)
+        if localOptimum == True:
+            local_opt = nlopt.opt(nlopt.LN_SBPLX, len(p0))
+            local_opt.set_xtol_rel(xtol_rel)
+            local_opt.set_maxeval(10)
+            opt.set_local_optimizer(local_opt)
+        x=opt.optimize(p0)
+
+        minf = opt.last_optimum_value()
+        print(x)
+        print("optimum at ", x)
+        print("minimum value = ", minf)
+        print("result code = ", opt.last_optimize_result())
+        
 
     #def optimise_parameters(symbolic_equations_by_mutuple, mutuple_count_matrix, parameterObj):
     #    '''
