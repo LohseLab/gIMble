@@ -666,7 +666,7 @@ class ParameterObj(object):
             sys.exit("[X] Not implemented yet.")
 
     def _return_boundaries(self, length_boundary_set=3):
-        parameter_combinations = {k:_cast_to_repeated_list(v, length_boundary_set)[:length_boundary_set] for k,v in self.config['parameters'].items()}    
+        parameter_combinations = {k:self._cast_to_repeated_list(v, length_boundary_set)[:length_boundary_set] for k,v in self.config['parameters'].items()}    
         return self._dict_zip(parameter_combinations)
 
 class Store(object):
