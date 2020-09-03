@@ -14,6 +14,7 @@ import contextlib
 import lib.gimble
 from functools import partial
 import nlopt
+import concurrent.futures
 
 #sage.all.numerical_approx(value, digits=1)
 
@@ -188,7 +189,7 @@ def objective_function(paramsToOptimise, grad, paramNames, fixedParams, equation
     rates = {**rates, **fixedParams}
     split_time = rates['T']
     del rates['T']
-    ETPs = equationObj.calculate_ETPs(rates=rates, split_time=split_time, threads=threads, verbose=verbose)
+    ETPs = equationObj.calculate_ETPs((rates, split_time, threads, verbose))
 
     result =  calculate_composite_likelihood(ETPs, data)
     print(result)
@@ -404,11 +405,18 @@ class EquationSystemObj(object):
             return parameterObj.parameter_combinations
 
 
-    def initiate_model(self, check_monomorphic=True):
+    def initiate_model(self, parameterObj=None, check_monomorphic=True):
         print("[=] ==================================================")
         print("[+] Initiating model ...")
         self.equationObjs = self._get_equationObjs()
-
+        #syncing pop sizes (coalescence rates) in the equation, there must be a better way
+        #@Dom did not want to touch self._get_equationObjs() but could probably happen there
+        if parameterObj:
+            if parameterObj.reference and parameterObj.toBeSynced:
+                print(parameterObj.toBeSynced)
+                for equationObj in self.equationObjs:
+                    for tBS in parameterObj.toBeSynced:
+                        equationObj.equation = equationObj.equation.subs(sage.all.SR.symbol(f'C_{tBS}')==sage.all.SR.symbol(f'C_{parameterObj.reference}'))
         #if check_monomorphic:
         #    rates = {
         #        **{event: random.randint(1, 4) for event, rate in self.rate_by_event.items()}, 
@@ -423,14 +431,26 @@ class EquationSystemObj(object):
         #    else:
         #        print("[+] Monomorphic check passed: P(monomorphic) = %s" % equationObj.result)
 
-    def calculate_all_ETPs(self, threads=1):
-        #iterate over zip(self.rate_by_variable, self.split_times)
+    def calculate_all_ETPs(self, threads=1, gridThreads=1, verbose=True):
+        verboseprint = print if verbose else lambda *a, **k: None
+        
         ETPs = []
-        for rates, split_time in zip(self.rate_by_variable, self.split_times):
-            ETPs.append(self.calculate_ETPs(rates, split_time, threads=threads))
+        desc = f'[% Calculating likelihood for {len(self.rate_by_variable)} gridpoints]'
+        if gridThreads <= 1:
+            for rates, split_time in tqdm(zip(self.rate_by_variable, self.split_times),desc=desc, ncols=100):
+                arg = (rates, split_time, threads, verbose)
+                ETPs.append(self.calculate_ETPs(arg))
+        else:
+            args = [(rates, split_time, threads, False) for rates, split_time in zip(self.rate_by_variable, self.split_times)]
+            with concurrent.futures.ProcessPoolExecutor(max_workers=gridThreads) as outer_pool:
+                with tqdm(total=len(args), desc=desc, ncols=100) as pbar:
+                    for ETP in outer_pool.map(self.calculate_ETPs, args):
+                        ETPs.append(ETP)
+                        pbar.update()
         return np.array(ETPs)
     
-    def calculate_ETPs(self, rates=None, split_time=None, threads=1, verbose=True):
+    def calculate_ETPs(self, args):
+        rates, split_time, threads, verbose = args
         verboseprint = print if verbose else lambda *a, **k: None
         verboseprint("[=] ==================================================")
         verboseprint("[+] Calculating ETPs ...")
@@ -446,6 +466,7 @@ class EquationSystemObj(object):
                 equationObj_by_matrix_idx[equationObj.matrix_idx] = equationObj
         else:
             parameter_batches = [((pbatch,),{}) for pbatch in parameter_batches]
+            #threads spawns a number of processes
             result = sage.parallel.multiprocessing_sage.parallel_iter(threads,calculate_inverse_laplace,parameter_batches)
             equationObj_by_matrix_idx = {equationObj.matrix_idx:equationObj for equationObj in [el[-1] for el in result]}
         
@@ -477,6 +498,7 @@ class EquationSystemObj(object):
         else:
             boundaryNames.append('T')    
             boundaries['T'] = sorted(self.split_times)
+        
         #boundaries
         lower = np.array([boundaries[k][0] for k in boundaryNames])
         upper = np.array([boundaries[k][2] for k in boundaryNames])

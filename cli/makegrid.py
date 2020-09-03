@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gIMble makegrid -c <FILE> -m <FILE> [-z <FILE>] [-o <STR>] [-t <INT>] [-h|--help]
+"""usage: gIMble makegrid -c <FILE> -m <FILE> [-z <FILE>] [-o <STR>] [-t <STR>] [-h|--help]
                                             
     Options:
         -h --help                                show this
@@ -9,7 +9,7 @@
         -m, --model_file <FILE>                  Model file
         -z, --zarr <FILE>                        Path to zarr store
         -o, --outprefix <STR>                    Prefix to use for gimble store [default: gimble]
-        -t, --threads <INT>                      Threads [default: 1]
+        -t, --threads <STR>                      Threads [default: '1,1']
         
 """
 import pathlib
@@ -67,7 +67,7 @@ class MakeGridParameterObj(lib.gimble.ParameterObj):
         self.prefix = self._get_prefix(args["--outprefix"])
         self.config_file = self._get_path(args['--config_file'])
         self.model_file = self._get_path(args['--model_file'])
-        self.threads = self._get_int(args["--threads"])
+        self.threads, self.gridThreads = [self._get_int(t) for t in args["--threads"].split(',')]
         self.config = self._parse_config(self.config_file)
         self._process_config()
 
@@ -84,7 +84,7 @@ def main(params):
             sys.exit("[X] No config and no prefix specified. Should have been caught.")
         
         print("[+] Generated all parameter combinations.") #in parameterObj.parameter_combinations
-        
+        print(parameterObj.parameter_combinations)
         equationSystem = lib.math.EquationSystemObj(parameterObj)
         
         #print(f'rates by variable: {equationSystem.rate_by_variable}')
@@ -92,7 +92,7 @@ def main(params):
         
         #build the equations
         equationSystem.initiate_model()
-        equationSystem.ETPs = equationSystem.calculate_all_ETPs(threads=parameterObj.threads)
+        equationSystem.ETPs = equationSystem.calculate_all_ETPs(threads=parameterObj.threads, gridThreads=parameterObj.gridThreads, verbose=True)
         
         run_count = gimbleStore._return_group_last_integer('grids')
         g = gimbleStore.data['grids'].create_dataset(f'grid_{run_count}', data=equationSystem.ETPs)

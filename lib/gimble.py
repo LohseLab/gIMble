@@ -650,16 +650,16 @@ class ParameterObj(object):
             self.config['mu']['blockslength'] = self._get_blocks_length(self.zstore)
             self.config['parameters']['mu'] = self.config['mu']['mu']
             self._expand_params()
-            reference, toBeSynced = self._get_pops_to_sync()
-            self._remove_pop_from_dict(toBeSynced)
+            self.reference, self.toBeSynced = self._get_pops_to_sync()
+            self._remove_pop_from_dict(self.toBeSynced)
             self.parameter_combinations = self._dict_product()
-            self._sync_pop_sizes(reference, toBeSynced)
+            self._sync_pop_sizes(self.reference, self.toBeSynced)
         elif self._MODULE=='optimise':
             self.config['mu']['blockslength'] = self._get_blocks_length(self.zstore)
             self.config['parameters']['mu'] = self.config['mu']['mu']
             #parameters either float or [mid, min, max]
-            reference, toBeSynced = self._get_pops_to_sync()
-            self._sync_pop_sizes_optimise(reference, toBeSynced)
+            self.reference, self.toBeSynced = self._get_pops_to_sync()
+            self._sync_pop_sizes_optimise(self.reference, self.toBeSynced)
             self.parameter_combinations = self._return_boundaries()
             #ready to be scaled
         else:
