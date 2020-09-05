@@ -9,7 +9,7 @@
         -m, --model_file <FILE>                  Model file
         -z, --zarr <FILE>                        Path to zarr store
         -o, --outprefix <STR>                    Prefix to use for gimble store [default: gimble]
-        -t, --threads <STR>                      Threads [default: '1,1']
+        -t, --threads <STR>                      Threads [default: 1,1]
         
 """
 import pathlib
@@ -67,6 +67,7 @@ class MakeGridParameterObj(lib.gimble.ParameterObj):
         self.prefix = self._get_prefix(args["--outprefix"])
         self.config_file = self._get_path(args['--config_file'])
         self.model_file = self._get_path(args['--model_file'])
+        print(args["--threads"])
         self.threads, self.gridThreads = [self._get_int(t) for t in args["--threads"].split(',')]
         self.config = self._parse_config(self.config_file)
         self._process_config()

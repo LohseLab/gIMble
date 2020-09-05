@@ -13,7 +13,7 @@ Usage: gimble <module> [<args>...] [-D -V -h]
     makegrid              Make grid [TBI]
     gridsearch            Search grid [TBI]
     inference             Make inference [TBI] (requires blocks)
-    optimise              Perform optimisation search [TBI]
+    optimize              Perform optimisation search [TBI]
     
     partitioncds          Partition CDS sites in BED file by degeneracy in sample GTs 
     plotbed               Plot BED file [TBR]
@@ -89,9 +89,9 @@ def main(gimble_dir):
         elif args['<module>'] == 'makegrid':
             import cli.makegrid as makegrid
             makegrid.main(params)
-        elif args['<module>'] == 'optimise':
-            import cli.optimise as optimise
-            optimise.main(params)
+        elif args['<module>'] == 'optimize':
+            import cli.optimize as optimize
+            optimize.main(params)
         else:
             sys.exit("%r is not a gimble module. See 'gimble -help'." % args['<module>'])
     except KeyboardInterrupt:

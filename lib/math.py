@@ -13,6 +13,7 @@ import multiprocessing
 import contextlib
 import lib.gimble
 from functools import partial
+from functools import partialmethod
 import nlopt
 import concurrent.futures
 
@@ -174,7 +175,6 @@ def calculate_inverse_laplace(params):
         equationObj.result = equation
     else:
         equationObj.result = sage.all.inverse_laplace(equation / dummy_variable, dummy_variable, sage.all.SR.var('T'), algorithm='giac').substitute(T=split_time)
-    
     return equationObj
 
 def calculate_composite_likelihood(ETPs, data):
@@ -182,7 +182,7 @@ def calculate_composite_likelihood(ETPs, data):
     np.log(ETPs, where=ETPs>0, out=ETP_log)
     return np.sum(ETP_log * data)
 
-def objective_function(paramsToOptimise, grad, paramNames, fixedParams, equationObj, data, threads=4, verbose=False):
+def objective_function(paramsToOptimise, grad, paramNames, fixedParams, equationObj, data, threads, verbose=False):
     if grad.size:
         raise ValueError('no optimization with derivatives implemented')
     rates = {k:v for k,v in zip(paramNames, paramsToOptimise)}
@@ -267,7 +267,7 @@ class EquationSystemObj(object):
             self.rate_by_mutation = self._get_rate_by_variable(prefix=set(['m']))
             self.probcheck_file = parameterObj.probcheck_file
             #self.grid_points = self._get_grid_points(parameterObj) #should this contain all parameter combos?
-
+        self.seed = parameterObj.config['gimble']['random_seed']
     def check_ETPs(self):
         '''
         ./gimble inference -m models/gimble.model.A_B.p2.n_1_1.J_A_B.Div.tsv -c models/gimble.model.A_B.p2.n_1_1.J_A_B.Div1.config.yaml -t 1 -b -k models/gimble.model.A_B.p2.n_1_1.J_A_B.Div1.probabilities.csv
@@ -386,7 +386,7 @@ class EquationSystemObj(object):
 
     def _scale_parameter_combination(self, combo, reference_pop, block_length, parameterObj):
         rdict = {}
-        if parameterObj._MODULE in ['makegrid', 'inference','optimise']:
+        if parameterObj._MODULE in ['makegrid', 'inference','optimize']:
             Ne_ref = sage.all.Rational(combo[f"Ne_{reference_pop}"])
             rdict['theta'] = 4*sage.all.Rational(Ne_ref*combo['mu'])*block_length
             rdict['C_A']=Ne_ref/sage.all.Rational(combo['Ne_A'])
@@ -413,10 +413,13 @@ class EquationSystemObj(object):
         #@Dom did not want to touch self._get_equationObjs() but could probably happen there
         if parameterObj:
             if parameterObj.reference and parameterObj.toBeSynced:
-                print(parameterObj.toBeSynced)
                 for equationObj in self.equationObjs:
                     for tBS in parameterObj.toBeSynced:
                         equationObj.equation = equationObj.equation.subs(sage.all.SR.symbol(f'C_{tBS}')==sage.all.SR.symbol(f'C_{parameterObj.reference}'))
+        #t=self.equationObjs[0].equation.subs(sage.all.SR.symbol('m_1')==0,sage.all.SR.symbol('m_2')==0,sage.all.SR.symbol('m_3')==0,sage.all.SR.symbol('m_4')==0)
+        #t2=sage.all.inverse_laplace(t / self.dummy_variable, self.dummy_variable, sage.all.SR.var('T'), algorithm='giac')
+        #print(t2)
+        #sys.exit()
         #if check_monomorphic:
         #    rates = {
         #        **{event: random.randint(1, 4) for event, rate in self.rate_by_event.items()}, 
@@ -460,10 +463,11 @@ class EquationSystemObj(object):
             parameter_batches.append((equationObj, rates, split_time, self.dummy_variable))
         desc = "[%] Solving equations"
         equationObj_by_matrix_idx = {}
+        
         if threads <= 1:
             for parameter_batch in tqdm(parameter_batches, desc=desc, ncols=100, disable=not verbose):
                 equationObj = calculate_inverse_laplace(parameter_batch)
-                equationObj_by_matrix_idx[equationObj.matrix_idx] = equationObj
+                equationObj_by_matrix_idx[equationObj.matrix_idx] = equationObj        
         else:
             parameter_batches = [((pbatch,),{}) for pbatch in parameter_batches]
             #threads spawns a number of processes
@@ -477,6 +481,7 @@ class EquationSystemObj(object):
             else:
                 ETPs[matrix_id] = equationObj.result - sum(ETPs[equationObj.marginal_idx].flatten())
             verboseprint(matrix_id, ETPs[matrix_id])
+        
         if verbose:
             if not math.isclose(np.sum(ETPs.flatten()), 1, rel_tol=1e-5):
                 print("[-] sum(ETPs) != 1 (rel_tol=1e-5)")
@@ -484,11 +489,11 @@ class EquationSystemObj(object):
                 print("[+] sum(ETPs) == 1 ")
         return ETPs
 
-    def optimise_parameters(self, data, maxeval, localOptimum=True):
-        algorithm = 'nlopt.LN_SBPLX'
-        print(f"[+] Running optimization. Algorithm: {algorithm}")
+    def optimize_parameters(self, data, maxeval, xtol_rel, numPoints, threads=1, gridThreads=1):
+        print(f"[+] Starting optimization.")
         #seperate parameters that are fixed from those that are not
         inverse_scaled_parameter_combinations = {k:[d[k] for d in self.rate_by_variable] for k in self.rate_by_variable[0].keys()}
+        #when syncing popsizes, only one of these parameters should be present in boundaries!
         boundaries = {k:sorted(v) for k,v in inverse_scaled_parameter_combinations.items() if len(set(v))==3}
         boundaryNames = list(boundaries.keys())
         fixedParams = {k:v[0] for k,v in inverse_scaled_parameter_combinations.items() if len(set(v))==1}
@@ -502,75 +507,66 @@ class EquationSystemObj(object):
         #boundaries
         lower = np.array([boundaries[k][0] for k in boundaryNames])
         upper = np.array([boundaries[k][2] for k in boundaryNames])
+
+        #generate number of inital points
+        np.random.seed(self.seed)
+        all_p0 = np.random.uniform(low=lower, high=upper, size=(len(boundaryNames),numPoints-1))
+        #add p0 to list of starting points
         p0 =  np.array([boundaries[k][1] for k in boundaryNames])
-        
-        xtol_abs = 0.01
-        xtol_rel = 0.001
-        maxeval=maxeval
-        evalCounter = 0
+        if all_p0.size!=0:
+            all_p0= np.vstack([all_p0, p0])
+        else:
+            all_p0 = [p0,]
+
         specified_objective_function = partial(
                 objective_function,
                 paramNames=boundaryNames,
                 fixedParams=fixedParams,
                 equationObj=self,
                 data=data,
-                threads=4,
+                threads=threads,
                 verbose=False
                 )
+        print("[+] made partial objective function")
+        desc="Optimization"
+        if gridThreads <= 1:
+            print("[+] Optimization starting from provided starting point.")
+            allResults = [self.run_single_optimizer(startPos, lower, upper, specified_objective_function, maxeval, xtol_rel) for startPos in all_p0]
+        else:
+            print(f"[+] Optimization starting for {numPoints} random points and 1 given point.")
+            specified_run_single_optimizer=partialmethod(
+                self.run_single_optimizer,
+                lower=lower,
+                upper=upper,
+                specified_objective_function=specified_objective_function,
+                maxeval=maxeval,
+                xtol_rel=xtol_rel
+                )
+            allResults = []
+            with concurrent.futures.ProcessPoolExecutor(max_workers=gridThreads) as outer_pool:
+                with tqdm(total=numPoints, desc=desc, ncols=100) as pbar:
+                    for single_run in outer_pool.map(specified_run_single_optimizer, all_p0):
+                        allResults.append(single_run)
+                        pbar.update()
 
-        #opt = nlopt.opt(nlopt.G_MLSL_LDS, len(p0)) #nlopt.LN_NELDERMEAD, LN_SBPLX
+        print(allResults)
+
+    def run_single_optimizer(self, p0, lower, upper, specified_objective_function, maxeval, xtol_rel):
+
+        #nlopt.G_MLSL_LDS, nlopt.LN_NELDERMEAD, nlopt.LN_SBPLX
         opt = nlopt.opt(nlopt.LN_SBPLX, len(p0))
         opt.set_lower_bounds(lower)
         opt.set_upper_bounds(upper)
         opt.set_max_objective(specified_objective_function)
         opt.set_xtol_rel(xtol_rel)
-        opt.set_maxeval(200)
-        if localOptimum == True:
-            local_opt = nlopt.opt(nlopt.LN_SBPLX, len(p0))
-            local_opt.set_xtol_rel(xtol_rel)
-            local_opt.set_maxeval(10)
-            opt.set_local_optimizer(local_opt)
-        x=opt.optimize(p0)
-
-        minf = opt.last_optimum_value()
-        print(x)
-        print("optimum at ", x)
-        print("minimum value = ", minf)
-        print("result code = ", opt.last_optimize_result())
+        opt.set_maxeval(maxeval)
+        optimum = opt.optimize(p0)
+        rdict = {}
+        rdict['CL'] = opt.last_optimum_value()
+        rdict['optimum'] = optimum
+        rdict['exitcode'] = opt.last_optimize_result()
         
-
-    #def optimise_parameters(symbolic_equations_by_mutuple, mutuple_count_matrix, parameterObj):
-    #    '''
-    #    search-bounds vs. real-bounds vs parameterObj.boundaries
-    #    '''
-#
-    #    print("[+] Optimising parameters: %s ..." % (", ".join(parameterObj.boundaries.keys())))    
-    #    start_time = timer()
-    #    simplex_values, simplex_parameters = generate_initial_simplex(parameterObj.boundaries, parameterObj.seed)
-    #    x0 = tuple([0] * len(parameterObj.boundaries.keys()))
-    #    #block_count = mutuple_count_matrix.flatten().sum()
-    #    res = scipy.optimize.minimize(
-    #        infer_composite_likelihood, 
-    #        x0, 
-    #        args=(simplex_parameters, symbolic_equations_by_mutuple, mutuple_count_matrix, parameterObj), 
-    #        method="Nelder-Mead", 
-    #        options={
-    #            'initial_simplex': simplex_values, 
-    #            'maxfev' : 200,
-    #            'maxiter': 200,
-    #            'disp': False, 
-    #            'xatol': 1e-1, 
-    #            'fatol': 1e-1, # * block_count, # needs to be scaled by number of blocks
-    #            'adaptive': True})
-    #    print()
-    #    if res.success:
-    #        estimated_parameters = collections.OrderedDict({key: value for (key, _), value in zip(parameterObj.boundaries.items(), res.x)})
-    #        print_params = { (param):(value if not param == 'theta' else value * 2) for param, value in estimated_parameters.items()}
-    #        estimated_parameters_string = ", ".join(["%s=%s" % (key, round(value, 4)) for key, value in print_params.items()])
-    #        print("[+] Parameters estimated in %ss using %s iterations (Composite Likelihood = -%s): %s" % (timer() - start_time, res.nit, res.fun, estimated_parameters_string))
-    #    else:
-    #        print("[-] No covergence reached after %s iterations (%ss elapsed)" % (res.nit, timer() - start_time))
-    #    return estimated_parameters
+        return rdict
     
     def _get_equationObjs(self):
         constructors = []
