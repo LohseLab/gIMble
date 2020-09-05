@@ -18,7 +18,7 @@ import pathlib
 import collections
 from timeit import default_timer as timer
 from docopt import docopt
-import sys
+import sys, os
 import lib.gimble
 import lib.math
 import zarr
@@ -67,7 +67,7 @@ def main(params):
         #    cartesian_only=True, 
         #    kmax_by_mutype=parameterObj.config['k_max'])
         #load data: in test.z in output folder
-        z=zarr.open('../output/test.z')
+        z=zarr.open('data/optimize_test.z')
         data =z['grids/grid_7'][0]
         #run optimisation
         equationSystem.optimize_parameters(data, maxeval=10, xtol_rel=0.01, numPoints=parameterObj.numPoints, threads=parameterObj.threads, gridThreads=parameterObj.gridThreads)
