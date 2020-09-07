@@ -35,20 +35,9 @@ def main(params):
         #log = lib.log.get_logger(run_params)
         parameterObj = WindowsParameterObj(params, args)
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
-        #gimbleStore.windows(parameterObj)
-        gimbleStore.info()
+        gimbleStore.windows(parameterObj)
+        #gimbleStore.info()
         #gimbleStore.tree()
-        import numpy as np
-        start_time = timer()
-        bsfs = gimbleStore.get_block_bsfs(sample_sets='X')
-        print("bsfs.shape", bsfs.shape)
-        print("np.sum(bsfs)", np.sum(bsfs))
-        # for sequence, bsfs in gimbleStore.yield_window_bsfs_by_seq(
-        #     #):
-        #     kmax_by_mutype={'m_1': 2, 'm_2': 2, 'm_3': 2, 'm_4': 2}):
-        #     print("sequence", sequence, bsfs.shape)
-        #     for m, c in lib.gimble.bsfs_to_counter(bsfs).items():
-        #         print(m, c)
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
         print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
