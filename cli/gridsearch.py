@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gimble gridsearch                  -z FILE -g STR -c FILE (-b|-w) [-h|--help]
+"""usage: gimble gridsearch                  -z FILE [-g STR] -c FILE (-b|-w) [-h|--help]
                                             
                                             
     Options:
@@ -48,13 +48,18 @@ def main(params):
         parameterObj = GridsearchParameterObj(params, args)
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
         #load ETP numpy array
-        if not gimbleStore._is_zarr_group(parameterObj.grid_name, 'grids'):
+        gimbleStore.tree()
+        if not parameterObj.grid_name:
+            sys.exit("[X] Please provide one of the grid(s): %s" % ",".join(gimbleStore.data['grids/']))
+        print('parameterObj.grid_name', parameterObj.grid_name)
+        if not parameterObj.grid_name in gimbleStore.data['grids/']:
             sys.exit("[X] Specified grid not found in zarr store.")
-        grid = zarr.load(gimbleStore.data[f'grids/{parameterObj.grid_name}'])
-        data = gimbleStore.get_bsfs_matrix(
+        grid = gimbleStore.data['grids/%s' % parameterObj.grid_name]
+        #grid = zarr.load(gimbleStore.data[f'grids/{parameterObj.grid_name}'])
+        data = gimbleStore.get_bsfs(
             data=parameterObj.data_type, 
             population_by_letter=parameterObj.config['population_ids'], 
-            cartesian_only=True, 
+            sample_sets='X', 
             kmax_by_mutype=parameterObj.config['k_max'])
 
         composite_likelihoods = [lib.math.calculate_composite_likelihood(ETPs, data) for ETPs in grid]

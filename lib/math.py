@@ -392,7 +392,7 @@ class EquationSystemObj(object):
         #        print("[+] Monomorphic check passed: P(monomorphic) = %s" % equationObj.result)
 
     def calculate_all_ETPs(self, threads=1, gridThreads=1, verbose=False):
-        verboseprint = print if verbose else lambda *a, **k: None
+        #verboseprint = print if verbose else lambda *a, **k: None
         
         ETPs = []
         desc = f'[%] Calculating likelihood for {len(self.rate_by_variable)} gridpoints'
@@ -411,9 +411,9 @@ class EquationSystemObj(object):
     
     def calculate_ETPs(self, args):
         rates, split_time, threads, verbose = args
-        verboseprint = print if verbose else lambda *a, **k: None
-        verboseprint("[=] ==================================================")
-        verboseprint("[+] Calculating ETPs ...")
+        #verboseprint = print if verbose else lambda *a, **k: None
+        #verboseprint("[=] ==================================================")
+        #verboseprint("[+] Calculating ETPs ...")
         #print(f'rates sage vars: {rates}')
         parameter_batches = []
         for equationObj in self.equationObjs:
@@ -437,7 +437,7 @@ class EquationSystemObj(object):
                 ETPs[matrix_id] = equationObj.result
             else:
                 ETPs[matrix_id] = equationObj.result - sum(ETPs[equationObj.marginal_idx].flatten())
-            verboseprint(matrix_id, ETPs[matrix_id])
+            #verboseprint(matrix_id, ETPs[matrix_id])
         
         if verbose:
             if not math.isclose(np.sum(ETPs.flatten()), 1, rel_tol=1e-5):
@@ -447,6 +447,11 @@ class EquationSystemObj(object):
         return ETPs
 
     def optimize_parameters(self, data, maxeval, xtol_rel, numPoints, threads=1, gridThreads=1):
+        '''
+        Any sort of optimization should 
+        - print to screen all evaluated (scaled) parameters + likelihood 
+        - return all results
+        '''
         print(f"[+] Starting optimization.")
         #seperate parameters that are fixed from those that are not
         inverse_scaled_parameter_combinations = {k:[d[k] for d in self.rate_by_variable] for k in self.rate_by_variable[0].keys()}
@@ -467,6 +472,9 @@ class EquationSystemObj(object):
 
         #generate number of inital points
         np.random.seed(self.seed)
+        print('lower', lower.shape, lower )
+        print('upper', upper.shape, upper )
+        print('boundaryNames', type(boundaryNames), boundaryNames)
         all_p0 = np.random.uniform(low=lower, high=upper, size=(len(boundaryNames),numPoints-1))
         #add p0 to list of starting points
         p0 =  np.array([boundaries[k][1] for k in boundaryNames])

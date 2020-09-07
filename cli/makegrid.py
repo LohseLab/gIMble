@@ -92,7 +92,7 @@ def main(params):
         #print(f'split times:{equationSystem.split_times}')
         
         #build the equations
-        equationSystem.initiate_model()
+        equationSystem.initiate_model(parameterObj=parameterObj)
         equationSystem.ETPs = equationSystem.calculate_all_ETPs(threads=parameterObj.threads, gridThreads=parameterObj.gridThreads, verbose=True)
         
         run_count = gimbleStore._return_group_last_integer('grids')

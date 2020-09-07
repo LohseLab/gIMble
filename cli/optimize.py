@@ -17,7 +17,7 @@
         -t, --threads STR                           Threads [default: 1,1]
         -n, --n_points INT                          Number of starting points [default: 1]
         -i, --iterations INT                        Number of iterations to perform when optimizing [default: 100]
-        -r, --xtol_rel FLOAT                        Relative maximum tolerance optimizing [default: 0.01] 
+        -r, --xtol_rel FLOAT                        Relative maximum tolerance optimizing [default: 0.001] 
 
 """
 from timeit import default_timer as timer

@@ -15,6 +15,10 @@
 """
 
 '''
+querying of inference searches
+- big grid
+
+
 -u, --max_multiallelic <INT>                Max multiallelics per block [default: 2]
         -i, --max_missing <INT>                     Max missing per block [default: 2]
 -W, --windows_bsfs                          Writes bSFS of windows
