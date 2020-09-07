@@ -229,21 +229,10 @@ class EquationObj(object):
         return '[+] EquationObj : %s\n%s' % (self.matrix_idx, self.equation)
 
 class EquationSystemObj(object):
-    def __init__(self, parameterObj, legacy=False):
-        '''
-        Step 1 : 
-            - parsing of model : self._get_event_tuples_by_idx
-            - building of equations: self._get_equationObjs
-
-        Grid search:
-            - build grid from config
-            - for each grid point:
-
-            - 
-        '''
+    def __init__(self, parameterObj):
         #parameters
         self.threads = parameterObj.threads
-        self.k_max_by_mutype = parameterObj.config['k_max'] #if legacy else parameterObj.config['k_max']
+        self.k_max_by_mutype = parameterObj.config['k_max']
         self.mutypes = sorted(self.k_max_by_mutype.keys())
         #needed to generate the equationObjs
         self.model_file = parameterObj.model_file
@@ -251,67 +240,28 @@ class EquationSystemObj(object):
         self.event_tuples_by_idx = self._get_event_tuples_by_idx()
         self.dummy_variable = self._get_dummy_variable() 
         self.equation_batch_by_idx = collections.defaultdict(list)
+        
         self.ETPs=None
+        
         self.scaled_parameter_combinations = self._scale_all_parameter_combinations(parameterObj) 
+        self.rate_by_variable = [self._get_base_rate_by_variable(params) for params in self.scaled_parameter_combinations]
+        self.split_times = [self._get_split_time(params) for params in self.scaled_parameter_combinations]
+        # else:
+        #     #user provided rates, legacy code
+        #     self.user_rate_by_event = self._get_user_rate_by_event(parameterObj)
+        #     self.base_rate_by_variable = self._get_base_rate_by_variable(self.user_rate_by_event)
+        #     self.split_times = [self.user_rate_by_event.get('T', None)]
+        #     #self.boundaries = parameterObj._config['boundaries'] #this needs to be changed
+        #     self.rate_by_event = self._get_rate_by_variable(prefix=set(['C', 'M']))
+        #     self.rate_by_mutation = self._get_rate_by_variable(prefix=set(['m']))
+        #     self.probcheck_file = parameterObj.probcheck_file
+        #     #self.grid_points = self._get_grid_points(parameterObj) #should this contain all parameter combos?
 
-        if not legacy:
-            self.rate_by_variable = [self._get_base_rate_by_variable(params) for params in self.scaled_parameter_combinations]
-            self.split_times = [self._get_split_time(params) for params in self.scaled_parameter_combinations]
-        else:
-            #user provided rates, legacy code
-            self.user_rate_by_event = self._get_user_rate_by_event(parameterObj)
-            self.base_rate_by_variable = self._get_base_rate_by_variable(self.user_rate_by_event)
-            self.split_times = [self.user_rate_by_event.get('T', None)]
-            #self.boundaries = parameterObj._config['boundaries'] #this needs to be changed
-            self.rate_by_event = self._get_rate_by_variable(prefix=set(['C', 'M']))
-            self.rate_by_mutation = self._get_rate_by_variable(prefix=set(['m']))
-            self.probcheck_file = parameterObj.probcheck_file
-            #self.grid_points = self._get_grid_points(parameterObj) #should this contain all parameter combos?
-        self.seed = parameterObj.config['gimble']['random_seed']
     def check_ETPs(self):
-        '''
-        ./gimble inference -m models/gimble.model.A_B.p2.n_1_1.J_A_B.Div.tsv -c models/gimble.model.A_B.p2.n_1_1.J_A_B.Div1.config.yaml -t 1 -b -k models/gimble.model.A_B.p2.n_1_1.J_A_B.Div1.probabilities.csv
-        ./gimble inference -m models/gimble.model.A_B.p2.n_1_1.J_A_B.Div.tsv -c models/gimble.model.A_B.p2.n_1_1.J_A_B.Div2B.config.yaml -t 1 -b -k models/gimble.model.A_B.p2.n_1_1.J_A_B.Div2B.probabilities.csv
-
-        '''
         probabilities_df = pd.read_csv(self.probcheck_file, sep=",", names=['A', 'B', 'C', 'D', 'probability'],  dtype={'A': int, 'B': int, 'C': int, 'D': int, 'probability': float}, float_precision='round_trip')
         for a, b, c, d, probability in probabilities_df.values.tolist():
             mutuple = (int(a), int(b), int(c), int(d))
             print(mutuple, " : ", probability, self.ETPs[mutuple], np.isclose(probability, self.ETPs[mutuple], rtol=1e-15))
-
-    def setup_grid(self):
-        '''LEGACY CODE'''
-        theta_step = (self.theta_high - self.theta_low) / 8
-        migration_step = (self.migration_high - self.migration_low) / 10
-        grid_raw = []
-        grid_gimble = []
-        # make migration_low/high
-        # c_derived as float
-        test_limit = 4
-        i = 0
-        for migration in np.arange(
-                self.migration_low, 
-                self.migration_high + migration_step, 
-                migration_step):
-            for theta_ancestral in np.arange(self.theta_low, self.theta_high, theta_step):
-                for theta_derived in np.arange(
-                        self.theta_low / self.derived_coalescence_MLE, 
-                        self.theta_high / self.derived_coalescence_MLE, 
-                        theta_step / self.derived_coalescence_MLE):
-                    if i < test_limit:
-                        grid_raw.append((theta_ancestral, theta_derived, migration)) 
-                        i += 1
-        for theta_ancestral, theta_derived, migration in grid_raw:
-            theta = theta_ancestral / 2
-            C_ancestor = 1
-            C_derived = (theta_ancestral / theta_derived)
-            Migration = ((migration * theta_ancestral) / (self.block_size * self.mutation_rate) / 2) # per branch
-            Time = (self.time_MLE * 2 * self.block_size * self.mutation_rate) / theta_ancestral
-            grid_gimble.append((C_ancestor, C_derived, Migration, theta, Time))
-        #print(grid_raw)
-        #print(grid_gimble)
-        self.grid_raw = grid_raw
-        self.grid_gimble = grid_gimble
 
     def info(self):
         print("[=] ==================================================")
@@ -408,18 +358,24 @@ class EquationSystemObj(object):
     def initiate_model(self, parameterObj=None, check_monomorphic=True):
         print("[=] ==================================================")
         print("[+] Initiating model ...")
-        self.equationObjs = self._get_equationObjs()
+        
+        # Method 2 (has to be tested)
+        if not (parameterObj and parameterObj.reference and parameterObj.toBeSynced):
+           self.equationObjs = self._get_equationObjs(sync_ref=parameterObj.reference, sync_targets=parameterObj.toBeSynced) 
+        else:
+            self.equationObjs = self._get_equationObjs() 
+
+        # Method 1 
         #syncing pop sizes (coalescence rates) in the equation, there must be a better way
         #@Dom did not want to touch self._get_equationObjs() but could probably happen there
-        if parameterObj:
-            if parameterObj.reference and parameterObj.toBeSynced:
-                for equationObj in self.equationObjs:
-                    for tBS in parameterObj.toBeSynced:
-                        equationObj.equation = equationObj.equation.subs(sage.all.SR.symbol(f'C_{tBS}')==sage.all.SR.symbol(f'C_{parameterObj.reference}'))
-        #t=self.equationObjs[0].equation.subs(sage.all.SR.symbol('m_1')==0,sage.all.SR.symbol('m_2')==0,sage.all.SR.symbol('m_3')==0,sage.all.SR.symbol('m_4')==0)
-        #t2=sage.all.inverse_laplace(t / self.dummy_variable, self.dummy_variable, sage.all.SR.var('T'), algorithm='giac')
-        #print(t2)
-        #sys.exit()
+        # if parameterObj:
+        #     if parameterObj.reference and parameterObj.toBeSynced:
+        #         print(parameterObj.toBeSynced)
+        #         for equationObj in self.equationObjs:
+        #             for tBS in parameterObj.toBeSynced:
+        #                 equationObj.equation = equationObj.equation.subs(sage.all.SR.symbol(f'C_{tBS}')==sage.all.SR.symbol(f'C_{parameterObj.reference}'))
+        
+        ################### [REMOVABLE]
         #if check_monomorphic:
         #    rates = {
         #        **{event: random.randint(1, 4) for event, rate in self.rate_by_event.items()}, 
@@ -434,13 +390,13 @@ class EquationSystemObj(object):
         #    else:
         #        print("[+] Monomorphic check passed: P(monomorphic) = %s" % equationObj.result)
 
-    def calculate_all_ETPs(self, threads=1, gridThreads=1, verbose=True):
+    def calculate_all_ETPs(self, threads=1, gridThreads=1, verbose=False):
         verboseprint = print if verbose else lambda *a, **k: None
         
         ETPs = []
-        desc = f'[% Calculating likelihood for {len(self.rate_by_variable)} gridpoints]'
+        desc = f'[%] Calculating likelihood for {len(self.rate_by_variable)} gridpoints'
         if gridThreads <= 1:
-            for rates, split_time in tqdm(zip(self.rate_by_variable, self.split_times),desc=desc, ncols=100):
+            for rates, split_time in tqdm(zip(self.rate_by_variable, self.split_times),total=len(self.rate_by_variable), desc=desc, ncols=100):
                 arg = (rates, split_time, threads, verbose)
                 ETPs.append(self.calculate_ETPs(arg))
         else:
@@ -471,7 +427,7 @@ class EquationSystemObj(object):
         else:
             parameter_batches = [((pbatch,),{}) for pbatch in parameter_batches]
             #threads spawns a number of processes
-            result = sage.parallel.multiprocessing_sage.parallel_iter(threads,calculate_inverse_laplace,parameter_batches)
+            result = sage.parallel.multiprocessing_sage.parallel_iter(threads, calculate_inverse_laplace,parameter_batches)
             equationObj_by_matrix_idx = {equationObj.matrix_idx:equationObj for equationObj in [el[-1] for el in result]}
         
         ETPs = np.zeros(tuple(self.k_max_by_mutype[mutype] + 2 for mutype in self.mutypes), np.float64)
@@ -568,7 +524,10 @@ class EquationSystemObj(object):
         
         return rdict
     
-    def _get_equationObjs(self):
+    def _get_equationObjs(self, sync_ref=None, sync_targets=None):
+        '''
+        fix multithreading
+        '''
         constructors = []
         for constructor_id, event_tuples in tqdm(self.event_tuples_by_idx.items(), total=len(self.event_tuples_by_idx), desc="[%] Building equations", ncols=100):
             constructor = Constructor(constructor_id)
@@ -621,6 +580,11 @@ class EquationSystemObj(object):
                                 marginal_idx, 
                                 equation_by_mutation_tuple[equation_idx].substitute(mutation_rates))
             equationObjs.append(equationObj)
-
+        if sync_ref and sync_targets:
+            sync_ref_var = sage.all.SR.symbol("C_%s") % sync_ref
+            for equationObj in equationObjs:
+                for sync_target in sync_targets:
+                    sync_target_var = sage.all.SR.symbol("C_%s") % sync_target
+                    equationObj.equation = equationObj.equation.subs(sage.all.SR.symbol(sync_target_var)==sage.all.SR.symbol(sync_ref_var))
         print("[+] Generated equations for %s mutation tuples" % len(equationObjs))
         return equationObjs

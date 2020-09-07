@@ -21,8 +21,9 @@ import matplotlib.patches as patches
 import numpy as np
 import cerberus
 import lib.simulate
+import hashlib 
 from timeit import default_timer as timer
-
+import fractions
 
 # np.set_printoptions(threshold=sys.maxsize)
 
@@ -180,18 +181,18 @@ def block_sites_to_variation_arrays(block_sites, cols=np.array([1,2,3]), max_typ
     # return multiallelic, missing, monomorphic, variation
     return np.hsplit(np.bincount(temp_sites.ravel(), minlength=(block_sites.shape[0] * max_type_count)).reshape(-1, max_type_count), cols)
 
-def calculate_popgen_from_array(mutype_array, sites):
-    # print('# Mutypes: 0=MULTI, 1=MISS, 2=MONO, 3=HetB, 4=HetA, 5=HetAB, 6=Fixed')
-    pi_1 = float("%.8f" % np.divide(np.sum(mutype_array[:, 1]) + np.sum(mutype_array[:, 2]), sites)) # average heterozygosity
-    pi_2 = float("%.8f" % np.divide(np.sum(mutype_array[:, 0]) + np.sum(mutype_array[:, 2]), sites)) # average heterozygosity
-    d_xy = float("%.8f" % np.divide(np.divide(np.sum(mutype_array[:, 0]) + np.sum(mutype_array[:, 1]) + np.sum(mutype_array[:, 2]), 2.0) + np.sum(mutype_array[:, 3]), sites))
-    mean_pi = (pi_1 + pi_2) / 2.0
-    total_pi = (d_xy + mean_pi) / 2.0 # special case of pairwise Fst
-    f_st = np.nan
-    if (total_pi):
-        f_st = float("%.8f" % ((total_pi - mean_pi) / total_pi)) # special case of pairwise Fst
-    fgv = len(mutype_array[(mutype_array[:, 2] > 0) & (mutype_array[:, 3] > 0)])
-    return (pi_1, pi_2, d_xy, f_st, fgv)
+# def calculate_popgen_from_array(mutype_array, sites):
+#     # print('# Mutypes: 0=MULTI, 1=MISS, 2=MONO, 3=HetB, 4=HetA, 5=HetAB, 6=Fixed')
+#     pi_1 = float("%.8f" % np.divide(np.sum(mutype_array[:, 1]) + np.sum(mutype_array[:, 2]), sites)) # average heterozygosity
+#     pi_2 = float("%.8f" % np.divide(np.sum(mutype_array[:, 0]) + np.sum(mutype_array[:, 2]), sites)) # average heterozygosity
+#     d_xy = float("%.8f" % np.divide(np.divide(np.sum(mutype_array[:, 0]) + np.sum(mutype_array[:, 1]) + np.sum(mutype_array[:, 2]), 2.0) + np.sum(mutype_array[:, 3]), sites))
+#     mean_pi = (pi_1 + pi_2) / 2.0
+#     total_pi = (d_xy + mean_pi) / 2.0 # special case of pairwise Fst
+#     f_st = np.nan
+#     if (total_pi):
+#         f_st = float("%.8f" % ((total_pi - mean_pi) / total_pi)) # special case of pairwise Fst
+#     fgv = len(mutype_array[(mutype_array[:, 2] > 0) & (mutype_array[:, 3] > 0)])
+#     return (pi_1, pi_2, d_xy, f_st, fgv)
 
 def genotype_to_mutype_array(sa_genotype_array, idx_block_sites_in_pos, block_sites, debug=True):
     '''
@@ -226,7 +227,7 @@ def genotype_to_mutype_array(sa_genotype_array, idx_block_sites_in_pos, block_si
     folded_minor_allele_counts = sa_genotype_array.map_alleles(allele_map).to_n_alt(fill=-1)
     folded_minor_allele_counts[np.any(sa_genotype_array.is_missing(), axis=1)] = np.ones(2) * -1        # -1, -1 for missing => -1
     folded_minor_allele_counts[(np_allele_count_array.count(axis=1) > 2)] = np.ones(2) * (-1, -2)       # -1, -2 for multiallelic => -2
-    block_sites_pos = block_sites.flatten()
+    #block_sites_pos = block_sites.flatten()
     block_sites[idx_block_sites_in_pos] = szudzik_pairing(folded_minor_allele_counts) + 2               # add 2 so that not negative for bincount
     block_sites[~idx_block_sites_in_pos] = 2                                                            # monomorphic = 2 (0 = multiallelic, 1 = missing)
     #if debug == True:
@@ -242,6 +243,16 @@ def genotype_to_mutype_array(sa_genotype_array, idx_block_sites_in_pos, block_si
     #    print('# Mutypes: 0=MULTI, 1=MISS, 2=MONO, 3=HetB, 4=HetA, 5=HetAB, 6=Fixed')
     #    print(block_sites_df)
     return block_sites
+
+def _harmonic(a, b):
+    if b-a == 1:
+        return fractions.Fraction(1,a)
+    m = (a+b)//2
+    return _harmonic(a,m) + _harmonic(m,b)
+
+def harmonic(n):
+    '''https://fredrik-j.blogspot.com/2009/02/how-not-to-compute-harmonic-numbers.html'''
+    return _harmonic(1,n+1)
 
 def create_ranges(aranges):
     # does the transformation form 0-based (BED) to 1-based (VCF) coordinate system 
@@ -276,24 +287,47 @@ def cut_blocks(interval_starts, interval_ends, block_length, block_span, block_g
     block_span_valid_mask = (((block_sites[:, -1] - block_sites[:, 0]) + 1) <= block_span)
     return block_sites[block_span_valid_mask] 
 
-def create_store(parameterObj):
-    store = Store()
-    store._from_input(parameterObj)
-    return store
 
-def load_store(parameterObj):
-    store = Store() 
-    store._from_zarr(parameterObj)
-    return store
+def bsfs_to_2d(bsfs):
+    """Returns 2D array with counts, mutuples. First column is counts.
 
-def populations_inverted(config_population_by_letter, data_population_by_letter):
-    if config_population_by_letter:
-        if not set(config_population_by_letter.values()) == set(data_population_by_letter.values()):
-            sys.exit("[X] Populations (%s) not found in GStore (%s)" % (str(config_population_by_letter), str(data_population_by_letter)))
-        if not config_population_by_letter == data_population_by_letter:
-            print("[-] Switching variation array ...")
-            return True
-    return False
+    Parameters 
+    ----------
+    bsfs : ndarray, int, ndim (4)  
+    
+    Returns
+    -------
+    out : ndarray, int, ndim (2)
+
+    """
+    non_zero_idxs = np.nonzero(bsfs)
+    return np.concatenate([bsfs[non_zero_idxs].reshape(non_zero_idxs[0].shape[0], 1), np.array(non_zero_idxs).T], axis=1)
+
+def bsfs_to_counter(bsfs):
+    """Returns (dict of) collections.Counter based on bsfs_array of 4 or 5 dimensions.
+
+    Parameters 
+    ----------
+    bsfs : ndarray, int, ndim (4) or (5)  
+    
+    Returns
+    -------
+    out : (dict of) collections.Counter
+
+    """
+    non_zero_idxs = np.nonzero(bsfs)
+    if bsfs.ndim == 5:
+        out = collections.defaultdict(collections.Counter())
+        for idx, count in zip(tuple(np.array(non_zero_idxs).T), bsfs[non_zero_idxs]):
+            window_idx, mutuple = idx[0], idx[1:]
+            out[window_idx][mutuple] = count
+    elif bsfs.ndim == 4:
+        out = collections.defaultdict(lambda: collections.Counter())
+        for mutuple, count in zip(tuple(np.array(non_zero_idxs).T), bsfs[non_zero_idxs]):
+            out[window_idx][mutuple] = count
+    else:
+        raise ValueError('bsfs must have 4 or 5 dimensions')
+    return out
 
 def ordered_intersect(a=[], b=[], order='a'):
     A, B = a, b
@@ -436,7 +470,7 @@ class ParameterObj(object):
                     elif scale.startswith('log'):
                         sim_range = self._expand_params_log(midv, minv, maxv, n)
                     else:
-                        raise NotImplmentedError
+                        raise ValueError
                     self.config['parameters'][key] = sim_range
 
     def _expand_params_lin(self, pcentre, pmin, pmax, psamples):
@@ -493,13 +527,15 @@ class ParameterObj(object):
             self._MODULE, 
             "".join(["--%s " % " ".join((k, str(v))) for k,v in self.__dict__.items() if not k.startswith("_")]))
 
-    def _get_path(self, infile):
+    def _get_path(self, infile, path=False):
         if infile is None:
             return None
-        path = pathlib.Path(infile).resolve()
-        if not path.exists():
+        _path = pathlib.Path(infile).resolve()
+        if not _path.exists():
             sys.exit("[X] File not found: %r" % str(infile))
-        return str(path)
+        if path:
+            return _path
+        return str(_path)
 
     def _get_prefix(self, prefix):
         if prefix is None:
@@ -689,89 +725,164 @@ class Store(object):
 
     def has_stage(self, stage):
         return stage in self.data.attrs
-    
-    def set_bsfs(self):
+
+    def _validate_seq_names(self, sequences=None):
+        """Returns valid seq_names in sequences or raises ValueError."""
         meta = self.data['seqs'].attrs
-        pass
+        if not sequences:
+            return meta['seq_names']
+        if set(sequences).issubset(set(meta['seq_names'])):
+            return sequences
+        else:
+            raise ValueError("%s not a subset of %s" % (sequences, meta['seq_names']))
 
-    def get_bsfs_matrix(self, 
-            data='blocks', 
-            sample_set_type='inter', # 'inter', 'intra_A', 'intra_B', 'all'
-            population_by_letter={}, 
-            as_matrix=True,
-            kmax_by_mutype={}): 
+    def _get_invert_population_flag(self, population_by_letter=None):
+        """Returns True if populations need inverting, and False if not or population_by_letter is None. 
+        Raises ValueError if population_by_letter of data and config differ"""
+        meta = self.data['seqs'].attrs
+        if population_by_letter:
+            if not set(population_by_letter.values()) == set(meta['population_by_letter'].values()):
+                raise ValueError("population names in config (%r) and gimble-store (%r) must match" % (string(set(population_by_letter.values())), string(set(meta['population_by_letter'].values()))))
+            if not population_by_letter == meta['population_by_letter']:
+                return True
+        return False
 
-        '''
-        [ToDo]
-        - decide whether a) bsfs are precomputed (thats now the case) and queried here OR b) whether they get computed here
-            - how long does it take to generate bsfs on demand?
+    def _get_sample_set_idxs(self, query=None):
+        """Returns list of sample_set_idxs.
+
+        Parameters 
+        ----------
+        query : string or None
+                'X' - inter-population sample_sets
+                'A' - intra-population sample_sets of population A
+                'B' - intra-population sample_sets of population B 
+                None - all sample_sets
         
-        - if b) generalise so that one can query based on seq_name and only make bsfs of particular sequences blocks
-        '''
+        Returns
+        -------
+        out : list of strings
+            sample_set_idxs that can be used to access data in gimble store
+        """
         meta = self.data['seqs'].attrs
-        if data == 'blocks':
-            try:
-                mutypes_all_key = 'seqs/bsfs/%s/mutypes' % sample_set_type
-                counts_all_key = 'seqs/bsfs/%s/counts' % sample_set_type
-                mutypes = np.array(self.data[mutypes_all_key], dtype=np.int64)
-                counts = np.array(self.data[counts_all_key], dtype=np.int64)
-            except KeyError:
-                raise NotImplementedError    
-            if populations_inverted(population_by_letter, meta['population_by_letter']):
-                mutypes[0], mutypes[1] = mutypes[1], mutypes[0]
-            raw_count = np.concatenate([counts[:, np.newaxis], mutypes], axis =-1)
-            if not kmax_by_mutype:
-                kmax_by_mutype = {"m_%s" % idx: np.max(mutypes[:, idx-1]) for idx in range(1, meta['mutypes_count'] + 1)}
-            kmax_array = np.array(list(kmax_by_mutype.values())) + 1
-            if as_matrix:
-                bsfs_matrix = np.zeros(tuple(kmax_by_mutype["m_%s" % mutype] + 2 for mutype in range(1, meta['mutypes_count'] + 1)), np.int64)
-                for mutype, count in zip(mutypes, counts):
-                    bsfs_matrix[tuple(np.clip(mutype, 0, kmax_array, dtype=np.int64))] += count
-                return bsfs_matrix
-            mutypes_clipped_counter = collections.Counter()
-            for mutype, count in zip(mutypes, counts):
-                mutypes_clipped_counter[(tuple(np.clip(mutype, 0, kmax_array)))] += count
-            bsfs_array = np.zeros((len(mutypes_clipped_counter), meta['mutypes_count'] + 1), np.int64)
-            for idx, (mutypes_clipped_tuple, mutypes_clipped_count) in enumerate(mutypes_clipped_counter.items()):
-                bsfs_array[idx, 0] = mutypes_clipped_count
-                bsfs_array[idx, 1:] = np.array(mutypes_clipped_tuple)
-            return bsfs_array
-        if data == 'windows':
-            pass
-            #for seq_name in tqdm(meta['seq_names'], total=len(meta['seq_names']), desc="[%] Generating output ", ncols=100):
-            #window_ids = np.array(["_".join([seq_name, _start, _end]) for (_start, _end) in zip(
-            #    np.array(self.data["seqs/%s/windows/starts" % seq_name]).astype(str), 
-            #    np.array(self.data["seqs/%s/windows/ends" % seq_name]).astype(str))])
-            #variations = self.data["seqs/%s/windows/variation" % seq_name]
-            #midpoint_means = self.data["seqs/%s/windows/pos_mean" % seq_name]
-            #midpoint_medians = self.data["seqs/%s/windows/pos_median" % seq_name]
-            #for window_id, variation, midpoint_mean, midpoint_median in zip(window_ids, variations, midpoint_means, midpoint_medians):
-            #    pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation, (meta['blocks_length'] * variation.shape[0]))
-            #    blocks = variation.shape[0]
-            #    window_info_rows.append([window_id, seq_name, midpoint_mean, midpoint_median, pi_1, pi_2, d_xy, f_st, fgv, blocks])
-            #    # bsfs for each window
-            #    mutuple, counts = np.unique(variation, return_counts=True, axis=0)
-            #    tally = np.concatenate([counts[:, np.newaxis], mutuple], axis =-1)
-            #    windows = np.array([window_id] * tally.shape[0])
-            #    window_mutuple_tally.append(np.concatenate([windows[:, np.newaxis], tally], axis =-1))
-            #window_bsfs_cols = ['window_id', 'count'] + [x+1 for x in range(meta['mutypes_count'])]
-            #print(window_bsfs_cols)
-            #print(window_mutuple_tally)
-            #window_bsfs_df = pd.DataFrame(np.vstack(window_mutuple_tally), columns=window_bsfs_cols)
-            #print("[+] Made %s windows" % window_bsfs_df['window_id'].nunique()) 
-            #window_bsfs_f = "%s.window_bsfs.tsv" % self.prefix
-            #window_bsfs_df.to_csv(window_bsfs_f, sep='\t', index=False)
-            #print("[>] Created: %r" % str(window_bsfs_f))
-            #window_info_cols = ['window_id', 'seq_name', 'midpoint_mean', 'midpoint_median', 'pi_%s' % meta['population_ids'][0], 'pi_%s' % meta['population_ids'][1], 'd_xy', 'f_st', 'f']
-            #window_info_df = pd.DataFrame(window_info_rows, columns=window_info_cols)
-            #window_info_f = "%s.window_info.tsv" % self.prefix
-            #window_info_df.to_csv(window_info_f, sep='\t', index=False)
-            #print("[>] Created: %r" % str(window_info_f))
-            #self.plot_fst_genome_scan(window_info_df)
-            #self.plot_pi_genome_scan(window_info_df)
-            #     plot_pi_scatter(window_df, '%s.pi_scatter.png' % parameterObj.dataset)
+        if not query:
+            return [str(idx) for idx in range(len(meta['sample_sets']))]
+        elif query == 'X':
+            return [str(idx) for (idx, is_cartesian) in enumerate(meta['sample_sets_inter']) if is_cartesian]
+        elif query == 'A':
+            return [str(idx) for (idx, is_intra_A) in enumerate(meta['sample_sets_intra_A']) if is_intra_A]
+        elif query == 'B':
+            return [str(idx) for (idx, is_intra_B) in enumerate(meta['sample_sets_intra_B']) if is_intra_B]
+        else:
+            raise ValueError("'query' must be 'X', 'A', 'B', or None")
 
+    def _get_window_bsfs(self, sequences=None, population_by_letter=None, kmax_by_mutype=None):
+        """Return bsfs_array of 5 dimensions (fifth dimension is the window-idx across ALL sequences in sequences).
+        [ToDo] Ideally this should work with regions, as in CHR:START-STOP.
+    
+        Parameters 
+        ----------
+        sequences : list of strings or None
+            Only make bSFS based on variation on these sequences seq_names.
 
+        population_by_letter : dict (string -> string) or None
+            Mapping of population IDs to population letter in model (from INI file).
+
+        kmax : dict (string -> int) or None
+            Mapping of kmax values to mutypes.
+        
+        Returns
+        -------
+        bsfs : ndarray, int, ndim (1 + mutypes). First dimension is window idx. 
+        """
+        sequences = self._validate_seq_names(sequences)
+        invert_population_flag = self._get_invert_population_flag(population_by_letter)
+        max_k = np.array(list(kmax_by_mutype.values())) + 1 if kmax_by_mutype else None 
+        variations = []
+        for seq_name in tqdm(sequences, total=len(sequences), desc="[%] Querying data ", ncols=100):
+            variation = np.array(self.data["seqs/%s/windows/variation" % seq_name], dtype=np.int64)
+            variations.append(variation)
+        bsfs = np.concatenate(variations, axis=0)
+        if invert_population_flag:
+            bsfs[0], bsfs[1] = bsfs[1], bsfs[0]
+        bsfs = bsfs.reshape((bsfs.shape[0] * bsfs.shape[1], bsfs.shape[2]))
+        index = np.repeat(np.arange(variation.shape[0]), variation.shape[1]).reshape(variation.shape[0] * variation.shape[1], 1)
+        mutuples, counts = np.unique(
+            np.concatenate([index, np.clip(bsfs, 0, max_k)], axis=-1).reshape(-1, bsfs.shape[-1] + 1),
+            return_counts=True, axis=0)
+        # define out based on max values for each column
+        out = np.zeros(tuple(np.max(mutuples, axis=0) + 1), np.int64)
+        # assign values
+        out[tuple(mutuples.T)] = counts
+        return out
+
+    def set_bsfs(self, data_type='etp', bsfs=None):
+        '''not sure we ever need this... ''' 
+        key = hashlib.md5(str({k: v for k, v in locals().items() if not k == 'self'}).encode()).hexdigest()
+        bsfs_key = 'bsfs/%s' % key
+        self.data.create_dataset(bsfs_key, data=bsfs, overwrite=True)
+
+    def get_bsfs(self, data_type=None, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None):
+        """main method for accessing data (needs error-logic)"""
+        key = hashlib.md5(str({k: v for k, v in locals().items() if not k == 'self'}).encode()).hexdigest()
+        bsfs_key = 'bsfs/%s' % key
+        if bsfs_key in self.data:
+            return np.array(self.data[bsfs_key], dtype=np.int64)
+        if data_type == 'blocks':
+            bsfs = self._get_block_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
+        elif data_type == 'windows':
+            bsfs = self._get_window_bsfs(population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
+        else:
+            raise ValueError("data_type must be 'blocks' or 'windows'")
+        self.data.create_dataset(bsfs_key, data=bsfs, overwrite=True)
+        return bsfs
+
+    def _get_block_bsfs(self, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None):
+        """Returns bsfs_array of 4 dimensions.
+
+        Parameters 
+        ----------
+        sequences : list of strings or None
+            If supplied, bSFSs are based only on variation on those sequences
+        
+        sample_sets : string or None
+                None - all sample_sets (default)
+                'X' - inter-population sample_sets
+                'A' - intra-population sample_sets of population A
+                'B' - intra-population sample_sets of population B 
+            If supplied, bSFSs are based only on variation of those sample_sets
+        
+        population_by_letter : dict (string -> string) or None
+            Mapping of population IDs to population letter in model (from INI file).
+
+        kmax : dict (string -> int) or None
+            Mapping of kmax values to mutypes.
+
+        Returns
+        -------
+        out : ndarray, int, ndim (mutypes)
+
+        """
+        sample_set_idxs = self._get_sample_set_idxs(query=sample_sets)
+        sequences = self._validate_seq_names(sequences)
+        invert_population_flag = self._get_invert_population_flag(population_by_letter)
+        max_k = np.array(list(kmax_by_mutype.values())) + 1 if kmax_by_mutype else None 
+        variations = []
+        with tqdm(total=(len(sequences) * len(sample_set_idxs)), desc="[%] Querying data...", ncols=100, unit_scale=True) as pbar: 
+            for seq_name in sequences: 
+                for sample_set_idx in sample_set_idxs:
+                    variation_key = 'seqs/%s/blocks/%s/variation' % (seq_name, sample_set_idx)
+                    variations.append(np.array(self.data[variation_key], dtype=np.int64))
+                    pbar.update()
+        variation = np.concatenate(variations, axis=0) # concatenate is faster than offset-indexes
+        if invert_population_flag:
+            variation[0], variation[1] = variation[1], variation[0]        
+        # count mutuples (clipping at k_max, if supplied)
+        mutuples, counts = np.unique(np.clip(variation, 0, max_k), return_counts=True, axis=0)
+        # define out based on max values for each column
+        out = np.zeros(tuple(np.max(mutuples, axis=0) + 1), np.int64)
+        # assign values
+        out[tuple(mutuples.T)] = counts
+        return out
 
     def info(self, module='seqs' ,verbose = False):
         meta = self.data[module].attrs
@@ -957,6 +1068,7 @@ class Store(object):
             'inference': {},
             'grids': {},
             'sims': {},
+            'bsfs': {}
         }
         for group, attrs in attrs_by_group.items():
             self.data.require_group(group, overwrite=overwrite)
@@ -1143,7 +1255,10 @@ class Store(object):
         print("[#] Preflight...")
         self._preflight_blocks(parameterObj)
         print("[#] Making blocks...")
+        #self._make_blocks_threaded(parameterObj)
         self._make_blocks(parameterObj)
+        print("[#] Calculating population genetic metrics...")
+        self._calculate_block_pop_gen_metrics()
         #self._plot_blocks(parameterObj)
         self.log_stage(parameterObj)
 
@@ -1170,59 +1285,131 @@ class Store(object):
         if parameterObj.windows:
             self._write_window_bed(parameterObj, cartesian_only=True)
 
-    def popgen_metrics_from(self, data='blocks', cartesian_only=True):
+    def _calculate_block_pop_gen_metrics(self):
         '''
-            data := 'blocks", 'windows'
+        hetB, hetA, hetAB, fixed = bsfs[:,1], bsfs[:,2], bsfs[:,3], bsfs[:,4]
+        '''
+        meta = self.data['seqs'].attrs
+        SPACING = meta['spacing']
+        divider = "[=] [%s]" % (SPACING * '=')
+        info_string = []
+        info_string.append(divider)
+        info_string.append("[+] [%s]" % (
+            'PopGenMetrics'.center(SPACING, '-')))
+        bsfs_X = bsfs_to_2d(self.get_bsfs(data_type='blocks', sample_sets='X'))
+        bsfs_X_block_count = np.sum(bsfs_X[:,0])
+        bsfs_X_hetB_idx, bsfs_X_hetA_idx, bsfs_X_hetAB_idx, bsfs_X_fixed_idx  = bsfs_X[:,1]>0, bsfs_X[:,2]>0, bsfs_X[:,3]>0, bsfs_X[:,4]>0
+        bsfs_X_fgv_idx = (bsfs_X[:,3]>0) & (bsfs_X[:,4]>0)
+        bsfs_X_hetB_count = np.sum(bsfs_X[bsfs_X_hetB_idx, 0] * bsfs_X[bsfs_X_hetB_idx, 1])
+        bsfs_X_hetA_count = np.sum(bsfs_X[bsfs_X_hetA_idx, 0] * bsfs_X[bsfs_X_hetA_idx, 2])
+        bsfs_X_hetAB_count = np.sum(bsfs_X[bsfs_X_hetAB_idx, 0] * bsfs_X[bsfs_X_hetAB_idx, 3])
+        bsfs_X_fixed_count = np.sum(bsfs_X[bsfs_X_fixed_idx, 0] * bsfs_X[bsfs_X_fixed_idx, 3])
+        heterozygosity_XA = (bsfs_X_hetA_count + bsfs_X_hetAB_count) / (meta['blocks_length'] * bsfs_X_block_count)
+        heterozygosity_XB = (bsfs_X_hetB_count + bsfs_X_hetAB_count) / (meta['blocks_length'] * bsfs_X_block_count)
+        dxy_X = ((bsfs_X_hetA_count + bsfs_X_hetB_count + bsfs_X_hetAB_count) / 2.0 + bsfs_X_fixed_count) / (meta['blocks_length'] * bsfs_X_block_count)
+        fst_X = np.nan
+        mean_pi = (heterozygosity_XA + heterozygosity_XB) / 2.0
+        total_pi = (dxy_X + mean_pi) / 2.0 
+        if (total_pi):
+            fst_X = ((total_pi - mean_pi) / total_pi) # special case of pairwise Fst
+        bsfs_X_fgv = np.sum(bsfs_X[bsfs_X_fgv_idx, 0]) / bsfs_X_block_count
+        info_string.append("[+] [%s] Blocks-X = %s" % ('inter-pop'.center(SPACING, '-'), bsfs_X_block_count))
+        info_string.append("[+] [%s] HetA-X = %s" % ('inter-pop'.center(SPACING, '-'), format_proportion(heterozygosity_XA, precision=6)))
+        info_string.append("[+] [%s] HetB-X = %s" % ('inter-pop'.center(SPACING, '-'), format_proportion(heterozygosity_XB, precision=6)))
+        info_string.append("[+] [%s] Dxy = %s" % ('inter-pop'.center(SPACING, '-'), format_proportion(dxy_X, precision=6)))
+        info_string.append("[+] [%s] Fst = %s" % ('inter-pop'.center(SPACING, '-'), format_proportion(fst_X, precision=6)))
+        info_string.append("[+] [%s] FGV = %s" % ('inter-pop'.center(SPACING, '-'), format_percentage(bsfs_X_fgv)))
+        info_string.append(divider)
+        # bsfs_A
+        bsfs_A = bsfs_to_2d(self.get_bsfs(data_type='blocks', sample_sets='A'))
+        bsfs_A_block_count = np.sum(bsfs_A[:,0])
+        bsfs_A_hetB_idx, bsfs_A_hetA_idx, bsfs_A_hetAB_idx, bsfs_A_fixed_idx  = bsfs_A[:,1]>0, bsfs_A[:,2]>0, bsfs_A[:,3]>0, bsfs_A[:,4]>0
+        bsfs_A_hetB_count = np.sum(bsfs_A[bsfs_A_hetB_idx, 0] * bsfs_A[bsfs_A_hetB_idx, 1])
+        bsfs_A_hetA_count = np.sum(bsfs_A[bsfs_A_hetA_idx, 0] * bsfs_A[bsfs_A_hetA_idx, 2])
+        bsfs_A_hetAB_count = np.sum(bsfs_A[bsfs_A_hetAB_idx, 0] * bsfs_A[bsfs_A_hetAB_idx, 3])
+        bsfs_A_fixed_count = np.sum(bsfs_A[bsfs_A_fixed_idx, 0] * bsfs_A[bsfs_A_fixed_idx, 3])
+        total_SA = np.sum(bsfs_A[:,0, None] * bsfs_A[:,1:])
+        ## Nei's pairwise pi A
+        pi_A = float(fractions.Fraction(1, 2) * (bsfs_A_hetA_count + bsfs_A_hetB_count) + fractions.Fraction(2, 3) * (bsfs_A_hetAB_count + bsfs_A_fixed_count)) / (meta['blocks_length'] * bsfs_A_block_count)
+        # Waterson's estimator : (4-1)th harmonic number
+        watterson_theta_A = total_SA / float(harmonic(3)) / (meta['blocks_length'] * bsfs_A_block_count)
+        heterozygosity_A = (bsfs_A_hetA_count + bsfs_A_hetAB_count) / (meta['blocks_length'] * bsfs_A_block_count)
+        info_string.append("[+] [%s] Blocks-A = %s" % ('intra-pop'.center(SPACING, '-'), bsfs_A_block_count))
+        info_string.append("[+] [%s] pi A = %s" % ('intra-pop'.center(SPACING, '-'), format_proportion(pi_A, precision=6)))
+        info_string.append("[+] [%s] watterson theta A = %s" % ('intra-pop'.center(SPACING, '-'), format_proportion(watterson_theta_A, precision=6)))
+        info_string.append("[+] [%s] heterozygosity A = %s" % ('intra-pop'.center(SPACING, '-'), format_proportion(heterozygosity_A, precision=6)))
+        info_string.append(divider)
+        # bsfs_B
+        bsfs_B = bsfs_to_2d(self.get_bsfs(data_type='blocks', sample_sets='B'))
+        bsfs_B_block_count = np.sum(bsfs_B[:,0])
+        bsfs_B_hetB_idx, bsfs_B_hetA_idx, bsfs_B_hetAB_idx, bsfs_B_fixed_idx  = bsfs_B[:,1]>0, bsfs_B[:,2]>0, bsfs_B[:,3]>0, bsfs_B[:,4]>0
+        bsfs_B_hetB_count = np.sum(bsfs_B[bsfs_B_hetB_idx, 0] * bsfs_B[bsfs_B_hetB_idx, 1])
+        bsfs_B_hetA_count = np.sum(bsfs_B[bsfs_B_hetA_idx, 0] * bsfs_B[bsfs_B_hetA_idx, 2])
+        bsfs_B_hetAB_count = np.sum(bsfs_B[bsfs_B_hetAB_idx, 0] * bsfs_B[bsfs_B_hetAB_idx, 3])
+        bsfs_B_fixed_count = np.sum(bsfs_B[bsfs_B_fixed_idx, 0] * bsfs_B[bsfs_B_fixed_idx, 3])
+        total_SB = np.sum(bsfs_B[:,0, None] * bsfs_B[:,1:])
+        ## Nei's pairwise pi B
+        pi_B = float(fractions.Fraction(1, 2) * (bsfs_B_hetA_count + bsfs_B_hetB_count) + fractions.Fraction(2, 3) * (bsfs_B_hetAB_count + bsfs_B_fixed_count)) / (meta['blocks_length'] * bsfs_B_block_count)
+        # Waterson's estimator : (4-1)th harmonic number
+        watterson_theta_B = total_SB / float(harmonic(3)) / (meta['blocks_length'] * bsfs_B_block_count)
+        heterozygosity_B = (bsfs_B_hetA_count + bsfs_B_hetAB_count) / (meta['blocks_length'] * bsfs_B_block_count)
+        info_string.append("[+] [%s] Blocks-B = %s" % ('intra-pop'.center(SPACING, '-'), bsfs_B_block_count))
+        info_string.append("[+] [%s] pi B = %s" % ('intra-pop'.center(SPACING, '-'), format_proportion(pi_B, precision=6)))
+        info_string.append("[+] [%s] watterson theta B = %s" % ('intra-pop'.center(SPACING, '-'), format_proportion(watterson_theta_B, precision=6)))
+        info_string.append("[+] [%s] heterozygosity B = %s" % ('intra-pop'.center(SPACING, '-'), format_proportion(heterozygosity_B, precision=6)))
+        info_string.append(divider)
+        print("\n".join(info_string))
 
-        '''
-        sample_set_idxs = [idx for (idx, is_cartesian) in enumerate(meta['sample_sets_inter']) if is_cartesian] if cartesian_only else range(len(meta['sample_sets']))
-        if data == 'blocks':
-            result = calculate_popgen_from_array(variation[valid], (meta['blocks_length'] * self.data[blocks_variation_key].shape[0])) 
-            print("[+] Pi_%s = %s; Pi_%s = %s; D_xy = %s; F_st = %s; FGV = %s" % (
-        meta['population_by_letter']['A'], 
-        pi_1, 
-        meta['population_by_letter']['B'], 
-        pi_2, 
-        d_xy, 
-        f_st, 
-        fgv)) 
+    # def popgen_metrics_from(self, data='blocks', cartesian_only=True):
+    #     sample_set_idxs = [idx for (idx, is_cartesian) in enumerate(meta['sample_sets_inter']) if is_cartesian] if cartesian_only else range(len(meta['sample_sets']))
+    #     if data == 'blocks':
+    #         result = calculate_popgen_from_array(variation[valid], (meta['blocks_length'] * self.data[blocks_variation_key].shape[0])) 
+    #         print("[+] Pi_%s = %s; Pi_%s = %s; D_xy = %s; F_st = %s; FGV = %s" % (
+    #     meta['population_by_letter']['A'], 
+    #     pi_1, 
+    #     meta['population_by_letter']['B'], 
+    #     pi_2, 
+    #     d_xy, 
+    #     f_st, 
+    #     fgv)) 
+
 
     def dump_bsfs(self, parameterObj):
         meta = self.data['seqs'].attrs
         header = ['count'] + [x+1 for x in range(meta['mutypes_count'])]
-        bsfs = self.get_bsfs_matrix(data='blocks', sample_set_type='inter', as_matrix=False)
+        bsfs_2d = bsfs_to_2d(self.get_bsfs(data_type='blocks', sample_sets='X'))
         prefix = "%s.l_%s.m_%s.i_%s.u_%s" % (self.prefix, meta['blocks_length'], meta['blocks_span'], meta['blocks_max_missing'], meta['blocks_max_multiallelic'])
         #pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.inter.blocks.h5" % self.prefix, 'tally', format='table')
-        pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_csv("%s.inter.blocks.tsv" % prefix, index=False, sep='\t')
-        bsfs = self.get_bsfs_matrix(data='blocks', sample_set_type='intra_A', as_matrix=False)
+        pd.DataFrame(data=bsfs_2d, columns=header, dtype='int64').to_csv("%s.inter.blocks.tsv" % prefix, index=False, sep='\t')
+        #bsfs = self.get_bsfs(self, data_type='blocks', sample_sets='A')
         #pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.intra_A.blocks.h5" % prefix, 'tally', format='table')
-        pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_csv("%s.intra_A.blocks.tsv" % prefix, index=False, sep='\t')
-        bsfs = self.get_bsfs_matrix(data='blocks', sample_set_type='intra_B', as_matrix=False)
+        #pd.DataFrame(data=bsfs_2d, columns=header, dtype='int64').to_csv("%s.intra_A.blocks.tsv" % prefix, index=False, sep='\t')
+        #bsfs = self.get_bsfs(self, data_type='blocks', sample_sets='B')
         #pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.intra_B.blocks.h5" % prefix, 'tally', format='table')
-        pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_csv("%s.intra_B.blocks.tsv" % prefix, index=False, sep='\t')
+        #pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_csv("%s.intra_B.blocks.tsv" % prefix, index=False, sep='\t')
 
     def _plot_blocks(self, parameterObj):
         # mutuple barchart
-        meta = self.data['seqs'].attrs
+        # meta = self.data['seqs'].attrs
         mutypes_inter_key = 'seqs/bsfs/inter/mutypes' 
         counts_inter_key = 'seqs/bsfs/inter/counts' 
         mutypes_inter = self.data[mutypes_inter_key]
         counts_inter = self.data[counts_inter_key]
         self.plot_bsfs_pcp('%s.bsfs_pcp.png' % self.prefix, mutypes_inter, counts_inter)
         
-    def dump_blocks(self, parameterObj, cartesian_only=True):
-        meta = self.data['seqs'].attrs
-        sample_set_idxs = [idx for (idx, is_cartesian) in enumerate(meta['sample_sets_inter']) if is_cartesian] if cartesian_only else range(len(meta['sample_sets']))
-        variation_global = []
-        with tqdm(total=(len(meta['seq_names']) * len(sample_set_idxs)), desc="[%] Writing bSFSs ", ncols=100, unit_scale=True) as pbar: 
-            for seq_name in meta['seq_names']: 
-                for sample_set_idx in sample_set_idxs:
-                    variation_key = 'seqs/%s/blocks/%s/variation' % (seq_name, sample_set_idx)
-                    variation_global.append(np.array(self.data[variation_key]))#[valid]
-                    pbar.update()
-        variation_global_array = np.concatenate(variation_global, axis=0)
-        # popgen
-        variation_global = []
+    #def dump_blocks(self, parameterObj, cartesian_only=True):
+    #    meta = self.data['seqs'].attrs
+    #    sample_set_idxs = [idx for (idx, is_cartesian) in enumerate(meta['sample_sets_inter']) if is_cartesian] if cartesian_only else range(len(meta['sample_sets']))
+    #    variation_global = []
+    #    with tqdm(total=(len(meta['seq_names']) * len(sample_set_idxs)), desc="[%] Writing bSFSs ", ncols=100, unit_scale=True) as pbar: 
+    #        for seq_name in meta['seq_names']: 
+    #            for sample_set_idx in sample_set_idxs:
+    #                variation_key = 'seqs/%s/blocks/%s/variation' % (seq_name, sample_set_idx)
+    #                variation_global.append(np.array(self.data[variation_key]))#[valid]
+    #                pbar.update()
+    #    variation_global_array = np.concatenate(variation_global, axis=0)
+    #    # popgen
+    #    variation_global = []
         #metrics_rows = []
         # is order (pi_1, pi_2, d_xy, f_st, fgv) correct?
         # for sample_set_idx in data_by_key_by_sample_set_idx:
@@ -1360,6 +1547,9 @@ class Store(object):
             if not parameterObj.overwrite:
                 sys.exit("[X] GStore %r already contains blocks.\n[X] These blocks => %r\n[X] Please specify '--force' to overwrite." % (self.path, self.get_stage('blocks')))
             print('[-] GStore %r already contains blocks. But these will be overwritten...' % (self.path))
+            # wipe bsfs, since new blocks....
+            self.data.create_group("bsfs/", overwrite=True)
+        self.tree()
 
     def _preflight_simulate(self, parameterObj):
         if 'sims' not in self.data.group_keys():
@@ -1370,7 +1560,7 @@ class Store(object):
         meta['window_size'] = parameterObj.window_size
         meta['window_step'] = parameterObj.window_step
         sample_set_idxs = [idx for (idx, is_cartesian) in enumerate(meta['sample_sets_inter']) if is_cartesian] if cartesian_only else range(len(meta['sample_sets']))
-        with tqdm(meta['seq_names'], total=(len(meta['seq_names']) * len(sample_set_idxs)), desc="[%] Making windows ", ncols=100, unit_scale=True) as pbar: 
+        with tqdm(meta['seq_names'], total=(len(meta['seq_names']) * len(sample_set_idxs)), desc="[%] Constructing windows ", ncols=100, unit_scale=True) as pbar: 
             for seq_name in meta['seq_names']:
                 variation, starts, ends = [], [], []
                 for sample_set_idx in sample_set_idxs:
@@ -1384,43 +1574,46 @@ class Store(object):
                 variation_array = np.concatenate(variation, axis=0)
                 start_array = np.concatenate(starts, axis=0)
                 end_array = np.concatenate(ends, axis=0)
+                # window_variation : shape = (windows, blocklength, 4)
                 window_variation, window_starts, window_ends, window_pos_mean, window_pos_median = cut_windows(variation_array, sample_set_idxs, start_array, end_array, num_blocks=parameterObj.window_size, num_steps=parameterObj.window_step)
+
+                #b, counts = np.unique(variation, return_counts=True, axis=0)
                 self.data.create_dataset("seqs/%s/windows/variation" % seq_name, data=window_variation, overwrite=True)
                 self.data.create_dataset("seqs/%s/windows/starts" % seq_name, data=window_starts, overwrite=True)
                 self.data.create_dataset("seqs/%s/windows/ends" % seq_name, data=window_ends, overwrite=True)
                 self.data.create_dataset("seqs/%s/windows/pos_mean" % seq_name, data=window_pos_mean, overwrite=True)
                 self.data.create_dataset("seqs/%s/windows/pos_median" % seq_name, data=window_pos_median, overwrite=True)
-        window_info_rows = []
-        window_mutuple_tally = []
-        # window bsfs
-        for seq_name in tqdm(meta['seq_names'], total=len(meta['seq_names']), desc="[%] Generating output ", ncols=100):
-            variations = self.data["seqs/%s/windows/variation" % seq_name]
-            print('variations', variations.shape, variations.info, variations.hexdigest())
-            for window_id, variation, midpoint_mean, midpoint_median in zip(window_ids, variations, midpoint_means, midpoint_medians):
-                pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation, (meta['blocks_length'] * variation.shape[0]))
-                blocks = variation.shape[0]
-                window_info_rows.append([window_id, seq_name, midpoint_mean, midpoint_median, pi_1, pi_2, d_xy, f_st, fgv, blocks])
-                # bsfs for each window
-                mutuple, counts = np.unique(variation, return_counts=True, axis=0)
-                tally = np.concatenate([counts[:, np.newaxis], mutuple], axis =-1)
-                windows = np.array([window_id] * tally.shape[0])
-                window_mutuple_tally.append(np.concatenate([windows[:, np.newaxis], tally], axis =-1))
-        window_bsfs_cols = ['window_id', 'count'] + [x+1 for x in range(meta['mutypes_count'])]
-        print(window_bsfs_cols)
-        print(window_mutuple_tally)
-        window_bsfs_df = pd.DataFrame(np.vstack(window_mutuple_tally), columns=window_bsfs_cols)
-        print("[+] Made %s windows" % window_bsfs_df['window_id'].nunique()) 
-        window_bsfs_f = "%s.window_bsfs.tsv" % self.prefix
-        window_bsfs_df.to_csv(window_bsfs_f, sep='\t', index=False)
-        print("[>] Created: %r" % str(window_bsfs_f))
-        window_info_cols = ['window_id', 'seq_name', 'midpoint_mean', 'midpoint_median', 'pi_%s' % meta['population_ids'][0], 'pi_%s' % meta['population_ids'][1], 'd_xy', 'f_st', 'f']
-        window_info_df = pd.DataFrame(window_info_rows, columns=window_info_cols)
-        window_info_f = "%s.window_info.tsv" % self.prefix
-        window_info_df.to_csv(window_info_f, sep='\t', index=False)
-        print("[>] Created: %r" % str(window_info_f))
-        self.plot_fst_genome_scan(window_info_df)
-        self.plot_pi_genome_scan(window_info_df)
-        #     plot_pi_scatter(window_df, '%s.pi_scatter.png' % parameterObj.dataset)
+        #window_info_rows = []
+        #window_mutuple_tally = []
+        ## window bsfs
+        #for seq_name in tqdm(meta['seq_names'], total=len(meta['seq_names']), desc="[%] Generating output ", ncols=100):
+        #    variations = self.data["seqs/%s/windows/variation" % seq_name]
+        #    print('variations', variations.shape, variations.info, variations.hexdigest())
+        #    for window_id, variation, midpoint_mean, midpoint_median in zip(window_ids, variations, midpoint_means, midpoint_medians):
+        #        pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation, (meta['blocks_length'] * variation.shape[0]))
+        #        blocks = variation.shape[0]
+        #        window_info_rows.append([window_id, seq_name, midpoint_mean, midpoint_median, pi_1, pi_2, d_xy, f_st, fgv, blocks])
+        #        # bsfs for each window
+        #        mutuple, counts = np.unique(variation, return_counts=True, axis=0)
+        #        tally = np.concatenate([counts[:, np.newaxis], mutuple], axis =-1)
+        #        windows = np.array([window_id] * tally.shape[0])
+        #        window_mutuple_tally.append(np.concatenate([windows[:, np.newaxis], tally], axis =-1))
+        #window_bsfs_cols = ['window_id', 'count'] + [x+1 for x in range(meta['mutypes_count'])]
+        #print(window_bsfs_cols)
+        #print(window_mutuple_tally)
+        #window_bsfs_df = pd.DataFrame(np.vstack(window_mutuple_tally), columns=window_bsfs_cols)
+        #print("[+] Made %s windows" % window_bsfs_df['window_id'].nunique()) 
+        #window_bsfs_f = "%s.window_bsfs.tsv" % self.prefix
+        #window_bsfs_df.to_csv(window_bsfs_f, sep='\t', index=False)
+        #print("[>] Created: %r" % str(window_bsfs_f))
+        #window_info_cols = ['window_id', 'seq_name', 'midpoint_mean', 'midpoint_median', 'pi_%s' % meta['population_ids'][0], 'pi_%s' % meta['population_ids'][1], 'd_xy', 'f_st', 'f']
+        #window_info_df = pd.DataFrame(window_info_rows, columns=window_info_cols)
+        #window_info_f = "%s.window_info.tsv" % self.prefix
+        #window_info_df.to_csv(window_info_f, sep='\t', index=False)
+        #print("[>] Created: %r" % str(window_info_f))
+        #self.plot_fst_genome_scan(window_info_df)
+        #self.plot_pi_genome_scan(window_info_df)
+        ##     plot_pi_scatter(window_df, '%s.pi_scatter.png' % parameterObj.dataset)
 
     def _get_interval_coordinates_for_sample_set(self, seq_name='', sample_set=[]):
         meta = self.data['seqs'].attrs
@@ -1432,14 +1625,6 @@ class Store(object):
         return (np.array(self.data[start_key])[mask], np.array(self.data[end_key])[mask])
 
     def _make_blocks(self, parameterObj, debug=False):
-        '''
-        - makes and stores blocks
-        - computes and stores bSFSs 
-        [To Do]
-            - some sample_sets are quicker done than others:
-                - is this because they have fewer intervals/blocks/whatever? 
-                - can this be used to speed things up? are there cases that can be spotted earlier?
-        '''
         meta = self.data['seqs'].attrs
         meta['blocks_length'] = parameterObj.block_length
         meta['blocks_span'] = parameterObj.block_span
@@ -1496,67 +1681,35 @@ class Store(object):
                     pbar.update(1)
         meta['blocks_by_sample_set_idx'] = dict(blocks_per_sample_set_idx) # keys are strings
         meta['blocks_raw_per_sample_set_idx'] = dict(blocks_raw_per_sample_set_idx) # keys are strings
-        # bsfs
-        sample_set_idxs_all = [str(idx) for idx in range(len(meta['sample_sets']))]
-        sample_set_idxs_inter = [str(idx) for (idx, is_cartesian) in enumerate(meta['sample_sets_inter']) if is_cartesian]
-        sample_set_idxs_intra_A = [str(idx) for (idx, is_intra_A) in enumerate(meta['sample_sets_intra_A']) if is_intra_A]
-        sample_set_idxs_intra_B = [str(idx) for (idx, is_intra_B) in enumerate(meta['sample_sets_intra_B']) if not is_intra_B]
-        shape_all = (sum([meta['blocks_by_sample_set_idx'][idx] for idx in sample_set_idxs_all]), meta['mutypes_count'])
-        shape_inter = (sum([meta['blocks_by_sample_set_idx'][idx] for idx in sample_set_idxs_inter]), meta['mutypes_count'])
-        shape_intra_A = (sum([meta['blocks_by_sample_set_idx'][idx] for idx in sample_set_idxs_intra_A]), meta['mutypes_count'])
-        shape_intra_B = (sum([meta['blocks_by_sample_set_idx'][idx] for idx in sample_set_idxs_intra_B]), meta['mutypes_count'])
-        variation_all = np.zeros(shape_all, np.int64)
-        variation_inter = np.zeros(shape_inter, np.int64)
-        variation_intra_A = np.zeros(shape_intra_A, np.int64)
-        variation_intra_B = np.zeros(shape_intra_B, np.int64)
-        with tqdm(total=(len(meta['seq_names']) * len(sample_set_idxs_all)), desc="[%] Counting bSFSs", ncols=100, unit_scale=True) as pbar: 
-            offset_all = 0
-            offset_inter = 0
-            offset_intra_A = 0 
-            offset_intra_B = 0
-            sample_set_idxs_inter_sets = set(sample_set_idxs_inter)
-            sample_set_idxs_intra_A_sets = set(sample_set_idxs_intra_A)
-            sample_set_idxs_intra_B_sets = set(sample_set_idxs_intra_B)
-            for seq_name in meta['seq_names']: 
-                for sample_set_idx in sample_set_idxs_all:
-                    variation_key = 'seqs/%s/blocks/%s/variation' % (seq_name, sample_set_idx)
-                    block_array_end = self.data[variation_key].shape[0]
-                    variation_all[offset_all:offset_all + block_array_end,:] = self.data[variation_key]
-                    offset_all += block_array_end
-                    if sample_set_idx in sample_set_idxs_inter_sets:
-                        variation_inter[offset_inter:offset_inter + block_array_end,:] = self.data[variation_key]
-                        offset_inter += block_array_end
-                    if sample_set_idx in sample_set_idxs_intra_A_sets:
-                        variation_intra_A[offset_intra_A:offset_intra_A + block_array_end,:] = self.data[variation_key]
-                        offset_intra_A += block_array_end
-                    if sample_set_idx in sample_set_idxs_intra_B_sets:
-                        variation_intra_B[offset_intra_B:offset_intra_B + block_array_end,:] = self.data[variation_key]
-                        offset_intra_B += block_array_end
-                    pbar.update()
-        
-        mutypes_all, counts_all = np.unique(variation_all, return_counts=True, axis=0)
-        mutypes_all_key = 'seqs/bsfs/all/mutypes' 
-        self.data.create_dataset(mutypes_all_key, data=mutypes_all, overwrite=True)
-        counts_all_key = 'seqs/bsfs/all/counts' 
-        self.data.create_dataset(counts_all_key, data=counts_all, overwrite=True)
-        
-        mutypes_inter, counts_inter = np.unique(variation_inter, return_counts=True, axis=0)
-        mutypes_inter_key = 'seqs/bsfs/inter/mutypes' 
-        self.data.create_dataset(mutypes_inter_key, data=mutypes_inter, overwrite=True)
-        counts_inter_key = 'seqs/bsfs/inter/counts' 
-        self.data.create_dataset(counts_inter_key, data=counts_inter, overwrite=True)
-        
-        mutypes_intra_A, counts_intra_A = np.unique(variation_intra_A, return_counts=True, axis=0)
-        mutypes_intra_A_key = 'seqs/bsfs/intra_A/mutypes' 
-        self.data.create_dataset(mutypes_intra_A_key, data=mutypes_intra_A, overwrite=True)
-        counts_intra_A_key = 'seqs/bsfs/intra_A/counts' 
-        self.data.create_dataset(counts_intra_A_key, data=counts_intra_A, overwrite=True)
 
-        mutypes_intra_B, counts_intra_B = np.unique(variation_intra_B, return_counts=True, axis=0)
-        mutypes_intra_B_key = 'seqs/bsfs/intra_B/mutypes' 
-        self.data.create_dataset(mutypes_intra_B_key, data=mutypes_intra_B, overwrite=True)
-        counts_intra_B_key = 'seqs/bsfs/intra_B/counts' 
-        self.data.create_dataset(counts_intra_B_key, data=counts_intra_B, overwrite=True)
+    def _make_blocks_threaded(self, parameterObj, debug=False, threads=2):
+        '''there might be some speed improvement here ... has to be finished...'''
+        meta = self.data['seqs'].attrs
+        meta['blocks_length'] = parameterObj.block_length
+        meta['blocks_span'] = parameterObj.block_span
+        meta['blocks_gap_run'] = parameterObj.block_gap_run
+        meta['blocks_max_missing'] = parameterObj.block_max_missing
+        meta['blocks_max_multiallelic'] = parameterObj.block_max_multiallelic
+        blocks_raw_per_sample_set_idx = collections.Counter()   # all possible blocks
+        blocks_per_sample_set_idx = collections.Counter()       # all valid blocks => only these get saved to store
+        params = [(seqs, str(sample_seq_idx)) for seqs, sample_seq_idx in itertools.product(meta['seq_names'], range(0, len(meta['sample_sets'])))]
+        print(params)
+        results = []
+        with poolcontext(processes=threads) as pool:
+            with tqdm(total=len(params), desc="[%] ", ncols=100, unit_scale=True) as pbar:
+                for blockObjs in pool.imap_unordered(block_algorithm, params):
+                    results.append(blockObjs)
+                    pbar.update()
+
+        with tqdm(total=(len(meta['seq_names']) * len(meta['sample_sets'])), desc="[%] Building blocks ", ncols=100, unit_scale=True) as pbar:        
+            for seq_name in meta['seq_names']:        
+                pos_key = "seqs/%s/variants/pos" % (seq_name)
+                gt_key = "seqs/%s/variants/matrix" % (seq_name)
+                for sample_set_idx, (sample_set, sample_set_cartesian) in enumerate(zip(meta['sample_sets'], meta['sample_sets_inter'])):
+                    params.append(seq_name, sample_set_idx, pos_key, gt_key)
+                    pbar.update(1)
+        meta['blocks_by_sample_set_idx'] = dict(blocks_per_sample_set_idx) # keys are strings
+        meta['blocks_raw_per_sample_set_idx'] = dict(blocks_raw_per_sample_set_idx) # keys are strings
 
     def plot_bsfs_pcp(self, out_f, mutypes, counts):
         # https://stackoverflow.com/questions/8230638/parallel-coordinates-plot-in-matplotlib

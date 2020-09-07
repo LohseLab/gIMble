@@ -25,9 +25,9 @@ Usage: gimble <module> [<args>...] [-D -V -h]
 
   [Dependencies] 
     
-    --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-    | $  conda install bedtools bcftools samtools vcflib mosdepth pysam numpy docopt tqdm pandas tabulate zarr scikit-allel parallel more-itertools networkx giac sagelib matplotlib msprime networkx pygraphviz cerberus -c conda-forge -c bioconda |
-    --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    | $  conda install bedtools bcftools samtools vcflib mosdepth pysam numpy docopt tqdm pandas tabulate zarr scikit-allel parallel more-itertools networkx giac sagelib matplotlib msprime networkx pygraphviz sympy cerberus -c conda-forge -c bioconda |
+    --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 """
 
 import sys

@@ -25,7 +25,7 @@ class WindowsParameterObj(lib.gimble.ParameterObj):
         self.zstore = self._get_path(args['--zarr'])
         self.window_size = int(args['--blocks'])
         self.window_step = int(args['--steps'])
-        self.overwrite = True if args['--force'] else False
+        self.overwrite = args['--force']
 
 def main(params):
     try:
@@ -36,8 +36,8 @@ def main(params):
         parameterObj = WindowsParameterObj(params, args)
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
         gimbleStore.windows(parameterObj)
-        gimbleStore.info()
-        gimbleStore.tree()
+        #gimbleStore.info()
+        #gimbleStore.tree()
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
         print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
