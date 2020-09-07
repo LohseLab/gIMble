@@ -1549,7 +1549,6 @@ class Store(object):
             print('[-] GStore %r already contains blocks. But these will be overwritten...' % (self.path))
             # wipe bsfs, since new blocks....
             self.data.create_group("bsfs/", overwrite=True)
-        self.tree()
 
     def _preflight_simulate(self, parameterObj):
         if 'sims' not in self.data.group_keys():
