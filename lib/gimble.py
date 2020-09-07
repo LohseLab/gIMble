@@ -726,6 +726,63 @@ class Store(object):
     def has_stage(self, stage):
         return stage in self.data.attrs
 
+    def setup_sim(self, parameterObj):
+        print("[#] Preparing store...")
+        self._init_meta(overwrite=True)
+
+    def setup_debug(self, parameterObj):
+        print("[#] Preparing store...")
+        self._init_meta(overwrite=True)
+        self._set_bsfs(parameterObj)
+        # inference can be done on ETP-counts
+
+    def setup_seq(self, parameterObj):
+        print("[#] Preparing store...")
+        self._init_meta(overwrite=True)
+        print("[#] Processing GENOME_FILE %r..." % parameterObj.genome_f)
+        self._set_sequences(parameterObj)
+        print("[#] Processing SAMPLE_FILE %r..." % parameterObj.sample_f)
+        self._set_samples(parameterObj)
+        print("[#] Processing VCF_FILE %r..." % parameterObj.vcf_f)
+        self._set_variants(parameterObj)
+        print("[#] Processing BED_FILE %r..." % parameterObj.bed_f)
+        self._set_intervals(parameterObj)
+        self.log_stage(parameterObj)
+
+    def blocks(self, parameterObj):
+        print("[#] Preflight...")
+        self._preflight_blocks(parameterObj)
+        print("[#] Making blocks...")
+        #self._make_blocks_threaded(parameterObj)
+        self._make_blocks(parameterObj)
+        print("[#] Calculating population genetic metrics...")
+        self._calculate_block_pop_gen_metrics()
+        #self._plot_blocks(parameterObj)
+        self.log_stage(parameterObj)
+
+    def windows(self, parameterObj):
+        print("[#] Preflight...")
+        self._preflight_windows(parameterObj)
+        print("[#] Making windows...")
+        self._make_windows(parameterObj)
+        self.log_stage(parameterObj)
+
+    def simulate(self, parameterObj):
+        print("[#] Preflight...")
+        self._preflight_simulate(parameterObj)
+        print("[+] Checks passed.")
+        lib.simulate.run_sim(parameterObj, self)
+        self.log_stage(parameterObj)
+
+    def query(self, parameterObj):
+        print("[#] Preflight...")
+        self._preflight_query(parameterObj)
+        print("[#] Query...")
+        if parameterObj.blocks:
+            self._write_block_bed(parameterObj, cartesian_only=True)
+        if parameterObj.windows:
+            self._write_window_bed(parameterObj, cartesian_only=True)
+
     def _validate_seq_names(self, sequences=None):
         """Returns valid seq_names in sequences or raises ValueError."""
         meta = self.data['seqs'].attrs
@@ -1075,12 +1132,14 @@ class Store(object):
             self.data[group].attrs.put(attrs_by_group[group])
 
     def _is_zarr_group(self, name, subgroup=None):
+        '''needed?'''
         if not subgroup:
             return name in list(self.data.group_keys())
         else:
             return name in list(self.data[subgroup].group_keys())
 
     def _return_group_last_integer(self, name):
+        '''needed?'''
         try:
             all_groups = [int([namestring for namestring in groupnames.split('_')][-1]) for groupnames in list(self.data[name])]
         except KeyError:
@@ -1228,63 +1287,6 @@ class Store(object):
         #count_intervals = len(intervals_df.index)
         #count_samples = len(query_samples)
 
-    def setup_sim(self, parameterObj):
-        print("[#] Preparing store...")
-        self._init_meta(overwrite=True)
-
-    def setup_debug(self, parameterObj):
-        print("[#] Preparing store...")
-        self._init_meta(overwrite=True)
-        self._set_bsfs(parameterObj)
-        # inference can be done on ETP-counts
-
-    def setup_seq(self, parameterObj):
-        print("[#] Preparing store...")
-        self._init_meta(overwrite=True)
-        print("[#] Processing GENOME_FILE %r..." % parameterObj.genome_f)
-        self._set_sequences(parameterObj)
-        print("[#] Processing SAMPLE_FILE %r..." % parameterObj.sample_f)
-        self._set_samples(parameterObj)
-        print("[#] Processing VCF_FILE %r..." % parameterObj.vcf_f)
-        self._set_variants(parameterObj)
-        print("[#] Processing BED_FILE %r..." % parameterObj.bed_f)
-        self._set_intervals(parameterObj)
-        self.log_stage(parameterObj)
-
-    def blocks(self, parameterObj):
-        print("[#] Preflight...")
-        self._preflight_blocks(parameterObj)
-        print("[#] Making blocks...")
-        #self._make_blocks_threaded(parameterObj)
-        self._make_blocks(parameterObj)
-        print("[#] Calculating population genetic metrics...")
-        self._calculate_block_pop_gen_metrics()
-        #self._plot_blocks(parameterObj)
-        self.log_stage(parameterObj)
-
-    def windows(self, parameterObj):
-        print("[#] Preflight...")
-        self._preflight_windows(parameterObj)
-        print("[#] Making windows...")
-        self._make_windows(parameterObj)
-        self.log_stage(parameterObj)
-
-    def simulate(self, parameterObj):
-        print("[#] Preflight...")
-        self._preflight_simulate(parameterObj)
-        print("[+] Checks passed.")
-        lib.simulate.run_sim(parameterObj, self)
-        self.log_stage(parameterObj)
-
-    def query(self, parameterObj):
-        print("[#] Preflight...")
-        self._preflight_query(parameterObj)
-        print("[#] Query...")
-        if parameterObj.blocks:
-            self._write_block_bed(parameterObj, cartesian_only=True)
-        if parameterObj.windows:
-            self._write_window_bed(parameterObj, cartesian_only=True)
-
     def _calculate_block_pop_gen_metrics(self):
         '''
         hetB, hetA, hetAB, fixed = bsfs[:,1], bsfs[:,2], bsfs[:,3], bsfs[:,4]
@@ -1297,20 +1299,24 @@ class Store(object):
         info_string.append("[+] [%s]" % (
             'PopGenMetrics'.center(SPACING, '-')))
         bsfs_X = bsfs_to_2d(self.get_bsfs(data_type='blocks', sample_sets='X'))
+        print(bsfs_X)
         bsfs_X_block_count = np.sum(bsfs_X[:,0])
         bsfs_X_hetB_idx, bsfs_X_hetA_idx, bsfs_X_hetAB_idx, bsfs_X_fixed_idx  = bsfs_X[:,1]>0, bsfs_X[:,2]>0, bsfs_X[:,3]>0, bsfs_X[:,4]>0
         bsfs_X_fgv_idx = (bsfs_X[:,3]>0) & (bsfs_X[:,4]>0)
         bsfs_X_hetB_count = np.sum(bsfs_X[bsfs_X_hetB_idx, 0] * bsfs_X[bsfs_X_hetB_idx, 1])
         bsfs_X_hetA_count = np.sum(bsfs_X[bsfs_X_hetA_idx, 0] * bsfs_X[bsfs_X_hetA_idx, 2])
         bsfs_X_hetAB_count = np.sum(bsfs_X[bsfs_X_hetAB_idx, 0] * bsfs_X[bsfs_X_hetAB_idx, 3])
-        bsfs_X_fixed_count = np.sum(bsfs_X[bsfs_X_fixed_idx, 0] * bsfs_X[bsfs_X_fixed_idx, 3])
+        bsfs_X_fixed_count = np.sum(bsfs_X[bsfs_X_fixed_idx, 0] * bsfs_X[bsfs_X_fixed_idx, 4])
         heterozygosity_XA = (bsfs_X_hetA_count + bsfs_X_hetAB_count) / (meta['blocks_length'] * bsfs_X_block_count)
         heterozygosity_XB = (bsfs_X_hetB_count + bsfs_X_hetAB_count) / (meta['blocks_length'] * bsfs_X_block_count)
         dxy_X = ((bsfs_X_hetA_count + bsfs_X_hetB_count + bsfs_X_hetAB_count) / 2.0 + bsfs_X_fixed_count) / (meta['blocks_length'] * bsfs_X_block_count)
         fst_X = np.nan
+        fst_X2 = np.nan
         mean_pi = (heterozygosity_XA + heterozygosity_XB) / 2.0
         total_pi = (dxy_X + mean_pi) / 2.0 
         if (total_pi):
+            fst_X3 = (dxy_X - mean_pi) / (dxy_X)
+            fst_X2 = (dxy_X - mean_pi) / (dxy_X + mean_pi)
             fst_X = ((total_pi - mean_pi) / total_pi) # special case of pairwise Fst
         bsfs_X_fgv = np.sum(bsfs_X[bsfs_X_fgv_idx, 0]) / bsfs_X_block_count
         info_string.append("[+] [%s] Blocks-X = %s" % ('inter-pop'.center(SPACING, '-'), bsfs_X_block_count))
@@ -1318,6 +1324,8 @@ class Store(object):
         info_string.append("[+] [%s] HetB-X = %s" % ('inter-pop'.center(SPACING, '-'), format_proportion(heterozygosity_XB, precision=6)))
         info_string.append("[+] [%s] Dxy = %s" % ('inter-pop'.center(SPACING, '-'), format_proportion(dxy_X, precision=6)))
         info_string.append("[+] [%s] Fst = %s" % ('inter-pop'.center(SPACING, '-'), format_proportion(fst_X, precision=6)))
+        info_string.append("[+] [%s] Fst_2 = %s" % ('inter-pop'.center(SPACING, '-'), format_proportion(fst_X2, precision=6)))
+        info_string.append("[+] [%s] Fst_3 = %s" % ('inter-pop'.center(SPACING, '-'), format_proportion(fst_X3, precision=6)))
         info_string.append("[+] [%s] FGV = %s" % ('inter-pop'.center(SPACING, '-'), format_percentage(bsfs_X_fgv)))
         info_string.append(divider)
         # bsfs_A
@@ -1327,17 +1335,17 @@ class Store(object):
         bsfs_A_hetB_count = np.sum(bsfs_A[bsfs_A_hetB_idx, 0] * bsfs_A[bsfs_A_hetB_idx, 1])
         bsfs_A_hetA_count = np.sum(bsfs_A[bsfs_A_hetA_idx, 0] * bsfs_A[bsfs_A_hetA_idx, 2])
         bsfs_A_hetAB_count = np.sum(bsfs_A[bsfs_A_hetAB_idx, 0] * bsfs_A[bsfs_A_hetAB_idx, 3])
-        bsfs_A_fixed_count = np.sum(bsfs_A[bsfs_A_fixed_idx, 0] * bsfs_A[bsfs_A_fixed_idx, 3])
+        bsfs_A_fixed_count = np.sum(bsfs_A[bsfs_A_fixed_idx, 0] * bsfs_A[bsfs_A_fixed_idx, 4])
         total_SA = np.sum(bsfs_A[:,0, None] * bsfs_A[:,1:])
         ## Nei's pairwise pi A
         pi_A = float(fractions.Fraction(1, 2) * (bsfs_A_hetA_count + bsfs_A_hetB_count) + fractions.Fraction(2, 3) * (bsfs_A_hetAB_count + bsfs_A_fixed_count)) / (meta['blocks_length'] * bsfs_A_block_count)
         # Waterson's estimator : (4-1)th harmonic number
         watterson_theta_A = total_SA / float(harmonic(3)) / (meta['blocks_length'] * bsfs_A_block_count)
         heterozygosity_A = (bsfs_A_hetA_count + bsfs_A_hetAB_count) / (meta['blocks_length'] * bsfs_A_block_count)
-        info_string.append("[+] [%s] Blocks-A = %s" % ('intra-pop'.center(SPACING, '-'), bsfs_A_block_count))
-        info_string.append("[+] [%s] pi A = %s" % ('intra-pop'.center(SPACING, '-'), format_proportion(pi_A, precision=6)))
-        info_string.append("[+] [%s] watterson theta A = %s" % ('intra-pop'.center(SPACING, '-'), format_proportion(watterson_theta_A, precision=6)))
-        info_string.append("[+] [%s] heterozygosity A = %s" % ('intra-pop'.center(SPACING, '-'), format_proportion(heterozygosity_A, precision=6)))
+        info_string.append("[+] [%s] Blocks = %s" % ('intra-pop-A'.center(SPACING, '-'), bsfs_A_block_count))
+        info_string.append("[+] [%s] pi = %s" % ('intra-pop-A'.center(SPACING, '-'), format_proportion(pi_A, precision=6)))
+        info_string.append("[+] [%s] watterson theta = %s" % ('intra-pop-A'.center(SPACING, '-'), format_proportion(watterson_theta_A, precision=6)))
+        info_string.append("[+] [%s] heterozygosity = %s" % ('intra-pop-A'.center(SPACING, '-'), format_proportion(heterozygosity_A, precision=6)))
         info_string.append(divider)
         # bsfs_B
         bsfs_B = bsfs_to_2d(self.get_bsfs(data_type='blocks', sample_sets='B'))
@@ -1346,40 +1354,25 @@ class Store(object):
         bsfs_B_hetB_count = np.sum(bsfs_B[bsfs_B_hetB_idx, 0] * bsfs_B[bsfs_B_hetB_idx, 1])
         bsfs_B_hetA_count = np.sum(bsfs_B[bsfs_B_hetA_idx, 0] * bsfs_B[bsfs_B_hetA_idx, 2])
         bsfs_B_hetAB_count = np.sum(bsfs_B[bsfs_B_hetAB_idx, 0] * bsfs_B[bsfs_B_hetAB_idx, 3])
-        bsfs_B_fixed_count = np.sum(bsfs_B[bsfs_B_fixed_idx, 0] * bsfs_B[bsfs_B_fixed_idx, 3])
+        bsfs_B_fixed_count = np.sum(bsfs_B[bsfs_B_fixed_idx, 0] * bsfs_B[bsfs_B_fixed_idx, 4])
         total_SB = np.sum(bsfs_B[:,0, None] * bsfs_B[:,1:])
         ## Nei's pairwise pi B
         pi_B = float(fractions.Fraction(1, 2) * (bsfs_B_hetA_count + bsfs_B_hetB_count) + fractions.Fraction(2, 3) * (bsfs_B_hetAB_count + bsfs_B_fixed_count)) / (meta['blocks_length'] * bsfs_B_block_count)
         # Waterson's estimator : (4-1)th harmonic number
         watterson_theta_B = total_SB / float(harmonic(3)) / (meta['blocks_length'] * bsfs_B_block_count)
         heterozygosity_B = (bsfs_B_hetA_count + bsfs_B_hetAB_count) / (meta['blocks_length'] * bsfs_B_block_count)
-        info_string.append("[+] [%s] Blocks-B = %s" % ('intra-pop'.center(SPACING, '-'), bsfs_B_block_count))
-        info_string.append("[+] [%s] pi B = %s" % ('intra-pop'.center(SPACING, '-'), format_proportion(pi_B, precision=6)))
-        info_string.append("[+] [%s] watterson theta B = %s" % ('intra-pop'.center(SPACING, '-'), format_proportion(watterson_theta_B, precision=6)))
-        info_string.append("[+] [%s] heterozygosity B = %s" % ('intra-pop'.center(SPACING, '-'), format_proportion(heterozygosity_B, precision=6)))
+        info_string.append("[+] [%s] Blocks = %s" % ('intra-pop-B'.center(SPACING, '-'), bsfs_B_block_count))
+        info_string.append("[+] [%s] pi = %s" % ('intra-pop-B'.center(SPACING, '-'), format_proportion(pi_B, precision=6)))
+        info_string.append("[+] [%s] watterson theta = %s" % ('intra-pop-B'.center(SPACING, '-'), format_proportion(watterson_theta_B, precision=6)))
+        info_string.append("[+] [%s] heterozygosity = %s" % ('intra-pop-B'.center(SPACING, '-'), format_proportion(heterozygosity_B, precision=6)))
         info_string.append(divider)
         print("\n".join(info_string))
-
-    # def popgen_metrics_from(self, data='blocks', cartesian_only=True):
-    #     sample_set_idxs = [idx for (idx, is_cartesian) in enumerate(meta['sample_sets_inter']) if is_cartesian] if cartesian_only else range(len(meta['sample_sets']))
-    #     if data == 'blocks':
-    #         result = calculate_popgen_from_array(variation[valid], (meta['blocks_length'] * self.data[blocks_variation_key].shape[0])) 
-    #         print("[+] Pi_%s = %s; Pi_%s = %s; D_xy = %s; F_st = %s; FGV = %s" % (
-    #     meta['population_by_letter']['A'], 
-    #     pi_1, 
-    #     meta['population_by_letter']['B'], 
-    #     pi_2, 
-    #     d_xy, 
-    #     f_st, 
-    #     fgv)) 
-
 
     def dump_bsfs(self, parameterObj):
         meta = self.data['seqs'].attrs
         header = ['count'] + [x+1 for x in range(meta['mutypes_count'])]
         bsfs_2d = bsfs_to_2d(self.get_bsfs(data_type='blocks', sample_sets='X'))
         prefix = "%s.l_%s.m_%s.i_%s.u_%s" % (self.prefix, meta['blocks_length'], meta['blocks_span'], meta['blocks_max_missing'], meta['blocks_max_multiallelic'])
-        #pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.inter.blocks.h5" % self.prefix, 'tally', format='table')
         pd.DataFrame(data=bsfs_2d, columns=header, dtype='int64').to_csv("%s.inter.blocks.tsv" % prefix, index=False, sep='\t')
         #bsfs = self.get_bsfs(self, data_type='blocks', sample_sets='A')
         #pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.intra_A.blocks.h5" % prefix, 'tally', format='table')
@@ -1397,78 +1390,6 @@ class Store(object):
         counts_inter = self.data[counts_inter_key]
         self.plot_bsfs_pcp('%s.bsfs_pcp.png' % self.prefix, mutypes_inter, counts_inter)
         
-    #def dump_blocks(self, parameterObj, cartesian_only=True):
-    #    meta = self.data['seqs'].attrs
-    #    sample_set_idxs = [idx for (idx, is_cartesian) in enumerate(meta['sample_sets_inter']) if is_cartesian] if cartesian_only else range(len(meta['sample_sets']))
-    #    variation_global = []
-    #    with tqdm(total=(len(meta['seq_names']) * len(sample_set_idxs)), desc="[%] Writing bSFSs ", ncols=100, unit_scale=True) as pbar: 
-    #        for seq_name in meta['seq_names']: 
-    #            for sample_set_idx in sample_set_idxs:
-    #                variation_key = 'seqs/%s/blocks/%s/variation' % (seq_name, sample_set_idx)
-    #                variation_global.append(np.array(self.data[variation_key]))#[valid]
-    #                pbar.update()
-    #    variation_global_array = np.concatenate(variation_global, axis=0)
-    #    # popgen
-    #    variation_global = []
-        #metrics_rows = []
-        # is order (pi_1, pi_2, d_xy, f_st, fgv) correct?
-        # for sample_set_idx in data_by_key_by_sample_set_idx:
-        #     sample_set_ids = self.data.attrs['sample_sets'][sample_set_idx]
-        #     #print(data_by_key_by_sample_set_idx)
-        #     block_sites = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['block_sites'], axis=0))
-        #     interval_sites = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['interval_sites'], axis=0))
-        #     block_sites_valid = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['block_sites_valid'], axis=0))
-        #     variation_array = np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['variation'], axis=0)
-        #     missing_count = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['missing'], axis=0))
-        #     multiallelic_count = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['multiallelic'], axis=0))
-        #     hetB_count, hetA_count, hetAB_count, fixed_count = np.sum(variation_array, axis=0)
-        #     #pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation_array, (self.data.attrs['block_length'] * variation_array.shape[0]))    
-        #     pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation_array, block_sites_valid)    
-        #     metrics_rows.append([
-        #         sample_set_ids[0], 
-        #         sample_set_ids[1],     
-        #         block_sites,
-        #         interval_sites,
-        #         block_sites_valid,
-        #         np.divide(block_sites_valid, self.data.attrs['block_length']),
-        #         fgv,
-        #         missing_count,
-        #         multiallelic_count,
-        #         hetA_count, 
-        #         hetB_count, 
-        #         hetAB_count, 
-        #         fixed_count,
-        #         pi_1, 
-        #         pi_2, 
-        #         d_xy, 
-        #         f_st
-        #         ])
-        # # output metrics 
-        # header = [
-        #     self.data.attrs['pop_ids'][0], 
-        #     self.data.attrs['pop_ids'][1], 
-        #     'block_sites', 
-        #     'interval_sites', 
-        #     'block_sites_valid', 
-        #     'blocks', 
-        #     'fgv', 
-        #     'missing', 
-        #     'multiallelic', 
-        #     'hetA', 
-        #     'hetB', 
-        #     'hetAB', 
-        #     'fixed', 
-        #     'piA', 
-        #     'piB', 
-        #     'dxy', 
-        #     'fst'
-        #     ]
-        # pd.DataFrame(data=metrics_rows, columns=header, dtype='int64').to_hdf("%s.block_stats.h5" % self.prefix, 'bsfs', format='table')
-
-        #pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation_global_array, (self.data.attrs['block_length'] * variation_global_array.shape[0]))
-        #print("[+] Pi_%s = %s; Pi_%s = %s; D_xy = %s; F_st = %s; FGVs = %s / %s blocks (%s)" % (self.data.attrs['pop_ids'][0], pi_1, self.data.attrs['pop_ids'][1], pi_2, d_xy, f_st, fgv, variation_global_array.shape[0], format_percentage(fgv / variation_global_array.shape[0]))) 
-
-
     def _write_block_bed(self, parameterObj, cartesian_only=True):
         '''new gimblestore'''
         meta = self.data['seqs'].attrs
@@ -1553,7 +1474,112 @@ class Store(object):
     def _preflight_simulate(self, parameterObj):
         if 'sims' not in self.data.group_keys():
             self._init_meta(overwrite=False, module='sims')
+
+    def dump_windows(self, parameterObj):
+        window_info_rows = []
+        window_mutuple_tally = []
+        for sequence_id in tqdm(self.data.attrs['sequence_ids'], total=len(self.data.attrs['sequence_ids']), desc="[%] Generating output ", ncols=100):
+            variations = self.data["%s/windows/variation" % sequence_id]
+            #print(self.data["%s/windows/starts" % sequence_id][:])
+            #print(self.data["%s/windows/pos_mean" % sequence_id][:])
+            #print(self.data["%s/windows/pos_median" % sequence_id][:])
+            window_ids = np.array(["_".join([sequence_id, _start, _end]) for (_start, _end) in zip(
+                np.array(self.data["%s/windows/starts" % sequence_id]).astype(str), 
+                np.array(self.data["%s/windows/ends" % sequence_id]).astype(str))])
+            #window_ids = self.data["%s/windows/window_id" % sequence_id]
+            midpoint_means = self.data["%s/windows/pos_mean" % sequence_id]
+            midpoint_medians = self.data["%s/windows/pos_median" % sequence_id]
+            for window_id, variation, midpoint_mean, midpoint_median in zip(window_ids, variations, midpoint_means, midpoint_medians):
+                pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation, (self.data.attrs['block_length'] * variation.shape[0]))
+                window_info_rows.append([window_id, sequence_id, midpoint_mean, midpoint_median, pi_1, pi_2, d_xy, f_st, fgv/variation.shape[0]])
+                # mutuple barchart
+                mutypes, counts = np.unique(variation, return_counts=True, axis=0)
+                tally = np.concatenate([counts[:, np.newaxis], mutypes], axis =-1)
+                windows = np.array([window_id] * tally.shape[0])
+                window_mutuple_tally.append(np.concatenate([windows[:, np.newaxis], tally], axis =-1))
         
+        window_bsfs_cols = ['window_id', 'count'] + [x+1 for x in range(self.data.attrs['mutypes_count'])]
+        window_bsfs_df = pd.DataFrame(np.vstack(window_mutuple_tally), columns=window_bsfs_cols)
+        print("[+] Made %s windows" % window_bsfs_df['window_id'].nunique()) 
+        window_bsfs_f = "%s.window_bsfs.tsv" % self.prefix
+        window_bsfs_df.to_csv(window_bsfs_f, sep='\t', index=False)
+        print("[>] Created: %r" % str(window_bsfs_f))
+
+        window_info_cols = ['window_id', 'sequence_id', 'midpoint_mean', 'midpoint_median', 'pi_%s' % self.data.attrs['pop_ids'][0], 'pi_%s' % self.data.attrs['pop_ids'][1], 'd_xy', 'f_st', 'fgv']
+        window_info_df = pd.DataFrame(window_info_rows, columns=window_info_cols)
+        window_info_f = "%s.window_info.tsv" % self.prefix
+        window_info_df.to_csv(window_info_f, sep='\t', index=False)
+        print("[>] Created: %r" % str(window_info_f))        
+        self.plot_fst_genome_scan(window_info_df)
+        self.plot_pi_genome_scan(window_info_df)
+        #     plot_pi_scatter(window_df, '%s.pi_scatter.png' % parameterObj.dataset)
+    
+    def plot_pi_genome_scan(self, window_df):
+        offset_by_sequence_id = {}
+        offset = 0
+        x_boundaries = []
+        for sequence_id, sequence_length in zip(self.data.attrs['sequence_ids'], self.data.attrs['sequence_length']):
+            offset_by_sequence_id[sequence_id] = offset
+            x_boundaries.append(offset)
+            offset += sequence_length
+        x_boundaries.append(offset)
+        #print([(sequenceObj.id, sequenceObj.length) for sequenceObj in sequenceObjs])
+        #print(x_boundaries)
+        fig = plt.figure(figsize=(18,4), dpi=200, frameon=True)
+        #connecting dots
+        ax = fig.add_subplot(111)  
+        window_df['rel_pos'] = window_df['midpoint_median'] + window_df['sequence_id'].map(offset_by_sequence_id)
+        window_df.sort_values(['rel_pos'], inplace=True)
+        #print(window_df)
+        pi_A_key = list(window_df.columns)[4]
+        pi_B_key = list(window_df.columns)[5]
+        ax.plot(window_df['rel_pos'], window_df[pi_A_key], color='orange', alpha=0.8, linestyle='-', linewidth=1, label=pi_A_key.replace('pi_', ''))
+        ax.plot(window_df['rel_pos'], window_df[pi_B_key], color='dodgerblue', alpha=0.8, linestyle='-', linewidth=1, label=pi_B_key.replace('pi_', ''))
+        y_lim = (min(window_df[pi_A_key].min(), window_df[pi_B_key].min()), max(window_df[pi_A_key].max(), window_df[pi_B_key].max()))
+        ax.vlines(x_boundaries, y_lim[0], y_lim[1], colors=['lightgrey'], linestyles='dashed', linewidth=1)
+        ax.set_ylim(y_lim)
+        ax.spines['right'].set_visible(False)
+        ax.spines['top'].set_visible(False)
+        ax.legend(numpoints=1)
+        plt.ylabel('Pi')
+        plt.xlabel("Genome coordinate")
+        out_f = '%s.pi_genome_scan.png' % self.prefix
+        plt.tight_layout()
+        fig.savefig(out_f, format="png")
+        print("[>] Created: %r" % str(out_f))
+        plt.close(fig)
+
+    def plot_fst_genome_scan(self, window_df):
+        offset_by_sequence_id = {}
+        offset = 0
+        x_boundaries = []
+        for sequence_id, sequence_length in zip(self.data.attrs['sequence_ids'], self.data.attrs['sequence_length']):
+            offset_by_sequence_id[sequence_id] = offset
+            x_boundaries.append(offset)
+            offset += sequence_length
+        x_boundaries.append(offset)
+        fig = plt.figure(figsize=(18,4), dpi=200, frameon=True)
+        #connecting dots
+        ax = fig.add_subplot(111)  
+        y_lim = (0.0, 1.0)
+        window_df['rel_pos'] = window_df['midpoint_median'] + window_df['sequence_id'].map(offset_by_sequence_id)
+        window_df.sort_values(['rel_pos'], inplace=True)
+        ax.plot(window_df['rel_pos'], window_df['f_st'], color='lightgrey', alpha=0.8, linestyle='-', linewidth=1)
+        scatter = ax.scatter(window_df['rel_pos'], window_df['f_st'], c=window_df['d_xy'], alpha=1.0, cmap='PiYG_r', edgecolors='white', marker='o', s=40, linewidth=0.2)
+        cbar = fig.colorbar(scatter, ax=ax)
+        cbar.ax.set_title('D_xy')
+        ax.vlines(x_boundaries, 0.0, 1.0, colors=['lightgrey'], linestyles='dashed', linewidth=1)
+        ax.set_ylim(y_lim)
+        ax.spines['right'].set_visible(False)
+        ax.spines['top'].set_visible(False)
+        plt.ylabel('F_st')
+        plt.xlabel("Genome coordinate")
+        ax.autoscale_view(tight=None, scalex=True, scaley=True)
+        out_f = '%s.fst_genome_scan.png' % self.prefix
+        fig.savefig(out_f, format="png")
+        plt.close(fig)
+        print("[>] Created: %r" % str(out_f))
+
     def _make_windows(self, parameterObj, cartesian_only=True):
         meta = self.data['seqs'].attrs
         meta['window_size'] = parameterObj.window_size
@@ -1813,111 +1839,6 @@ class Store(object):
         #    host.add_patch(patch)
         #plt.tight_layout()
         #plt.show()
-
-    def dump_windows(self, parameterObj):
-        window_info_rows = []
-        window_mutuple_tally = []
-        for sequence_id in tqdm(self.data.attrs['sequence_ids'], total=len(self.data.attrs['sequence_ids']), desc="[%] Generating output ", ncols=100):
-            variations = self.data["%s/windows/variation" % sequence_id]
-            #print(self.data["%s/windows/starts" % sequence_id][:])
-            #print(self.data["%s/windows/pos_mean" % sequence_id][:])
-            #print(self.data["%s/windows/pos_median" % sequence_id][:])
-            window_ids = np.array(["_".join([sequence_id, _start, _end]) for (_start, _end) in zip(
-                np.array(self.data["%s/windows/starts" % sequence_id]).astype(str), 
-                np.array(self.data["%s/windows/ends" % sequence_id]).astype(str))])
-            #window_ids = self.data["%s/windows/window_id" % sequence_id]
-            midpoint_means = self.data["%s/windows/pos_mean" % sequence_id]
-            midpoint_medians = self.data["%s/windows/pos_median" % sequence_id]
-            for window_id, variation, midpoint_mean, midpoint_median in zip(window_ids, variations, midpoint_means, midpoint_medians):
-                pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation, (self.data.attrs['block_length'] * variation.shape[0]))
-                window_info_rows.append([window_id, sequence_id, midpoint_mean, midpoint_median, pi_1, pi_2, d_xy, f_st, fgv/variation.shape[0]])
-                # mutuple barchart
-                mutypes, counts = np.unique(variation, return_counts=True, axis=0)
-                tally = np.concatenate([counts[:, np.newaxis], mutypes], axis =-1)
-                windows = np.array([window_id] * tally.shape[0])
-                window_mutuple_tally.append(np.concatenate([windows[:, np.newaxis], tally], axis =-1))
-        
-        window_bsfs_cols = ['window_id', 'count'] + [x+1 for x in range(self.data.attrs['mutypes_count'])]
-        window_bsfs_df = pd.DataFrame(np.vstack(window_mutuple_tally), columns=window_bsfs_cols)
-        print("[+] Made %s windows" % window_bsfs_df['window_id'].nunique()) 
-        window_bsfs_f = "%s.window_bsfs.tsv" % self.prefix
-        window_bsfs_df.to_csv(window_bsfs_f, sep='\t', index=False)
-        print("[>] Created: %r" % str(window_bsfs_f))
-
-        window_info_cols = ['window_id', 'sequence_id', 'midpoint_mean', 'midpoint_median', 'pi_%s' % self.data.attrs['pop_ids'][0], 'pi_%s' % self.data.attrs['pop_ids'][1], 'd_xy', 'f_st', 'fgv']
-        window_info_df = pd.DataFrame(window_info_rows, columns=window_info_cols)
-        window_info_f = "%s.window_info.tsv" % self.prefix
-        window_info_df.to_csv(window_info_f, sep='\t', index=False)
-        print("[>] Created: %r" % str(window_info_f))        
-        self.plot_fst_genome_scan(window_info_df)
-        self.plot_pi_genome_scan(window_info_df)
-        #     plot_pi_scatter(window_df, '%s.pi_scatter.png' % parameterObj.dataset)
-    
-    def plot_pi_genome_scan(self, window_df):
-        offset_by_sequence_id = {}
-        offset = 0
-        x_boundaries = []
-        for sequence_id, sequence_length in zip(self.data.attrs['sequence_ids'], self.data.attrs['sequence_length']):
-            offset_by_sequence_id[sequence_id] = offset
-            x_boundaries.append(offset)
-            offset += sequence_length
-        x_boundaries.append(offset)
-        #print([(sequenceObj.id, sequenceObj.length) for sequenceObj in sequenceObjs])
-        #print(x_boundaries)
-        fig = plt.figure(figsize=(18,4), dpi=200, frameon=True)
-        #connecting dots
-        ax = fig.add_subplot(111)  
-        window_df['rel_pos'] = window_df['midpoint_median'] + window_df['sequence_id'].map(offset_by_sequence_id)
-        window_df.sort_values(['rel_pos'], inplace=True)
-        #print(window_df)
-        pi_A_key = list(window_df.columns)[4]
-        pi_B_key = list(window_df.columns)[5]
-        ax.plot(window_df['rel_pos'], window_df[pi_A_key], color='orange', alpha=0.8, linestyle='-', linewidth=1, label=pi_A_key.replace('pi_', ''))
-        ax.plot(window_df['rel_pos'], window_df[pi_B_key], color='dodgerblue', alpha=0.8, linestyle='-', linewidth=1, label=pi_B_key.replace('pi_', ''))
-        y_lim = (min(window_df[pi_A_key].min(), window_df[pi_B_key].min()), max(window_df[pi_A_key].max(), window_df[pi_B_key].max()))
-        ax.vlines(x_boundaries, y_lim[0], y_lim[1], colors=['lightgrey'], linestyles='dashed', linewidth=1)
-        ax.set_ylim(y_lim)
-        ax.spines['right'].set_visible(False)
-        ax.spines['top'].set_visible(False)
-        ax.legend(numpoints=1)
-        plt.ylabel('Pi')
-        plt.xlabel("Genome coordinate")
-        out_f = '%s.pi_genome_scan.png' % self.prefix
-        plt.tight_layout()
-        fig.savefig(out_f, format="png")
-        print("[>] Created: %r" % str(out_f))
-        plt.close(fig)
-
-    def plot_fst_genome_scan(self, window_df):
-        offset_by_sequence_id = {}
-        offset = 0
-        x_boundaries = []
-        for sequence_id, sequence_length in zip(self.data.attrs['sequence_ids'], self.data.attrs['sequence_length']):
-            offset_by_sequence_id[sequence_id] = offset
-            x_boundaries.append(offset)
-            offset += sequence_length
-        x_boundaries.append(offset)
-        fig = plt.figure(figsize=(18,4), dpi=200, frameon=True)
-        #connecting dots
-        ax = fig.add_subplot(111)  
-        y_lim = (0.0, 1.0)
-        window_df['rel_pos'] = window_df['midpoint_median'] + window_df['sequence_id'].map(offset_by_sequence_id)
-        window_df.sort_values(['rel_pos'], inplace=True)
-        ax.plot(window_df['rel_pos'], window_df['f_st'], color='lightgrey', alpha=0.8, linestyle='-', linewidth=1)
-        scatter = ax.scatter(window_df['rel_pos'], window_df['f_st'], c=window_df['d_xy'], alpha=1.0, cmap='PiYG_r', edgecolors='white', marker='o', s=40, linewidth=0.2)
-        cbar = fig.colorbar(scatter, ax=ax)
-        cbar.ax.set_title('D_xy')
-        ax.vlines(x_boundaries, 0.0, 1.0, colors=['lightgrey'], linestyles='dashed', linewidth=1)
-        ax.set_ylim(y_lim)
-        ax.spines['right'].set_visible(False)
-        ax.spines['top'].set_visible(False)
-        plt.ylabel('F_st')
-        plt.xlabel("Genome coordinate")
-        ax.autoscale_view(tight=None, scalex=True, scaley=True)
-        out_f = '%s.fst_genome_scan.png' % self.prefix
-        fig.savefig(out_f, format="png")
-        plt.close(fig)
-        print("[>] Created: %r" % str(out_f))
 
 # class Store(object):
 
@@ -2394,3 +2315,75 @@ class Store(object):
 #         fig.savefig(out_f, format="png")
 #         plt.close(fig)
 #         print("[>] Created: %r" % str(out_f))
+
+    #def dump_blocks(self, parameterObj, cartesian_only=True):
+    #    meta = self.data['seqs'].attrs
+    #    sample_set_idxs = [idx for (idx, is_cartesian) in enumerate(meta['sample_sets_inter']) if is_cartesian] if cartesian_only else range(len(meta['sample_sets']))
+    #    variation_global = []
+    #    with tqdm(total=(len(meta['seq_names']) * len(sample_set_idxs)), desc="[%] Writing bSFSs ", ncols=100, unit_scale=True) as pbar: 
+    #        for seq_name in meta['seq_names']: 
+    #            for sample_set_idx in sample_set_idxs:
+    #                variation_key = 'seqs/%s/blocks/%s/variation' % (seq_name, sample_set_idx)
+    #                variation_global.append(np.array(self.data[variation_key]))#[valid]
+    #                pbar.update()
+    #    variation_global_array = np.concatenate(variation_global, axis=0)
+    #    # popgen
+    #    variation_global = []
+        #metrics_rows = []
+        # is order (pi_1, pi_2, d_xy, f_st, fgv) correct?
+        # for sample_set_idx in data_by_key_by_sample_set_idx:
+        #     sample_set_ids = self.data.attrs['sample_sets'][sample_set_idx]
+        #     #print(data_by_key_by_sample_set_idx)
+        #     block_sites = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['block_sites'], axis=0))
+        #     interval_sites = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['interval_sites'], axis=0))
+        #     block_sites_valid = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['block_sites_valid'], axis=0))
+        #     variation_array = np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['variation'], axis=0)
+        #     missing_count = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['missing'], axis=0))
+        #     multiallelic_count = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['multiallelic'], axis=0))
+        #     hetB_count, hetA_count, hetAB_count, fixed_count = np.sum(variation_array, axis=0)
+        #     #pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation_array, (self.data.attrs['block_length'] * variation_array.shape[0]))    
+        #     pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation_array, block_sites_valid)    
+        #     metrics_rows.append([
+        #         sample_set_ids[0], 
+        #         sample_set_ids[1],     
+        #         block_sites,
+        #         interval_sites,
+        #         block_sites_valid,
+        #         np.divide(block_sites_valid, self.data.attrs['block_length']),
+        #         fgv,
+        #         missing_count,
+        #         multiallelic_count,
+        #         hetA_count, 
+        #         hetB_count, 
+        #         hetAB_count, 
+        #         fixed_count,
+        #         pi_1, 
+        #         pi_2, 
+        #         d_xy, 
+        #         f_st
+        #         ])
+        # # output metrics 
+        # header = [
+        #     self.data.attrs['pop_ids'][0], 
+        #     self.data.attrs['pop_ids'][1], 
+        #     'block_sites', 
+        #     'interval_sites', 
+        #     'block_sites_valid', 
+        #     'blocks', 
+        #     'fgv', 
+        #     'missing', 
+        #     'multiallelic', 
+        #     'hetA', 
+        #     'hetB', 
+        #     'hetAB', 
+        #     'fixed', 
+        #     'piA', 
+        #     'piB', 
+        #     'dxy', 
+        #     'fst'
+        #     ]
+        # pd.DataFrame(data=metrics_rows, columns=header, dtype='int64').to_hdf("%s.block_stats.h5" % self.prefix, 'bsfs', format='table')
+
+        #pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation_global_array, (self.data.attrs['block_length'] * variation_global_array.shape[0]))
+        #print("[+] Pi_%s = %s; Pi_%s = %s; D_xy = %s; F_st = %s; FGVs = %s / %s blocks (%s)" % (self.data.attrs['pop_ids'][0], pi_1, self.data.attrs['pop_ids'][1], pi_2, d_xy, f_st, fgv, variation_global_array.shape[0], format_percentage(fgv / variation_global_array.shape[0]))) 
+

@@ -24,13 +24,6 @@ querying of inference searches
 -W, --windows_bsfs                          Writes bSFS of windows
 -B, --blocks_bsfs                           Writes bSFS of blocks
 --popgen_metrics -B
-causes
-    - global bSFS tally as tsv
-    - samble-set bSFS tally as tsv
-    - popgen-metrics file
-        - overall pi_A, pi_B, dxy, fst
-            intra: [(0.5*m_1 + 0.5*m_2 + m_3+m_4) / blocks for sample_set in intra_sample_sets] / len(intra_sample_sets)
-        - sample-set pi_A, pi_B, dxy, fst
 
 
 '''
