@@ -654,7 +654,7 @@ class ParameterObj(object):
             self._remove_pop_from_dict(self.toBeSynced)
             self.parameter_combinations = self._dict_product()
             self._sync_pop_sizes(self.reference, self.toBeSynced)
-        elif self._MODULE=='optimise':
+        elif self._MODULE=='optimize':
             self.config['mu']['blockslength'] = self._get_blocks_length(self.zstore)
             self.config['parameters']['mu'] = self.config['mu']['mu']
             #parameters either float or [mid, min, max]
@@ -663,7 +663,7 @@ class ParameterObj(object):
             self.parameter_combinations = self._return_boundaries()
             #ready to be scaled
         else:
-            sys.exit("[X] Not implemented yet.")
+            sys.exit("[X] gimble.py_processing_config: Not implemented yet.")
 
     def _return_boundaries(self, length_boundary_set=3):
         parameter_combinations = {k:self._cast_to_repeated_list(v, length_boundary_set)[:length_boundary_set] for k,v in self.config['parameters'].items()}    
