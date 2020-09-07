@@ -233,6 +233,7 @@ class EquationSystemObj(object):
         #parameters
         self.threads = parameterObj.threads
         self.k_max_by_mutype = parameterObj.config['k_max']
+        self.seed = parameterObj.config['gimble']['random_seed']
         self.mutypes = sorted(self.k_max_by_mutype.keys())
         #needed to generate the equationObjs
         self.model_file = parameterObj.model_file

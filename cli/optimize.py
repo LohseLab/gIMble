@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gimble optimise                  [-z FILE] -c FILE [-m FILE] [-b|-w|-e] [-t INT] [-h|--help]
+"""usage: gimble optimize                  [-z FILE] -c FILE [-m FILE] [-b|-w|-e] [-t STR] [-n INT] 
+                                            [-r FLOAT -i INT]
+                                            [-h|--help]
                                             
                                             
     Options:
@@ -12,7 +14,11 @@
         -b, --blocks                                Optimise based on blocks 
         -w, --windows                               Optimise based on windows (might take very long)
         -e, --etp                                   Optimise based on model (debugging only)
-        -t, --threads INT                           Threads [default: 1]
+        -t, --threads STR                           Threads [default: 1,1]
+        -n, --n_points INT                          Number of starting points [default: 1]
+        -i, --iterations INT                        Number of iterations to perform when optimizing [default: 100]
+        -r, --xtol_rel FLOAT                        Relative maximum tolerance optimizing [default: 0.01] 
+
 """
 from timeit import default_timer as timer
 from docopt import docopt
@@ -30,8 +36,11 @@ class OptimiseParameterObj(lib.gimble.ParameterObj):
         self.data_type = self._get_datatype(args)
         self.config_file = self._get_path(args['--config_file'])
         self.model_file = self._get_path(args['--model_file'])
-        self.threads = self._get_int(args["--threads"])
+        self.threads, self.gridThreads = [self._get_int(t) for t in args["--threads"].split(',')]
         self.config = self._parse_config(self.config_file)
+        self.numPoints = self._get_int(args['--n_points'])
+        self.iterations = self._get_int(args['--iterations'])
+        self.xtol_rel = self._get_float(args['--xtol_rel'])
         self._process_config()
 
     def _get_datatype(self, args):
@@ -57,7 +66,8 @@ def main(params):
             # initiate model equations
             equationSystem.initiate_model(parameterObj)
             equationSystem.calculate_all_ETPs()
-            equationSystem.optimise_parameters(equationSystem.ETPs, maxeval=50, localOptimum=False)
+            print('equationSystem.ETPs', equationSystem.ETPs.shape, equationSystem.ETPs)
+            equationSystem.optimize_parameters(equationSystem.ETPs, maxeval=parameterObj.iterations, xtol_rel=parameterObj.xtol_rel, numPoints=parameterObj.numPoints, threads=parameterObj.threads, gridThreads=parameterObj.gridThreads)
         else:
             gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
             if not gimbleStore.has_stage(parameterObj.data_type):
@@ -67,7 +77,7 @@ def main(params):
             # initiate model equations
             equationSystem.initiate_model(parameterObj)
             data = gimbleStore.get_bsfs(data_type=parameterObj.data_type, sample_sets="X", kmax_by_mutype=parameterObj.config['k_max'])
-            equationSystem.optimise_parameters(data, maxeval=50, localOptimum=False)
+            equationSystem.optimize_parameters(data, maxeval=parameterObj.iterations, xtol_rel=parameterObj.xtol_rel, numPoints=parameterObj.numPoints, threads=parameterObj.threads, gridThreads=parameterObj.gridThreads)
         #load ETP numpy array
         #if not gimbleStore._is_zarr_group(parameterObj.grid_name, 'grids'):
         #    sys.exit("[X] Specified grid not found in zarr store.")

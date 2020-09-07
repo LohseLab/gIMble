@@ -105,7 +105,7 @@ def format_percentage(fraction, precision=2):
     return "{:.{}%}".format(fraction, precision)
 
 def format_proportion(fraction, precision=2):
-    return "{:.2f}".format(fraction, precision)
+    return "{:.{}f}".format(fraction, precision)
 
 def format_count(count):
     return "%s" % str(format(count, ',d'))
