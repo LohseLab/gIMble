@@ -1,9 +1,0 @@
-toy1	0	5	6	A,B,C,X,Y,Z
-toy1	5	10	4	B,X,Y,Z
-toy1	10	15	4	A,X,Y,Z
-toy1	15	20	3	C,X,Y
-toy1	20	30	4	B,X,Y,Z
-toy1	30	40	4	A,X,Y,Z
-toy1	40	50	4	B,X,Y,Z
-toy1	50	60	4	C,X,Y,Z
-toy2	0	100	6	A,B,C,X,Y,Z
