@@ -89,9 +89,9 @@ def main(gimble_dir):
         elif args['<module>'] == 'makegrid':
             import cli.makegrid as makegrid
             makegrid.main(params)
-        elif args['<module>'] == 'optimize':
-            import cli.optimize as optimize
-            optimize.main(params)
+        elif args['<module>'] == 'optimise':
+            import cli.optimise as optimise
+            optimise.main(params)
         else:
             sys.exit("%r is not a gimble module. See 'gimble -help'." % args['<module>'])
     except KeyboardInterrupt:
