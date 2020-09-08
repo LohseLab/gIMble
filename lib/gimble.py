@@ -1215,20 +1215,21 @@ class Store(object):
             count_missing = np.zeros(count_shape, dtype=np.int64)
             for idx, sequence in tqdm(enumerate(sequences), total=len(sequences), desc="[%] Reading variants...", ncols=100):
                 vcf_data = allel.read_vcf(parameterObj.vcf_f, region=sequence, samples=query_samples, fields=[gt_key, pos_key])
-                # genotypes
-                gt_matrix = vcf_data[gt_key]
-                # counts
-                sa_genotype_matrix = allel.GenotypeArray(gt_matrix)
-                count_records[idx] = gt_matrix.shape[0]
-                count_called[idx,:] = sa_genotype_matrix.count_called(axis=0)
-                count_hom_ref[idx,:] = sa_genotype_matrix.count_hom_ref(axis=0)
-                count_hom_alt[idx,:] = sa_genotype_matrix.count_hom_alt(axis=0)
-                count_het[idx,:] = sa_genotype_matrix.count_het(axis=0)
-                count_missing[idx,:] = sa_genotype_matrix.count_missing(axis=0)
-                # positions
-                pos_array = check_unique_pos(vcf_data[pos_key] - 1) # port to BED (0-based) coordinates
-                self.data.create_dataset("seqs/%s/variants/pos" % sequence, data=pos_array)
-                self.data.create_dataset("seqs/%s/variants/matrix" % sequence, data=gt_matrix)
+                if vcf_data:
+                    # genotypes
+                    gt_matrix = vcf_data[gt_key]
+                    # counts
+                    sa_genotype_matrix = allel.GenotypeArray(gt_matrix)
+                    count_records[idx] = gt_matrix.shape[0]
+                    count_called[idx,:] = sa_genotype_matrix.count_called(axis=0)
+                    count_hom_ref[idx,:] = sa_genotype_matrix.count_hom_ref(axis=0)
+                    count_hom_alt[idx,:] = sa_genotype_matrix.count_hom_alt(axis=0)
+                    count_het[idx,:] = sa_genotype_matrix.count_het(axis=0)
+                    count_missing[idx,:] = sa_genotype_matrix.count_missing(axis=0)
+                    # positions
+                    pos_array = check_unique_pos(vcf_data[pos_key] - 1) # port to BED (0-based) coordinates
+                    self.data.create_dataset("seqs/%s/variants/pos" % sequence, data=pos_array)
+                    self.data.create_dataset("seqs/%s/variants/matrix" % sequence, data=gt_matrix)
             meta['variants_idx_by_sample'] = {query_sample: idx for idx, query_sample in enumerate(query_samples)}
         meta['vcf_f'] = parameterObj.vcf_f
         meta['variants_counts'] = int(np.sum(count_records)) # ZARR JSON encoder does not like numpy dtypes
@@ -1241,15 +1242,14 @@ class Store(object):
 
     def _set_intervals(self, parameterObj):
         meta = self.data['seqs'].attrs
-        query_sequences = meta['seq_names']
+        query_sequences = set(meta['seq_names'])
         df = parse_csv(
             csv_f=parameterObj.bed_f, 
             sep="\t", 
             usecols=[0, 1, 2, 4], 
             dtype={'sequence': 'category', 'start': 'int64', 'end': 'int64', 'samples': 'category'},
             header=None)
-        df = df[df['sequence'].isin(meta['seq_names'])].sort_values(['sequence', 'start'], ascending=[True, True]).reset_index(drop=True)
-        intervals_df = df[df['sequence'].isin(query_sequences)]
+        intervals_df = df[df['sequence'].isin(set(meta['seq_names']))].sort_values(['sequence', 'start'], ascending=[True, True]).reset_index(drop=True)
         intervals_df = pd.concat([intervals_df, intervals_df.samples.str.get_dummies(sep=',').filter(meta['samples'])], axis=1).drop(columns=['samples'])
         intervals_df_samples = [sample for sample in intervals_df.columns[3:]]
         query_samples = ordered_intersect(a=intervals_df_samples, b=meta['samples'], order='a')
@@ -1261,15 +1261,14 @@ class Store(object):
         # Set up counts arrays
         count_shape = (len(meta['seq_names']), len(query_samples))
         count_bases_samples = np.zeros(count_shape, dtype=np.int64)
-        for idx, (sequence, _df) in tqdm(enumerate(intervals_df.groupby(['sequence'])), total=len(meta['seq_names']), desc="[%] Reading intervals...", ncols=100):
-            if sequence in query_sequences:
-                interval_matrix = _df[query_samples].to_numpy()
-                length_matrix = np.repeat(_df['length'].to_numpy(), interval_matrix.shape[1]).reshape(interval_matrix.shape)
-                length_matrix[interval_matrix == 0] = 0 # sets length to 0 if interval not present in interval_matrix 
-                count_bases_samples[idx,:] = np.sum(length_matrix, axis=0)
-                self.data.create_dataset("seqs/%s/intervals/matrix" % sequence, data=interval_matrix)
-                self.data.create_dataset("seqs/%s/intervals/starts" % sequence, data=_df['start'].to_numpy())
-                self.data.create_dataset("seqs/%s/intervals/ends" % sequence, data=_df['end'].to_numpy())
+        for idx, (sequence, _df) in tqdm(enumerate(intervals_df.groupby(['sequence'], observed=True)), total=len(query_sequences), desc="[%] Reading intervals...", ncols=100):
+            interval_matrix = _df[query_samples].to_numpy()
+            length_matrix = np.repeat(_df['length'].to_numpy(), interval_matrix.shape[1]).reshape(interval_matrix.shape)
+            length_matrix[interval_matrix == 0] = 0 # sets length to 0 if interval not present in interval_matrix 
+            count_bases_samples[idx,:] = np.sum(length_matrix, axis=0)
+            self.data.create_dataset("seqs/%s/intervals/matrix" % sequence, data=interval_matrix)
+            self.data.create_dataset("seqs/%s/intervals/starts" % sequence, data=_df['start'].to_numpy())
+            self.data.create_dataset("seqs/%s/intervals/ends" % sequence, data=_df['end'].to_numpy())
         meta['intervals_span_sample'] = [int(x) for x in np.sum(count_bases_samples, axis=0)] # JSON encoder does not like numpy dtypes   
         meta['intervals_count'] = len(intervals_df.index)
         meta['intervals_span'] = int(intervals_df['length'].sum())
