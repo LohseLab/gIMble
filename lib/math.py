@@ -475,7 +475,7 @@ class EquationSystemObj(object):
         print('lower', lower.shape, lower )
         print('upper', upper.shape, upper )
         print('boundaryNames', type(boundaryNames), boundaryNames)
-        all_p0 = np.random.uniform(low=lower, high=upper, size=(len(boundaryNames),numPoints-1))
+        all_p0 = np.random.uniform(low=lower, high=upper, size=(numPoints-1,len(boundaryNames)))
         #add p0 to list of starting points
         p0 =  np.array([boundaries[k][1] for k in boundaryNames])
         if all_p0.size!=0:
