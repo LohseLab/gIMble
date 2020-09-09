@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gIMble model -s <STR> -n <STR> -p <INT> -j <STR> -m <STR> -c --nograph --nomodel --noini] [-h|--help]
+"""usage: gIMble model -s <STR> -n <STR> -p <INT> [-j <STR> -m <STR> --nograph --nomodel --noini] [-h|--help]
 
     Options:
         -h --help                         show this
