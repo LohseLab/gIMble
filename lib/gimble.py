@@ -67,6 +67,11 @@ import fractions
 
 PURPLE = '#4F3D63'
 
+DFRM = '[──'
+DFRT = '├──'
+DPPM = '    '
+DFRL = '└──'
+DPPL = '│   '
 ############## Only needed once we have demand for multidimensional pairing function
 # def multidimensional_box_pairing(lengths: List[int], indexes: List[int]) -> int:
 #     n = len(lengths)
@@ -91,6 +96,16 @@ PURPLE = '#4F3D63'
 #             return subshell_count * index_i + recursive_index(dim + 1)
 #     return shell ** n + recursive_index(0)
 
+def recursive_get_size(path: str) -> int:
+    """Gets size in bytes of the given path, recursing into directories."""
+    if os.path.isfile(path):
+        return os.path.getsize(path)
+    if not os.path.isdir(path):
+        return 0
+    return sum(
+        recursive_get_size(os.path.join(path, name))
+        for name in os.listdir(path))
+
 def parse_csv(csv_f='', dtype=[], usecols=[], sep=',', header=None):
     '''dtypes := "object", "int64", "float64", "bool", "datetime64", "timedelta", "category"'''
     df = pd.read_csv(csv_f, sep=sep, usecols=usecols, names=list(dtype.keys()), header=header, dtype=dtype)
@@ -98,10 +113,10 @@ def parse_csv(csv_f='', dtype=[], usecols=[], sep=',', header=None):
         sys.exit("[X] Bad file format %r." % csv_f)
     return df
 
-def format_bases(bases):
+def format_bases(bases: int) -> str:
     return "%s b" % format(bases, ',d')
 
-def format_percentage(fraction, precision=2):
+def format_percentage(fraction: float, precision=2) -> str:
     return "{:.{}%}".format(fraction, precision)
 
 def format_proportion(fraction, precision=2):
@@ -109,6 +124,15 @@ def format_proportion(fraction, precision=2):
 
 def format_count(count):
     return "%s" % str(format(count, ',d'))
+
+def format_bytes(size, precision=1):
+    power = 2**10
+    n = 0
+    power_labels = {0 : ' B', 1: 'KB', 2: 'MB', 3: 'GB', 4: 'TB'}
+    while size > power:
+        size /= power
+        n += 1
+    return "{:.{}f} {}".format(size, precision, power_labels[n])
 
 def get_n50_from_lengths(lengths):
     length_sorted = sorted(lengths, reverse=True)
@@ -549,7 +573,6 @@ class ParameterObj(object):
             sys.exit("[X] File not found: %r" % str(infile))
         return str(path)
 
-
     def _get_pops_to_sync(self):
         reference, to_be_synced = None, None
         syncing =  self.config['populations']['sync_pop_sizes']
@@ -873,7 +896,7 @@ class Store(object):
         return out
 
     def set_bsfs(self, data_type='etp', bsfs=None):
-        '''not sure we ever need this... ''' 
+        '''Saves array in GStore and saves parameters (as strings) in meta. Recovery of parameters is possible via key_to_params().''' 
         key = hashlib.md5(str({k: v for k, v in locals().items() if not k == 'self'}).encode()).hexdigest()
         bsfs_key = 'bsfs/%s' % key
         self.data.create_dataset(bsfs_key, data=bsfs, overwrite=True)
@@ -941,126 +964,338 @@ class Store(object):
         out[tuple(mutuples.T)] = counts
         return out
 
-    def info(self, module='seqs' ,verbose = False):
-        meta = self.data[module].attrs
-        SPACING = meta['spacing']
-        divider = "[=] [%s]" % (SPACING * '=')
-        info_string = []
-        info_string.append(divider)
-        info_string.append("[+] [%s] %s" % (
-            'GStore'.center(SPACING, '-'), 
-            self.path))
-        if self.has_stage('setup'):
-            # sequences
-            info_string.append("[+] [%s] %s in %s sequence(s) (n50 = %s)" % (
-                'Genome'.center(SPACING, '-'), 
-                format_bases(sum(meta['seq_lengths'])), 
-                format_count(len(meta['seq_lengths'])), 
-                format_bases(meta['seq_n50'])))
-            # samples/populations
-            info_string.append("[+] [%s] %s samples in %s populations" % (
-                'Populations'.center(SPACING, '-'),
-                format_count(len(meta['samples'])),
-                format_count(len(meta['population_ids']))))
-            for letter, population_id in meta['population_by_letter'].items():
-                population_samples = [sample for sample, population in zip(meta['samples'], meta['populations']) if population == population_id]
-                info_string.append("[+] [%s] \t %r has %s samples (%s)" % (
-                    ('%s' % letter).center(SPACING), 
-                    population_id, 
-                    format_count(len(population_samples)),
-                    ", ".join(population_samples)
-                    ))
-            # sample sets
-            samples_sets_count_total = len(meta['sample_sets'])
-            samples_sets_count_inter = len([idx for idx, cartesian in enumerate(meta['sample_sets_inter']) if cartesian])
-            samples_sets_count_intra = len([idx for idx, cartesian in enumerate(meta['sample_sets_inter']) if not cartesian])
-            info_string.append("[+] [%s] %s sample sets" % (
-                'Sample Sets'.center(SPACING, '-'),
-                format_count(samples_sets_count_total)))
-            info_string.append("[+] [%s] \t %s sample sets" % (
-                'INTRA-pop'.center(SPACING, ' '),
-                format_count(samples_sets_count_intra)))
-            info_string.append("[+] [%s] \t %s sample sets" % (
-                'INTER-pop'.center(SPACING, ' '),
-                format_count(samples_sets_count_inter)))
-            # variants
-            info_string.append("[+] [%s] %s VCF records (%s/kb)" % (
-                'Variants'.center(SPACING, '-'),
+    def _info_get_input_report(self, header_width, blocks=False):
+        '''https://stackoverflow.com/questions/9727673/list-directory-tree-structure-in-python'''
+        meta = self.data['seqs'].attrs
+        out = [self._info_get_divider(' Input data ', header_width)]
+        out += ["[+] seqs"]
+        out += ["[+] %s genome %s" % ( 
+            DFRT,
+            ("%s in %s sequence(s) (n50 = %s)" % (
+            format_bases(sum(meta['seq_lengths'])), 
+            format_count(len(meta['seq_lengths'])), 
+            format_bases(meta['seq_n50']))).rjust(header_width - 9))]
+        out += ["[+] %s populations %s" % ( 
+            DFRT,
+            ("%s samples in %s populations" % (
+            format_count(len(meta['samples'])),
+            format_count(len(meta['population_ids'])))).rjust(header_width - 14))]
+        sample_counts_by_population = collections.Counter(meta['populations'])
+        out += ["[+] %s %s %s = %s %s" % (
+            DPPL, DFRT, letter, population_id, (
+                "%s samples" % format_count(sample_counts_by_population[population_id])).rjust(header_width - len(population_id) - 12)) 
+                    if idx < len(meta['population_by_letter']) - 1 else 
+                "[+] %s %s %s = %s %s" % (
+            DPPL, DFRL, letter, population_id, (
+                "%s samples" % format_count(sample_counts_by_population[population_id])).rjust(header_width - len(population_id) - 12)) 
+            for idx, (letter, population_id) in enumerate(meta['population_by_letter'].items())]
+        out += ["[+] %s sample sets %s" % (
+            DFRT, format_count(len(meta['sample_sets'])).rjust(header_width - 14))]
+        out += ["[+] %s %s INTER-population sample-sets (X) %s" % (
+            DPPL, DFRT, format_count(len(self._get_sample_set_idxs(query='X'))).rjust(header_width - 40))]
+        out += ["[+] %s %s INTRA-population sample-sets (A) %s" % (
+            DPPL, DFRT, format_count(len(self._get_sample_set_idxs(query='A'))).rjust(header_width - 40))]
+        out += ["[+] %s %s INTRA-population sample-sets (B) %s" % (
+            DPPL, DFRL, format_count(len(self._get_sample_set_idxs(query='B'))).rjust(header_width - 40))]
+        # variants
+        out += ["[+] %s variants %s" % (
+            DFRT, 
+            ("%s (%s per 1 kb)" % (
                 format_count(meta['variants_counts']),
-                format_proportion(1000 * meta['variants_counts'] / sum(meta['seq_lengths']))
-                ))
-            for sample in meta['samples']:
-                variant_idx = meta['variants_idx_by_sample'][sample]
-                info_string.append("[+] [%s] \t homref = %s; homalt = %s; het = %s; missing = %s" % (
-                    ('%s' % sample).center(SPACING),
-                    format_percentage(meta['variants_counts_hom_ref'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
-                    format_percentage(meta['variants_counts_hom_alt'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
-                    format_percentage(meta['variants_counts_het'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
-                    format_percentage(meta['variants_counts_missing'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0
-                    ))
-            info_string.append("[+] [%s] %s BED intervals containing %s (%s of genome)" % (
-                'Intervals'.center(SPACING, '-'),
+                format_proportion(1000 * meta['variants_counts'] / sum(meta['seq_lengths'])))).rjust(header_width - 11))]
+        for idx, sample in enumerate(meta['samples']):
+            variant_idx = meta['variants_idx_by_sample'][sample]
+            out += ["[+] %s %s %s %s" % (
+            DPPL, 
+            DFRL if idx == len(meta['variants_idx_by_sample']) - 1 else DFRT,
+            sample, 
+            ("%s [HR] %s [HA] %s [HET] %s [M]" % (
+            (format_percentage(meta['variants_counts_hom_ref'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else format_percentage(0)).rjust(7),
+            (format_percentage(meta['variants_counts_hom_alt'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else format_percentage(0)).rjust(7),
+            (format_percentage(meta['variants_counts_het'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else format_percentage(0)).rjust(7),
+            (format_percentage(meta['variants_counts_missing'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else format_percentage(0)).rjust(7)
+            )).rjust(header_width - len(sample) - 8)
+            )]
+        out += ["[+] %s intervals %s" % (
+            DFRL, 
+            ("%s intervals across %s (%s of genome)" % (
                 format_count(meta['intervals_count']),
                 format_bases(meta['intervals_span']),
                 format_percentage(meta['intervals_span'] / sum(meta['seq_lengths']))
+                )).rjust(header_width - 12)
+            )]
+        return out
+    
+    def _info_get_storage(self, header_width):
+        out = [self._info_get_divider(' Storage ', header_width)]
+        # sizes: [ZARR datastore, groups...]
+        sizes_int = [recursive_get_size(self.path)] + [recursive_get_size(pathlib.Path(self.path) / pathlib.Path(group)) for group in self.data]
+        levels = [line if not line.startswith("/") else " %s" % self.path for line in str(self.data.tree(level=1)).split("\n")]
+        percentages = [format_percentage(size/sizes_int[0]) for size in sizes_int]
+        sizes = [format_bytes(size) for size in sizes_int]
+        out += ["[+]%s %s %s | %s" % (level, "." * (header_width - len(level) - len(size) - 10), size, percentage.rjust(7)) for level, size, percentage in zip(levels, sizes, percentages)]
+        return out
+
+    def _info_get_blocks(self, header_width):
+        meta = self.data['seqs'].attrs
+        out = [self._info_get_divider(' Blocks ', header_width)]
+        out += ["[+] Blocks"]
+        blocks_count_total = sum(meta['blocks_by_sample_set_idx'].values())
+        blocks_raw_count_total = sum(meta['blocks_raw_per_sample_set_idx'].values())
+        block_validity = blocks_count_total / blocks_raw_count_total if blocks_count_total else 0
+        blocks_span_mean = int(blocks_count_total * meta['blocks_length'] / len(meta['sample_sets']))
+        out += ["[+] %s %s %s %s %s %s" % (
+            DFRT, 
+            "all blocks",
+            format_count(blocks_count_total), 
+            format_percentage(block_validity), 
+            format_count(blocks_raw_count_total),
+            format_bases(blocks_span_mean))
+        ]
+        out += ["[+] %s %s" % (DFRT, "X")]
+        out += ["[+] %s %s" % (DFRT, "A")]
+        out += ["[+] %s %s" % (DFRL, "B")]
+        return out
+
+
+        blocks_count_total = sum(meta['blocks_by_sample_set_idx'].values())
+        blocks_raw_count_total = sum(meta['blocks_raw_per_sample_set_idx'].values())
+        block_validity = blocks_count_total / blocks_raw_count_total
+        blocks_span_mean = int(blocks_count_total * meta['blocks_length'] / len(meta['sample_sets']))
+        # inter
+        sample_set_idxs_inter = [idx for idx, cartesian in enumerate(meta['sample_sets_inter']) if cartesian]
+        blocks_count_total_inter = sum([meta['blocks_by_sample_set_idx'][str(idx)] for idx in sample_set_idxs_inter]) 
+        blocks_raw_count_total_inter = sum([meta['blocks_raw_per_sample_set_idx'][str(idx)] for idx in sample_set_idxs_inter])
+        block_validity_inter = blocks_count_total_inter / blocks_raw_count_total_inter
+        blocks_span_mean_inter = int(blocks_count_total_inter * meta['blocks_length'] / len(sample_set_idxs_inter))
+        # intra
+        sample_set_idxs_intra = [idx for idx, cartesian in enumerate(meta['sample_sets_inter']) if not cartesian]
+        blocks_count_total_intra = sum([meta['blocks_by_sample_set_idx'][str(idx)] for idx in sample_set_idxs_intra]) 
+        blocks_raw_count_total_intra = sum([meta['blocks_raw_per_sample_set_idx'][str(idx)] for idx in sample_set_idxs_intra])
+        block_validity_intra = blocks_count_total_intra / blocks_raw_count_total_intra
+        blocks_span_mean_intra = int(blocks_count_total_intra * meta['blocks_length'] / len(sample_set_idxs_intra))
+        info_string.append("[+] [%s] %s valid blocks (%s of %s possible blocks) with mean span per sample set of %s" % (
+            'Blocks'.center(SPACING, '-'), 
+            format_count(blocks_count_total), 
+            format_percentage(block_validity), 
+            format_count(blocks_raw_count_total),
+            format_bases(blocks_span_mean)))
+        info_string.append("[+] [%s] \t %s valid blocks (%s of %s possible blocks); mean span is %s [ ]" % (
+            'INTRA-pop'.center(SPACING, ' '), 
+            format_count(blocks_count_total_intra), 
+            format_percentage(block_validity_intra), 
+            format_count(blocks_raw_count_total_intra),
+            format_bases(blocks_span_mean_intra)
+            ))
+        info_string.append("[+] [%s] \t %s valid blocks (%s of %s possible blocks); mean span is %s [*]" % (
+            'INTER-pop'.center(SPACING, ' '), 
+            format_count(blocks_count_total_inter), 
+            format_percentage(block_validity_inter), 
+            format_count(blocks_raw_count_total_inter),
+            format_bases(blocks_span_mean_inter)))
+        for sample_set_idx, (sample_set, sample_set_cartesian) in enumerate(zip(meta['sample_sets'], meta['sample_sets_inter'])):
+            blocks_count = meta['blocks_by_sample_set_idx'][str(sample_set_idx)]
+            blocks_span = blocks_count * meta['blocks_length']
+            blocks_span_deviation = (blocks_span/blocks_span_mean - 1)
+            info_string.append("[+] [%s] [%s] %s in %s blocks (%s of mean span)" % (
+                ('%s' % ", ".join(sample_set)).center(SPACING),
+                ("*" if sample_set_cartesian else " "),
+                format_bases(blocks_span),
+                format_count(blocks_count),
+                "%s%s" % ('+' if blocks_span_deviation > 0 else '', format_percentage(blocks_span_deviation))
                 ))
-            for sample in meta['samples']:
-                interval_idx = meta['intervals_idx_by_sample'][sample]
-                info_string.append("[+] [%s] \t %s (%s of intervals)" % (
-                    ('%s' % sample).center(SPACING),
-                    format_bases(meta['intervals_span_sample'][interval_idx]),
-                    format_percentage(meta['intervals_span_sample'][interval_idx] / meta['intervals_span'])
-                    ))
-        if self.has_stage('blocks'):
-            # all
-            blocks_count_total = sum(meta['blocks_by_sample_set_idx'].values())
-            blocks_raw_count_total = sum(meta['blocks_raw_per_sample_set_idx'].values())
-            block_validity = blocks_count_total / blocks_raw_count_total
-            blocks_span_mean = int(blocks_count_total * meta['blocks_length'] / len(meta['sample_sets']))
-            # inter
-            sample_set_idxs_inter = [idx for idx, cartesian in enumerate(meta['sample_sets_inter']) if cartesian]
-            blocks_count_total_inter = sum([meta['blocks_by_sample_set_idx'][str(idx)] for idx in sample_set_idxs_inter]) 
-            blocks_raw_count_total_inter = sum([meta['blocks_raw_per_sample_set_idx'][str(idx)] for idx in sample_set_idxs_inter])
-            block_validity_inter = blocks_count_total_inter / blocks_raw_count_total_inter
-            blocks_span_mean_inter = int(blocks_count_total_inter * meta['blocks_length'] / len(sample_set_idxs_inter))
-            # intra
-            sample_set_idxs_intra = [idx for idx, cartesian in enumerate(meta['sample_sets_inter']) if not cartesian]
-            blocks_count_total_intra = sum([meta['blocks_by_sample_set_idx'][str(idx)] for idx in sample_set_idxs_intra]) 
-            blocks_raw_count_total_intra = sum([meta['blocks_raw_per_sample_set_idx'][str(idx)] for idx in sample_set_idxs_intra])
-            block_validity_intra = blocks_count_total_intra / blocks_raw_count_total_intra
-            blocks_span_mean_intra = int(blocks_count_total_intra * meta['blocks_length'] / len(sample_set_idxs_intra))
-            info_string.append("[+] [%s] %s valid blocks (%s of %s possible blocks) with mean span per sample set of %s" % (
-                'Blocks'.center(SPACING, '-'), 
-                format_count(blocks_count_total), 
-                format_percentage(block_validity), 
-                format_count(blocks_raw_count_total),
-                format_bases(blocks_span_mean)))
-            info_string.append("[+] [%s] \t %s valid blocks (%s of %s possible blocks); mean span is %s [ ]" % (
-                'INTRA-pop'.center(SPACING, ' '), 
-                format_count(blocks_count_total_intra), 
-                format_percentage(block_validity_intra), 
-                format_count(blocks_raw_count_total_intra),
-                format_bases(blocks_span_mean_intra)
-                ))
-            info_string.append("[+] [%s] \t %s valid blocks (%s of %s possible blocks); mean span is %s [*]" % (
-                'INTER-pop'.center(SPACING, ' '), 
-                format_count(blocks_count_total_inter), 
-                format_percentage(block_validity_inter), 
-                format_count(blocks_raw_count_total_inter),
-                format_bases(blocks_span_mean_inter)))
-            for sample_set_idx, (sample_set, sample_set_cartesian) in enumerate(zip(meta['sample_sets'], meta['sample_sets_inter'])):
-                blocks_count = meta['blocks_by_sample_set_idx'][str(sample_set_idx)]
-                blocks_span = blocks_count * meta['blocks_length']
-                blocks_span_deviation = (blocks_span/blocks_span_mean - 1)
-                info_string.append("[+] [%s] [%s] %s in %s blocks (%s of mean span)" % (
-                    ('%s' % ", ".join(sample_set)).center(SPACING),
-                    ("*" if sample_set_cartesian else " "),
-                    format_bases(blocks_span),
-                    format_count(blocks_count),
-                    "%s%s" % ('+' if blocks_span_deviation > 0 else '', format_percentage(blocks_span_deviation))
-                    ))
-        info_string.append(divider)
-        print("\n".join(info_string))
+        sizes_int = [recursive_get_size(self.path)] + [recursive_get_size(pathlib.Path(self.path) / pathlib.Path(group)) for group in self.data]
+        levels = [line if not line.startswith("/") else self.path for line in str(self.data.tree(level=1)).split("\n")]
+        percentages = [format_percentage(size/sizes_int[0]) for size in sizes_int]
+        sizes = [format_bytes(size) for size in sizes_int]
+        out += ["[+] %s %s %s | %s" % (level, "." * (header_width - len(level) - len(size) - 10), size, percentage.rjust(7)) for level, size, percentage in zip(levels, sizes, percentages)]
+        return out
+
+    def _info_get_divider(self, title, header_width, fill="=", l="[", r="]"):
+        return "[=] %s%s%s" % (l, title.center(header_width, fill), r)
+
+    def info(self, query=None, verbose=[]):
+        '''Returns string of information about a certain query key 
+        '''
+        meta = self.data['seqs'].attrs
+        header_width = len(self.path) + 30
+        out = self._info_get_storage(header_width)
+        if 1 or query == 'setup':
+            out += self._info_get_input_report(header_width, blocks=True)
+            out += self._info_get_blocks(header_width)
+        print("%s" % "\n".join(out))
+
+        #SPACING = meta['spacing']
+        #divider = "[=] [%s]" % (SPACING * '=')
+        #info_string = []
+        #info_string.append(divider)
+        #info_string.append("[+] [%s] %s" % (
+        #    'GStore'.center(SPACING, '-'), 
+        #    self.path))
+        #if self.has_stage('setup'):
+        #    
+        #    for sample in met']:
+        #    variant_idx = meta['variants_idx_by_sample'][sample]
+#
+        #    info_string.append("[+] [%s] \t homref = %s; homalt = %s; het = %s; missing = %s" % (
+        #        ('%s' % sample).center(SPACING),
+        #        format_percentage(meta['variants_counts_hom_ref'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
+        #        format_percentage(meta['variants_counts_hom_alt'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
+        #        format_percentage(meta['variants_counts_het'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
+        #        format_percentage(meta['variants_counts_missing'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0
+        #    ))
+#
+        ##    for sample in met']:
+        #    variant_idx = meta['variants_idx_by_sample'][sample]
+#
+        #    info_string.append("[+] [%s] \t homref = %s; homalt = %s; het = %s; missing = %s" % (
+        #        ('%s' % sample).center(SPACING),
+        #        format_percentage(meta['variants_counts_hom_ref'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
+        #        format_percentage(meta['variants_counts_hom_alt'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
+        #        format_percentage(meta['variants_counts_het'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
+        #        format_percentage(meta['variants_counts_missing'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0
+        #    ))
+#
+        ##    for sample in met']:
+        #    variant_idx = meta['variants_idx_by_sample'][sample]
+#
+        #    info_string.append("[+] [%s] \t homref = %s; homalt = %s; het = %s; missing = %s" % (
+        #        ('%s' % sample).center(SPACING),
+        #        format_percentage(meta['variants_counts_hom_ref'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
+        #        format_percentage(meta['variants_counts_hom_alt'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
+        #        format_percentage(meta['variants_counts_het'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
+        #        format_percentage(meta['variants_counts_missing'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0
+        #    ))
+#
+        ##    for sample in met']:
+        #    variant_idx = meta['variants_idx_by_sample'][sample]
+#
+        #    info_string.append("[+] [%s] \t homref = %s; homalt = %s; het = %s; missing = %s" % (
+        #        ('%s' % sample).center(SPACING),
+        #        format_percentage(meta['variants_counts_hom_ref'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
+        #        format_percentage(meta['variants_counts_hom_alt'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
+        #        format_percentage(meta['variants_counts_het'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
+        #        format_percentage(meta['variants_counts_missing'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0
+        #    ))
+#
+        ##    for sample in met']:
+        #    variant_idx = meta['variants_idx_by_sample'][sample]
+#
+        #    info_string.append("[+] [%s] \t homref = %s; homalt = %s; het = %s; missing = %s" % (
+        #        ('%s' % sample).center(SPACING),
+        #        format_percentage(meta['variants_counts_hom_ref'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
+        #        format_percentage(meta['variants_counts_hom_alt'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
+        #        format_percentage(meta['variants_counts_het'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
+        #        format_percentage(meta['variants_counts_missing'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0
+        #    ))
+#
+        ##    for sample in met']:
+        #    variant_idx = meta['variants_idx_by_sample'][sample]
+#
+        #    info_string.append("[+] [%s] \t homref = %s; homalt = %s; het = %s; missing = %s" % (
+        #        ('%s' % sample).center(SPACING),
+        #        format_percentage(meta['variants_counts_hom_ref'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
+        #        format_percentage(meta['variants_counts_hom_alt'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
+        #        format_percentage(meta['variants_counts_het'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
+        #        format_percentage(meta['variants_counts_missing'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0
+        #    ))
+#
+        ##    for sample in met']:
+        #    variant_idx = meta['variants_idx_by_sample'][sample]
+#
+        #    info_string.append("[+] [%s] \t homref = %s; homalt = %s; het = %s; missing = %s" % (
+        #        ('%s' % sample).center(SPACING),
+        #        format_percentage(meta['variants_counts_hom_ref'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
+        #        format_percentage(meta['variants_counts_hom_alt'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
+        #        format_percentage(meta['variants_counts_het'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
+        #        format_percentage(meta['variants_counts_missing'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0
+        #    ))
+#
+        ##    for sample in met']:
+        #    variant_idx = meta['variants_idx_by_sample'][sample]
+#
+        #    info_string.append("[+] [%s] \t homref = %s; homalt = %s; het = %s; missing = %s" % (
+        #        ('%s' % sample).center(SPACING),
+        #        format_percentage(meta['variants_counts_hom_ref'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
+        #        format_percentage(meta['variants_counts_hom_alt'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
+        #        format_percentage(meta['variants_counts_het'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
+        #        format_percentage(meta['variants_counts_missing'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0
+        #    ))
+#
+        ##    for sample in met']:
+        #    variant_idx = meta['variants_idx_by_sample'][sample]
+#
+        #    info_string.append("[+] [%s] \t homref = %s; homalt = %s; het = %s; missing = %s" % (
+        #        ('%s' % sample).center(SPACING),
+        #        format_percentage(meta['variants_counts_hom_ref'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
+        #        format_percentage(meta['variants_counts_hom_alt'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
+        #        format_percentage(meta['variants_counts_het'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
+        #        format_percentage(meta['variants_counts_missing'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0
+        #    ))
+#
+        #    info_string.append("[+] [%s] %s BED intervals containing %s (%s of genome)" % (
+        #        'Intervals'.center(SPACING, '-'),
+        #        format_count(meta['intervals_count']),
+        #        format_bases(meta['intervals_span']),
+        #        format_percentage(meta['intervals_span'] / sum(meta['seq_lengths']))
+        #        ))
+        #    for sample in meta['samples']:
+        #        interval_idx = meta['intervals_idx_by_sample'][sample]
+        #        info_string.append("[+] [%s] \t %s (%s of intervals)" % (
+        #            ('%s' % sample).center(SPACING),
+        #            format_bases(meta['intervals_span_sample'][interval_idx]),
+        #            format_percentage(meta['intervals_span_sample'][interval_idx] / meta['intervals_span'])
+        #            ))
+        #if self.has_stage('blocks'):
+        #    # all
+        #    blocks_count_total = sum(meta['blocks_by_sample_set_idx'].values())
+        #    blocks_raw_count_total = sum(meta['blocks_raw_per_sample_set_idx'].values())
+        #    block_validity = blocks_count_total / blocks_raw_count_total
+        #    blocks_span_mean = int(blocks_count_total * meta['blocks_length'] / len(meta['sample_sets']))
+        #    # inter
+        #    sample_set_idxs_inter = [idx for idx, cartesian in enumerate(meta['sample_sets_inter']) if cartesian]
+        #    blocks_count_total_inter = sum([meta['blocks_by_sample_set_idx'][str(idx)] for idx in sample_set_idxs_inter]) 
+        #    blocks_raw_count_total_inter = sum([meta['blocks_raw_per_sample_set_idx'][str(idx)] for idx in sample_set_idxs_inter])
+        #    block_validity_inter = blocks_count_total_inter / blocks_raw_count_total_inter
+        #    blocks_span_mean_inter = int(blocks_count_total_inter * meta['blocks_length'] / len(sample_set_idxs_inter))
+        #    # intra
+        #    sample_set_idxs_intra = [idx for idx, cartesian in enumerate(meta['sample_sets_inter']) if not cartesian]
+        #    blocks_count_total_intra = sum([meta['blocks_by_sample_set_idx'][str(idx)] for idx in sample_set_idxs_intra]) 
+        #    blocks_raw_count_total_intra = sum([meta['blocks_raw_per_sample_set_idx'][str(idx)] for idx in sample_set_idxs_intra])
+        #    block_validity_intra = blocks_count_total_intra / blocks_raw_count_total_intra
+        #    blocks_span_mean_intra = int(blocks_count_total_intra * meta['blocks_length'] / len(sample_set_idxs_intra))
+        #    info_string.append("[+] [%s] %s valid blocks (%s of %s possible blocks) with mean span per sample set of %s" % (
+        #        'Blocks'.center(SPACING, '-'), 
+        #        format_count(blocks_count_total), 
+        #        format_percentage(block_validity), 
+        #        format_count(blocks_raw_count_total),
+        #        format_bases(blocks_span_mean)))
+        #    info_string.append("[+] [%s] \t %s valid blocks (%s of %s possible blocks); mean span is %s [ ]" % (
+        #        'INTRA-pop'.center(SPACING, ' '), 
+        #        format_count(blocks_count_total_intra), 
+        #        format_percentage(block_validity_intra), 
+        #        format_count(blocks_raw_count_total_intra),
+        #        format_bases(blocks_span_mean_intra)
+        #        ))
+        #    info_string.append("[+] [%s] \t %s valid blocks (%s of %s possible blocks); mean span is %s [*]" % (
+        #        'INTER-pop'.center(SPACING, ' '), 
+        #        format_count(blocks_count_total_inter), 
+        #        format_percentage(block_validity_inter), 
+        #        format_count(blocks_raw_count_total_inter),
+        #        format_bases(blocks_span_mean_inter)))
+        #    for sample_set_idx, (sample_set, sample_set_cartesian) in enumerate(zip(meta['sample_sets'], meta['sample_sets_inter'])):
+        #        blocks_count = meta['blocks_by_sample_set_idx'][str(sample_set_idx)]
+        #        blocks_span = blocks_count * meta['blocks_length']
+        #        blocks_span_deviation = (blocks_span/blocks_span_mean - 1)
+        #        info_string.append("[+] [%s] [%s] %s in %s blocks (%s of mean span)" % (
+        #            ('%s' % ", ".join(sample_set)).center(SPACING),
+        #            ("*" if sample_set_cartesian else " "),
+        #            format_bases(blocks_span),
+        #            format_count(blocks_count),
+        #            "%s%s" % ('+' if blocks_span_deviation > 0 else '', format_percentage(blocks_span_deviation))
+        #            ))
+        #info_string.append(divider)
+        #print("\n".join(info_string))
 
     def _count_groups(self, name):
         return len(list(self.data[name]))
@@ -1076,7 +1311,7 @@ class Store(object):
                 shutil.rmtree(self.path)
             print("[+] Creating GStore in %r" % self.path)
             return zarr.open(str(self.path), mode='w')
-        print("[+] Loading GStore from %r" % self.path)
+        #print("[+] Loading GStore from %r" % self.path)
         return zarr.open(str(self.path), mode='r+')
     
     def _init_meta(self, overwrite=False):
@@ -1298,7 +1533,6 @@ class Store(object):
         info_string.append("[+] [%s]" % (
             'PopGenMetrics'.center(SPACING, '-')))
         bsfs_X = bsfs_to_2d(self.get_bsfs(data_type='blocks', sample_sets='X'))
-        print(bsfs_X)
         bsfs_X_block_count = np.sum(bsfs_X[:,0])
         bsfs_X_hetB_idx, bsfs_X_hetA_idx, bsfs_X_hetAB_idx, bsfs_X_fixed_idx  = bsfs_X[:,1]>0, bsfs_X[:,2]>0, bsfs_X[:,3]>0, bsfs_X[:,4]>0
         bsfs_X_fgv_idx = (bsfs_X[:,3]>0) & (bsfs_X[:,4]>0)
@@ -1309,22 +1543,15 @@ class Store(object):
         heterozygosity_XA = (bsfs_X_hetA_count + bsfs_X_hetAB_count) / (meta['blocks_length'] * bsfs_X_block_count)
         heterozygosity_XB = (bsfs_X_hetB_count + bsfs_X_hetAB_count) / (meta['blocks_length'] * bsfs_X_block_count)
         dxy_X = ((bsfs_X_hetA_count + bsfs_X_hetB_count + bsfs_X_hetAB_count) / 2.0 + bsfs_X_fixed_count) / (meta['blocks_length'] * bsfs_X_block_count)
-        fst_X = np.nan
-        fst_X2 = np.nan
         mean_pi = (heterozygosity_XA + heterozygosity_XB) / 2.0
         total_pi = (dxy_X + mean_pi) / 2.0 
-        if (total_pi):
-            fst_X3 = (dxy_X - mean_pi) / (dxy_X)
-            fst_X2 = (dxy_X - mean_pi) / (dxy_X + mean_pi)
-            fst_X = ((total_pi - mean_pi) / total_pi) # special case of pairwise Fst
+        fst_X = (dxy_X - mean_pi) / (dxy_X + mean_pi) if (total_pi) else np.nan
         bsfs_X_fgv = np.sum(bsfs_X[bsfs_X_fgv_idx, 0]) / bsfs_X_block_count
         info_string.append("[+] [%s] Blocks-X = %s" % ('inter-pop'.center(SPACING, '-'), bsfs_X_block_count))
         info_string.append("[+] [%s] HetA-X = %s" % ('inter-pop'.center(SPACING, '-'), format_proportion(heterozygosity_XA, precision=6)))
         info_string.append("[+] [%s] HetB-X = %s" % ('inter-pop'.center(SPACING, '-'), format_proportion(heterozygosity_XB, precision=6)))
         info_string.append("[+] [%s] Dxy = %s" % ('inter-pop'.center(SPACING, '-'), format_proportion(dxy_X, precision=6)))
         info_string.append("[+] [%s] Fst = %s" % ('inter-pop'.center(SPACING, '-'), format_proportion(fst_X, precision=6)))
-        info_string.append("[+] [%s] Fst_2 = %s" % ('inter-pop'.center(SPACING, '-'), format_proportion(fst_X2, precision=6)))
-        info_string.append("[+] [%s] Fst_3 = %s" % ('inter-pop'.center(SPACING, '-'), format_proportion(fst_X3, precision=6)))
         info_string.append("[+] [%s] FGV = %s" % ('inter-pop'.center(SPACING, '-'), format_percentage(bsfs_X_fgv)))
         info_string.append(divider)
         # bsfs_A
@@ -1661,9 +1888,8 @@ class Store(object):
             for seq_name in meta['seq_names']:        
                 pos_key = "seqs/%s/variants/pos" % (seq_name)
                 gt_key = "seqs/%s/variants/matrix" % (seq_name)
-                #pos = np.array(self.data[pos_key], dtype=np.int64) if pos_key in self.data else np.array([])
                 pos = self.data[pos_key].view(read_only=True) if pos_key in self.data else np.array([])
-                sa_genotype_array = allel.GenotypeArray(self.data[gt_key].view(read_only=True))
+                sa_genotype_array = allel.GenotypeArray(self.data[gt_key].view(read_only=True)) if gt_key in self.data else None
                 for sample_set_idx, (sample_set, sample_set_cartesian) in enumerate(zip(meta['sample_sets'], meta['sample_sets_inter'])):
                     #sample_set_start_time = timer()
                     starts, ends = self._get_interval_coordinates_for_sample_set(seq_name=seq_name, sample_set=sample_set)
