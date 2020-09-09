@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gIMble model -s <STR> [-n <STR> -j <STR> -m <STR> -p <INT> -c --nograph --nomodel --noini] [-h|--help]
+"""usage: gIMble model [-s <STR> -n <STR> -j <STR> -m <STR> -p <INT> -c --nograph --nomodel --noini] [-h|--help]
 
     Options:
         -h --help                         show this
@@ -9,7 +9,7 @@
         -s, --pop_ids <STR>               User defined populations (single letters) [default: 'A,B']
         -n, --samples <STR>               Number of samples by population (same order as pop_ids) [default: '1,1']
         -j, --join_string <STR>           Newick string of population-join history (Ne changes) [default: '']
-        -m, --migration_string <STR>      Migration string, e.g. 'A>B' or 'B<A' [default: '']
+        -m, --migration_string <STR>      Migration string, e.g. 'A>B', 'B>A' [default: '']
         --nomodel                         No model output
         --nograph                         No graph output 
         --noini                           No INI config output 
