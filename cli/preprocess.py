@@ -192,7 +192,7 @@ def process_vcf_f(parameterObj):
     print("[+] Subsetting VCF file ...")
     bed_fail_f = pathlib.Path(parameterObj.tmp_dir, '%s.filtered.fail.bed' % parameterObj.outprefix)
     cmd = f"""bcftools view --threads {parameterObj.threads} -H -i "%FILTER!='PASS'" {vcf_tmp} | \
-            perl -lane '$pad=0; print($F[0]."\t".($F[1]-1)."\t".(($F[1]-1)+length($F[3]))."\t".$F[6])' | bedtools merge -i - > {bed_fail_f}"""
+            perl -lane '$pad=0; print($F[0]."\t".($F[1]-1)."\t".(($F[1]-1)+length($F[3]))."\t".$F[6])' | bedtools sort - | bedtools merge -i - > {bed_fail_f}"""
     _stdout, _stderr = run_command(cmd)
     parameterObj.commands.append(cmd)
     vcf_tmp_pass = pathlib.Path(parameterObj.tmp_dir, '%s.filtered.pass.vcf.gz' % parameterObj.outprefix)
