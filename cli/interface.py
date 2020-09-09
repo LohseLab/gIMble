@@ -12,7 +12,6 @@ Usage: gimble <module> [<args>...] [-D -V -h]
     simulate              Simulate data [TBI] 
     makegrid              Make grid [TBI]
     gridsearch            Search grid [TBI]
-    inference             Make inference [TBI] (requires blocks)
     optimize              Perform optimisation search [TBI]
     
     partitioncds          Partition CDS sites in BED file by degeneracy in sample GTs 
@@ -77,9 +76,9 @@ def main(gimble_dir):
         elif args['<module>'] == 'info':
             import cli.info as info
             info.main(params)
-        elif args['<module>'] == 'inference':
-            import cli.inference as inference
-            inference.main(params)
+        #elif args['<module>'] == 'inference':
+        #    import cli.inference as inference
+        #    inference.main(params)
         elif args['<module>'] == 'simulate':
             import cli.simulate as simulate
             simulate.main(params)
