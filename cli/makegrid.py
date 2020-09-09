@@ -93,6 +93,7 @@ def main(params):
         
         #build the equations
         equationSystem.initiate_model(parameterObj=parameterObj)
+        print(equationSystem.equationObjs[0])
         equationSystem.ETPs = equationSystem.calculate_all_ETPs(threads=parameterObj.threads, gridThreads=parameterObj.gridThreads, verbose=True)
         
         run_count = gimbleStore._return_group_last_integer('grids')

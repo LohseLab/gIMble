@@ -182,7 +182,7 @@ def calculate_composite_likelihood(ETPs, data):
     np.log(ETPs, where=ETPs>0, out=ETP_log)
     return np.sum(ETP_log * data)
 
-def objective_function(paramsToOptimise, grad, paramNames, fixedParams, equationObj, data, threads, verbose=False):
+def objective_function(paramsToOptimise, grad, paramNames, fixedParams, equationObj, data, threads, verbose=False, path=None):
     if grad.size:
         raise ValueError('no optimization with derivatives implemented')
     rates = {k:v for k,v in zip(paramNames, paramsToOptimise)}
@@ -193,6 +193,11 @@ def objective_function(paramsToOptimise, grad, paramNames, fixedParams, equation
 
     result =  calculate_composite_likelihood(ETPs, data)
     print(result)
+    print('path:', path)
+    if isinstance(path, list):
+        print((paramsToOptimise ,result))
+        path.append((paramsToOptimise ,result))
+        print('path:', path)
     return result
 
 class Constructor(object):
@@ -244,7 +249,7 @@ class EquationSystemObj(object):
         
         self.ETPs=None
         
-        self.scaled_parameter_combinations = self._scale_all_parameter_combinations(parameterObj) 
+        self.scaled_parameter_combinations = self._scale_all_parameter_combinations(parameterObj)
         self.rate_by_variable = [self._get_base_rate_by_variable(params) for params in self.scaled_parameter_combinations]
         self.split_times = [self._get_split_time(params) for params in self.scaled_parameter_combinations]
         # else:
@@ -320,8 +325,9 @@ class EquationSystemObj(object):
         base_rate_by_variable = {}
         for event, rate in rateDict.items():
             if event.startswith('theta'):
-                for mutype in self.mutypes:
-                    base_rate_by_variable[sage.all.SR.var(mutype)] = sage.all.Rational(rate * 0.5)         
+                #for mutype in self.mutypes:
+                #    base_rate_by_variable[sage.all.SR.var(mutype)] = sage.all.Rational(rate * 0.5)
+                base_rate_by_variable[sage.all.SR.var(event)] = sage.all.Rational(rate * 0.5)         
             if event.startswith("C"):
                 base_rate_by_variable[sage.all.SR.var(event)] = sage.all.Rational(rate)
             if event.startswith("M"):
@@ -337,7 +343,7 @@ class EquationSystemObj(object):
 
     def _scale_parameter_combination(self, combo, reference_pop, block_length, parameterObj):
         rdict = {}
-        if parameterObj._MODULE in ['makegrid', 'inference','optimize']:
+        if parameterObj._MODULE in ['makegrid', 'inference','optimise']:
             Ne_ref = sage.all.Rational(combo[f"Ne_{reference_pop}"])
             rdict['theta'] = 4*sage.all.Rational(Ne_ref*combo['mu'])*block_length
             rdict['C_A']=Ne_ref/sage.all.Rational(combo['Ne_A'])
@@ -397,7 +403,7 @@ class EquationSystemObj(object):
         ETPs = []
         desc = f'[%] Calculating likelihood for {len(self.rate_by_variable)} gridpoints'
         if gridThreads <= 1:
-            for rates, split_time in tqdm(zip(self.rate_by_variable, self.split_times),total=len(self.rate_by_variable), desc=desc, ncols=100):
+            for rates, split_time in tqdm(zip(self.rate_by_variable, self.split_times),total=len(self.rate_by_variable), desc=desc, ncols=100,disable=True):
                 arg = (rates, split_time, threads, verbose)
                 ETPs.append(self.calculate_ETPs(arg))
         else:
@@ -446,7 +452,7 @@ class EquationSystemObj(object):
                 print("[+] sum(ETPs) == 1 ")
         return ETPs
 
-    def optimize_parameters(self, data, maxeval, xtol_rel, numPoints, threads=1, gridThreads=1):
+    def optimize_parameters(self, data, maxeval, xtol_rel, numPoints, threads=1, gridThreads=1, trackHistory=True):
         '''
         Any sort of optimization should 
         - print to screen all evaluated (scaled) parameters + likelihood 
@@ -472,31 +478,45 @@ class EquationSystemObj(object):
 
         #generate number of inital points
         np.random.seed(self.seed)
-        print('lower', lower.shape, lower )
-        print('upper', upper.shape, upper )
-        print('boundaryNames', type(boundaryNames), boundaryNames)
-        all_p0 = np.random.uniform(low=lower, high=upper, size=(len(boundaryNames),numPoints-1))
+        all_p0 = np.random.uniform(low=lower, high=upper, size=(numPoints-1, len(boundaryNames)))
         #add p0 to list of starting points
         p0 =  np.array([boundaries[k][1] for k in boundaryNames])
         if all_p0.size!=0:
             all_p0= np.vstack([all_p0, p0])
         else:
             all_p0 = [p0,]
-
-        specified_objective_function = partial(
-                objective_function,
-                paramNames=boundaryNames,
-                fixedParams=fixedParams,
-                equationObj=self,
-                data=data,
-                threads=threads,
-                verbose=False
-                )
-        print("[+] made partial objective function")
+        trackHistoryPath = [[] for _ in range(numPoints)] if trackHistory else None
         desc="Optimization"
         if gridThreads <= 1:
             print("[+] Optimization starting from provided starting point.")
-            allResults = [self.run_single_optimizer(startPos, lower, upper, specified_objective_function, maxeval, xtol_rel) for startPos in all_p0]
+            allResults = []
+            if trackHistory:
+                print('tracking enabled')
+                specifiedObjectiveFunctionList = [partial(
+                    objective_function,
+                    paramNames=boundaryNames,
+                    fixedParams=fixedParams,
+                    equationObj=self,
+                    data=data,
+                    threads=threads,
+                    verbose=True,
+                    path=sublist) for sublist in trackHistoryPath]
+
+                for startPos, specified_objective_function in zip(all_p0, specifiedObjectiveFunctionList):
+                    allResults.append(self.run_single_optimizer(startPos, lower, upper, specified_objective_function, maxeval, xtol_rel))
+            else:
+                print()
+                specified_objective_function = partial(
+                    objective_function,
+                    paramNames=boundaryNames,
+                    fixedParams=fixedParams,
+                    equationObj=self,
+                    data=data,
+                    threads=threads,
+                    verbose=True,
+                )
+                for startPos in all_p0:
+                    allResults.append(self.run_single_optimizer(startPos, lower, upper, specified_objective_function, maxeval, xtol_rel))
         else:
             print(f"[+] Optimization starting for {numPoints} random points and 1 given point.")
             specified_run_single_optimizer=partialmethod(
@@ -513,9 +533,12 @@ class EquationSystemObj(object):
                     for single_run in outer_pool.map(specified_run_single_optimizer, all_p0):
                         allResults.append(single_run)
                         pbar.update()
+        print(trackHistoryPath)
+        #temporary: add names of variables for optimum.
+        for resultd in allResults:
+            resultd['optimum'] = {k:v for k,v in zip(boundaryNames,resultd['optimum'])}
 
         print(allResults)
-
     def run_single_optimizer(self, p0, lower, upper, specified_objective_function, maxeval, xtol_rel):
 
         #nlopt.G_MLSL_LDS, nlopt.LN_NELDERMEAD, nlopt.LN_SBPLX
@@ -589,6 +612,10 @@ class EquationSystemObj(object):
                                 marginal_idx, 
                                 equation_by_mutation_tuple[equation_idx].substitute(mutation_rates))
             equationObjs.append(equationObj)
+        replaceMutypesDict = {sage.all.SR.var(mutype):sage.all.SR.var('theta') for mutype in self.mutypes}
+        #substitution of mutype variables by theta: does not work when done in place_mutations
+        for equationObj in equationObjs:
+            equationObj.equation = equationObj.equation.subs(replaceMutypesDict)
         if sync_ref and sync_targets:
             sync_ref_var = sage.all.SR.symbol("C_%s") % sync_ref
             for equationObj in equationObjs:

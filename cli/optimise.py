@@ -73,9 +73,8 @@ def main(params):
         equationSystem = lib.math.EquationSystemObj(parameterObj)
         # initiate model equations
         equationSystem.initiate_model(parameterObj)
-        print(equationSystem.equationObjs[0])
-        sys.exit()
-        equationSystem.optimize_parameters(data, maxeval=parameterObj.iterations, xtol_rel=parameterObj.xtol_rel, numPoints=parameterObj.numPoints, threads=parameterObj.threads, gridThreads=parameterObj.gridThreads)
+        trackHistory=True
+        equationSystem.optimize_parameters(data, maxeval=parameterObj.iterations, xtol_rel=parameterObj.xtol_rel, numPoints=parameterObj.numPoints, threads=parameterObj.threads, gridThreads=parameterObj.gridThreads, trackHistory=trackHistory)
         
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:

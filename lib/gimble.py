@@ -691,6 +691,9 @@ class ParameterObj(object):
             self.parameter_combinations = self._dict_product()
             self._sync_pop_sizes(self.reference, self.toBeSynced)
         elif self._MODULE=='optimise':
+            #check at least one parameter has more than one value
+            if not any(isinstance(p, list) for p in self.config['parameters'].values()):
+                sys.exit("[-] All parameters are specified. Cannot optimise.")
             self.config['mu']['blockslength'] = self._get_blocks_length(self.zstore)
             self.config['parameters']['mu'] = self.config['mu']['mu']
             #parameters either float or [mid, min, max]
