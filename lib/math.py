@@ -609,23 +609,23 @@ class EquationSystemObj(object):
             resultd['optimum'] = {k:v for k,v in zip(boundaryNames,resultd['optimum'])}
             resultd['exitcode'] = exitcodeDict.get(resultd['exitcode'],'Not in exitcodeDict.')
 
-=======
-            print(f"[+] Optimization starting for {numPoints} random points and 1 given point.")
-            specified_run_single_optimizer=partialmethod(
-                self.run_single_optimizer,
-                lower=lower,
-                upper=upper,
-                specified_objective_function=specified_objective_function,
-                maxeval=maxeval,
-                xtol_rel=xtol_rel
-                )
-            allResults = []
-            with concurrent.futures.ProcessPoolExecutor(max_workers=gridThreads) as outer_pool:
-                with tqdm(total=numPoints, desc=desc, ncols=100) as pbar:
-                    for single_run in outer_pool.map(specified_run_single_optimizer, all_p0):
-                        allResults.append(single_run)
-                        pbar.update()
->>>>>>> Stashed changes
+# =======
+#             print(f"[+] Optimization starting for {numPoints} random points and 1 given point.")
+#             specified_run_single_optimizer=partialmethod(
+#                 self.run_single_optimizer,
+#                 lower=lower,
+#                 upper=upper,
+#                 specified_objective_function=specified_objective_function,
+#                 maxeval=maxeval,
+#                 xtol_rel=xtol_rel
+#                 )
+#             allResults = []
+#             with concurrent.futures.ProcessPoolExecutor(max_workers=gridThreads) as outer_pool:
+#                 with tqdm(total=numPoints, desc=desc, ncols=100) as pbar:
+#                     for single_run in outer_pool.map(specified_run_single_optimizer, all_p0):
+#                         allResults.append(single_run)
+#                         pbar.update()
+# >>>>>>> Stashed changes
         print(allResults)
         #process trackhistory
         if not trackHistory:
