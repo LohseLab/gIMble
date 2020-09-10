@@ -111,3 +111,17 @@ gimble.log.txt
 gimble.samples.csv
 
 gimble.vcf.gz
+
+gimble.heliconius.intergenic.testing_chr02_chr09_chr18.l_64.m_128.i_3.u_3.inter.blocks.tsv
+
+gimble.model.s_A_B.n_1_1.M_A_B.ini
+
+gimble.model.s_A_B.n_1_1.M_A_B.pdf
+
+gimble.model.s_A_B.n_1_1.M_A_B.tsv
+
+gimble.model.s_A_B.n_1_1.M_B_A.ini
+
+gimble.model.s_A_B.n_1_1.M_B_A.pdf
+
+gimble.model.s_A_B.n_1_1.M_B_A.tsv
