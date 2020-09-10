@@ -195,8 +195,26 @@ def objective_function(paramsToOptimise, grad, paramNames, fixedParams, equation
     toSave = np.append(paramsToOptimise, result)
     if isinstance(path, list):
         path.append(toSave)
-    print(paramNames, paramsToOptimise, "CL:", result)
+    print('\t'.join(str(param) for param in paramsToOptimise)+'\t'+str(result))
     return result
+
+def run_single_optimiz(p0, lower, upper, specified_objective_function, maxeval, xtol_rel, ftol_rel):
+
+    #nlopt.G_MLSL_LDS, nlopt.LN_NELDERMEAD, nlopt.LN_SBPLX
+    opt = nlopt.opt(nlopt.LN_SBPLX, len(p0))
+    opt.set_lower_bounds(lower)
+    opt.set_upper_bounds(upper)
+    opt.set_max_objective(specified_objective_function)
+    opt.set_xtol_rel(xtol_rel)
+    opt.set_ftol_rel(ftol_rel)
+    opt.set_maxeval(maxeval)
+    optimum = opt.optimize(p0)
+    rdict = {}
+    rdict['CL'] = opt.last_optimum_value()
+    rdict['optimum'] = optimum
+    rdict['exitcode'] = opt.last_optimize_result()
+    
+    return rdict
 
 def fp_map(f, *args):
     #used with pool.map(fp_map, function_list, arg_list1, arg_list2,...)
@@ -363,6 +381,23 @@ class EquationSystemObj(object):
         else:
             return parameterObj.parameter_combinations
 
+    def _unscale_all_parameter_combinations(self):
+        pass
+
+    def _unscale_parameter_combination(self, combo, reference_pop, block_length):
+        rdict = {}
+        if parameterObj._MODULE in ['optimise']:
+            #check if parameter needs to be scaled, e.g. not if already provided.
+            theta/=blocklength 
+            Ne_ref=theta/(2*mu) #remark 2's: theta here is 2*Ne*mu @KL right?
+            m_e = M/(2*Ne_ref) #remark 2's: M is here 2*Ne*m_e: @KL right?
+            tau = T/(2*Ne_ref)
+            Ne_A = Ne_ref/C_A
+            Ne_B = Ne_ref/C_B
+            Ne_AB = Ne_ref/C_A_B
+            return rdict
+        else:
+            sys.exit("[X] math.EquationSystemObj._unscale_parameter_combination not implemented for this module.")
 
     def initiate_model(self, parameterObj=None, check_monomorphic=True):
         print("[=] ==================================================")
@@ -454,12 +489,13 @@ class EquationSystemObj(object):
                 print("[+] sum(ETPs) == 1 ")
         return ETPs
 
-    def optimize_parameters(self, data, maxeval, xtol_rel, numPoints, threads=1, gridThreads=1, trackHistory=True):
+    def optimize_parameters(self, data, maxeval, xtol_rel, ftol_rel, numPoints, threads=1, gridThreads=1, trackHistory=True):
         '''
         Any sort of optimization should 
         - print to screen all evaluated (scaled) parameters + likelihood 
         - return all results
         '''
+        verbose = gridThreads == 1
         #seperate parameters that are fixed from those that are not
         inverse_scaled_parameter_combinations = {k:[d[k] for d in self.rate_by_variable] for k in self.rate_by_variable[0].keys()}
         #when syncing popsizes, only one of these parameters should be present in boundaries!
@@ -500,7 +536,7 @@ class EquationSystemObj(object):
                     equationObj=self,
                     data=data,
                     threads=threads,
-                    verbose=True,
+                    verbose=verbose,
                     path=sublist) for sublist in trackHistoryPath]
         else:
             trackHistoryPath=None
@@ -511,55 +547,55 @@ class EquationSystemObj(object):
                     equationObj=self,
                     data=data,
                     threads=threads,
-                    verbose=True,
+                    verbose=verbose,
                 )
         
         print(f"[+] Starting optimization.")
         desc="Optimization"
         allResults=[]
+        print(f"[+] Optimization starting for {numPoints-1} random points and 1 given point.")
+        print('Intermediate results (parameters not rescaled!!!!):')
+        print('\t'.join(str(name) for name in boundaryNames)+'\t CL')
         if gridThreads <= 1:
-            print("[+] Optimization starting from provided starting point.")
+            #print("[+] Optimization starting from provided starting point.")
             if trackHistory:
                 for startPos, specified_objective_function in zip(all_p0, specifiedObjectiveFunctionList):
-                    allResults.append(self.run_single_optimizer(startPos, lower, upper, specified_objective_function, maxeval, xtol_rel))
+                    allResults.append(run_single_optimiz(startPos, lower, upper, specified_objective_function, maxeval, xtol_rel, ftol_rel))
             else:
                 for startPos in all_p0:
-                    allResults.append(self.run_single_optimizer(startPos, lower, upper, specified_objective_function, maxeval, xtol_rel))
+                    allResults.append(run_single_optimiz(startPos, lower, upper, specified_objective_function, maxeval, xtol_rel, ftol_rel))
         else:
-            print(f"[+] Optimization starting for {numPoints-1} random points and 1 given point.")
+            #print(f"[+] Optimization starting for {numPoints-1} random points and 1 given point.")
             if trackHistory:
-                #print('multicore tracking enabled')
-                sys.exit(f"[X] Greedy bastard. You're running {threads*gridThreads} cores, and want to track each independent run.")
-                #needs to become a list of run_single_optimizers
-                specifiedRunList=[partialmethod(
-                    self.run_single_optimizer,
+                specifiedRunList=[partial(
+                    run_single_optimiz,
+                    p0=p0,
                     lower=lower,
                     upper=upper,
                     specified_objective_function=specified_objective_function,
                     maxeval=maxeval,
-                    xtol_rel=xtol_rel
-                    ) for specified_objective_function in specifiedObjectiveFunctionList]
+                    xtol_rel=xtol_rel,
+                    ftol_rel=ftol_rel
+                    ) for p0, specified_objective_function in zip(all_p0,specifiedObjectiveFunctionList)]
                 #other option: specify both specifiy_objective_function and p0 and run list of functions without arguments
                 with concurrent.futures.ProcessPoolExecutor(max_workers=gridThreads) as outer_pool:
-                    with tqdm(total=numPoints, desc=desc, ncols=100) as pbar:
-                        #this needs to iterate over functions as well as over starting points
-                        for single_run in outer_pool.map(fp_map, specifiedRunList, all_p0): #p0 needs to be a list of lists
-                            allResults.append(single_run)
-                            pbar.update()
+                    #this needs to iterate over functions as well as over starting points
+                    for single_run in outer_pool.map(fp_map, specifiedRunList):
+                        allResults.append(single_run)
+                        
             else:
-                specified_run_single_optimizer=partialmethod(
-                    self.run_single_optimizer,
+                specified_run_single_optimizer=partial(
+                    run_single_optimiz,
                     lower=lower,
                     upper=upper,
                     specified_objective_function=specified_objective_function,
                     maxeval=maxeval,
-                    xtol_rel=xtol_rel
+                    xtol_rel=xtol_rel,
+                    ftol_rel=ftol_rel
                     )
                 with concurrent.futures.ProcessPoolExecutor(max_workers=gridThreads) as outer_pool:
-                    with tqdm(total=numPoints, desc=desc, ncols=100) as pbar:
                         for single_run in outer_pool.map(specified_run_single_optimizer, all_p0):
                             allResults.append(single_run)
-                            pbar.update()
 
         exitcodeDict = {
                         1: 'optimum found', 
@@ -582,14 +618,15 @@ class EquationSystemObj(object):
         trackHistoryPath = [boundaryNames+["CL", 'iterLabel'],]+trackHistoryPath 
         return trackHistoryPath
         
-    def run_single_optimizer(self, p0, lower, upper, specified_objective_function, maxeval, xtol_rel):
-
+    def run_single_optimizer(self, p0, lower, upper, specified_objective_function, maxeval, xtol_rel, ftol_rel):
+    	#old method: no longer used
         #nlopt.G_MLSL_LDS, nlopt.LN_NELDERMEAD, nlopt.LN_SBPLX
         opt = nlopt.opt(nlopt.LN_SBPLX, len(p0))
         opt.set_lower_bounds(lower)
         opt.set_upper_bounds(upper)
         opt.set_max_objective(specified_objective_function)
         opt.set_xtol_rel(xtol_rel)
+        opt.set_ftol_rel(ftol_rel)
         opt.set_maxeval(maxeval)
         optimum = opt.optimize(p0)
         rdict = {}

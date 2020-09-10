@@ -496,14 +496,19 @@ class ParameterObj(object):
                 elif key=='recombination':
                     pass
                 else:
-                    midv, minv, maxv, n, scale = value
-                    if scale.startswith('lin'):
-                        sim_range = self._expand_params_lin(midv, minv, maxv, n)
-                    elif scale.startswith('log'):
-                        sim_range = self._expand_params_log(midv, minv, maxv, n)
+                    if len(value) == 5:
+                        midv, minv, maxv, n, scale = value
+                        if scale.startswith('lin'):
+                            sim_range = self._expand_params_lin(midv, minv, maxv, n)
+                        elif scale.startswith('log'):
+                            sim_range = self._expand_params_log(midv, minv, maxv, n)
+                        else:
+                            raise ValueError
+                        self.config['parameters'][key] = sim_range
+                    elif len(value) <4:
+                        self.config['parameters'][key] = np.unique(value)
                     else:
-                        raise ValueError
-                    self.config['parameters'][key] = sim_range
+                        sys.exit("[X] Uncaught error in config file configuration.")
 
     def _expand_params_lin(self, pcentre, pmin, pmax, psamples):
         starts = [pmin, pcentre]
@@ -592,6 +597,19 @@ class ParameterObj(object):
                 if any(isinstance(self.config['parameters'][f'Ne_{pop}'], list) or isinstance(self.config['parameters'][f'Ne_{pop}'], float) for pop in to_be_synced):
                     print(f"[-] Ne_{', Ne_'.join(to_be_synced)} is specified in config file but synced with Ne_{reference}.")
         return (reference, to_be_synced)
+
+    def _get_threads(self, num):
+        try:
+            num=int(num)
+        except TypeError:
+            return (1,1)
+        if num == 1:
+            return (1,1)
+        else: 
+            split = [num%i for i in (2,3)]
+            threads = min(split)
+            gridThreads = num//threads
+        return (threads, gridThreads)
 
     def _remove_pop_from_dict(self, toRemove):
         if toRemove:
