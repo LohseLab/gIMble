@@ -351,6 +351,14 @@ class CustomNormalizer(cerberus.Validator):
                     return [float(v) for v in values]
                 except ValueError:
                     return None
+            elif len(values) == 2:
+                try:
+                    values = [float(v) for v in values]
+                    mid = np.mean(values)
+                    return [mid,]+values
+                except ValueError:
+                    return None
+                values = []
             elif len(values) == 5:
                 valid_scales = ['lin', 'log']
                 if not values[4].strip(' ') in valid_scales:
@@ -641,7 +649,6 @@ class ParameterObj(object):
                 'schema': {
                     'ploidy': {'empty':False, 'required':True, 'type':'integer', 'min':1, 'coerce':int},
                     'blocks': {'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
-                    'blocklength': {'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
                     'replicates': {'empty': False, 'type': 'integer', 'min':1, 'coerce':int},
                     'sample_size_A': {'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
                     'sample_size_B': {'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
@@ -691,9 +698,6 @@ class ParameterObj(object):
             self.parameter_combinations = self._dict_product()
             self._sync_pop_sizes(self.reference, self.toBeSynced)
         elif self._MODULE=='optimise':
-            #check at least one parameter has more than one value
-            if not any(isinstance(p, list) for p in self.config['parameters'].values()):
-                sys.exit("[-] All parameters are specified. Cannot optimise.")
             self.config['mu']['blockslength'] = self._get_blocks_length(self.zstore)
             self.config['parameters']['mu'] = self.config['mu']['mu']
             #parameters either float or [mid, min, max]

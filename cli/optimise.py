@@ -62,6 +62,8 @@ def main(params):
         parameterObj = OptimiseParameterObj(params, args)
         print("[+] Generated all parameter combinations.")
         if parameterObj.data_type == 'etp':
+            #depends on Dom will have resolved the zarr structuring
+            #sys.exit("[X] this part of the code needs to be replaced with the path to the actual data.")
             z=zarr.open('output/test.z')
             data =np.array(z['grids/grid_7'][0])    
         else:
@@ -73,6 +75,7 @@ def main(params):
         equationSystem = lib.math.EquationSystemObj(parameterObj)
         # initiate model equations
         equationSystem.initiate_model(parameterObj)
+        #needs to be integrated in command line
         trackHistory=True
         equationSystem.optimize_parameters(data, maxeval=parameterObj.iterations, xtol_rel=parameterObj.xtol_rel, numPoints=parameterObj.numPoints, threads=parameterObj.threads, gridThreads=parameterObj.gridThreads, trackHistory=trackHistory)
         
