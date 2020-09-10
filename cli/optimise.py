@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gimble optimize                  [-z FILE] -c FILE [-m FILE] [-b|-w|-e] [-t STR] [-n INT] 
+"""usage: gimble optimise                  [-z FILE] -c FILE [-m FILE] [-b|-w|-e] [-t STR] [-n INT] 
                                             [-r FLOAT -i INT]
                                             [-h|--help]
                                             
@@ -26,6 +26,7 @@ import sys
 import lib.gimble
 import lib.math
 import zarr
+import numpy as np
 
 class OptimiseParameterObj(lib.gimble.ParameterObj):
     '''Sanitises command line arguments and stores parameters.'''
@@ -61,37 +62,22 @@ def main(params):
         parameterObj = OptimiseParameterObj(params, args)
         print("[+] Generated all parameter combinations.")
         if parameterObj.data_type == 'etp':
-            # load math.EquationSystemObj
-            equationSystem = lib.math.EquationSystemObj(parameterObj)
-            # initiate model equations
-            equationSystem.initiate_model(parameterObj)
-            equationSystem.calculate_all_ETPs()
-            print('equationSystem.ETPs', equationSystem.ETPs.shape, equationSystem.ETPs)
-            equationSystem.optimize_parameters(equationSystem.ETPs, maxeval=parameterObj.iterations, xtol_rel=parameterObj.xtol_rel, numPoints=parameterObj.numPoints, threads=parameterObj.threads, gridThreads=parameterObj.gridThreads)
+            #depends on Dom will have resolved the zarr structuring
+            #sys.exit("[X] this part of the code needs to be replaced with the path to the actual data.")
+            z=zarr.open('output/test.z')
+            data =np.array(z['grids/grid_7'][0])    
         else:
             gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
             if not gimbleStore.has_stage(parameterObj.data_type):
                 sys.exit("[X] GStore has no %r." % parameterObj.data_type)
-            # load math.EquationSystemObj
-            equationSystem = lib.math.EquationSystemObj(parameterObj)
-            # initiate model equations
-            equationSystem.initiate_model(parameterObj)
             data = gimbleStore.get_bsfs(data_type=parameterObj.data_type, sample_sets="X", kmax_by_mutype=parameterObj.config['k_max'])
-            equationSystem.optimize_parameters(data, maxeval=parameterObj.iterations, xtol_rel=parameterObj.xtol_rel, numPoints=parameterObj.numPoints, threads=parameterObj.threads, gridThreads=parameterObj.gridThreads)
-        #load ETP numpy array
-        #if not gimbleStore._is_zarr_group(parameterObj.grid_name, 'grids'):
-        #    sys.exit("[X] Specified grid not found in zarr store.")
-        #grid = zarr.load(gimbleStore.data[f'grids/{parameterObj.grid_name}'])
-        #data = gimbleStore.get_bsfs_matrix(
-        #    data=parameterObj.data_type, 
-        #    population_by_letter=parameterObj.config['population_ids'], 
-        #    cartesian_only=True, 
-        #    kmax_by_mutype=parameterObj.config['k_max'])
-        #load data
-        #z=zarr.open('/Users/s1854903/Documents/ongoing_projects/gIMble/output/new_configs/test.z')
-        #data =z['grids/grid_7'][0]
-        #run optimisation
-        #equationSystem.optimise_parameters(data, maxeval=50, localOptimum=False)
+        # load math.EquationSystemObj
+        equationSystem = lib.math.EquationSystemObj(parameterObj)
+        # initiate model equations
+        equationSystem.initiate_model(parameterObj)
+        #needs to be integrated in command line
+        trackHistory=True
+        equationSystem.optimize_parameters(data, maxeval=parameterObj.iterations, xtol_rel=parameterObj.xtol_rel, numPoints=parameterObj.numPoints, threads=parameterObj.threads, gridThreads=parameterObj.gridThreads, trackHistory=trackHistory)
         
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
