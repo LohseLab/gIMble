@@ -520,12 +520,6 @@ class EquationSystemObj(object):
         upper = np.array([boundaries[k][-1] for k in boundaryNames])
         #generate number of inital points
         np.random.seed(self.seed)
-<<<<<<< Updated upstream
-=======
-        print('lower', lower.shape, lower )
-        print('upper', upper.shape, upper )
-        print('boundaryNames', type(boundaryNames), boundaryNames)
->>>>>>> Stashed changes
         all_p0 = np.random.uniform(low=lower, high=upper, size=(numPoints-1, len(boundaryNames)))
         #add p0 to list of starting points
         p0 =  np.array([boundaries[k][1] for k in boundaryNames])
