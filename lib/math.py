@@ -381,6 +381,23 @@ class EquationSystemObj(object):
         else:
             return parameterObj.parameter_combinations
 
+    def _unscale_all_parameter_combinations(self):
+        pass
+
+    def _unscale_parameter_combination(self, combo, reference_pop, block_length):
+        rdict = {}
+        if parameterObj._MODULE in ['optimise']:
+            #check if parameter needs to be scaled, e.g. not if already provided.
+            theta/=blocklength 
+            Ne_ref=theta/(2*mu) #remark 2's: theta here is 2*Ne*mu @KL right?
+            m_e = M/(2*Ne_ref) #remark 2's: M is here 2*Ne*m_e: @KL right?
+            tau = T/(2*Ne_ref)
+            Ne_A = Ne_ref/C_A
+            Ne_B = Ne_ref/C_B
+            Ne_AB = Ne_ref/C_A_B
+            return rdict
+        else:
+            sys.exit("[X] math.EquationSystemObj._unscale_parameter_combination not implemented for this module.")
 
     def initiate_model(self, parameterObj=None, check_monomorphic=True):
         print("[=] ==================================================")
@@ -537,7 +554,7 @@ class EquationSystemObj(object):
         desc="Optimization"
         allResults=[]
         print(f"[+] Optimization starting for {numPoints-1} random points and 1 given point.")
-        print('Intermediate results:')
+        print('Intermediate results (parameters not rescaled!!!!):')
         print('\t'.join(str(name) for name in boundaryNames)+'\t CL')
         if gridThreads <= 1:
             #print("[+] Optimization starting from provided starting point.")
