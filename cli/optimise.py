@@ -17,8 +17,8 @@
         -t, --threads STR                           Threads [default: 1,1]
         -n, --n_points INT                          Number of starting points [default: 1]
         -i, --iterations INT                        Number of iterations to perform when optimizing [default: 100]
-        -x, --xtol_rel FLOAT                        Set relative tolerance on optimisation parameters [default: 0.000001]
-        -f, --ftol_rel FLOAT                        Set relative tolerance on CL [default: 0.000001]
+        -x, --xtol_rel FLOAT                        Set relative tolerance on optimisation parameters [default: 0.00000001]
+        -f, --ftol_rel FLOAT                        Set relative tolerance on CL [default: 0.000000001]
         -p, --trackPath                             Track likelihood search                        
 """
 from timeit import default_timer as timer
@@ -39,6 +39,7 @@ class OptimiseParameterObj(lib.gimble.ParameterObj):
         self.config_file = self._get_path(args['--config_file'])
         self.model_file = self._get_path(args['--model_file'])
         self.threads, self.gridThreads = [self._get_int(t) for t in args["--threads"].split(',')]
+        #self.threads, self.gridThreads = self._get_threads(args["--threads"])
         self.config = self._parse_config(self.config_file)
         self.numPoints = self._get_int(args['--n_points'])
         self.iterations = self._get_int(args['--iterations'])

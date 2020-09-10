@@ -67,8 +67,8 @@ class MakeGridParameterObj(lib.gimble.ParameterObj):
         self.prefix = self._get_prefix(args["--outprefix"])
         self.config_file = self._get_path(args['--config_file'])
         self.model_file = self._get_path(args['--model_file'])
-        print(args["--threads"])
         self.threads, self.gridThreads = [self._get_int(t) for t in args["--threads"].split(',')]
+        #self.threads, self.gridThreads = self._get_threads(args["--threads"])
         self.config = self._parse_config(self.config_file)
         self._process_config()
 
@@ -85,9 +85,7 @@ def main(params):
             sys.exit("[X] No config and no prefix specified. Should have been caught.")
         
         print("[+] Generated all parameter combinations.") #in parameterObj.parameter_combinations
-        print(parameterObj.parameter_combinations)
         equationSystem = lib.math.EquationSystemObj(parameterObj)
-        
         #build the equations
         equationSystem.initiate_model(parameterObj=parameterObj)
         equationSystem.ETPs = equationSystem.calculate_all_ETPs(threads=parameterObj.threads, gridThreads=parameterObj.gridThreads, verbose=True)
