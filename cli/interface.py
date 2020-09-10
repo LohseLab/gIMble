@@ -2,7 +2,6 @@
 Usage: gimble <module> [<args>...] [-D -V -h]
 
   [Modules]
-    preprocess            Preprocess input files
     setup                 Setup data store
     info                  Print information about DataStore
     blocks                Generate blocks from data in DataStore 
@@ -14,6 +13,7 @@ Usage: gimble <module> [<args>...] [-D -V -h]
     gridsearch            Search grid [TBI]
     optimize              Perform optimisation search [TBI]
     
+    preprocess            Preprocess input files
     partitioncds          Partition CDS sites in BED file by degeneracy in sample GTs 
     plotbed               Plot BED file [TBR]
 

@@ -96,6 +96,52 @@ DPPL = '│   '
 #             return subshell_count * index_i + recursive_index(dim + 1)
 #     return shell ** n + recursive_index(0)
 
+SIGNS = {'T': '├──', 'F': '└──', 'S': '    ', 'P': '│   ', 'B': '───'}
+
+class ReportObj(object):
+    '''Info class for making reports
+    '''
+    def __init__(self, width=80):
+        '''
+        Parameters 
+        ----------
+        width : int, width of report in characters, default=80
+        
+        Returns
+        -------
+        out : instance
+        '''
+        self.width = width
+        self.out = []
+    
+    def add_line(self, prefix="[+]", branch="", left='', center='', right='', fill=' '):
+        '''
+        Writes line to Info Object
+        Lines is composed of {prefix} {branch} {left} {fill} {center} {fill} {right}
+        SIGNS = {'T': '├──', 'F': '└──', 'S': '    ', 'P': '│   ', 'B': '───'}
+        '''
+        start = "%s %s" % (prefix, "".join([SIGNS[b] for b in branch])) if branch else prefix
+        w = self.width - len(left) - len(right) - len(start) 
+        self.out.append("%s %s %s %s" % (start, left, (" %s " % center).center(w, fill) if center else fill * w, right))
+
+    def __add__(self, other):
+        if isinstance(other, ReportObj):
+            if self.width == other.width:
+                result = ReportObj(width=self.width)
+                result.out = self.out + other.out
+                return result
+            else:
+                raise ValueError("addition only supported for ReportObj of equal width")    
+        else:
+            raise ValueError("addition only supported for ReportObj's")
+
+    def __radd__(self, other):
+        return self.__add__(other)
+
+
+    def __repr__(self):
+        return "\n".join(self.out)
+
 def recursive_get_size(path: str) -> int:
     """Gets size in bytes of the given path, recursing into directories."""
     if os.path.isfile(path):
@@ -989,82 +1035,98 @@ class Store(object):
         out[tuple(mutuples.T)] = counts
         return out
 
-    def _info_get_input_report(self, header_width, blocks=False):
-        '''https://stackoverflow.com/questions/9727673/list-directory-tree-structure-in-python'''
+    def _get_setup_report(self, width, blocks=False):
         meta = self.data['seqs'].attrs
-        out = [self._info_get_divider(' Input data ', header_width)]
-        out += ["[+] seqs"]
-        out += ["[+] %s genome %s" % ( 
-            DFRT,
-            ("%s in %s sequence(s) (n50 = %s)" % (
+        reportObj = ReportObj(width=width)
+        reportObj.add_line(prefix="[+]", left='[', center='Setup', right=']', fill='=')
+        reportObj.add_line(prefix="[+]", left='seqs')
+        right = "%s in %s sequence(s) (n50 = %s)" % (
             format_bases(sum(meta['seq_lengths'])), 
             format_count(len(meta['seq_lengths'])), 
-            format_bases(meta['seq_n50']))).rjust(header_width - 9))]
-        out += ["[+] %s populations %s" % ( 
-            DFRT,
-            ("%s samples in %s populations" % (
-            format_count(len(meta['samples'])),
-            format_count(len(meta['population_ids'])))).rjust(header_width - 14))]
+            format_bases(meta['seq_n50']))
+        reportObj.add_line(prefix="[+]", branch="T", fill=".", left='genome', right=right)
+        right = "%s samples in %s populations" % (format_count(len(meta['samples'])), format_count(len(meta['population_ids'])))
+        reportObj.add_line(prefix="[+]", branch="T", left='populations', fill=".", right=right)
         sample_counts_by_population = collections.Counter(meta['populations'])
-        out += ["[+] %s %s %s = %s %s" % (
-            DPPL, DFRT, letter, population_id, (
-                "%s samples" % format_count(sample_counts_by_population[population_id])).rjust(header_width - len(population_id) - 12)) 
-                    if idx < len(meta['population_by_letter']) - 1 else 
-                "[+] %s %s %s = %s %s" % (
-            DPPL, DFRL, letter, population_id, (
-                "%s samples" % format_count(sample_counts_by_population[population_id])).rjust(header_width - len(population_id) - 12)) 
-            for idx, (letter, population_id) in enumerate(meta['population_by_letter'].items())]
-        out += ["[+] %s sample sets %s" % (
-            DFRT, format_count(len(meta['sample_sets'])).rjust(header_width - 14))]
-        out += ["[+] %s %s INTER-population sample-sets (X) %s" % (
-            DPPL, DFRT, format_count(len(self._get_sample_set_idxs(query='X'))).rjust(header_width - 40))]
-        out += ["[+] %s %s INTRA-population sample-sets (A) %s" % (
-            DPPL, DFRT, format_count(len(self._get_sample_set_idxs(query='A'))).rjust(header_width - 40))]
-        out += ["[+] %s %s INTRA-population sample-sets (B) %s" % (
-            DPPL, DFRL, format_count(len(self._get_sample_set_idxs(query='B'))).rjust(header_width - 40))]
-        # variants
-        out += ["[+] %s variants %s" % (
-            DFRT, 
-            ("%s (%s per 1 kb)" % (
-                format_count(meta['variants_counts']),
-                format_proportion(1000 * meta['variants_counts'] / sum(meta['seq_lengths'])))).rjust(header_width - 11))]
+        for idx, (letter, population_id) in enumerate(meta['population_by_letter'].items()):
+            left = "%s = %s" % (letter, population_id)
+            right = "%s" % format_count(sample_counts_by_population[population_id])
+            branch = "P%s" % ("F" if idx == len(meta['population_by_letter']) -1 else "T")
+            reportObj.add_line(prefix="[+]", branch=branch, left=left, right=right)
+        reportObj.add_line(prefix="[+]", branch="T", left="sample sets", fill=".", right=format_count(len(meta['sample_sets'])))
+        reportObj.add_line(prefix="[+]", branch="PT", left="INTER-population sample-sets (X)", right=format_count(len(self._get_sample_set_idxs(query='X'))))
+        reportObj.add_line(prefix="[+]", branch="PT", left="INTRA-population sample-sets (A)", right=format_count(len(self._get_sample_set_idxs(query='A'))))
+        reportObj.add_line(prefix="[+]", branch="PF", left="INTRA-population sample-sets (B)", right=format_count(len(self._get_sample_set_idxs(query='B'))))
+        reportObj.add_line(prefix="[+]", branch="T", left="variants", fill=".", right=("%s (%s per 1 kb)" % (
+               format_count(meta['variants_counts']),
+               format_proportion(1000 * meta['variants_counts'] / sum(meta['seq_lengths'])))))
+        reportObj.add_line(prefix="[+]", branch="PP", right="".join([c.rjust(8) for c in ["HOMREF", "HOMALT", "HET", "MISS"]]))
         for idx, sample in enumerate(meta['samples']):
             variant_idx = meta['variants_idx_by_sample'][sample]
-            out += ["[+] %s %s %s %s" % (
-            DPPL, 
-            DFRL if idx == len(meta['variants_idx_by_sample']) - 1 else DFRT,
-            sample, 
-            ("%s [HR] %s [HA] %s [HET] %s [M]" % (
+            branch = "PF" if idx == len(meta['variants_idx_by_sample']) - 1 else "PT"
+            left = sample
+            right = "%s %s %s %s" % (
             (format_percentage(meta['variants_counts_hom_ref'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else format_percentage(0)).rjust(7),
             (format_percentage(meta['variants_counts_hom_alt'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else format_percentage(0)).rjust(7),
             (format_percentage(meta['variants_counts_het'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else format_percentage(0)).rjust(7),
-            (format_percentage(meta['variants_counts_missing'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else format_percentage(0)).rjust(7)
-            )).rjust(header_width - len(sample) - 8)
-            )]
-        out += ["[+] %s intervals %s" % (
-            DFRL, 
-            ("%s intervals across %s (%s of genome)" % (
+            (format_percentage(meta['variants_counts_missing'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else format_percentage(0)).rjust(7))
+            reportObj.add_line(prefix="[+]", branch=branch, left=left, right=right)
+        reportObj.add_line(prefix="[+]", branch="F", left='intervals', fill=".", 
+            right = "%s intervals across %s (%s of genome)" % (
                 format_count(meta['intervals_count']),
                 format_bases(meta['intervals_span']),
-                format_percentage(meta['intervals_span'] / sum(meta['seq_lengths']))
-                )).rjust(header_width - 12)
-            )]
-        return out
+                format_percentage(meta['intervals_span'] / sum(meta['seq_lengths']))))
+        return reportObj
     
-    def _info_get_storage(self, header_width):
-        out = [self._info_get_divider(' Storage ', header_width)]
-        # sizes: [ZARR datastore, groups...]
-        sizes_int = [recursive_get_size(self.path)] + [recursive_get_size(pathlib.Path(self.path) / pathlib.Path(group)) for group in self.data]
-        levels = [line if not line.startswith("/") else " %s" % self.path for line in str(self.data.tree(level=1)).split("\n")]
-        percentages = [format_percentage(size/sizes_int[0]) for size in sizes_int]
-        sizes = [format_bytes(size) for size in sizes_int]
-        out += ["[+]%s %s %s | %s" % (level, "." * (header_width - len(level) - len(size) - 10), size, percentage.rjust(7)) for level, size, percentage in zip(levels, sizes, percentages)]
-        return out
+    def _get_storage_report(self, width):
+        reportObj = ReportObj(width=width)
+        reportObj.add_line(prefix="[+]", left='[', center='Storage', right=']', fill='=')
+        total_size = recursive_get_size(self.path)
+        total_right = "%s | %s" % (format_bytes(total_size), format_percentage(total_size/total_size))
+        reportObj.add_line(prefix="[+]", left=pathlib.Path(self.path).name, right=total_right, fill='.')
+        for idx, group in enumerate(self.data):
+            size = recursive_get_size(pathlib.Path(self.path) / pathlib.Path(group))
+            percentage = format_percentage(size/total_size)
+            branch = branch="T" if idx < len(self.data) - 1 else 'F'
+            reportObj.add_line(prefix="[+]", branch=branch, left=group, right='%s | %s' % (format_bytes(size), percentage.rjust(7)), fill='.')
+        return reportObj
 
-    def _info_get_blocks(self, header_width):
+    def _get_blocks_report(self, width):
         meta = self.data['seqs'].attrs
-        out = [self._info_get_divider(' Blocks ', header_width)]
-        out += ["[+] Blocks"]
+        reportObj = ReportObj(width=width)
+        reportObj.add_line(prefix="[+]", left='[', center='Blocks', right=']', fill='=')
+        reportObj.add_line(prefix="[+]", left="blocks = '-l %s -m %s -u %s -i %s'" % (
+            meta['blocks_length'],
+            meta['blocks_span'],
+            meta['blocks_max_missing'],
+            meta['blocks_max_multiallelic'],
+            ))
+        blocks_count_total = sum(meta['blocks_by_sample_set_idx'].values())
+        blocks_raw_count_total = sum(meta['blocks_raw_per_sample_set_idx'].values())
+        block_validity = blocks_count_total / blocks_raw_count_total if blocks_count_total else 0
+        reportObj.add_line(prefix="[+]", branch='F', left='all', right=' %s blocks (%s discarded)' % (
+            format_count(blocks_count_total), 
+            format_percentage(1 - block_validity)))
+        bsfs_X = bsfs_to_2d(self.get_bsfs(data_type='blocks', sample_sets='X'))
+        reportObj.add_line(prefix="[+]", branch='ST', left='INTER-population sample-sets (X)', right='%s blocks' % (format_count(np.sum(bsfs_X[:,0]))))
+        reportObj.add_line(prefix="[+]", branch='SPF', left='mean coverage of intervals', right=format_percentage(
+            (meta['blocks_length'] * np.sum(bsfs_X[:,0]) / meta['intervals_span'] / len(self._get_sample_set_idxs("X")))))
+        #reportObj.add_line(prefix="[+]", branch='SPF', left='monomorphic blocks', right='%s blocks' % (format_count(np.sum(bsfs_X[:,0]))))
+        bsfs_A = bsfs_to_2d(self.get_bsfs(data_type='blocks', sample_sets='A'))
+        reportObj.add_line(prefix="[+]", branch='ST', left='INTRA-population sample-sets (A)', right='%s blocks' % (format_count(np.sum(bsfs_A[:,0]))))
+        reportObj.add_line(prefix="[+]", branch='SPF', left='mean coverage of intervals', right=format_percentage(
+            (meta['blocks_length'] * np.sum(bsfs_A[:,0]) / meta['intervals_span'] / len(self._get_sample_set_idxs("A")))))
+        bsfs_B = bsfs_to_2d(self.get_bsfs(data_type='blocks', sample_sets='B'))
+        reportObj.add_line(prefix="[+]", branch='SF', left='INTRA-population sample-sets (B)', right='%s blocks' % (format_count(np.sum(bsfs_B[:,0]))))
+        reportObj.add_line(prefix="[+]", branch='SSF', left='mean coverage of intervals', right=format_percentage(
+            (meta['blocks_length'] * np.sum(bsfs_B[:,0]) / meta['intervals_span'] / len(self._get_sample_set_idxs("B")))))
+        return reportObj
+        reportObj.add_line(prefix="[+]", branch='T', left='all', fill=".", right="")
+        right = "%s in %s sequence(s) (n50 = %s)" % (
+            format_bases(sum(meta['seq_lengths'])), 
+            format_count(len(meta['seq_lengths'])), 
+                    format_bases(meta['seq_n50']))
+
         blocks_count_total = sum(meta['blocks_by_sample_set_idx'].values())
         blocks_raw_count_total = sum(meta['blocks_raw_per_sample_set_idx'].values())
         block_validity = blocks_count_total / blocks_raw_count_total if blocks_count_total else 0
@@ -1087,6 +1149,12 @@ class Store(object):
         blocks_raw_count_total = sum(meta['blocks_raw_per_sample_set_idx'].values())
         block_validity = blocks_count_total / blocks_raw_count_total
         blocks_span_mean = int(blocks_count_total * meta['blocks_length'] / len(meta['sample_sets']))
+        x = "valid blocks (%s of %s possible blocks) with mean span per sample set of %s" % (
+            'Blocks'.center(SPACING, '-'), 
+            format_count(blocks_count_total), 
+            format_percentage(block_validity), 
+            format_count(blocks_raw_count_total),
+            format_bases(blocks_span_mean))
         # inter
         sample_set_idxs_inter = [idx for idx, cartesian in enumerate(meta['sample_sets_inter']) if cartesian]
         blocks_count_total_inter = sum([meta['blocks_by_sample_set_idx'][str(idx)] for idx in sample_set_idxs_inter]) 
@@ -1136,19 +1204,14 @@ class Store(object):
         out += ["[+] %s %s %s | %s" % (level, "." * (header_width - len(level) - len(size) - 10), size, percentage.rjust(7)) for level, size, percentage in zip(levels, sizes, percentages)]
         return out
 
-    def _info_get_divider(self, title, header_width, fill="=", l="[", r="]"):
-        return "[=] %s%s%s" % (l, title.center(header_width, fill), r)
-
     def info(self, query=None, verbose=[]):
-        '''Returns string of information about a certain query key 
-        '''
         meta = self.data['seqs'].attrs
-        header_width = len(self.path) + 30
-        out = self._info_get_storage(header_width)
+        width = 100
+        storage_report = self._get_storage_report(width)
         if 1 or query == 'setup':
-            out += self._info_get_input_report(header_width, blocks=True)
-            out += self._info_get_blocks(header_width)
-        print("%s" % "\n".join(out))
+            setup_report = self._get_setup_report(width)
+            blocks_report = self._get_blocks_report(width)
+        print(storage_report + setup_report + blocks_report)
 
         #SPACING = meta['spacing']
         #divider = "[=] [%s]" % (SPACING * '=')

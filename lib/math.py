@@ -520,6 +520,12 @@ class EquationSystemObj(object):
         upper = np.array([boundaries[k][-1] for k in boundaryNames])
         #generate number of inital points
         np.random.seed(self.seed)
+<<<<<<< Updated upstream
+=======
+        print('lower', lower.shape, lower )
+        print('upper', upper.shape, upper )
+        print('boundaryNames', type(boundaryNames), boundaryNames)
+>>>>>>> Stashed changes
         all_p0 = np.random.uniform(low=lower, high=upper, size=(numPoints-1, len(boundaryNames)))
         #add p0 to list of starting points
         p0 =  np.array([boundaries[k][1] for k in boundaryNames])
@@ -609,6 +615,23 @@ class EquationSystemObj(object):
             resultd['optimum'] = {k:v for k,v in zip(boundaryNames,resultd['optimum'])}
             resultd['exitcode'] = exitcodeDict.get(resultd['exitcode'],'Not in exitcodeDict.')
 
+=======
+            print(f"[+] Optimization starting for {numPoints} random points and 1 given point.")
+            specified_run_single_optimizer=partialmethod(
+                self.run_single_optimizer,
+                lower=lower,
+                upper=upper,
+                specified_objective_function=specified_objective_function,
+                maxeval=maxeval,
+                xtol_rel=xtol_rel
+                )
+            allResults = []
+            with concurrent.futures.ProcessPoolExecutor(max_workers=gridThreads) as outer_pool:
+                with tqdm(total=numPoints, desc=desc, ncols=100) as pbar:
+                    for single_run in outer_pool.map(specified_run_single_optimizer, all_p0):
+                        allResults.append(single_run)
+                        pbar.update()
+>>>>>>> Stashed changes
         print(allResults)
         #process trackhistory
         if not trackHistory:
@@ -633,7 +656,6 @@ class EquationSystemObj(object):
         rdict['CL'] = opt.last_optimum_value()
         rdict['optimum'] = optimum
         rdict['exitcode'] = opt.last_optimize_result()
-        
         return rdict
     
     def _get_equationObjs(self, sync_ref=None, sync_targets=None):
