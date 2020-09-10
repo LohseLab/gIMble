@@ -88,9 +88,6 @@ def main(params):
         print(parameterObj.parameter_combinations)
         equationSystem = lib.math.EquationSystemObj(parameterObj)
         
-        #print(f'rates by variable: {equationSystem.rate_by_variable}')
-        #print(f'split times:{equationSystem.split_times}')
-        
         #build the equations
         equationSystem.initiate_model(parameterObj=parameterObj)
         equationSystem.ETPs = equationSystem.calculate_all_ETPs(threads=parameterObj.threads, gridThreads=parameterObj.gridThreads, verbose=True)

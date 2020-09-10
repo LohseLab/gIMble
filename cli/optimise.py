@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """usage: gimble optimise                  [-z FILE] -c FILE [-m FILE] [-b|-w|-e] [-t STR] [-n INT] 
-                                            [-r FLOAT -i INT]
+                                            [-x FLOAT -i INT] [-f FLOAT] [-p]
                                             [-h|--help]
                                             
                                             
@@ -17,8 +17,9 @@
         -t, --threads STR                           Threads [default: 1,1]
         -n, --n_points INT                          Number of starting points [default: 1]
         -i, --iterations INT                        Number of iterations to perform when optimizing [default: 100]
-        -r, --xtol_rel FLOAT                        Relative maximum tolerance optimizing [default: 0.001] 
-
+        -x, --xtol_rel FLOAT                        Set relative tolerance on optimisation parameters [default: 0.000001]
+        -f, --ftol_rel FLOAT                        Set relative tolerance on CL [default: 0.000001]
+        -p, --trackPath                             Track likelihood search                        
 """
 from timeit import default_timer as timer
 from docopt import docopt
@@ -42,6 +43,8 @@ class OptimiseParameterObj(lib.gimble.ParameterObj):
         self.numPoints = self._get_int(args['--n_points'])
         self.iterations = self._get_int(args['--iterations'])
         self.xtol_rel = self._get_float(args['--xtol_rel'])
+        self.ftol_rel = self._get_float(args['--ftol_rel'])
+        self.trackHistory = args['--trackPath']
         self._process_config()
 
     def _get_datatype(self, args):
@@ -75,9 +78,15 @@ def main(params):
         equationSystem = lib.math.EquationSystemObj(parameterObj)
         # initiate model equations
         equationSystem.initiate_model(parameterObj)
-        #needs to be integrated in command line
-        trackHistory=True
-        equationSystem.optimize_parameters(data, maxeval=parameterObj.iterations, xtol_rel=parameterObj.xtol_rel, numPoints=parameterObj.numPoints, threads=parameterObj.threads, gridThreads=parameterObj.gridThreads, trackHistory=trackHistory)
+        optimizeResult=equationSystem.optimize_parameters(
+            data, 
+            maxeval=parameterObj.iterations, 
+            xtol_rel=parameterObj.xtol_rel, 
+            ftol_rel=parameterObj.ftol_rel, 
+            numPoints=parameterObj.numPoints, 
+            threads=parameterObj.threads, 
+            gridThreads=parameterObj.gridThreads, 
+            trackHistory=parameterObj.trackHistory)
         
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
