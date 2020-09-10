@@ -208,7 +208,7 @@ def process_vcf_f(parameterObj):
     filter_string = " | ".join(["(FMT/DP[%s]<%s | FMT/DP[%s]>%s)" % (
         idx, depth_filter_by_sample_id[vcf_sample_id][0], 
         idx, depth_filter_by_sample_id[vcf_sample_id][1]) for idx, vcf_sample_id in enumerate(vcf_sample_ids)])
-    cmd = f"""bcftools filter --threads {parameterObj.threads} -Oz -S . -e '{filter_string}' {vcf_tmp_pass} | bcftools sort > {parameterObj.gimble_vcf_file} && bcftools index -t {parameterObj.gimble_vcf_file}"""
+    cmd = f"""bcftools filter --threads {parameterObj.threads} -Oz -S . -e '{filter_string}' {vcf_tmp_pass} | bcftools sort -Oz > {parameterObj.gimble_vcf_file} && bcftools index -t {parameterObj.gimble_vcf_file}"""
     _stdout, _stderr = run_command(cmd)
     parameterObj.commands.append(cmd)
     print("[+]\t => Wrote %r ..." % str(parameterObj.gimble_vcf_file))
