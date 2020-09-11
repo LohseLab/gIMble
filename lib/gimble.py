@@ -894,9 +894,9 @@ class Store(object):
         Raises ValueError if population_by_letter of data and config differ"""
         meta = self.data['seqs'].attrs
         if population_by_letter:
-            if not set(population_by_letter.values()) == set(meta['population_by_letter'].values()):
+            if not population_by_letter['A'] in meta['population_by_letter'].values() or not population_by_letter['B'].meta['population_by_letter'].values():
                 raise ValueError("population names in config (%r) and gimble-store (%r) must match" % (string(set(population_by_letter.values())), string(set(meta['population_by_letter'].values()))))
-            if not population_by_letter == meta['population_by_letter']:
+            if not population_by_letter['A'] == meta['population_by_letter']['A']:
                 return True
         return False
 
@@ -928,9 +928,10 @@ class Store(object):
         else:
             raise ValueError("'query' must be 'X', 'A', 'B', or None")
 
-    def _get_window_bsfs(self, sequences=None, population_by_letter=None, kmax_by_mutype=None):
+    def _get_window_bsfs(self, sample_sets='X', sequences=None, population_by_letter=None, kmax_by_mutype=None):
         """Return bsfs_array of 5 dimensions (fifth dimension is the window-idx across ALL sequences in sequences).
         [ToDo] Ideally this should work with regions, as in CHR:START-STOP.
+        [ToDo] put in sample set context (error if not samples set).
     
         Parameters 
         ----------
@@ -1160,15 +1161,9 @@ class Store(object):
         reportObj = ReportObj(width=width)
         reportObj.add_line(prefix="[+]", left='[', center='Windows', right=']', fill='=')
         reportObj.add_line(prefix="[+]", left='windows')
-        #reportObj.add_line(prefix="[+]", branch='T', fill=".", left="'-w %s -s %s'" % (meta['window_size'], meta['window_step']), right=' %s blocks' % (
-        #    format_count(meta['window_count']), 
-        #    format_percentage(1 - block_validity))
-        #    )
-#
-        #meta['window_count'] 
-        #meta['window_size'] 
-        #meta['window_step'] 
-        #meta['window_step'] 
+        reportObj.add_line(prefix="[+]", branch='F', fill=".", left="'-w %s -s %s'" % (meta['window_size'], meta['window_step']), right=' %s windows' % (
+            format_count(meta['window_count'])))
+        return reportObj
 
     def info(self, query=None):
         width = 100
@@ -1178,8 +1173,7 @@ class Store(object):
         if self.has_stage('blocks'):
             report += self._get_blocks_report(width)
         if self.has_stage('windows'):
-            pass
-            #windows_report = self._get_windows_report(width)
+            report += self._get_windows_report(width)
         print(report)
 
     def _count_groups(self, name):
@@ -1644,6 +1638,7 @@ class Store(object):
                 self.data.create_dataset("seqs/%s/windows/ends" % seq_name, data=window_ends, overwrite=True)
                 self.data.create_dataset("seqs/%s/windows/pos_mean" % seq_name, data=window_pos_mean, overwrite=True)
                 self.data.create_dataset("seqs/%s/windows/pos_median" % seq_name, data=window_pos_median, overwrite=True)
+                meta['window_count'] += window_starts.shape[0]
         #window_info_rows = []
         #window_mutuple_tally = []
         ## window bsfs
