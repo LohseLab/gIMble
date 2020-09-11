@@ -1733,6 +1733,7 @@ class Store(object):
                 for sample_set_idx, sample_set in enumerate(meta['sample_sets']):
                     starts, ends = self._get_interval_coordinates_for_sample_set(seq_name=seq_name, sample_set=sample_set)
                     # Cut sample-set specific blocks based on intervals and block-algoritm parameters
+                    print(seq_name, sample_set, type(starts), type(ends))
                     if not starts is None:
                         block_sites = cut_blocks(starts, ends, meta['blocks_length'], meta['blocks_span'], meta['blocks_gap_run'])
                         # Allocate starts/ends before overwriting position ints 
