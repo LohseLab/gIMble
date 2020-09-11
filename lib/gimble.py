@@ -354,14 +354,14 @@ def cut_windows(mutype_array, idxs, start_array, end_array, num_blocks=10, num_s
 
 def cut_blocks(interval_starts, interval_ends, block_length, block_span, block_gap_run):
     sites = create_ranges(np.array((interval_starts, interval_ends), dtype=np.int64).T)
-    if not sites is None: 
-        block_sites = np.concatenate([
-            x[:block_length * (x.shape[0] // block_length)].reshape(-1, block_length) 
-                for x in np.split(sites, np.where(np.diff(sites) > block_gap_run)[0] + 1)
-            ]) 
-        block_span_valid_mask = (((block_sites[:, -1] - block_sites[:, 0]) + 1) <= block_span)
-        return block_sites[block_span_valid_mask]
-    return None
+    if sites is None: 
+        return None
+    block_sites = np.concatenate([
+        x[:block_length * (x.shape[0] // block_length)].reshape(-1, block_length) 
+            for x in np.split(sites, np.where(np.diff(sites) > block_gap_run)[0] + 1)
+        ]) 
+    block_span_valid_mask = (((block_sites[:, -1] - block_sites[:, 0]) + 1) <= block_span)
+    return block_sites[block_span_valid_mask]
 
 
 def bsfs_to_2d(bsfs):
@@ -855,7 +855,6 @@ class Store(object):
         print("[#] Making blocks...")
         #self._make_blocks_threaded(parameterObj)
         self._make_blocks(parameterObj)
-        print("[#] Calculating population genetic metrics...")
         #self._calculate_block_pop_gen_metrics()
         #self._plot_blocks(parameterObj)
         self.log_stage(parameterObj)
@@ -1029,12 +1028,10 @@ class Store(object):
         invert_population_flag = self._get_invert_population_flag(population_by_letter)
         max_k = np.array(list(kmax_by_mutype.values())) + 1 if kmax_by_mutype else None 
         variations = []
-        with tqdm(total=(len(sequences) * len(sample_set_idxs)), desc="[%] Querying data...", ncols=100, unit_scale=True) as pbar: 
-            for seq_name in sequences: 
-                for sample_set_idx in sample_set_idxs:
-                    variation_key = 'seqs/%s/blocks/%s/variation' % (seq_name, sample_set_idx)
-                    variations.append(np.array(self.data[variation_key], dtype=np.int64))
-                    pbar.update()
+        for seq_name in sequences: 
+            for sample_set_idx in sample_set_idxs:
+                variation_key = 'seqs/%s/blocks/%s/variation' % (seq_name, sample_set_idx)
+                variations.append(np.array(self.data[variation_key], dtype=np.int64))
         variation = np.concatenate(variations, axis=0) # concatenate is faster than offset-indexes
         if invert_population_flag:
             variation[0], variation[1] = variation[1], variation[0]        
@@ -1688,7 +1685,7 @@ class Store(object):
         if matrix_key in self.data:
             mask = np.all(np.array(self.data[matrix_key])[:,sample_set_key], axis=1)
             return (np.array(self.data[start_key])[mask], np.array(self.data[end_key])[mask])
-        return None, None
+        return None
 
     #def _make_blocks(self, parameterObj, debug=False):
     #    meta = self.data['seqs'].attrs
@@ -1731,42 +1728,43 @@ class Store(object):
                 pos = self.data[pos_key].view(read_only=True) if pos_key in self.data else np.array([])
                 sa_genotype_array = allel.GenotypeArray(self.data[gt_key].view(read_only=True)) if gt_key in self.data else None
                 for sample_set_idx, sample_set in enumerate(meta['sample_sets']):
-                    starts, ends = self._get_interval_coordinates_for_sample_set(seq_name=seq_name, sample_set=sample_set)
+                    start_end = self._get_interval_coordinates_for_sample_set(seq_name=seq_name, sample_set=sample_set)
                     # Cut sample-set specific blocks based on intervals and block-algoritm parameters
-                    print(seq_name, sample_set, type(starts), type(ends))
-                    if not starts is None:
+                    if not start_end is None:
+                        starts, ends = start_end
                         block_sites = cut_blocks(starts, ends, meta['blocks_length'], meta['blocks_span'], meta['blocks_gap_run'])
-                        # Allocate starts/ends before overwriting position ints 
-                        block_starts = np.array(block_sites[:, 0], dtype=np.int64)
-                        block_ends = np.array(block_sites[:, -1] + 1, dtype=np.int64)
-                        # variants take longer than blocking
-                        if np.any(pos):
-                            idx_pos_in_block_sites = np.isin(pos, block_sites, assume_unique=True) 
-                            if np.any(idx_pos_in_block_sites):
-                                sample_set_vcf_idxs = [meta['variants_idx_by_sample'][sample] for sample in sample_set]
-                                idx_block_sites_in_pos = np.isin(block_sites, pos, assume_unique=True) 
-                                sa_sample_set_genotype_array = sa_genotype_array.subset(idx_pos_in_block_sites, sample_set_vcf_idxs)
-                                block_sites = genotype_to_mutype_array(sa_sample_set_genotype_array, idx_block_sites_in_pos, block_sites, debug)
+                        # Allocate starts/ends before overwriting position ints
+                        if not block_sites is None:
+                            block_starts = np.array(block_sites[:, 0], dtype=np.int64)
+                            block_ends = np.array(block_sites[:, -1] + 1, dtype=np.int64)
+                            # variants take longer than blocking
+                            if np.any(pos):
+                                idx_pos_in_block_sites = np.isin(pos, block_sites, assume_unique=True) 
+                                if np.any(idx_pos_in_block_sites):
+                                    sample_set_vcf_idxs = [meta['variants_idx_by_sample'][sample] for sample in sample_set]
+                                    idx_block_sites_in_pos = np.isin(block_sites, pos, assume_unique=True) 
+                                    sa_sample_set_genotype_array = sa_genotype_array.subset(idx_pos_in_block_sites, sample_set_vcf_idxs)
+                                    block_sites = genotype_to_mutype_array(sa_sample_set_genotype_array, idx_block_sites_in_pos, block_sites, debug)
+                                else:
+                                    block_sites[:] = 2 # if no variants, set all to invariant    
                             else:
-                                block_sites[:] = 2 # if no variants, set all to invariant    
-                        else:
-                            block_sites[:] = 2 # if no variants, set all to invariant
-                        multiallelic, missing, monomorphic, variation = block_sites_to_variation_arrays(block_sites)
-                        valid = (np.less_equal(missing, meta['blocks_max_missing']) & np.less_equal(multiallelic, meta['blocks_max_multiallelic'])).flatten()
-                        blocks_raw_per_sample_set_idx[sample_set_idx] += valid.shape[0]
-                        blocks_per_sample_set_idx[sample_set_idx] += valid[valid==True].shape[0]
-                        blocks_starts_key = 'seqs/%s/blocks/%s/starts' % (seq_name, sample_set_idx)
-                        self.data.create_dataset(blocks_starts_key, data=block_starts[valid], overwrite=True)
-                        blocks_ends_key = 'seqs/%s/blocks/%s/ends' % (seq_name, sample_set_idx)
-                        self.data.create_dataset(blocks_ends_key, data=block_ends[valid], overwrite=True)
-                        blocks_variation_key = 'seqs/%s/blocks/%s/variation' % (seq_name, sample_set_idx)
-                        self.data.create_dataset(blocks_variation_key, data=variation[valid], overwrite=True)
-                        blocks_missing_key = 'seqs/%s/blocks/%s/missing' % (seq_name, sample_set_idx)
-                        self.data.create_dataset(blocks_missing_key, data=missing[valid], overwrite=True)
-                        blocks_multiallelic_key = 'seqs/%s/blocks/%s/multiallelic' % (seq_name, sample_set_idx)
-                        self.data.create_dataset(blocks_multiallelic_key, data=multiallelic[valid], overwrite=True)
-                        #print("[*] Sample_set runtime: %.3fs" % (timer() - sample_set_start_time))
-                        pbar.update(1)
+                                block_sites[:] = 2 # if no variants, set all to invariant
+                            multiallelic, missing, monomorphic, variation = block_sites_to_variation_arrays(block_sites)
+                            valid = (np.less_equal(missing, meta['blocks_max_missing']) & np.less_equal(multiallelic, meta['blocks_max_multiallelic'])).flatten()
+                            blocks_raw_per_sample_set_idx[sample_set_idx] += valid.shape[0]
+                            blocks_per_sample_set_idx[sample_set_idx] += valid[valid==True].shape[0]
+                            blocks_starts_key = 'seqs/%s/blocks/%s/starts' % (seq_name, sample_set_idx)
+                            self.data.create_dataset(blocks_starts_key, data=block_starts[valid], overwrite=True)
+                            blocks_ends_key = 'seqs/%s/blocks/%s/ends' % (seq_name, sample_set_idx)
+                            self.data.create_dataset(blocks_ends_key, data=block_ends[valid], overwrite=True)
+                            blocks_variation_key = 'seqs/%s/blocks/%s/variation' % (seq_name, sample_set_idx)
+                            self.data.create_dataset(blocks_variation_key, data=variation[valid], overwrite=True)
+                            blocks_missing_key = 'seqs/%s/blocks/%s/missing' % (seq_name, sample_set_idx)
+                            self.data.create_dataset(blocks_missing_key, data=missing[valid], overwrite=True)
+                            blocks_multiallelic_key = 'seqs/%s/blocks/%s/multiallelic' % (seq_name, sample_set_idx)
+                            self.data.create_dataset(blocks_multiallelic_key, data=multiallelic[valid], overwrite=True)
+                            #print("[*] Sample_set runtime: %.3fs" % (timer() - sample_set_start_time))
+                            pbar.update(1)
         meta['blocks_by_sample_set_idx'] = dict(blocks_per_sample_set_idx) # keys are strings
         meta['blocks_raw_per_sample_set_idx'] = dict(blocks_raw_per_sample_set_idx) # keys are strings
 
