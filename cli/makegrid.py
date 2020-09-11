@@ -8,7 +8,7 @@
         -c, --config_file <FILE>                 Config file with parameters
         -m, --model_file <FILE>                  Model file
         -z, --zarr <FILE>                        Path to zarr store
-        -o, --outprefix <STR>                    Prefix to use for gimble store [default: gimble]
+        -o, --outprefix <STR>                    Prefix to use for gimble store
         -t, --threads <STR>                      Threads [default: 1,1]
         
 """
@@ -74,16 +74,27 @@ class MakeGridParameterObj(lib.gimble.ParameterObj):
 
 def main(params):
     try:
+        '''
+        MakeGridParameterObj
+            - compute key based on "values" that matter for grid
+                => hashlib.md5(str({k: v for k, v in locals().items() if not k == 'self'}).encode()).hexdigest()
+            - if /grids/key in data:
+                return grid
+              else make gridparams, save
+            - in meta save key => str(INI)
+            - reportObj for querying keys 
+        '''
         start_time = timer()
         args = docopt(__doc__)
         parameterObj = MakeGridParameterObj(params, args)
         if parameterObj.zstore:
-            gimbleStore = lib.gimble.Store(path=parameterObj.zstore)
+            print(parameterObj.zstore)
+            gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False, overwrite=False)
         elif parameterObj.prefix:
             gimbleStore = lib.gimble.Store(prefix=parameterObj.prefix, create=True)
         else:
             sys.exit("[X] No config and no prefix specified. Should have been caught.")
-        
+        print(parameterObj.parameter_combinations)
         print("[+] Generated all parameter combinations.") #in parameterObj.parameter_combinations
         equationSystem = lib.math.EquationSystemObj(parameterObj)
         #build the equations
