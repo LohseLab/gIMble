@@ -166,6 +166,8 @@ def format_percentage(fraction: float, precision=2) -> str:
     return "{:.{}%}".format(fraction, precision)
 
 def format_proportion(fraction, precision=2):
+    if fraction == '-':
+        return '-'
     return "{:.{}f}".format(fraction, precision)
 
 def format_count(count):
@@ -850,7 +852,7 @@ class Store(object):
         #self._make_blocks_threaded(parameterObj)
         self._make_blocks(parameterObj)
         print("[#] Calculating population genetic metrics...")
-        self._calculate_block_pop_gen_metrics()
+        #self._calculate_block_pop_gen_metrics()
         #self._plot_blocks(parameterObj)
         self.log_stage(parameterObj)
 
@@ -858,7 +860,7 @@ class Store(object):
         print("[#] Preflight...")
         self._preflight_windows(parameterObj)
         print("[#] Making windows...")
-        self._make_windows(parameterObj)
+        self._make_windows(parameterObj, sample_sets='X')
         self.log_stage(parameterObj)
 
     def simulate(self, parameterObj):
@@ -1095,295 +1097,90 @@ class Store(object):
         meta = self.data['seqs'].attrs
         reportObj = ReportObj(width=width)
         reportObj.add_line(prefix="[+]", left='[', center='Blocks', right=']', fill='=')
-        reportObj.add_line(prefix="[+]", left="blocks = '-l %s -m %s -u %s -i %s'" % (
-            meta['blocks_length'],
-            meta['blocks_span'],
-            meta['blocks_max_missing'],
-            meta['blocks_max_multiallelic'],
-            ))
         blocks_count_total = sum(meta['blocks_by_sample_set_idx'].values())
         blocks_raw_count_total = sum(meta['blocks_raw_per_sample_set_idx'].values())
         block_validity = blocks_count_total / blocks_raw_count_total if blocks_count_total else 0
-        reportObj.add_line(prefix="[+]", branch='F', left='all', right=' %s blocks (%s discarded)' % (
-            format_count(blocks_count_total), 
-            format_percentage(1 - block_validity)))
+        reportObj.add_line(prefix="[+]", left='blocks')
+        reportObj.add_line(prefix="[+]", branch='T', fill=".", 
+            left="'-l %s -m %s -u %s -i %s'" % (meta['blocks_length'],meta['blocks_span'],meta['blocks_max_missing'],meta['blocks_max_multiallelic']),
+            right=' %s blocks (%s discarded)' % (format_count(blocks_count_total), format_percentage(1 - block_validity)))
+        column_just = 14
+        reportObj.add_line(prefix="[+]", branch="P", right="".join([c.rjust(column_just) for c in ["X", "A", "B"]]))
         bsfs_X = bsfs_to_2d(self.get_bsfs(data_type='blocks', sample_sets='X'))
-        reportObj.add_line(prefix="[+]", branch='ST', left='INTER-population sample-sets (X)', right='%s blocks' % (format_count(np.sum(bsfs_X[:,0]))))
-        reportObj.add_line(prefix="[+]", branch='SPF', left='mean coverage of intervals', right=format_percentage(
-            (meta['blocks_length'] * np.sum(bsfs_X[:,0]) / meta['intervals_span'] / len(self._get_sample_set_idxs("X")))))
-        #reportObj.add_line(prefix="[+]", branch='SPF', left='monomorphic blocks', right='%s blocks' % (format_count(np.sum(bsfs_X[:,0]))))
+        X_hetB, X_hetA, X_hetAB, X_fixed = (np.sum(bsfs_X[:,0] * bsfs_X[:,1]), np.sum(bsfs_X[:,0] * bsfs_X[:,2]), 
+                                            np.sum(bsfs_X[:,0] * bsfs_X[:,3]), np.sum(bsfs_X[:,0] * bsfs_X[:,4]))
         bsfs_A = bsfs_to_2d(self.get_bsfs(data_type='blocks', sample_sets='A'))
-        reportObj.add_line(prefix="[+]", branch='ST', left='INTRA-population sample-sets (A)', right='%s blocks' % (format_count(np.sum(bsfs_A[:,0]))))
-        reportObj.add_line(prefix="[+]", branch='SPF', left='mean coverage of intervals', right=format_percentage(
-            (meta['blocks_length'] * np.sum(bsfs_A[:,0]) / meta['intervals_span'] / len(self._get_sample_set_idxs("A")))))
+        A_hetB, A_hetA, A_hetAB, A_fixed = (np.sum(bsfs_A[:,0] * bsfs_A[:,1]), np.sum(bsfs_A[:,0] * bsfs_A[:,2]), 
+                                            np.sum(bsfs_A[:,0] * bsfs_A[:,3]), np.sum(bsfs_A[:,0] * bsfs_A[:,4]))
+        total_SA = np.sum(bsfs_A[:,0, None] * bsfs_A[:,1:])
         bsfs_B = bsfs_to_2d(self.get_bsfs(data_type='blocks', sample_sets='B'))
-        reportObj.add_line(prefix="[+]", branch='SF', left='INTRA-population sample-sets (B)', right='%s blocks' % (format_count(np.sum(bsfs_B[:,0]))))
-        reportObj.add_line(prefix="[+]", branch='SSF', left='mean coverage of intervals', right=format_percentage(
-            (meta['blocks_length'] * np.sum(bsfs_B[:,0]) / meta['intervals_span'] / len(self._get_sample_set_idxs("B")))))
+        B_hetB, B_hetA, B_hetAB, B_fixed = (np.sum(bsfs_B[:,0] * bsfs_B[:,1]), np.sum(bsfs_B[:,0] * bsfs_B[:,2]), 
+                                            np.sum(bsfs_B[:,0] * bsfs_B[:,3]), np.sum(bsfs_B[:,0] * bsfs_B[:,4]))
+        total_SB = np.sum(bsfs_A[:,0, None] * bsfs_A[:,1:])
+        reportObj.add_line(prefix="[+]", branch='T', left='interval coverage', right="".join(
+            [format_percentage(c).rjust(column_just) for c in [
+                (meta['blocks_length'] * np.sum(bsfs_X[:,0]) / meta['intervals_span'] / len(self._get_sample_set_idxs("X"))),
+                (meta['blocks_length'] * np.sum(bsfs_A[:,0]) / meta['intervals_span'] / len(self._get_sample_set_idxs("A"))),
+                (meta['blocks_length'] * np.sum(bsfs_B[:,0]) / meta['intervals_span'] / len(self._get_sample_set_idxs("B")))
+                ]]))
+        reportObj.add_line(prefix="[+]", branch='T', left='total blocks', right="".join([format_count(c).rjust(column_just) for c in [np.sum(bsfs_X[:,0]), np.sum(bsfs_A[:,0]), np.sum(bsfs_B[:,0])]]))
+        reportObj.add_line(prefix="[+]", branch='T', left='invariant blocks', right="".join(
+            [format_percentage(c).rjust(column_just) for c in [
+                bsfs_X[0,0] / np.sum(bsfs_X[:,0]), 
+                bsfs_A[0,0] / np.sum(bsfs_A[:,0]), 
+                bsfs_B[0,0] / np.sum(bsfs_B[:,0])
+                ]]))
+        reportObj.add_line(prefix="[+]", branch='T', left='four-gamete-violation blocks', right="".join(
+            [format_percentage(c, precision=2).rjust(column_just) for c in [
+                np.sum(bsfs_X[(bsfs_X[:,3]>0) & (bsfs_X[:,4]>0)][:,0]) / np.sum(bsfs_X[:,0]), 
+                np.sum(bsfs_A[(bsfs_A[:,3]>0) & (bsfs_A[:,4]>0)][:,0]) / np.sum(bsfs_A[:,0]), 
+                np.sum(bsfs_B[(bsfs_B[:,3]>0) & (bsfs_B[:,4]>0)][:,0]) / np.sum(bsfs_B[:,0])]]))
+        heterozygosity_XA = (X_hetA + X_hetAB) / (meta['blocks_length'] * np.sum(bsfs_X[:,0]))
+        heterozygosity_XB = (X_hetB + X_hetAB) / (meta['blocks_length'] * np.sum(bsfs_X[:,0]))
+        dxy_X = ((X_hetA + X_hetB + X_hetAB) / 2.0 + X_fixed) / (meta['blocks_length'] * np.sum(bsfs_X[:,0]))
+        mean_pi = (heterozygosity_XA + heterozygosity_XB) / 2.0
+        total_pi = (dxy_X + mean_pi) / 2.0 
+        fst_X = (dxy_X - mean_pi) / (dxy_X + mean_pi) if (total_pi) else np.nan
+        pi_A = float(fractions.Fraction(1, 2) * (A_hetA + A_hetB) + fractions.Fraction(2, 3) * (A_hetAB + A_fixed)) / (meta['blocks_length'] * np.sum(bsfs_A[:,0]))
+        watterson_theta_A = total_SA / float(harmonic(3)) / (meta['blocks_length'] * np.sum(bsfs_A[:,0]))
+        heterozygosity_A = (A_hetA + A_hetAB) / (meta['blocks_length'] * np.sum(bsfs_A[:,0]))
+        pi_B = float(fractions.Fraction(1, 2) * (B_hetA + B_hetB) + fractions.Fraction(2, 3) * (B_hetAB + B_fixed)) / (meta['blocks_length'] * np.sum(bsfs_B[:,0]))
+        watterson_theta_B = total_SB / float(harmonic(3)) / (meta['blocks_length'] * np.sum(bsfs_B[:,0]))
+        heterozygosity_B = (B_hetA + B_hetAB) / (meta['blocks_length'] * np.sum(bsfs_B[:,0]))
+        reportObj.add_line(prefix="[+]", branch='T', left='heterozygosity (A)', right="".join([format_proportion(c, precision=5).rjust(column_just) for c in [heterozygosity_XA,heterozygosity_A, '-']]))
+        reportObj.add_line(prefix="[+]", branch='T', left='heterozygosity (B)', right="".join([format_proportion(c, precision=5).rjust(column_just) for c in [heterozygosity_XB,'-', heterozygosity_B]]))
+        reportObj.add_line(prefix="[+]", branch='T', left='D_xy', right="".join([format_proportion(c, precision=5).rjust(column_just) for c in [dxy_X,'-', '-']]))
+        reportObj.add_line(prefix="[+]", branch='T', left='F_st', right="".join([format_proportion(c, precision=5).rjust(column_just) for c in [fst_X,'-', '-']]))
+        reportObj.add_line(prefix="[+]", branch='T', left='Pi', right="".join([format_proportion(c, precision=5).rjust(column_just) for c in ['-',pi_A, pi_B]]))
+        reportObj.add_line(prefix="[+]", branch='F', left='Watterson theta', right="".join([format_proportion(c, precision=5).rjust(column_just) for c in ['-',watterson_theta_A, watterson_theta_B]]))
         return reportObj
-        reportObj.add_line(prefix="[+]", branch='T', left='all', fill=".", right="")
-        right = "%s in %s sequence(s) (n50 = %s)" % (
-            format_bases(sum(meta['seq_lengths'])), 
-            format_count(len(meta['seq_lengths'])), 
-                    format_bases(meta['seq_n50']))
 
-        blocks_count_total = sum(meta['blocks_by_sample_set_idx'].values())
-        blocks_raw_count_total = sum(meta['blocks_raw_per_sample_set_idx'].values())
-        block_validity = blocks_count_total / blocks_raw_count_total if blocks_count_total else 0
-        blocks_span_mean = int(blocks_count_total * meta['blocks_length'] / len(meta['sample_sets']))
-        out += ["[+] %s %s %s %s %s %s" % (
-            DFRT, 
-            "all blocks",
-            format_count(blocks_count_total), 
-            format_percentage(block_validity), 
-            format_count(blocks_raw_count_total),
-            format_bases(blocks_span_mean))
-        ]
-        out += ["[+] %s %s" % (DFRT, "X")]
-        out += ["[+] %s %s" % (DFRT, "A")]
-        out += ["[+] %s %s" % (DFRL, "B")]
-        return out
-
-
-        blocks_count_total = sum(meta['blocks_by_sample_set_idx'].values())
-        blocks_raw_count_total = sum(meta['blocks_raw_per_sample_set_idx'].values())
-        block_validity = blocks_count_total / blocks_raw_count_total
-        blocks_span_mean = int(blocks_count_total * meta['blocks_length'] / len(meta['sample_sets']))
-        x = "valid blocks (%s of %s possible blocks) with mean span per sample set of %s" % (
-            'Blocks'.center(SPACING, '-'), 
-            format_count(blocks_count_total), 
-            format_percentage(block_validity), 
-            format_count(blocks_raw_count_total),
-            format_bases(blocks_span_mean))
-        # inter
-        sample_set_idxs_inter = [idx for idx, cartesian in enumerate(meta['sample_sets_inter']) if cartesian]
-        blocks_count_total_inter = sum([meta['blocks_by_sample_set_idx'][str(idx)] for idx in sample_set_idxs_inter]) 
-        blocks_raw_count_total_inter = sum([meta['blocks_raw_per_sample_set_idx'][str(idx)] for idx in sample_set_idxs_inter])
-        block_validity_inter = blocks_count_total_inter / blocks_raw_count_total_inter
-        blocks_span_mean_inter = int(blocks_count_total_inter * meta['blocks_length'] / len(sample_set_idxs_inter))
-        # intra
-        sample_set_idxs_intra = [idx for idx, cartesian in enumerate(meta['sample_sets_inter']) if not cartesian]
-        blocks_count_total_intra = sum([meta['blocks_by_sample_set_idx'][str(idx)] for idx in sample_set_idxs_intra]) 
-        blocks_raw_count_total_intra = sum([meta['blocks_raw_per_sample_set_idx'][str(idx)] for idx in sample_set_idxs_intra])
-        block_validity_intra = blocks_count_total_intra / blocks_raw_count_total_intra
-        blocks_span_mean_intra = int(blocks_count_total_intra * meta['blocks_length'] / len(sample_set_idxs_intra))
-        info_string.append("[+] [%s] %s valid blocks (%s of %s possible blocks) with mean span per sample set of %s" % (
-            'Blocks'.center(SPACING, '-'), 
-            format_count(blocks_count_total), 
-            format_percentage(block_validity), 
-            format_count(blocks_raw_count_total),
-            format_bases(blocks_span_mean)))
-        info_string.append("[+] [%s] \t %s valid blocks (%s of %s possible blocks); mean span is %s [ ]" % (
-            'INTRA-pop'.center(SPACING, ' '), 
-            format_count(blocks_count_total_intra), 
-            format_percentage(block_validity_intra), 
-            format_count(blocks_raw_count_total_intra),
-            format_bases(blocks_span_mean_intra)
-            ))
-        info_string.append("[+] [%s] \t %s valid blocks (%s of %s possible blocks); mean span is %s [*]" % (
-            'INTER-pop'.center(SPACING, ' '), 
-            format_count(blocks_count_total_inter), 
-            format_percentage(block_validity_inter), 
-            format_count(blocks_raw_count_total_inter),
-            format_bases(blocks_span_mean_inter)))
-        for sample_set_idx, (sample_set, sample_set_cartesian) in enumerate(zip(meta['sample_sets'], meta['sample_sets_inter'])):
-            blocks_count = meta['blocks_by_sample_set_idx'][str(sample_set_idx)]
-            blocks_span = blocks_count * meta['blocks_length']
-            blocks_span_deviation = (blocks_span/blocks_span_mean - 1)
-            info_string.append("[+] [%s] [%s] %s in %s blocks (%s of mean span)" % (
-                ('%s' % ", ".join(sample_set)).center(SPACING),
-                ("*" if sample_set_cartesian else " "),
-                format_bases(blocks_span),
-                format_count(blocks_count),
-                "%s%s" % ('+' if blocks_span_deviation > 0 else '', format_percentage(blocks_span_deviation))
-                ))
-        sizes_int = [recursive_get_size(self.path)] + [recursive_get_size(pathlib.Path(self.path) / pathlib.Path(group)) for group in self.data]
-        levels = [line if not line.startswith("/") else self.path for line in str(self.data.tree(level=1)).split("\n")]
-        percentages = [format_percentage(size/sizes_int[0]) for size in sizes_int]
-        sizes = [format_bytes(size) for size in sizes_int]
-        out += ["[+] %s %s %s | %s" % (level, "." * (header_width - len(level) - len(size) - 10), size, percentage.rjust(7)) for level, size, percentage in zip(levels, sizes, percentages)]
-        return out
-
-    def info(self, query=None, verbose=[]):
+    def _get_windows_report(self, width):
         meta = self.data['seqs'].attrs
-        width = 100
-        storage_report = self._get_storage_report(width)
-        if 1 or query == 'setup':
-            setup_report = self._get_setup_report(width)
-            blocks_report = self._get_blocks_report(width)
-        print(storage_report + setup_report + blocks_report)
+        reportObj = ReportObj(width=width)
+        reportObj.add_line(prefix="[+]", left='[', center='Windows', right=']', fill='=')
+        reportObj.add_line(prefix="[+]", left='windows')
+        #reportObj.add_line(prefix="[+]", branch='T', fill=".", left="'-w %s -s %s'" % (meta['window_size'], meta['window_step']), right=' %s blocks' % (
+        #    format_count(meta['window_count']), 
+        #    format_percentage(1 - block_validity))
+        #    )
+#
+        #meta['window_count'] 
+        #meta['window_size'] 
+        #meta['window_step'] 
+        #meta['window_step'] 
 
-        #SPACING = meta['spacing']
-        #divider = "[=] [%s]" % (SPACING * '=')
-        #info_string = []
-        #info_string.append(divider)
-        #info_string.append("[+] [%s] %s" % (
-        #    'GStore'.center(SPACING, '-'), 
-        #    self.path))
-        #if self.has_stage('setup'):
-        #    
-        #    for sample in met']:
-        #    variant_idx = meta['variants_idx_by_sample'][sample]
-#
-        #    info_string.append("[+] [%s] \t homref = %s; homalt = %s; het = %s; missing = %s" % (
-        #        ('%s' % sample).center(SPACING),
-        #        format_percentage(meta['variants_counts_hom_ref'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
-        #        format_percentage(meta['variants_counts_hom_alt'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
-        #        format_percentage(meta['variants_counts_het'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
-        #        format_percentage(meta['variants_counts_missing'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0
-        #    ))
-#
-        ##    for sample in met']:
-        #    variant_idx = meta['variants_idx_by_sample'][sample]
-#
-        #    info_string.append("[+] [%s] \t homref = %s; homalt = %s; het = %s; missing = %s" % (
-        #        ('%s' % sample).center(SPACING),
-        #        format_percentage(meta['variants_counts_hom_ref'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
-        #        format_percentage(meta['variants_counts_hom_alt'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
-        #        format_percentage(meta['variants_counts_het'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
-        #        format_percentage(meta['variants_counts_missing'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0
-        #    ))
-#
-        ##    for sample in met']:
-        #    variant_idx = meta['variants_idx_by_sample'][sample]
-#
-        #    info_string.append("[+] [%s] \t homref = %s; homalt = %s; het = %s; missing = %s" % (
-        #        ('%s' % sample).center(SPACING),
-        #        format_percentage(meta['variants_counts_hom_ref'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
-        #        format_percentage(meta['variants_counts_hom_alt'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
-        #        format_percentage(meta['variants_counts_het'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
-        #        format_percentage(meta['variants_counts_missing'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0
-        #    ))
-#
-        ##    for sample in met']:
-        #    variant_idx = meta['variants_idx_by_sample'][sample]
-#
-        #    info_string.append("[+] [%s] \t homref = %s; homalt = %s; het = %s; missing = %s" % (
-        #        ('%s' % sample).center(SPACING),
-        #        format_percentage(meta['variants_counts_hom_ref'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
-        #        format_percentage(meta['variants_counts_hom_alt'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
-        #        format_percentage(meta['variants_counts_het'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
-        #        format_percentage(meta['variants_counts_missing'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0
-        #    ))
-#
-        ##    for sample in met']:
-        #    variant_idx = meta['variants_idx_by_sample'][sample]
-#
-        #    info_string.append("[+] [%s] \t homref = %s; homalt = %s; het = %s; missing = %s" % (
-        #        ('%s' % sample).center(SPACING),
-        #        format_percentage(meta['variants_counts_hom_ref'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
-        #        format_percentage(meta['variants_counts_hom_alt'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
-        #        format_percentage(meta['variants_counts_het'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
-        #        format_percentage(meta['variants_counts_missing'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0
-        #    ))
-#
-        ##    for sample in met']:
-        #    variant_idx = meta['variants_idx_by_sample'][sample]
-#
-        #    info_string.append("[+] [%s] \t homref = %s; homalt = %s; het = %s; missing = %s" % (
-        #        ('%s' % sample).center(SPACING),
-        #        format_percentage(meta['variants_counts_hom_ref'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
-        #        format_percentage(meta['variants_counts_hom_alt'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
-        #        format_percentage(meta['variants_counts_het'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
-        #        format_percentage(meta['variants_counts_missing'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0
-        #    ))
-#
-        ##    for sample in met']:
-        #    variant_idx = meta['variants_idx_by_sample'][sample]
-#
-        #    info_string.append("[+] [%s] \t homref = %s; homalt = %s; het = %s; missing = %s" % (
-        #        ('%s' % sample).center(SPACING),
-        #        format_percentage(meta['variants_counts_hom_ref'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
-        #        format_percentage(meta['variants_counts_hom_alt'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
-        #        format_percentage(meta['variants_counts_het'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
-        #        format_percentage(meta['variants_counts_missing'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0
-        #    ))
-#
-        ##    for sample in met']:
-        #    variant_idx = meta['variants_idx_by_sample'][sample]
-#
-        #    info_string.append("[+] [%s] \t homref = %s; homalt = %s; het = %s; missing = %s" % (
-        #        ('%s' % sample).center(SPACING),
-        #        format_percentage(meta['variants_counts_hom_ref'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
-        #        format_percentage(meta['variants_counts_hom_alt'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
-        #        format_percentage(meta['variants_counts_het'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
-        #        format_percentage(meta['variants_counts_missing'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0
-        #    ))
-#
-        ##    for sample in met']:
-        #    variant_idx = meta['variants_idx_by_sample'][sample]
-#
-        #    info_string.append("[+] [%s] \t homref = %s; homalt = %s; het = %s; missing = %s" % (
-        #        ('%s' % sample).center(SPACING),
-        #        format_percentage(meta['variants_counts_hom_ref'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
-        #        format_percentage(meta['variants_counts_hom_alt'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
-        #        format_percentage(meta['variants_counts_het'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0,
-        #        format_percentage(meta['variants_counts_missing'][variant_idx] / meta['variants_counts']) if meta['variants_counts'] else 0
-        #    ))
-#
-        #    info_string.append("[+] [%s] %s BED intervals containing %s (%s of genome)" % (
-        #        'Intervals'.center(SPACING, '-'),
-        #        format_count(meta['intervals_count']),
-        #        format_bases(meta['intervals_span']),
-        #        format_percentage(meta['intervals_span'] / sum(meta['seq_lengths']))
-        #        ))
-        #    for sample in meta['samples']:
-        #        interval_idx = meta['intervals_idx_by_sample'][sample]
-        #        info_string.append("[+] [%s] \t %s (%s of intervals)" % (
-        #            ('%s' % sample).center(SPACING),
-        #            format_bases(meta['intervals_span_sample'][interval_idx]),
-        #            format_percentage(meta['intervals_span_sample'][interval_idx] / meta['intervals_span'])
-        #            ))
-        #if self.has_stage('blocks'):
-        #    # all
-        #    blocks_count_total = sum(meta['blocks_by_sample_set_idx'].values())
-        #    blocks_raw_count_total = sum(meta['blocks_raw_per_sample_set_idx'].values())
-        #    block_validity = blocks_count_total / blocks_raw_count_total
-        #    blocks_span_mean = int(blocks_count_total * meta['blocks_length'] / len(meta['sample_sets']))
-        #    # inter
-        #    sample_set_idxs_inter = [idx for idx, cartesian in enumerate(meta['sample_sets_inter']) if cartesian]
-        #    blocks_count_total_inter = sum([meta['blocks_by_sample_set_idx'][str(idx)] for idx in sample_set_idxs_inter]) 
-        #    blocks_raw_count_total_inter = sum([meta['blocks_raw_per_sample_set_idx'][str(idx)] for idx in sample_set_idxs_inter])
-        #    block_validity_inter = blocks_count_total_inter / blocks_raw_count_total_inter
-        #    blocks_span_mean_inter = int(blocks_count_total_inter * meta['blocks_length'] / len(sample_set_idxs_inter))
-        #    # intra
-        #    sample_set_idxs_intra = [idx for idx, cartesian in enumerate(meta['sample_sets_inter']) if not cartesian]
-        #    blocks_count_total_intra = sum([meta['blocks_by_sample_set_idx'][str(idx)] for idx in sample_set_idxs_intra]) 
-        #    blocks_raw_count_total_intra = sum([meta['blocks_raw_per_sample_set_idx'][str(idx)] for idx in sample_set_idxs_intra])
-        #    block_validity_intra = blocks_count_total_intra / blocks_raw_count_total_intra
-        #    blocks_span_mean_intra = int(blocks_count_total_intra * meta['blocks_length'] / len(sample_set_idxs_intra))
-        #    info_string.append("[+] [%s] %s valid blocks (%s of %s possible blocks) with mean span per sample set of %s" % (
-        #        'Blocks'.center(SPACING, '-'), 
-        #        format_count(blocks_count_total), 
-        #        format_percentage(block_validity), 
-        #        format_count(blocks_raw_count_total),
-        #        format_bases(blocks_span_mean)))
-        #    info_string.append("[+] [%s] \t %s valid blocks (%s of %s possible blocks); mean span is %s [ ]" % (
-        #        'INTRA-pop'.center(SPACING, ' '), 
-        #        format_count(blocks_count_total_intra), 
-        #        format_percentage(block_validity_intra), 
-        #        format_count(blocks_raw_count_total_intra),
-        #        format_bases(blocks_span_mean_intra)
-        #        ))
-        #    info_string.append("[+] [%s] \t %s valid blocks (%s of %s possible blocks); mean span is %s [*]" % (
-        #        'INTER-pop'.center(SPACING, ' '), 
-        #        format_count(blocks_count_total_inter), 
-        #        format_percentage(block_validity_inter), 
-        #        format_count(blocks_raw_count_total_inter),
-        #        format_bases(blocks_span_mean_inter)))
-        #    for sample_set_idx, (sample_set, sample_set_cartesian) in enumerate(zip(meta['sample_sets'], meta['sample_sets_inter'])):
-        #        blocks_count = meta['blocks_by_sample_set_idx'][str(sample_set_idx)]
-        #        blocks_span = blocks_count * meta['blocks_length']
-        #        blocks_span_deviation = (blocks_span/blocks_span_mean - 1)
-        #        info_string.append("[+] [%s] [%s] %s in %s blocks (%s of mean span)" % (
-        #            ('%s' % ", ".join(sample_set)).center(SPACING),
-        #            ("*" if sample_set_cartesian else " "),
-        #            format_bases(blocks_span),
-        #            format_count(blocks_count),
-        #            "%s%s" % ('+' if blocks_span_deviation > 0 else '', format_percentage(blocks_span_deviation))
-        #            ))
-        #info_string.append(divider)
-        #print("\n".join(info_string))
+    def info(self, query=None):
+        width = 100
+        report = self._get_storage_report(width)
+        if self.has_stage('setup'):
+            report += self._get_setup_report(width)    
+        if self.has_stage('blocks'):
+            report += self._get_blocks_report(width)
+        if self.has_stage('windows'):
+            pass
+            #windows_report = self._get_windows_report(width)
+        print(report)
 
     def _count_groups(self, name):
         return len(list(self.data[name]))
@@ -1443,7 +1240,6 @@ class Store(object):
                 'window_size': 0, 
                 'window_step': 0, 
                 'window_count': 0, 
-                'windows_by_sample_set': {}
             },
             'inference': {},
             'grids': {},
@@ -1608,79 +1404,6 @@ class Store(object):
         #count_sequences = intervals_df['sequence'].nunique()
         #count_intervals = len(intervals_df.index)
         #count_samples = len(query_samples)
-
-    def _calculate_block_pop_gen_metrics(self):
-        '''
-        hetB, hetA, hetAB, fixed = bsfs[:,1], bsfs[:,2], bsfs[:,3], bsfs[:,4]
-        '''
-        meta = self.data['seqs'].attrs
-        SPACING = meta['spacing']
-        divider = "[=] [%s]" % (SPACING * '=')
-        info_string = []
-        info_string.append(divider)
-        info_string.append("[+] [%s]" % (
-            'PopGenMetrics'.center(SPACING, '-')))
-        bsfs_X = bsfs_to_2d(self.get_bsfs(data_type='blocks', sample_sets='X'))
-        bsfs_X_block_count = np.sum(bsfs_X[:,0])
-        bsfs_X_hetB_idx, bsfs_X_hetA_idx, bsfs_X_hetAB_idx, bsfs_X_fixed_idx  = bsfs_X[:,1]>0, bsfs_X[:,2]>0, bsfs_X[:,3]>0, bsfs_X[:,4]>0
-        bsfs_X_fgv_idx = (bsfs_X[:,3]>0) & (bsfs_X[:,4]>0)
-        bsfs_X_hetB_count = np.sum(bsfs_X[bsfs_X_hetB_idx, 0] * bsfs_X[bsfs_X_hetB_idx, 1])
-        bsfs_X_hetA_count = np.sum(bsfs_X[bsfs_X_hetA_idx, 0] * bsfs_X[bsfs_X_hetA_idx, 2])
-        bsfs_X_hetAB_count = np.sum(bsfs_X[bsfs_X_hetAB_idx, 0] * bsfs_X[bsfs_X_hetAB_idx, 3])
-        bsfs_X_fixed_count = np.sum(bsfs_X[bsfs_X_fixed_idx, 0] * bsfs_X[bsfs_X_fixed_idx, 4])
-        heterozygosity_XA = (bsfs_X_hetA_count + bsfs_X_hetAB_count) / (meta['blocks_length'] * bsfs_X_block_count)
-        heterozygosity_XB = (bsfs_X_hetB_count + bsfs_X_hetAB_count) / (meta['blocks_length'] * bsfs_X_block_count)
-        dxy_X = ((bsfs_X_hetA_count + bsfs_X_hetB_count + bsfs_X_hetAB_count) / 2.0 + bsfs_X_fixed_count) / (meta['blocks_length'] * bsfs_X_block_count)
-        mean_pi = (heterozygosity_XA + heterozygosity_XB) / 2.0
-        total_pi = (dxy_X + mean_pi) / 2.0 
-        fst_X = (dxy_X - mean_pi) / (dxy_X + mean_pi) if (total_pi) else np.nan
-        bsfs_X_fgv = np.sum(bsfs_X[bsfs_X_fgv_idx, 0]) / bsfs_X_block_count
-        info_string.append("[+] [%s] Blocks-X = %s" % ('inter-pop'.center(SPACING, '-'), bsfs_X_block_count))
-        info_string.append("[+] [%s] HetA-X = %s" % ('inter-pop'.center(SPACING, '-'), format_proportion(heterozygosity_XA, precision=6)))
-        info_string.append("[+] [%s] HetB-X = %s" % ('inter-pop'.center(SPACING, '-'), format_proportion(heterozygosity_XB, precision=6)))
-        info_string.append("[+] [%s] Dxy = %s" % ('inter-pop'.center(SPACING, '-'), format_proportion(dxy_X, precision=6)))
-        info_string.append("[+] [%s] Fst = %s" % ('inter-pop'.center(SPACING, '-'), format_proportion(fst_X, precision=6)))
-        info_string.append("[+] [%s] FGV = %s" % ('inter-pop'.center(SPACING, '-'), format_percentage(bsfs_X_fgv)))
-        info_string.append(divider)
-        # bsfs_A
-        bsfs_A = bsfs_to_2d(self.get_bsfs(data_type='blocks', sample_sets='A'))
-        bsfs_A_block_count = np.sum(bsfs_A[:,0])
-        bsfs_A_hetB_idx, bsfs_A_hetA_idx, bsfs_A_hetAB_idx, bsfs_A_fixed_idx  = bsfs_A[:,1]>0, bsfs_A[:,2]>0, bsfs_A[:,3]>0, bsfs_A[:,4]>0
-        bsfs_A_hetB_count = np.sum(bsfs_A[bsfs_A_hetB_idx, 0] * bsfs_A[bsfs_A_hetB_idx, 1])
-        bsfs_A_hetA_count = np.sum(bsfs_A[bsfs_A_hetA_idx, 0] * bsfs_A[bsfs_A_hetA_idx, 2])
-        bsfs_A_hetAB_count = np.sum(bsfs_A[bsfs_A_hetAB_idx, 0] * bsfs_A[bsfs_A_hetAB_idx, 3])
-        bsfs_A_fixed_count = np.sum(bsfs_A[bsfs_A_fixed_idx, 0] * bsfs_A[bsfs_A_fixed_idx, 4])
-        total_SA = np.sum(bsfs_A[:,0, None] * bsfs_A[:,1:])
-        ## Nei's pairwise pi A
-        pi_A = float(fractions.Fraction(1, 2) * (bsfs_A_hetA_count + bsfs_A_hetB_count) + fractions.Fraction(2, 3) * (bsfs_A_hetAB_count + bsfs_A_fixed_count)) / (meta['blocks_length'] * bsfs_A_block_count)
-        # Waterson's estimator : (4-1)th harmonic number
-        watterson_theta_A = total_SA / float(harmonic(3)) / (meta['blocks_length'] * bsfs_A_block_count)
-        heterozygosity_A = (bsfs_A_hetA_count + bsfs_A_hetAB_count) / (meta['blocks_length'] * bsfs_A_block_count)
-        info_string.append("[+] [%s] Blocks = %s" % ('intra-pop-A'.center(SPACING, '-'), bsfs_A_block_count))
-        info_string.append("[+] [%s] pi = %s" % ('intra-pop-A'.center(SPACING, '-'), format_proportion(pi_A, precision=6)))
-        info_string.append("[+] [%s] watterson theta = %s" % ('intra-pop-A'.center(SPACING, '-'), format_proportion(watterson_theta_A, precision=6)))
-        info_string.append("[+] [%s] heterozygosity = %s" % ('intra-pop-A'.center(SPACING, '-'), format_proportion(heterozygosity_A, precision=6)))
-        info_string.append(divider)
-        # bsfs_B
-        bsfs_B = bsfs_to_2d(self.get_bsfs(data_type='blocks', sample_sets='B'))
-        bsfs_B_block_count = np.sum(bsfs_B[:,0])
-        bsfs_B_hetB_idx, bsfs_B_hetA_idx, bsfs_B_hetAB_idx, bsfs_B_fixed_idx  = bsfs_B[:,1]>0, bsfs_B[:,2]>0, bsfs_B[:,3]>0, bsfs_B[:,4]>0
-        bsfs_B_hetB_count = np.sum(bsfs_B[bsfs_B_hetB_idx, 0] * bsfs_B[bsfs_B_hetB_idx, 1])
-        bsfs_B_hetA_count = np.sum(bsfs_B[bsfs_B_hetA_idx, 0] * bsfs_B[bsfs_B_hetA_idx, 2])
-        bsfs_B_hetAB_count = np.sum(bsfs_B[bsfs_B_hetAB_idx, 0] * bsfs_B[bsfs_B_hetAB_idx, 3])
-        bsfs_B_fixed_count = np.sum(bsfs_B[bsfs_B_fixed_idx, 0] * bsfs_B[bsfs_B_fixed_idx, 4])
-        total_SB = np.sum(bsfs_B[:,0, None] * bsfs_B[:,1:])
-        ## Nei's pairwise pi B
-        pi_B = float(fractions.Fraction(1, 2) * (bsfs_B_hetA_count + bsfs_B_hetB_count) + fractions.Fraction(2, 3) * (bsfs_B_hetAB_count + bsfs_B_fixed_count)) / (meta['blocks_length'] * bsfs_B_block_count)
-        # Waterson's estimator : (4-1)th harmonic number
-        watterson_theta_B = total_SB / float(harmonic(3)) / (meta['blocks_length'] * bsfs_B_block_count)
-        heterozygosity_B = (bsfs_B_hetA_count + bsfs_B_hetAB_count) / (meta['blocks_length'] * bsfs_B_block_count)
-        info_string.append("[+] [%s] Blocks = %s" % ('intra-pop-B'.center(SPACING, '-'), bsfs_B_block_count))
-        info_string.append("[+] [%s] pi = %s" % ('intra-pop-B'.center(SPACING, '-'), format_proportion(pi_B, precision=6)))
-        info_string.append("[+] [%s] watterson theta = %s" % ('intra-pop-B'.center(SPACING, '-'), format_proportion(watterson_theta_B, precision=6)))
-        info_string.append("[+] [%s] heterozygosity = %s" % ('intra-pop-B'.center(SPACING, '-'), format_proportion(heterozygosity_B, precision=6)))
-        info_string.append(divider)
-        print("\n".join(info_string))
 
     def dump_bsfs(self, parameterObj):
         meta = self.data['seqs'].attrs
@@ -1894,11 +1617,11 @@ class Store(object):
         plt.close(fig)
         print("[>] Created: %r" % str(out_f))
 
-    def _make_windows(self, parameterObj, cartesian_only=True):
+    def _make_windows(self, parameterObj, sample_sets='X'):
         meta = self.data['seqs'].attrs
         meta['window_size'] = parameterObj.window_size
         meta['window_step'] = parameterObj.window_step
-        sample_set_idxs = [idx for (idx, is_cartesian) in enumerate(meta['sample_sets_inter']) if is_cartesian] if cartesian_only else range(len(meta['sample_sets']))
+        sample_set_idxs = self._get_sample_set_idxs(sample_sets)
         with tqdm(meta['seq_names'], total=(len(meta['seq_names']) * len(sample_set_idxs)), desc="[%] Constructing windows ", ncols=100, unit_scale=True) as pbar: 
             for seq_name in meta['seq_names']:
                 variation, starts, ends = [], [], []
@@ -1915,7 +1638,6 @@ class Store(object):
                 end_array = np.concatenate(ends, axis=0)
                 # window_variation : shape = (windows, blocklength, 4)
                 window_variation, window_starts, window_ends, window_pos_mean, window_pos_median = cut_windows(variation_array, sample_set_idxs, start_array, end_array, num_blocks=parameterObj.window_size, num_steps=parameterObj.window_step)
-
                 #b, counts = np.unique(variation, return_counts=True, axis=0)
                 self.data.create_dataset("seqs/%s/windows/variation" % seq_name, data=window_variation, overwrite=True)
                 self.data.create_dataset("seqs/%s/windows/starts" % seq_name, data=window_starts, overwrite=True)
