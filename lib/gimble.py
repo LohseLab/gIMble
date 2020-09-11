@@ -1685,8 +1685,35 @@ class Store(object):
         matrix_key = 'seqs/%s/intervals/matrix' % seq_name
         start_key = 'seqs/%s/intervals/starts' % seq_name
         end_key = 'seqs/%s/intervals/ends' % seq_name
-        mask = np.all(np.array(self.data[matrix_key])[:,sample_set_key], axis=1)
-        return (np.array(self.data[start_key])[mask], np.array(self.data[end_key])[mask])
+        if matrix_key in self.data:
+            mask = np.all(np.array(self.data[matrix_key])[:,sample_set_key], axis=1)
+            return (np.array(self.data[start_key])[mask], np.array(self.data[end_key])[mask])
+        return None, None
+
+    #def _make_blocks(self, parameterObj, debug=False):
+    #    meta = self.data['seqs'].attrs
+    #    meta['blocks_length'] = parameterObj.block_length
+    #    meta['blocks_span'] = parameterObj.block_span
+    #    meta['blocks_gap_run'] = parameterObj.block_gap_run
+    #    meta['blocks_max_missing'] = parameterObj.block_max_missing
+    #    meta['blocks_max_multiallelic'] = parameterObj.block_max_multiallelic
+    #    blocks_raw_per_sample_set_idx = collections.Counter()   # all possible blocks
+    #    blocks_per_sample_set_idx = collections.Counter()       # all valid blocks => only these get saved to store
+#
+    #    with tqdm(total=(len(meta['seq_names']) * len(meta['sample_sets'])), desc="[%] Building blocks ", ncols=100, unit_scale=True) as pbar:        
+    #        for seq_name in meta['seq_names']:        
+    #            block_site_arrays = []
+    #            for sample_set_idx, sample_set in enumerate(meta['sample_sets']):
+    #                starts, ends = self._get_interval_coordinates_for_sample_set(seq_name=seq_name, sample_set=sample_set)
+    #                # Cut sample-set specific blocks based on intervals and block-algoritm parameters
+    #                block_site_array = cut_blocks(starts, ends, meta['blocks_length'], meta['blocks_span'], meta['blocks_gap_run'])
+    #                print('block_site_array', block_site_array.shape)
+    #                block_site_arrays.append(block_site_array)
+    #                pbar.update(1)
+    #            block_sites = np.concatenate(block_site_arrays, axis=0)
+    #            print('block_sites', block_sites.shape)
+    #            print(block_sites)
+    #    sys.exit('.')
 
     def _make_blocks(self, parameterObj, debug=False):
         meta = self.data['seqs'].attrs
@@ -1706,8 +1733,8 @@ class Store(object):
                 for sample_set_idx, sample_set in enumerate(meta['sample_sets']):
                     starts, ends = self._get_interval_coordinates_for_sample_set(seq_name=seq_name, sample_set=sample_set)
                     # Cut sample-set specific blocks based on intervals and block-algoritm parameters
-                    block_sites = cut_blocks(starts, ends, meta['blocks_length'], meta['blocks_span'], meta['blocks_gap_run'])
-                    if not block_sites is None:
+                    if not starts is None:
+                        block_sites = cut_blocks(starts, ends, meta['blocks_length'], meta['blocks_span'], meta['blocks_gap_run'])
                         # Allocate starts/ends before overwriting position ints 
                         block_starts = np.array(block_sites[:, 0], dtype=np.int64)
                         block_ends = np.array(block_sites[:, -1] + 1, dtype=np.int64)
