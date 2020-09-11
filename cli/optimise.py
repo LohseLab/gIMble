@@ -75,7 +75,7 @@ def main(params):
             if not gimbleStore.has_stage(parameterObj.data_type):
                 sys.exit("[X] GStore has no %r." % parameterObj.data_type)
             data = gimbleStore.get_bsfs(data_type=parameterObj.data_type, population_by_letter=parameterObj.config['populations'], sample_sets="X", kmax_by_mutype=parameterObj.config['k_max'])
-            print(data)
+            
         # load math.EquationSystemObj
         equationSystem = lib.math.EquationSystemObj(parameterObj)
         # initiate model equations
@@ -88,7 +88,7 @@ def main(params):
             numPoints=parameterObj.numPoints, 
             threads=parameterObj.threads, 
             gridThreads=parameterObj.gridThreads, 
-            trackHistory=parameterObj.trackHistory)
+            trackHistory=True)
         
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
