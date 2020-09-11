@@ -56,12 +56,12 @@ def main(params):
             sys.exit("[X] Specified grid not found in zarr store.")
         grid = gimbleStore.data['grids/%s' % parameterObj.grid_name]
         #grid = zarr.load(gimbleStore.data[f'grids/{parameterObj.grid_name}'])
+        print(parameterObj.config)
         data = gimbleStore.get_bsfs(
             data=parameterObj.data_type, 
-            population_by_letter=parameterObj.config['population_ids'], 
+            population_by_letter=parameterObj.config['populations'], 
             sample_sets='X', 
             kmax_by_mutype=parameterObj.config['k_max'])
-
         composite_likelihoods = [lib.math.calculate_composite_likelihood(ETPs, data) for ETPs in grid]
         for idx, L in enumerate(composite_likelihoods):
             print('[+] parameter combination: %s: L=-%s' % (idx, L))
