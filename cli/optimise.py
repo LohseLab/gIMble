@@ -65,16 +65,14 @@ def main(params):
         args = docopt(__doc__)
         parameterObj = OptimiseParameterObj(params, args)
         print("[+] Generated all parameter combinations.")
-        if parameterObj.data_type == 'etp':
-            #depends on Dom will have resolved the zarr structuring
-            #sys.exit("[X] this part of the code needs to be replaced with the path to the actual data.")
-            z=zarr.open('output/test.z')
-            data =np.array(z['grids/grid_7'][0])    
-        else:
-            gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
-            if not gimbleStore.has_stage(parameterObj.data_type):
-                sys.exit("[X] GStore has no %r." % parameterObj.data_type)
-            data = gimbleStore.get_bsfs(data_type=parameterObj.data_type, population_by_letter=parameterObj.config['populations'], sample_sets="X", kmax_by_mutype=parameterObj.config['k_max'])
+        gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
+        if not gimbleStore.has_stage(parameterObj.data_type):
+            sys.exit("[X] GStore has no %r." % parameterObj.data_type)
+        data = gimbleStore.get_bsfs(
+            data_type=parameterObj.data_type, 
+            population_by_letter=parameterObj.config['populations'], 
+            sample_sets="X", 
+            kmax_by_mutype=parameterObj.config['k_max'])
             
         # load math.EquationSystemObj
         equationSystem = lib.math.EquationSystemObj(parameterObj)

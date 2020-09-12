@@ -24,6 +24,7 @@ import lib.simulate
 import hashlib 
 from timeit import default_timer as timer
 import fractions
+import copy
 
 # np.set_printoptions(threshold=sys.maxsize)
 
@@ -663,7 +664,7 @@ class ParameterObj(object):
         return (threads, gridThreads)
 
     def _get_unique_hash(self):
-        to_hash = self.config.copy()
+        to_hash = copy.deepcopy(self.config)
         if self._MODULE in ['makegrid','gridsearch']:
             for pop_name in ['A', 'B']:
                 del to_hash['populations'][pop_name]
@@ -913,8 +914,10 @@ class Store(object):
         """Returns True if populations need inverting, and False if not or population_by_letter is None. 
         Raises ValueError if population_by_letter of data and config differ"""
         meta = self.data['seqs'].attrs
+        print(meta['population_by_letter'])
+        print(population_by_letter)
         if population_by_letter:
-            if not population_by_letter['A'] in meta['population_by_letter'].values() or not population_by_letter['B'].meta['population_by_letter'].values():
+            if not population_by_letter['A'] in meta['population_by_letter'].values() or not population_by_letter['B'] in meta['population_by_letter'].values():
                 raise ValueError("population names in config (%r) and gimble-store (%r) must match" % (string(set(population_by_letter.values())), string(set(meta['population_by_letter'].values()))))
             if not population_by_letter['A'] == meta['population_by_letter']['A']:
                 return True

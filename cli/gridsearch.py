@@ -49,12 +49,10 @@ def main(params):
         parameterObj = GridsearchParameterObj(params, args)
         unique_hash = parameterObj._get_unique_hash()
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
-        
-        grid, meta = gimbleStore._get_grid(unique_hash)
-        print(unique_hash) 
+        print(parameterObj.config)
+        grid, meta = gimbleStore._get_grid(unique_hash) 
         if grid is None:
             sys.exit("[X] Please provide one of the grid(s): %s" % ",".join(gimbleStore.data['grids/']))
-        #@Dom this needs to be verified whether the data part is working.
         data = gimbleStore.get_bsfs(
             data_type=parameterObj.data_type, 
             population_by_letter=parameterObj.config['populations'], 
