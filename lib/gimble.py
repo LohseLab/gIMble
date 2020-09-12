@@ -24,6 +24,7 @@ import lib.simulate
 import hashlib 
 from timeit import default_timer as timer
 import fractions
+import copy
 
 # np.set_printoptions(threshold=sys.maxsize)
 
@@ -545,6 +546,8 @@ class ParameterObj(object):
                     pass
                 else:
                     if len(value) == 5:
+                        if self._MODULE in ['optimise', 'optimize']:
+                            sys.exit(f"[X] {self._MODULE} requires a single point or boundary.")
                         midv, minv, maxv, n, scale = value
                         if scale.startswith('lin'):
                             sim_range = self._expand_params_lin(midv, minv, maxv, n)
@@ -556,7 +559,7 @@ class ParameterObj(object):
                     elif len(value) <4:
                         self.config['parameters'][key] = np.unique(value)
                     else:
-                        sys.exit("[X] Uncaught error in config file configuration.")
+                        raise ValueError("Uncaught error in config file configuration.")
 
     def _expand_params_lin(self, pcentre, pmin, pmax, psamples):
         starts = [pmin, pcentre]
@@ -634,16 +637,17 @@ class ParameterObj(object):
             sys.exit("[X] File not found: %r" % str(infile))
         return str(path)
 
-    def _get_pops_to_sync(self):
+    def _get_pops_to_sync(self, config=None):
         reference, to_be_synced = None, None
-        syncing =  self.config['populations']['sync_pop_sizes']
+        if config:
+            syncing = config['populations']['sync_pop_sizes']
+        else:
+            syncing =  self.config['populations']['sync_pop_sizes']
         if syncing:
             if len(syncing)>0:
                 syncing = syncing.split(',')
                 reference = syncing[0]
                 to_be_synced = syncing[1:]
-                if any(isinstance(self.config['parameters'][f'Ne_{pop}'], list) or isinstance(self.config['parameters'][f'Ne_{pop}'], float) for pop in to_be_synced):
-                    print(f"[-] Ne_{', Ne_'.join(to_be_synced)} is specified in config file but synced with Ne_{reference}.")
         return (reference, to_be_synced)
 
     def _get_threads(self, num):
@@ -659,6 +663,22 @@ class ParameterObj(object):
             gridThreads = num//threads
         return (threads, gridThreads)
 
+    def _get_unique_hash(self):
+        to_hash = copy.deepcopy(self.config)
+        if self._MODULE in ['makegrid','gridsearch']:
+            for pop_name in ['A', 'B']:
+                del to_hash['populations'][pop_name]
+            del to_hash['simulations']
+            del to_hash['gimble']
+        elif self._MODULE == 'simulate':
+            for pop_name in ['A', 'B']:
+                del to_hash['populations'][pop_name]
+            del to_hash['gimble']
+        else:
+            ValueError("Not implemented yet.")
+
+        return hashlib.md5(str(to_hash).encode()).hexdigest()
+        
     def _remove_pop_from_dict(self, toRemove):
         if toRemove:
             for pop in toRemove:
@@ -756,16 +776,17 @@ class ParameterObj(object):
 
         sync_pops = config["populations"]["sync_pop_sizes"].strip(" ")
         valid_sync_pops = [population.strip(" ") for population in possible_values_dict["populations"]["# possible values sync_pop_sizes"].split("|")]
-        if sync_pops in valid_sync_pops:
-            equal_pops = sync_pops.strip(' ').split(',')
-            if len(equal_pops) == 2:
-                first, last = equal_pops
-                config['parameters'][f'Ne_{last}'] = config['parameters'][f'Ne_{first}']
-            elif len(equal_pops) == 3:
-                config['parameters']['Ne_A_B'] = config['parameters']['Ne_A']
-                config['parameters']['Ne_B'] = config['parameters']['Ne_A']
-            else:
-                sys.exit('[X] Provided sync_pop_sizes are invalid.')
+        if sync_pops !='':
+            if sync_pops in valid_sync_pops:
+                #check whether values are equal  
+                reference, toBeSynced = self._get_pops_to_sync(config)
+                reference_size = config['parameters'][f'Ne_{reference}']
+                tBS_sizes = [config['parameters'][f'Ne_{pop}'] for pop in toBeSynced]
+                reference_size = [s for s in tBS_sizes if s!=None and s!=reference_size and s!='']
+                if len(reference_size)>0:
+                    sys.exit(f"[X] Syncing pop sizes: set same value for Ne_{', Ne_'.join(toBeSynced)} as for Ne_{reference}")
+                for tBS in toBeSynced:
+                    config['parameters'][f'Ne_{tBS}'] = config['parameters'][f'Ne_{reference}']
         validator = CustomNormalizer(schema, valid_pop_ids=valid_pop_ids, valid_sync_pops=valid_sync_pops)
         validator.validate(config)
         output = ["[X] INI Config file format error(s) ..."]
@@ -778,7 +799,7 @@ class ParameterObj(object):
         return config
 
     def _process_config(self):
-        if self._MODULE in ['makegrid', 'inference', 'simulate']:
+        if self._MODULE in ['makegrid', 'inference', 'simulate', 'gridsearch']:
             self.config['mu']['blockslength'] = self._get_blocks_length(self.zstore)
             self.config['parameters']['mu'] = self.config['mu']['mu']
             self._expand_params()
@@ -786,7 +807,7 @@ class ParameterObj(object):
             self._remove_pop_from_dict(self.toBeSynced)
             self.parameter_combinations = self._dict_product()
             self._sync_pop_sizes(self.reference, self.toBeSynced)
-        elif self._MODULE=='optimise':
+        elif self._MODULE in ['optimise', 'optimize']:
             self.config['mu']['blockslength'] = self._get_blocks_length(self.zstore)
             self.config['parameters']['mu'] = self.config['mu']['mu']
             #parameters either float or [mid, min, max]
@@ -893,8 +914,10 @@ class Store(object):
         """Returns True if populations need inverting, and False if not or population_by_letter is None. 
         Raises ValueError if population_by_letter of data and config differ"""
         meta = self.data['seqs'].attrs
+        print(meta['population_by_letter'])
+        print(population_by_letter)
         if population_by_letter:
-            if not population_by_letter['A'] in meta['population_by_letter'].values() or not population_by_letter['B'].meta['population_by_letter'].values():
+            if not population_by_letter['A'] in meta['population_by_letter'].values() or not population_by_letter['B'] in meta['population_by_letter'].values():
                 raise ValueError("population names in config (%r) and gimble-store (%r) must match" % (string(set(population_by_letter.values())), string(set(meta['population_by_letter'].values()))))
             if not population_by_letter['A'] == meta['population_by_letter']['A']:
                 return True
@@ -1037,6 +1060,18 @@ class Store(object):
         # assign values
         out[tuple(mutuples.T)] = counts
         return out
+
+    def _set_grid(self, unique_hash, ETPs, grid_labels):
+        dataset = self.data['grids'].create_dataset(unique_hash, data=ETPs)
+        dataset.attrs.put({idx:combo for idx, combo in enumerate(grid_labels)})
+    
+    def _get_grid(self, unique_hash):
+        if f'grids/{unique_hash}' in self.data:
+            grid_attrs = self.data[f'grids/{unique_hash}'].attrs.asdict()
+            grid = np.array(self.data[f'grids/{unique_hash}'], dtype=np.int64)
+            return (grid, grid_attrs)
+        else:
+            return (None, None)
 
     def _get_setup_report(self, width, blocks=False):
         meta = self.data['seqs'].attrs

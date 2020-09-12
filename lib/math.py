@@ -193,9 +193,11 @@ def objective_function(paramsToOptimise, grad, paramNames, fixedParams, equation
 
     result =  calculate_composite_likelihood(ETPs, data)
     toSave = np.append(paramsToOptimise, result)
+    iteration_number=-1
     if isinstance(path, list):
         path.append(toSave)
-    print('\t'.join(str(param) for param in paramsToOptimise)+'\t'+str(result))
+        iteration_number = len(path)
+    print(str(iteration_number)+'\t'+'\t'.join(str(param) for param in paramsToOptimise)+'\t'+str(result))
     return result
 
 def run_single_optimiz(p0, lower, upper, specified_objective_function, maxeval, xtol_rel, ftol_rel):
@@ -440,7 +442,7 @@ class EquationSystemObj(object):
         ETPs = []
         desc = f'[%] Calculating likelihood for {len(self.rate_by_variable)} gridpoints'
         if gridThreads <= 1:
-            for rates, split_time in tqdm(zip(self.rate_by_variable, self.split_times),total=len(self.rate_by_variable), desc=desc, ncols=100,disable=True):
+            for rates, split_time in tqdm(zip(self.rate_by_variable, self.split_times),total=len(self.rate_by_variable), desc=desc, ncols=100):
                 arg = (rates, split_time, threads, verbose)
                 ETPs.append(self.calculate_ETPs(arg))
         else:
@@ -482,11 +484,7 @@ class EquationSystemObj(object):
                 ETPs[matrix_id] = equationObj.result - sum(ETPs[equationObj.marginal_idx].flatten())
             #verboseprint(matrix_id, ETPs[matrix_id])
         
-        if verbose:
-            if not math.isclose(np.sum(ETPs.flatten()), 1, rel_tol=1e-5):
-                print("[-] sum(ETPs) != 1 (rel_tol=1e-5)")
-            else:
-                print("[+] sum(ETPs) == 1 ")
+        assert math.isclose(np.sum(ETPs.flatten()), 1, rel_tol=1e-5), "[-] sum(ETPs) != 1 (rel_tol=1e-5)"
         return ETPs
 
     def optimize_parameters(self, data, maxeval, xtol_rel, ftol_rel, numPoints, threads=1, gridThreads=1, trackHistory=True):
@@ -495,7 +493,7 @@ class EquationSystemObj(object):
         - print to screen all evaluated (scaled) parameters + likelihood 
         - return all results
         '''
-        verbose = gridThreads == 1
+        verbose = False
         #seperate parameters that are fixed from those that are not
         inverse_scaled_parameter_combinations = {k:[d[k] for d in self.rate_by_variable] for k in self.rate_by_variable[0].keys()}
         #when syncing popsizes, only one of these parameters should be present in boundaries!
@@ -555,7 +553,7 @@ class EquationSystemObj(object):
         allResults=[]
         print(f"[+] Optimization starting for {numPoints-1} random points and 1 given point.")
         print('Intermediate results (parameters not rescaled!!!!):')
-        print('\t'.join(str(name) for name in boundaryNames)+'\t CL')
+        print('iteration \t'+'\t'.join(str(name) for name in boundaryNames)+'\t CL')
         if gridThreads <= 1:
             #print("[+] Optimization starting from provided starting point.")
             if trackHistory:

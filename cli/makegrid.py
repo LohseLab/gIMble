@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gIMble makegrid -c <FILE> -m <FILE> [-z <FILE>] [-o <STR>] [-t <STR>] [-h|--help]
+"""usage: gIMble makegrid -c <FILE> -m <FILE> (-z <FILE> | -o <STR>) [-t <STR>] [-h|--help]
                                             
     Options:
         -h --help                                show this
@@ -87,23 +87,26 @@ def main(params):
         start_time = timer()
         args = docopt(__doc__)
         parameterObj = MakeGridParameterObj(params, args)
+        unique_hash = parameterObj._get_unique_hash()
         if parameterObj.zstore:
-            print(parameterObj.zstore)
             gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False, overwrite=False)
+            #verify whether grids/unique_hash is already present
+            if gimbleStore._get_grid(unique_hash):
+                sys.exit(f"[X] Grid for this config file has already been build with name: {unqiue_hash}")
         elif parameterObj.prefix:
             gimbleStore = lib.gimble.Store(prefix=parameterObj.prefix, create=True)
         else:
             sys.exit("[X] No config and no prefix specified. Should have been caught.")
-        print(parameterObj.parameter_combinations)
-        print("[+] Generated all parameter combinations.") #in parameterObj.parameter_combinations
+
+        print(f"[+] Generated {len(parameterObj.parameter_combinations)} parameter combinations.") #in parameterObj.parameter_combinations
         equationSystem = lib.math.EquationSystemObj(parameterObj)
         #build the equations
         equationSystem.initiate_model(parameterObj=parameterObj)
-        equationSystem.ETPs = equationSystem.calculate_all_ETPs(threads=parameterObj.threads, gridThreads=parameterObj.gridThreads, verbose=True)
-        
-        run_count = gimbleStore._return_group_last_integer('grids')
-        g = gimbleStore.data['grids'].create_dataset(f'grid_{run_count}', data=equationSystem.ETPs)
-        g.attrs.put({idx:combo for idx, combo in enumerate(parameterObj.parameter_combinations)})
+        equationSystem.ETPs = equationSystem.calculate_all_ETPs(threads=parameterObj.threads, gridThreads=parameterObj.gridThreads, verbose=False)
+        gimbleStore._set_grid(unique_hash, equationSystem.ETPs, parameterObj.parameter_combinations)
+        #run_count = gimbleStore._return_group_last_integer('grids')
+        #g = gimbleStore.data['grids'].create_dataset(f'grid_{run_count}', data=equationSystem.ETPs)
+        #g.attrs.put({idx:combo for idx, combo in enumerate(parameterObj.parameter_combinations)})
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
         print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
