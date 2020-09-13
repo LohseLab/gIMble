@@ -273,48 +273,52 @@ def genotype_to_mutype_array(sa_genotype_array, idx_block_sites_in_pos, block_si
     '''
     np_genotype_array = np.array(sa_genotype_array)
     np_allele_count_array = np.ma.masked_equal(sa_genotype_array.count_alleles(), 0, copy=True) 
-
     allele_map = np.ones((np_allele_count_array.shape), dtype=np.int64) * np.arange(np_allele_count_array.shape[-1], dtype=np.int64)
-    idx_max_global_allele_count = np.nanargmax(np_allele_count_array, axis=1)
-    idx_min_global_allele_count = np.nanargmin(np_allele_count_array, axis=1)
-    has_major_allele = (idx_max_global_allele_count != idx_min_global_allele_count)
-    idx_min_prime_allele = np.amin(np_genotype_array[:,0], axis=1)
-    idx_min_global_allele = np.amin(np.amin(np_genotype_array, axis=1), axis=1)
-    idx_max_global_allele = np.amax(np.amax(np_genotype_array, axis=1), axis=1)
-    idx_major_allele = np.where(
-        has_major_allele, 
-        idx_max_global_allele_count, 
-        idx_min_prime_allele)
-    idx_minor_allele = np.where(
-        has_major_allele, 
-        idx_min_global_allele_count, 
-        np.where((
-            idx_min_global_allele == idx_min_prime_allele),
-            np.max((idx_min_global_allele, idx_max_global_allele), axis=0), 
-            np.min((idx_min_global_allele, idx_max_global_allele), axis=0)))
-    # for each genotype (np.arange(allele_map.shape[0])), set minor allele to 1 (1st do minor, so that overwritten if monomorphic)
-    allele_map[np.arange(allele_map.shape[0]), idx_minor_allele] = 1 
-    # for each genotype (np.arange(allele_map.shape[0])), set major allele to 0
-    allele_map[np.arange(allele_map.shape[0]), idx_major_allele] = 0
-    folded_minor_allele_counts = sa_genotype_array.map_alleles(allele_map).to_n_alt(fill=-1)
-    folded_minor_allele_counts[np.any(sa_genotype_array.is_missing(), axis=1)] = np.ones(2) * -1        # -1, -1 for missing => -1
-    folded_minor_allele_counts[(np_allele_count_array.count(axis=1) > 2)] = np.ones(2) * (-1, -2)       # -1, -2 for multiallelic => -2
-    #block_sites_pos = block_sites.flatten()
-    block_sites[idx_block_sites_in_pos] = szudzik_pairing(folded_minor_allele_counts) + 2               # add 2 so that not negative for bincount
-    block_sites[~idx_block_sites_in_pos] = 2                                                            # monomorphic = 2 (0 = multiallelic, 1 = missing)
-    #if debug == True:
-    #    print("# block_sites as mutype array", block_sites)
-    #if debug == True:
-    #    pos_df = pd.DataFrame(block_sites_pos[idx_block_sites_in_pos.flatten()], dtype='int64', columns=['pos'])
-    #    genotypes_df = pd.DataFrame(np_genotype_array.reshape(np_genotype_array.shape[0], 4), dtype='i4', columns=['a1', 'a2', 'b1', 'b2'])        
-    #    block_sites_df = pos_df.join(genotypes_df)
-    #    folded_minor_allele_count_df = pd.DataFrame(folded_minor_allele_counts, dtype='int8', columns=['fmAC_a', 'fmAC_b'])
-    #    block_sites_df = block_sites_df.join(folded_minor_allele_count_df)
-    #    variants = pd.DataFrame(block_sites[idx_block_sites_in_pos], dtype='int', columns=['SVar'])
-    #    block_sites_df = block_sites_df.join(variants)
-    #    print('# Mutypes: 0=MULTI, 1=MISS, 2=MONO, 3=HetB, 4=HetA, 5=HetAB, 6=Fixed')
-    #    print(block_sites_df)
-    return block_sites
+    try:
+        idx_max_global_allele_count = np.nanargmax(np_allele_count_array, axis=1)
+        idx_min_global_allele_count = np.nanargmin(np_allele_count_array, axis=1)
+        has_major_allele = (idx_max_global_allele_count != idx_min_global_allele_count)
+        idx_min_prime_allele = np.amin(np_genotype_array[:,0], axis=1)
+        idx_min_global_allele = np.amin(np.amin(np_genotype_array, axis=1), axis=1)
+        idx_max_global_allele = np.amax(np.amax(np_genotype_array, axis=1), axis=1)
+        idx_major_allele = np.where(
+            has_major_allele, 
+            idx_max_global_allele_count, 
+            idx_min_prime_allele)
+        idx_minor_allele = np.where(
+            has_major_allele, 
+            idx_min_global_allele_count, 
+            np.where((
+                idx_min_global_allele == idx_min_prime_allele),
+                np.max((idx_min_global_allele, idx_max_global_allele), axis=0), 
+                np.min((idx_min_global_allele, idx_max_global_allele), axis=0)))
+        # for each genotype (np.arange(allele_map.shape[0])), set minor allele to 1 (1st do minor, so that overwritten if monomorphic)
+        allele_map[np.arange(allele_map.shape[0]), idx_minor_allele] = 1 
+        # for each genotype (np.arange(allele_map.shape[0])), set major allele to 0
+        allele_map[np.arange(allele_map.shape[0]), idx_major_allele] = 0
+        folded_minor_allele_counts = sa_genotype_array.map_alleles(allele_map).to_n_alt(fill=-1)
+        folded_minor_allele_counts[np.any(sa_genotype_array.is_missing(), axis=1)] = np.ones(2) * -1        # -1, -1 for missing => -1
+        folded_minor_allele_counts[(np_allele_count_array.count(axis=1) > 2)] = np.ones(2) * (-1, -2)       # -1, -2 for multiallelic => -2
+        #block_sites_pos = block_sites.flatten()
+        block_sites[idx_block_sites_in_pos] = szudzik_pairing(folded_minor_allele_counts) + 2               # add 2 so that not negative for bincount
+        block_sites[~idx_block_sites_in_pos] = 2                                                            # monomorphic = 2 (0 = multiallelic, 1 = missing)
+        #if debug == True:
+        #    print("# block_sites as mutype array", block_sites)
+        #if debug == True:
+        #    pos_df = pd.DataFrame(block_sites_pos[idx_block_sites_in_pos.flatten()], dtype='int64', columns=['pos'])
+        #    genotypes_df = pd.DataFrame(np_genotype_array.reshape(np_genotype_array.shape[0], 4), dtype='i4', columns=['a1', 'a2', 'b1', 'b2'])        
+        #    block_sites_df = pos_df.join(genotypes_df)
+        #    folded_minor_allele_count_df = pd.DataFrame(folded_minor_allele_counts, dtype='int8', columns=['fmAC_a', 'fmAC_b'])
+        #    block_sites_df = block_sites_df.join(folded_minor_allele_count_df)
+        #    variants = pd.DataFrame(block_sites[idx_block_sites_in_pos], dtype='int', columns=['SVar'])
+        #    block_sites_df = block_sites_df.join(variants)
+        #    print('# Mutypes: 0=MULTI, 1=MISS, 2=MONO, 3=HetB, 4=HetA, 5=HetAB, 6=Fixed')
+        #    print(block_sites_df)
+        return block_sites
+    except:
+        print('np_genotype_array', np_genotype_array.shape, np_genotype_array)
+        print('np_allele_count_array', np_allele_count_array.shape, np_allele_count_array)
+        print('allele_map', allele_map.shape, allele_map)
 
 def _harmonic(a, b):
     if b-a == 1:
