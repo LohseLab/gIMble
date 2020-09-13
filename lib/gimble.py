@@ -248,7 +248,6 @@ def get_coverage_counts(coverages, idxs, num_blocks):
     return blocks_per_sample_set[:, ~(blocks_per_sample_set == 0).all(0)] / (num_blocks / len(idxs)) / num_blocks 
 
 def block_sites_to_variation_arrays(block_sites, cols=np.array([1,2,3]), max_type_count=7):
-    block_count = block_sites.shape[0]
     temp_sites = block_sites + (max_type_count * np.arange(block_sites.shape[0], dtype=np.int64).reshape(block_sites.shape[0], 1))
     # return multiallelic, missing, monomorphic, variation
     return np.hsplit(np.bincount(temp_sites.ravel(), minlength=(block_sites.shape[0] * max_type_count)).reshape(-1, max_type_count), cols)
@@ -275,27 +274,28 @@ def genotype_to_mutype_array(sa_genotype_array, idx_block_sites_in_pos, block_si
     np_allele_count_array = np.ma.masked_equal(sa_genotype_array.count_alleles(), 0, copy=True) 
     allele_map = np.ones((np_allele_count_array.shape), dtype=np.int64) * np.arange(np_allele_count_array.shape[-1], dtype=np.int64)
     try:
-        idx_max_global_allele_count = np.nanargmax(np_allele_count_array, axis=1)
-        idx_min_global_allele_count = np.nanargmin(np_allele_count_array, axis=1)
-        has_major_allele = (idx_max_global_allele_count != idx_min_global_allele_count)
-        idx_min_prime_allele = np.amin(np_genotype_array[:,0], axis=1)
-        idx_min_global_allele = np.amin(np.amin(np_genotype_array, axis=1), axis=1)
-        idx_max_global_allele = np.amax(np.amax(np_genotype_array, axis=1), axis=1)
-        idx_major_allele = np.where(
-            has_major_allele, 
-            idx_max_global_allele_count, 
-            idx_min_prime_allele)
-        idx_minor_allele = np.where(
-            has_major_allele, 
-            idx_min_global_allele_count, 
-            np.where((
-                idx_min_global_allele == idx_min_prime_allele),
-                np.max((idx_min_global_allele, idx_max_global_allele), axis=0), 
-                np.min((idx_min_global_allele, idx_max_global_allele), axis=0)))
-        # for each genotype (np.arange(allele_map.shape[0])), set minor allele to 1 (1st do minor, so that overwritten if monomorphic)
-        allele_map[np.arange(allele_map.shape[0]), idx_minor_allele] = 1 
-        # for each genotype (np.arange(allele_map.shape[0])), set major allele to 0
-        allele_map[np.arange(allele_map.shape[0]), idx_major_allele] = 0
+        if np_allele_count_array:
+            idx_max_global_allele_count = np.nanargmax(np_allele_count_array, axis=1)
+            idx_min_global_allele_count = np.nanargmin(np_allele_count_array, axis=1)
+            has_major_allele = (idx_max_global_allele_count != idx_min_global_allele_count)
+            idx_min_prime_allele = np.amin(np_genotype_array[:,0], axis=1)
+            idx_min_global_allele = np.amin(np.amin(np_genotype_array, axis=1), axis=1)
+            idx_max_global_allele = np.amax(np.amax(np_genotype_array, axis=1), axis=1)
+            idx_major_allele = np.where(
+                has_major_allele, 
+                idx_max_global_allele_count, 
+                idx_min_prime_allele)
+            idx_minor_allele = np.where(
+                has_major_allele, 
+                idx_min_global_allele_count, 
+                np.where((
+                    idx_min_global_allele == idx_min_prime_allele),
+                    np.max((idx_min_global_allele, idx_max_global_allele), axis=0), 
+                    np.min((idx_min_global_allele, idx_max_global_allele), axis=0)))
+            # for each genotype (np.arange(allele_map.shape[0])), set minor allele to 1 (1st do minor, so that overwritten if monomorphic)
+            allele_map[np.arange(allele_map.shape[0]), idx_minor_allele] = 1 
+            # for each genotype (np.arange(allele_map.shape[0])), set major allele to 0
+            allele_map[np.arange(allele_map.shape[0]), idx_major_allele] = 0
         folded_minor_allele_counts = sa_genotype_array.map_alleles(allele_map).to_n_alt(fill=-1)
         folded_minor_allele_counts[np.any(sa_genotype_array.is_missing(), axis=1)] = np.ones(2) * -1        # -1, -1 for missing => -1
         folded_minor_allele_counts[(np_allele_count_array.count(axis=1) > 2)] = np.ones(2) * (-1, -2)       # -1, -2 for multiallelic => -2
