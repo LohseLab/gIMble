@@ -855,6 +855,7 @@ class Store(object):
         print("[#] Making blocks...")
         #self._make_blocks_threaded(parameterObj)
         self._make_blocks(parameterObj)
+        #self.plot_bsfs_pcp(sample_set='X')
         #self._calculate_block_pop_gen_metrics()
         #self._plot_blocks(parameterObj)
         self.log_stage(parameterObj)
@@ -1620,6 +1621,7 @@ class Store(object):
         meta = self.data['seqs'].attrs
         meta['window_size'] = parameterObj.window_size
         meta['window_step'] = parameterObj.window_step
+        meta['window_count'] = 0
         sample_set_idxs = self._get_sample_set_idxs(sample_sets)
         with tqdm(meta['seq_names'], total=(len(meta['seq_names']) * len(sample_set_idxs)), desc="[%] Constructing windows ", ncols=100, unit_scale=True) as pbar: 
             for seq_name in meta['seq_names']:
@@ -1643,7 +1645,7 @@ class Store(object):
                 self.data.create_dataset("seqs/%s/windows/ends" % seq_name, data=window_ends, overwrite=True)
                 self.data.create_dataset("seqs/%s/windows/pos_mean" % seq_name, data=window_pos_mean, overwrite=True)
                 self.data.create_dataset("seqs/%s/windows/pos_median" % seq_name, data=window_pos_median, overwrite=True)
-                meta['window_count'] += window_starts.shape[0]
+                meta['window_count'] += window_variation.shape[0]
         #window_info_rows = []
         #window_mutuple_tally = []
         ## window bsfs
@@ -1797,23 +1799,30 @@ class Store(object):
         meta['blocks_by_sample_set_idx'] = dict(blocks_per_sample_set_idx) # keys are strings
         meta['blocks_raw_per_sample_set_idx'] = dict(blocks_raw_per_sample_set_idx) # keys are strings
 
-    def plot_bsfs_pcp(self, out_f, mutypes, counts):
+    def plot_bsfs_pcp(self, sample_set='X'):
+        '''plots a bsfs pcp for a given sample_set. 
+        '''
         # https://stackoverflow.com/questions/8230638/parallel-coordinates-plot-in-matplotlib
         # http://www.shengdongzhao.com/publication/tracing-tuples-across-dimensions-a-comparison-of-scatterplots-and-parallel-coordinate-plots/
+        #meta = self.data['seqs'].attrs
+        bsfs = bsfs_to_2d(self._get_block_bsfs(sample_sets='X'))
+        print(bsfs)
+        freq = bsfs[:,0] / np.sum(bsfs[:,0])
         meta = self.data['seqs'].attrs
-        fig = plt.figure(figsize=(18,4), dpi=200, frameon=True)
-        #connecting dots
-        fig, axes = plt.subplots(1, len(mutypes)-1, sharey=False, figsize=(15,5))
-        min_max_range = {}
-        print('mutypes', np.array(mutypes))
-        # Plot each row
-        for i, ax in enumerate(axes):
-            for idx in range(4):
-                ax.plot(idx, mutypes[:,idx])
-
+        x = ['m_1', 'm_2', 'm_3', 'm_4']
+        bins = np.linspace(0, 1, 9)
+        freq = bins[np.digitize(freq, bins)]
+        data = bsfs[:,1:] 
+        cmap = plt.get_cmap("Greys")
+        print('data', data.shape, data)
+        print('freq', freq.shape, freq)
+        fig, axes = plt.subplots(1, 3, sharey=False, figsize=(15,5))
+        axes[0].plot(x,data.T, c=cmap(freq))
+        axes[1].plot(x,data.T, c=cmap(freq))
+        axes[2].plot(x,data.T, c=cmap(freq))
+        plt.subplots_adjust(wspace=0)
         #     min_max_range[mutype] = [np.min(, df[col].max(), np.ptp(df[col])]
         #         df[col] = np.true_divide(df[col] - df[col].min(), np.ptp(df[col]))
-
         # ynames = ['m_%s' for idx in range(1, meta['mutypes_count'] + 1)]
         # import pandas as pd
         # from pandas.tools.plotting import parallel_coordinates
@@ -1829,11 +1838,10 @@ class Store(object):
         # #ax.legend(numpoints=1)
         # #plt.ylabel('Pi')
         # #plt.xlabel("Genome coordinate")
-        out_f = '%s.pi_genome_scan.png' % self.prefix
-        plt.tight_layout()
-        fig.savefig(out_f, format="png")
+        out_f = '%s.pcp.png' % self.prefix
+        plt.savefig(out_f, format="png")
         #print("[>] Created: %r" % str(out_f))
-        plt.close(fig)
+        #plt.close(fig)
 
         #fig, host = plt.subplots()
         #

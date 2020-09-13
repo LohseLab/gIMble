@@ -58,10 +58,11 @@ def main(params):
         #grid = zarr.load(gimbleStore.data[f'grids/{parameterObj.grid_name}'])
         print(parameterObj.config)
         data = gimbleStore.get_bsfs(
-            data=parameterObj.data_type, 
+            data_type=parameterObj.data_type, 
             population_by_letter=parameterObj.config['populations'], 
             sample_sets='X', 
             kmax_by_mutype=parameterObj.config['k_max'])
+        
         composite_likelihoods = [lib.math.calculate_composite_likelihood(ETPs, data) for ETPs in grid]
         for idx, L in enumerate(composite_likelihoods):
             print('[+] parameter combination: %s: L=-%s' % (idx, L))
