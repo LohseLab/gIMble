@@ -1642,7 +1642,7 @@ class Store(object):
                         end_key = 'seqs/%s/blocks/%s/ends' % (seq_name, sample_set_idx)
                         ends.append(np.array(self.data[end_key]))
                     pbar.update()
-                if np.any(variation):
+                try:
                     variation_array = np.concatenate(variation, axis=0)
                     start_array = np.concatenate(starts, axis=0)
                     end_array = np.concatenate(ends, axis=0)
@@ -1655,6 +1655,8 @@ class Store(object):
                     self.data.create_dataset("seqs/%s/windows/pos_mean" % seq_name, data=window_pos_mean, overwrite=True)
                     self.data.create_dataset("seqs/%s/windows/pos_median" % seq_name, data=window_pos_median, overwrite=True)
                     meta['window_count'] += window_variation.shape[0]
+                except ValueError:
+                    pass
         #window_info_rows = []
         #window_mutuple_tally = []
         ## window bsfs
