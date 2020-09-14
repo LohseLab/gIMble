@@ -1038,7 +1038,8 @@ class Store(object):
         for seq_name in sequences: 
             for sample_set_idx in sample_set_idxs:
                 variation_key = 'seqs/%s/blocks/%s/variation' % (seq_name, sample_set_idx)
-                variations.append(np.array(self.data[variation_key], dtype=np.int64))
+                if variation_key in self.data:
+                    variations.append(np.array(self.data[variation_key], dtype=np.int64))
         variation = np.concatenate(variations, axis=0) # concatenate is faster than offset-indexes
         if invert_population_flag:
             variation[0], variation[1] = variation[1], variation[0]        
@@ -1742,7 +1743,7 @@ class Store(object):
                     #print('\nseq_name', seq_name)
                     #print('sa_genotype_array', sa_genotype_array)
                     for sample_set_idx, sample_set in enumerate(meta['sample_sets']):
-                        print("\n", seq_name, sample_set_idx, sample_set)
+                        #print("\n", seq_name, sample_set_idx, sample_set)
                         start_end = self._get_interval_coordinates_for_sample_set(seq_name=seq_name, sample_set=sample_set)
                         if not start_end is None:
                             # Cut sample-set specific blocks based on intervals and block-algoritm parameters
