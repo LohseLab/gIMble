@@ -1642,11 +1642,11 @@ class Store(object):
                         end_key = 'seqs/%s/blocks/%s/ends' % (seq_name, sample_set_idx)
                         ends.append(np.array(self.data[end_key]))
                     pbar.update()
-                variation_array = np.concatenate(variation, axis=0)
-                start_array = np.concatenate(starts, axis=0)
-                end_array = np.concatenate(ends, axis=0)
-                # window_variation : shape = (windows, blocklength, 4)
-                if np.any(variation_array):
+                if np.any(variation):
+                    variation_array = np.concatenate(variation, axis=0)
+                    start_array = np.concatenate(starts, axis=0)
+                    end_array = np.concatenate(ends, axis=0)
+                    # window_variation : shape = (windows, blocklength, 4)
                     window_variation, window_starts, window_ends, window_pos_mean, window_pos_median = cut_windows(variation_array, sample_set_idxs, start_array, end_array, num_blocks=parameterObj.window_size, num_steps=parameterObj.window_step)
                     #b, counts = np.unique(variation, return_counts=True, axis=0)
                     self.data.create_dataset("seqs/%s/windows/variation" % seq_name, data=window_variation, overwrite=True)
