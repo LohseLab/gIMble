@@ -431,7 +431,7 @@ class StateGraph(object):
         G.layout()
         out_f = "%s.pdf" % parameterObj.out_prefix
         print("[>]\tCreated: %r" % out_f)
-        G.draw(out_f, prog='dot', args="-Gratio='compress' -Gsize='7.5,10'")
+        G.draw(out_f, prog='dot', args="-Nfontname=Courier -Efontname=Courier -Gfontname=Courier -Gratio='compress' -Gsize='7.5,10'")
 
     def is_directed_acyclic_graph(self):
         return nx.is_directed_acyclic_graph(self.graph)
