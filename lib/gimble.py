@@ -1635,24 +1635,26 @@ class Store(object):
                 variation, starts, ends = [], [], []
                 for sample_set_idx in sample_set_idxs:
                     variation_key = 'seqs/%s/blocks/%s/variation' % (seq_name, sample_set_idx)
-                    variation.append(np.array(self.data[variation_key]))
-                    start_key = 'seqs/%s/blocks/%s/starts' % (seq_name, sample_set_idx)
-                    starts.append(np.array(self.data[start_key]))
-                    end_key = 'seqs/%s/blocks/%s/ends' % (seq_name, sample_set_idx)
-                    ends.append(np.array(self.data[end_key]))
+                    if variation_key in self.data:
+                        variation.append(np.array(self.data[variation_key]))
+                        start_key = 'seqs/%s/blocks/%s/starts' % (seq_name, sample_set_idx)
+                        starts.append(np.array(self.data[start_key]))
+                        end_key = 'seqs/%s/blocks/%s/ends' % (seq_name, sample_set_idx)
+                        ends.append(np.array(self.data[end_key]))
                     pbar.update()
                 variation_array = np.concatenate(variation, axis=0)
                 start_array = np.concatenate(starts, axis=0)
                 end_array = np.concatenate(ends, axis=0)
                 # window_variation : shape = (windows, blocklength, 4)
-                window_variation, window_starts, window_ends, window_pos_mean, window_pos_median = cut_windows(variation_array, sample_set_idxs, start_array, end_array, num_blocks=parameterObj.window_size, num_steps=parameterObj.window_step)
-                #b, counts = np.unique(variation, return_counts=True, axis=0)
-                self.data.create_dataset("seqs/%s/windows/variation" % seq_name, data=window_variation, overwrite=True)
-                self.data.create_dataset("seqs/%s/windows/starts" % seq_name, data=window_starts, overwrite=True)
-                self.data.create_dataset("seqs/%s/windows/ends" % seq_name, data=window_ends, overwrite=True)
-                self.data.create_dataset("seqs/%s/windows/pos_mean" % seq_name, data=window_pos_mean, overwrite=True)
-                self.data.create_dataset("seqs/%s/windows/pos_median" % seq_name, data=window_pos_median, overwrite=True)
-                meta['window_count'] += window_variation.shape[0]
+                if np.any(variation_array):
+                    window_variation, window_starts, window_ends, window_pos_mean, window_pos_median = cut_windows(variation_array, sample_set_idxs, start_array, end_array, num_blocks=parameterObj.window_size, num_steps=parameterObj.window_step)
+                    #b, counts = np.unique(variation, return_counts=True, axis=0)
+                    self.data.create_dataset("seqs/%s/windows/variation" % seq_name, data=window_variation, overwrite=True)
+                    self.data.create_dataset("seqs/%s/windows/starts" % seq_name, data=window_starts, overwrite=True)
+                    self.data.create_dataset("seqs/%s/windows/ends" % seq_name, data=window_ends, overwrite=True)
+                    self.data.create_dataset("seqs/%s/windows/pos_mean" % seq_name, data=window_pos_mean, overwrite=True)
+                    self.data.create_dataset("seqs/%s/windows/pos_median" % seq_name, data=window_pos_median, overwrite=True)
+                    meta['window_count'] += window_variation.shape[0]
         #window_info_rows = []
         #window_mutuple_tally = []
         ## window bsfs
