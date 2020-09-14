@@ -58,6 +58,7 @@ def main(params):
             population_by_letter=parameterObj.config['populations'], 
             sample_sets='X', 
             kmax_by_mutype=parameterObj.config['k_max'])
+        print('data', data.shape, data)
         composite_likelihoods = [lib.math.calculate_composite_likelihood(ETPs, data) for ETPs in grid]
         for idx,L in enumerate(composite_likelihoods):
             print('[+] parameter combination: %s: L=-%s' % (meta[str(idx)], L))

@@ -36,7 +36,7 @@ def main(params):
         parameterObj = WindowsParameterObj(params, args)
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
         gimbleStore.windows(parameterObj)
-        gimbleStore.info()
+        #gimbleStore.info()
         #gimbleStore.tree()
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
