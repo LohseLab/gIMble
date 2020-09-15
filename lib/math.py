@@ -177,6 +177,22 @@ def calculate_inverse_laplace(params):
         equationObj.result = sage.all.inverse_laplace(equation / dummy_variable, dummy_variable, sage.all.SR.var('T'), algorithm='giac').substitute(T=split_time)
     return equationObj
 
+def gridsearch(grids=None, data=None):
+    '''returns 2d array of likelihoods of shape (windows, grids)'''
+    if grids is None or data is None:
+        raise ValueError('gridsearch: needs grid and data')
+    grids_log = np.zeros(grids.shape)
+    np.log(grids, where=grids>0, out=grids_log)
+    return np.squeeze(np.apply_over_axes(np.sum, (data[:, None] * grids_log), axes=[2,3,4,5]))
+
+#def calculate_composite_likelihood_arrays(grids=None, data=None):
+#    if grids is None or data is None:
+#        raise ValueError('needs grid and data')
+#    grids_log = np.zeros(grids.shape)
+#    np.log(grids, where=grids>0, out=grids_log)
+#    res = np.apply_over_axes(np.sum, (data[:, None] * grids_log), axes=[2,3,4,5])
+#    return np.squeeze(res)
+
 def calculate_composite_likelihood(ETPs, data):
     ETP_log = np.zeros(ETPs.shape)
     np.log(ETPs, where=ETPs>0, out=ETP_log)
@@ -606,24 +622,6 @@ class EquationSystemObj(object):
         for resultd in allResults:
             resultd['optimum'] = {k:v for k,v in zip(boundaryNames,resultd['optimum'])}
             resultd['exitcode'] = exitcodeDict.get(resultd['exitcode'],'Not in exitcodeDict.')
-
-# =======
-#             print(f"[+] Optimization starting for {numPoints} random points and 1 given point.")
-#             specified_run_single_optimizer=partialmethod(
-#                 self.run_single_optimizer,
-#                 lower=lower,
-#                 upper=upper,
-#                 specified_objective_function=specified_objective_function,
-#                 maxeval=maxeval,
-#                 xtol_rel=xtol_rel
-#                 )
-#             allResults = []
-#             with concurrent.futures.ProcessPoolExecutor(max_workers=gridThreads) as outer_pool:
-#                 with tqdm(total=numPoints, desc=desc, ncols=100) as pbar:
-#                     for single_run in outer_pool.map(specified_run_single_optimizer, all_p0):
-#                         allResults.append(single_run)
-#                         pbar.update()
-# >>>>>>> Stashed changes
         print(allResults)
         #process trackhistory
         if not trackHistory:

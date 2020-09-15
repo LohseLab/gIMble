@@ -91,7 +91,7 @@ def main(params):
         if parameterObj.zstore:
             gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False, overwrite=False)
             #verify whether grids/unique_hash is already present
-            if gimbleStore._get_grid(unique_hash):
+            if gimbleStore._has_grid(unique_hash):
                 sys.exit(f"[X] Grid for this config file has already been build with name: {unqiue_hash}")
         elif parameterObj.prefix:
             gimbleStore = lib.gimble.Store(prefix=parameterObj.prefix, create=True)

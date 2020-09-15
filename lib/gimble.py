@@ -8,6 +8,7 @@ import shutil
 import zarr
 import os
 import string
+import dask
 import logging
 import collections
 import sys
@@ -804,6 +805,8 @@ class ParameterObj(object):
             print("[X] validator.errors", validator.errors)
             sys.exit()
         config = validator.normalized(config)
+        # there is probably a better way for setting config['population_by_letter'] ...
+        config['population_by_letter'] = {'A' : config['populations']['A'], 'B' : config['populations']['B']}
         config['populations']['sample_pop_ids'] = sample_pop_ids
         print("[+] Config file validated.")
         return config
@@ -924,11 +927,9 @@ class Store(object):
         """Returns True if populations need inverting, and False if not or population_by_letter is None. 
         Raises ValueError if population_by_letter of data and config differ"""
         meta = self.data['seqs'].attrs
-        print(meta['population_by_letter'])
-        print(population_by_letter)
         if population_by_letter:
             if not population_by_letter['A'] in meta['population_by_letter'].values() or not population_by_letter['B'] in meta['population_by_letter'].values():
-                raise ValueError("population names in config (%r) and gimble-store (%r) must match" % (string(set(population_by_letter.values())), string(set(meta['population_by_letter'].values()))))
+                sys.exit("[X] Population names in config (%r) and gimble-store (%r) must match" % (str(population_by_letter.values()), str(meta['population_by_letter'].values())))
             if not population_by_letter['A'] == meta['population_by_letter']['A']:
                 return True
         return False
@@ -961,7 +962,7 @@ class Store(object):
         else:
             raise ValueError("'query' must be 'X', 'A', 'B', or None")
 
-    def _get_window_bsfs(self, sample_sets='X', sequences=None, population_by_letter=None, kmax_by_mutype=None):
+    def _get_window_bsfs(self, sample_sets='X', sequences=None, population_by_letter=None, kmax_by_mutype=None, as_dask=False):
         """Return bsfs_array of 5 dimensions (fifth dimension is the window-idx across ALL sequences in sequences).
         [ToDo] Ideally this should work with regions, as in CHR:START-STOP.
         [ToDo] put in sample set context (error if not samples set).
@@ -977,9 +978,11 @@ class Store(object):
         kmax : dict (string -> int) or None
             Mapping of kmax values to mutypes.
         
+        as_dask: boolean
+            Whether to return array as dask array, default is numpy array
         Returns
         -------
-        bsfs : ndarray, int, ndim (1 + mutypes). First dimension is window idx. 
+        bsfs : (dask) ndarray, int, ndim (1 + mutypes). First dimension is window idx. 
         """
         sequences = self._validate_seq_names(sequences)
         invert_population_flag = self._get_invert_population_flag(population_by_letter)
@@ -988,11 +991,11 @@ class Store(object):
         for seq_name in tqdm(sequences, total=len(sequences), desc="[%] Querying data ", ncols=100):
             variation = np.array(self.data["seqs/%s/windows/variation" % seq_name], dtype=np.int64)
             variations.append(variation)
-        bsfs = np.concatenate(variations, axis=0)
+        _bsfs = np.concatenate(variations, axis=0)
         if invert_population_flag:
-            bsfs[0], bsfs[1] = bsfs[1], bsfs[0]
-        bsfs = bsfs.reshape((bsfs.shape[0] * bsfs.shape[1], bsfs.shape[2]))
-        index = np.repeat(np.arange(variation.shape[0]), variation.shape[1]).reshape(variation.shape[0] * variation.shape[1], 1)
+            _bsfs[0], _bsfs[1] = _bsfs[1], _bsfs[0]
+        bsfs = _bsfs.reshape((_bsfs.shape[0] * _bsfs.shape[1], _bsfs.shape[2]))
+        index = np.repeat(np.arange(_bsfs.shape[0]), _bsfs.shape[1]).reshape(_bsfs.shape[0] * _bsfs.shape[1], 1)
         mutuples, counts = np.unique(
             np.concatenate([index, np.clip(bsfs, 0, max_k)], axis=-1).reshape(-1, bsfs.shape[-1] + 1),
             return_counts=True, axis=0)
@@ -1000,6 +1003,8 @@ class Store(object):
         out = np.zeros(tuple(np.max(mutuples, axis=0) + 1), np.int64)
         # assign values
         out[tuple(mutuples.T)] = counts
+        if as_dask:
+            return dask.array(out)
         return out
 
     def set_bsfs(self, data_type='etp', bsfs=None):
@@ -1008,7 +1013,7 @@ class Store(object):
         bsfs_key = 'bsfs/%s' % key
         self.data.create_dataset(bsfs_key, data=bsfs, overwrite=True)
 
-    def get_bsfs(self, data_type=None, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None):
+    def get_bsfs(self, data_type=None, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None, as_dask=False):
         """main method for accessing data (needs error-logic)"""
         key = hashlib.md5(str({k: v for k, v in locals().items() if not k == 'self'}).encode()).hexdigest()
         bsfs_key = 'bsfs/%s' % key
@@ -1021,7 +1026,7 @@ class Store(object):
         elif data_type == 'windows':
             if not self.has_stage('windows'):
                 sys.exit("[X] No blocks in GStore.")
-            bsfs = self._get_window_bsfs(population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
+            bsfs = self._get_window_bsfs(population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype, as_dask=False)
         else:
             raise ValueError("data_type must be 'blocks' or 'windows'")
         self.data.create_dataset(bsfs_key, data=bsfs, overwrite=True)
@@ -1078,11 +1083,19 @@ class Store(object):
         dataset = self.data['grids'].create_dataset(unique_hash, data=ETPs)
         dataset.attrs.put({idx:combo for idx, combo in enumerate(grid_labels)})
     
-    def _get_grid(self, unique_hash):
+    def _has_grid(self, unique_hash):
         if f'grids/{unique_hash}' in self.data:
-            grid_attrs = self.data[f'grids/{unique_hash}'].attrs.asdict()
-            grid = np.array(self.data[f'grids/{unique_hash}'], dtype=np.int64)
-            return (grid, grid_attrs)
+            return True
+        return False
+
+    def _get_grid(self, unique_hash):
+        '''
+        @gertjan: how floaty are those floats? shall we save fractions? limit precison?
+        '''
+        if f'grids/{unique_hash}' in self.data:
+            grid_meta = self.data[f'grids/{unique_hash}'].attrs.asdict()
+            grid = np.array(self.data[f'grids/{unique_hash}'], dtype=np.float64)
+            return (grid, grid_meta)
         else:
             return (None, None)
 
@@ -1469,6 +1482,51 @@ class Store(object):
         counts_inter = self.data[counts_inter_key]
         self.plot_bsfs_pcp('%s.bsfs_pcp.png' % self.prefix, mutypes_inter, counts_inter)
     
+    def _write_gridsearch_bed(self, parameterObj=None, data=None, grid_meta_dict=None):
+        if parameterObj is None or data is None or grid_meta_dict is None:
+            raise ValueError('_write_gridsearch_bed: needs parameterObj and data and grid_meta_dict')
+        grids = []
+        for grid_idx, grid_dict in grid_meta_dict.items():
+            grids.append(list(grid_dict.values()))
+        params_header = list(grid_dict.keys())
+        grid_params = np.array(grids, dtype=np.float64)
+        best_params = grid_params[np.argmax(data, axis=1), :]
+        meta = self.data['seqs'].attrs
+        MAX_SEQNAME_LENGTH = max([len(seq_name) for seq_name in meta['seq_names']])
+        sequences = np.zeros(meta['window_count'], dtype='<U%s' % MAX_SEQNAME_LENGTH)
+        starts = np.zeros(meta['window_count'], dtype=np.int64)
+        ends = np.zeros(meta['window_count'], dtype=np.int64)
+        index = np.arange(meta['window_count'])
+        offset = 0
+        for seq_name in tqdm(meta['seq_names'], total=len(meta['seq_names']), desc="[%] Preparing data...", ncols=100, unit_scale=True): 
+            start_key = 'seqs/%s/windows/starts' % (seq_name)
+            end_key = 'seqs/%s/windows/ends' % (seq_name)
+            if start_key in self.data:
+                start_array = np.array(self.data[start_key])
+                window_count = start_array.shape[0]
+                starts[offset:offset+window_count] = start_array
+                ends[offset:offset+window_count] = np.array(self.data[end_key])
+                sequences[offset:offset+window_count] = np.full_like(window_count, seq_name, dtype='<U%s' % MAX_SEQNAME_LENGTH)
+                offset += window_count
+        columns = ['sequence', 'start', 'end', 'index'] + list(params_header)
+        dtypes = {'start': 'int64', 'end': 'int64', 'index': 'int64'}
+        for param in params_header:
+            dtypes[param] = 'float64'
+        '''dtypes := "object", "int64", "float64", "bool", "datetime64", "timedelta", "category"'''
+        int_bed = np.vstack([starts, ends, index, best_params.T]).T
+        header = ["# %s" % parameterObj._VERSION]
+        header += ["# %s" % "\t".join(columns)]  
+        out_f = '%s.%s.gridsearch.bed' % (self.prefix, parameterObj.data_type)
+        with open(out_f, 'w') as out_fh:
+            out_fh.write("\n".join(header) + "\n")
+        # bed
+        print(dtypes)
+        bed_df = pd.DataFrame(data=int_bed, columns=columns[1:]).astype(dtype=dtypes)
+        bed_df['sequence'] = sequences
+        bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, mode='a', sep='\t', index=False, header=False, columns=columns)
+        print(bed_df)
+        return out_f
+
     def _write_window_bed(self, parameterObj, cartesian_only=True):
         meta = self.data['seqs'].attrs
         sample_set_idxs = [idx for (idx, is_cartesian) in enumerate(meta['sample_sets_inter']) if is_cartesian] if cartesian_only else range(len(meta['sample_sets']))
@@ -1499,7 +1557,7 @@ class Store(object):
         # bed
         bed_df = pd.DataFrame(data=int_bed, columns=columns[1:])
         bed_df['sequence'] = sequences
-        bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, mode='a', sep='\t', index=False, header=False, columns=columns)
+        bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, mode='w', sep='\t', index=False, header=False, columns=columns)
 
 
     def _write_block_bed(self, parameterObj, cartesian_only=True):
@@ -1556,7 +1614,7 @@ class Store(object):
         # bed
         bed_df = pd.DataFrame(data=int_bed, columns=columns[1:])
         bed_df['sequence'] = sequences
-        bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, mode='a', sep='\t', index=False, header=False, columns=columns)
+        bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, mode='w', sep='\t', index=False, header=False, columns=columns)
 
     def _preflight_query(self, parameterObj):
         if parameterObj.blocks:

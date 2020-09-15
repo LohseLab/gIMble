@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gimble gridsearch                  -z FILE (-g STR) -c FILE (-b|-w) [-h|--help]
+"""usage: gimble gridsearch                  -z FILE [-g STR] -c FILE (-b|-w) [-h|--help]
                                             
                                             
     Options:
@@ -49,20 +49,30 @@ def main(params):
         parameterObj = GridsearchParameterObj(params, args)
         unique_hash = parameterObj._get_unique_hash()
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
-        print(parameterObj.config)
-        grid, meta = gimbleStore._get_grid(unique_hash) 
-        if grid is None:
+        grids, grid_meta_dict = gimbleStore._get_grid(unique_hash) 
+        if grids is None:
             sys.exit("[X] Please provide one of the grid(s): %s" % ",".join(gimbleStore.data['grids/']))
         data = gimbleStore.get_bsfs(
             data_type=parameterObj.data_type, 
-            population_by_letter=parameterObj.config['populations'], 
+            population_by_letter=parameterObj.config['population_by_letter'], 
             sample_sets='X', 
             kmax_by_mutype=parameterObj.config['k_max'])
-        print('data', data.shape, data)
-        composite_likelihoods = [lib.math.calculate_composite_likelihood(ETPs, data) for ETPs in grid]
-        for idx,L in enumerate(composite_likelihoods):
-            print('[+] parameter combination: %s: L=-%s' % (meta[str(idx)], L))
-        print("[*] Total runtime: %.3fs" % (timer() - start_time))
+        gridsearch_result = lib.math.gridsearch(data=data, grids=grids)
+        print('gridsearch_result', gridsearch_result.shape)
+        output_f = gimbleStore._write_gridsearch_bed(parameterObj=parameterObj, data=gridsearch_result, grid_meta_dict=grid_meta_dict)
+        print("[+] Wrote %r." % output_f)
+        #window_params = lib.math.get_window_params(meta=meta, gridsearch_results=gridsearch_results)
+        #from dask.distributed import Client
+        #client = Client()  # start local workers as processes
+        #client = Client(processes=False)  # start local workers as threads
+        #for parameters in itertools.product(grid, ):
+        #    lazy_result = dask.delayed(costly_simulation)(parameters)
+        #    lazy_results.append(lazy_result)
+        #dask.array.apply_over_axes(np.sum, dask.array.from_array(data, chunks=(1,4,4,4,4)), axes = [1,2,3,4]).compute()
+        #composite_likelihoods = [lib.math.calculate_composite_likelihood(ETPs, data) for ETPs in grid]
+        #for idx,L in enumerate(composite_likelihoods):
+        #    print('[+] parameter combination: %s: L=-%s' % (meta[str(idx)], L))
+        #print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
         print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
         exit(-1)
