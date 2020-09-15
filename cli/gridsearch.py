@@ -58,7 +58,7 @@ def main(params):
             sample_sets='X', 
             kmax_by_mutype=parameterObj.config['k_max'])
         gridsearch_result = lib.math.gridsearch(data=data, grids=grids)
-        print('gridsearch_result', gridsearch_result.shape)
+        #print('gridsearch_result', gridsearch_result.shape)
         output_f = gimbleStore._write_gridsearch_bed(parameterObj=parameterObj, data=gridsearch_result, grid_meta_dict=grid_meta_dict)
         print("[+] Wrote %r." % output_f)
         #window_params = lib.math.get_window_params(meta=meta, gridsearch_results=gridsearch_results)

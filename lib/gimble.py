@@ -1519,11 +1519,11 @@ class Store(object):
         with open(out_f, 'w') as out_fh:
             out_fh.write("\n".join(header) + "\n")
         # bed
-        print(dtypes)
+        #print(dtypes)
         bed_df = pd.DataFrame(data=int_bed, columns=columns[1:]).astype(dtype=dtypes)
         bed_df['sequence'] = sequences
         bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, mode='a', sep='\t', index=False, header=False, columns=columns)
-        print(bed_df)
+        #print(bed_df)
         return out_f
 
     def _write_window_bed(self, parameterObj, cartesian_only=True):
