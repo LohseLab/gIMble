@@ -8,7 +8,6 @@ import shutil
 import zarr
 import os
 import string
-import dask
 import logging
 import collections
 import sys
@@ -1003,8 +1002,8 @@ class Store(object):
         out = np.zeros(tuple(np.max(mutuples, axis=0) + 1), np.int64)
         # assign values
         out[tuple(mutuples.T)] = counts
-        if as_dask:
-            return dask.array(out)
+        #if as_dask:
+        #    return dask.array(out)
         return out
 
     def set_bsfs(self, data_type='etp', bsfs=None):
