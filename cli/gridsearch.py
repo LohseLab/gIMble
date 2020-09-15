@@ -49,7 +49,7 @@ def main(params):
         parameterObj = GridsearchParameterObj(params, args)
         unique_hash = parameterObj._get_unique_hash()
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
-        print(parameterObj.config)
+        
         grid, meta = gimbleStore._get_grid(unique_hash) 
         if grid is None:
             sys.exit("[X] Please provide one of the grid(s): %s" % ",".join(gimbleStore.data['grids/']))
@@ -60,7 +60,7 @@ def main(params):
             kmax_by_mutype=parameterObj.config['k_max'])
         composite_likelihoods = [lib.math.calculate_composite_likelihood(ETPs, data) for ETPs in grid]
         for idx,L in enumerate(composite_likelihoods):
-            print('[+] parameter combination: %s: L=-%s' % (meta[str(idx)], L))
+            print('[+] parameter combination: %s: lnCL=-%s' % (meta[str(idx)], L))
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
         print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
