@@ -190,21 +190,28 @@ def calculate_composite_likelihood(ETPs, data):
     np.log(ETPs, where=ETPs>0, out=ETP_log)
     return np.sum(ETP_log * data)
 
-def objective_function(paramsToOptimise, grad, paramNames, fixedParams, equationObj, data, threads, verbose=False, path=None):
+def objective_function(paramsToOptimise, grad, paramNames, fixedParams, equationSystemObj, data, threads, verbose=False, path=None):
     if grad.size:
         raise ValueError('no optimization with derivatives implemented')
-    rates = {k:v for k,v in zip(paramNames, paramsToOptimise)}
-    rates = {**rates, **fixedParams}
-    rates = {k:sage.all.Rational(rate) for k, rate in rates.items()}
-    split_time = rates.pop('T')
-    ETPs = equationObj.calculate_ETPs((rates, split_time, threads, verbose))
+    all_rates = {k:v for k,v in zip(paramNames, paramsToOptimise)}
+    all_rates = {**all_rates, **fixedParams}
+    all_rates = equationSystemObj._scale_parameter_combination(all_rates, equationSystemObj.reference_pop, equationSystemObj.block_length, 'optimise')
+    rates = equationSystemObj._get_base_rate_by_variable(all_rates)
+    split_time = equationSystemObj._get_split_time(all_rates)
 
-    result =  calculate_composite_likelihood(ETPs, data)
+    ETPs = equationSystemObj.calculate_ETPs((rates, split_time, threads, verbose))
+
+    result = calculate_composite_likelihood(ETPs, data)
     toSave = np.append(paramsToOptimise, result)
+    #scaled parameters are in all_rates
+    #all_rates['theta']/=equationSystemObj.block_length
+    #C_x if x not reference
+    #all_rates[f'theta_{pop}'] = all_rates['theta']/all_rates[f'C_{pop}']
     iteration_number=-1
     if isinstance(path, list):
         path.append(toSave)
         iteration_number = len(path)
+
     print(str(iteration_number)+'\t'+'\t'.join(str(param) for param in paramsToOptimise)+'\t'+str(result))
     return result
 
@@ -220,7 +227,7 @@ def run_single_optimiz(p0, lower, upper, specified_objective_function, maxeval, 
     opt.set_maxeval(maxeval)
     optimum = opt.optimize(p0)
     rdict = {}
-    rdict['CL'] = opt.last_optimum_value()
+    rdict['lnCL'] = opt.last_optimum_value()
     rdict['optimum'] = optimum
     rdict['exitcode'] = opt.last_optimize_result()
     
@@ -280,19 +287,9 @@ class EquationSystemObj(object):
         self.ETPs=None
         
         self.scaled_parameter_combinations = self._scale_all_parameter_combinations(parameterObj)
-        self.rate_by_variable = [self._get_base_rate_by_variable(params) for params in self.scaled_parameter_combinations]
+        self.rate_by_variable = [self._get_base_rate_by_variable(params) for params in self.scaled_parameter_combinations] 
         self.split_times = [self._get_split_time(params) for params in self.scaled_parameter_combinations]
-        # else:
-        #     #user provided rates, legacy code
-        #     self.user_rate_by_event = self._get_user_rate_by_event(parameterObj)
-        #     self.base_rate_by_variable = self._get_base_rate_by_variable(self.user_rate_by_event)
-        #     self.split_times = [self.user_rate_by_event.get('T', None)]
-        #     #self.boundaries = parameterObj._config['boundaries'] #this needs to be changed
-        #     self.rate_by_event = self._get_rate_by_variable(prefix=set(['C', 'M']))
-        #     self.rate_by_mutation = self._get_rate_by_variable(prefix=set(['m']))
-        #     self.probcheck_file = parameterObj.probcheck_file
-        #     #self.grid_points = self._get_grid_points(parameterObj) #should this contain all parameter combos?
-
+        
     def check_ETPs(self):
         probabilities_df = pd.read_csv(self.probcheck_file, sep=",", names=['A', 'B', 'C', 'D', 'probability'],  dtype={'A': int, 'B': int, 'C': int, 'D': int, 'probability': float}, float_precision='round_trip')
         for a, b, c, d, probability in probabilities_df.values.tolist():
@@ -367,13 +364,42 @@ class EquationSystemObj(object):
         return base_rate_by_variable
 
     def _scale_all_parameter_combinations(self, parameterObj):
-        reference_pop = parameterObj.config['populations']['reference_pop']
-        block_length = sage.all.Rational(parameterObj.config['mu']['blocklength'])
-        return [self._scale_parameter_combination(combo, reference_pop, block_length, parameterObj) for combo in parameterObj.parameter_combinations]
+        self.reference_pop = parameterObj.config['populations']['reference_pop']
+        self.block_length = sage.all.Rational(parameterObj.config['mu']['blocklength'])
+        result = []
+        """
+        if parameterObj._MODULE == 'optimise':
+            #currently not used, can be removed once function is rewritten.
+            mid = self._scale_parameter_combination(parameterObj.parameter_combinations[0], self.reference_pop, self.block_length, parameterObj._MODULE)
+            min_combo, max_combo = self._scale_min_max_parameter_combination(parameterObj.parameter_combinations[1], parameterObj.parameter_combinations[2], self.reference_pop, self.block_length, parameterObj)
+            result = [mid, min_combo, max_combo]
+            ratesPerVariable = {k:[d[k] for d in result] for k in result[0].keys()}
+            ratesPerVariableSet = {k:len(set(v)) for k,v in ratesPerVariable.items()}
+            self.fixed_params = []
+            if len(parameterObj.fixed_params)>0:
+                translation_dict = {'Ne':'C', 'me':'M'}
+                self.fixed_params = parameterObj.fixed_params[:]
+                for k,v in translation_dict.items(): 
+                    self.fixed_params = [p.replace(k,v) for p in self.fixed_params] 
+                for param in self.fixed_params:
+                    assert ratesPerVariableSet[param]==1, 'The number of values should be one if a parameter is fixed.'
+                #if Ne_ref fixed, theta should be fixed too
+                if f'C_{self.reference_pop}' in self.fixed_params:
+                    assert ratesPerVariableSet['theta']==1, 'No boundaries provided for the reference population, theta should be fixed as well.'
+                    self.fixed_params.append('theta')
+                #self.fixed_params = self._get_base_rate_by_variable()
+            #all other parameters should have 3 values
+            #assert all(ratesPerVariableSet[k]==3 for k in ratesPerVariable.keys() if k not in self.fixed_params or k not self.reference_pop), 'All parameters with boundaries should be associated with a list of length 3.'             
+            print(self.fixed_params)
+        """
+        if parameterObj._MODULE==['makegrid']:
+            result = [self._scale_parameter_combination(combo, self.reference_pop, self.block_length, parameterObj._MODULE) for combo in parameterObj.parameter_combinations]
 
-    def _scale_parameter_combination(self, combo, reference_pop, block_length, parameterObj):
+        return result
+
+    def _scale_parameter_combination(self, combo, reference_pop, block_length, module):
         rdict = {}
-        if parameterObj._MODULE in ['makegrid', 'inference','optimise']:
+        if module in ['makegrid', 'inference','optimise']:
             Ne_ref = sage.all.Rational(combo[f"Ne_{reference_pop}"])
             rdict['theta'] = 4*sage.all.Rational(Ne_ref*combo['mu'])*block_length
             rdict['C_A']=Ne_ref/sage.all.Rational(combo['Ne_A'])
@@ -389,7 +415,32 @@ class EquationSystemObj(object):
                 rdict[f'M_{mig_pop}'] = 4*Ne_ref*sage.all.Rational(combo[mig_dir])
             return rdict
         else:
-            return parameterObj.parameter_combinations
+            ValueError("equationObj._scale_parameter_combination not implemented for this module.")
+
+    def _scale_min_max_parameter_combination(self, min_combo, max_combo, reference_pop, block_length, parameterObj):
+        #currently not used: can be deleted
+        rdict = {}
+        if parameterObj._MODULE == 'optimise':
+            Ne_ref = [sage.all.Rational(min_combo[f"Ne_{reference_pop}"]),sage.all.Rational(max_combo[f"Ne_{reference_pop}"])]
+            
+            rdict['theta'] = [4*sage.all.Rational(ref*combo['mu'])*block_length for combo, ref in zip([min_combo, max_combo],Ne_ref)]
+            rdict['C_A']=[ref/sage.all.Rational(combo['Ne_A']) for combo, ref in zip([max_combo, min_combo], Ne_ref)]
+            rdict['C_B'] = [ref/sage.all.Rational(combo['Ne_B']) for combo, ref in zip([max_combo, min_combo], Ne_ref)]
+            if 'Ne_A_B' in min_combo:
+                rdict['C_A_B'] = [ref/sage.all.Rational(combo['Ne_A_B']) for combo, ref in zip([max_combo, min_combo], Ne_ref)]
+            if 'T' in min_combo:
+                rdict['T'] = [sage.all.Rational(combo['T'])/(2*ref) for combo, ref in zip([min_combo, max_combo], Ne_ref[::-1])]
+            mig_dir = [key for key in min_combo.keys() if key.startswith("me_")]
+            if mig_dir:
+                mig_dir = mig_dir[0]
+                mig_pop = mig_dir.lstrip("me_")
+                rdict[f'M_{mig_pop}'] = [4*ref*sage.all.Rational(combo[mig_dir]) for combo, ref in zip([min_combo, max_combo], Ne_ref)]
+            rdict[f'C_{reference_pop}'] = [sage.all.Rational(1) for _ in range(2)]
+            #split rdict in two:
+            return [{k:min(v) for k,v in rdict.items()},{k:max(v) for k,v in rdict.items()}]    
+        else:
+            ValueError(f"Not _scale_min_max_parameter_combination() not implemented for {parameterObj._MODULE}")
+
 
     def _unscale_all_parameter_combinations(self):
         pass
@@ -429,21 +480,6 @@ class EquationSystemObj(object):
         #             for tBS in parameterObj.toBeSynced:
         #                 equationObj.equation = equationObj.equation.subs(sage.all.SR.symbol(f'C_{tBS}')==sage.all.SR.symbol(f'C_{parameterObj.reference}'))
         
-        ################### [REMOVABLE]
-        #if check_monomorphic:
-        #    rates = {
-        #        **{event: random.randint(1, 4) for event, rate in self.rate_by_event.items()}, 
-        #        **{mutype: 0 for mutype, rate in self.rate_by_mutation.items()}
-        #        }
-        #    split_time = 1
-        #    dummy_variable = self.dummy_variable
-        #    params = (copy.deepcopy(self.equationObjs[0]), rates, split_time, dummy_variable)
-        #    equationObj = calculate_inverse_laplace(params)
-        #    if not equationObj.result == 1:
-        #        sys.exit("[-] Monomorphic check failed: P(monomorphic) = %s (should be 1)" % equationObj.result)
-        #    else:
-        #        print("[+] Monomorphic check passed: P(monomorphic) = %s" % equationObj.result)
-
     def calculate_all_ETPs(self, threads=1, gridThreads=1, verbose=False):
         #verboseprint = print if verbose else lambda *a, **k: None
         
@@ -495,53 +531,48 @@ class EquationSystemObj(object):
         assert math.isclose(np.sum(ETPs.flatten()), 1, rel_tol=1e-5), "[-] sum(ETPs) != 1 (rel_tol=1e-5)"
         return ETPs
 
-    def optimize_parameters(self, data, maxeval, xtol_rel, ftol_rel, numPoints, threads=1, gridThreads=1, trackHistory=True):
-        '''
-        Any sort of optimization should 
-        - print to screen all evaluated (scaled) parameters + likelihood 
-        - return all results
-        '''
-        verbose = False
-        #seperate parameters that are fixed from those that are not
-        inverse_scaled_parameter_combinations = {k:[d[k] for d in self.rate_by_variable] for k in self.rate_by_variable[0].keys()}
-        #when syncing popsizes, only one of these parameters should be present in boundaries!
-        boundaries = {k:sorted(v) for k,v in inverse_scaled_parameter_combinations.items() if len(set(v))>1}
-        boundaryNames = list(boundaries.keys())
-        fixedParams = {k:v[0] for k,v in inverse_scaled_parameter_combinations.items() if len(set(v))==1}
-        #figure out whether split time is fixed or not, add to boundaries or fixedParams
-        if len(set(self.split_times))==1:
-            fixedParams['T'] = self.split_times[0]
-        else:
-            boundaryNames.append('T')    
-            boundaries['T'] = sorted(self.split_times)
+    def optimize_parameters(self, data, parameterObj, trackHistory=True, verbose=False):
+
+        fixed_params = parameterObj.fixed_params[:] #synced pops already removed from fixed_params
+        fixedParams = {k:parameterObj.parameter_combinations[0][k] for k in fixed_params}
+        fixedParams['mu'] = parameterObj.config['mu']['mu']
+        #if these are fixed, which ones represent a boundary: all parameters not in fixed except mu
+        toBeSynced_pops = [f'Ne_{pop}' for pop in parameterObj.toBeSynced] if parameterObj.toBeSynced!=None else []
+        boundaryNames = [k for k in parameterObj.config['parameters'].keys() if not (k=='mu' or k in fixed_params or k in toBeSynced_pops)]
+        
         if len(boundaryNames) == 0:
             print("[-] No boundaries specified.")
-            args = fixedParams, fixedParams.pop('T'), threads, True 
-            ETPs=self.calculate_ETPs(args)
+            #scale all parameters
+            scaled_params = self._scale_parameter_combination(parameterObj.parameter_combinations[0], self.reference_pop, self.block_length, parameterObj._MODULE)
+            rate_by_variable = self._get_base_rate_by_variable(scaled_params)
+            split_time = self._get_split_time(scaled_params)
+            args = rate_by_variable, split_time, parameterObj.threads, True 
+            ETPs = self.calculate_ETPs(args)
             CL=calculate_composite_likelihood(ETPs, data)
-            print(f"[+] Starting point CL={CL}.")
+            print(f"[+] Starting point lnCL={CL}.")
             sys.exit()
+        
         #boundaries
-        lower = np.array([boundaries[k][0] for k in boundaryNames])
-        upper = np.array([boundaries[k][-1] for k in boundaryNames])
+        lower = np.array([parameterObj.parameter_combinations[1][k] for k in boundaryNames])
+        upper = np.array([parameterObj.parameter_combinations[2][k] for k in boundaryNames])
         #generate number of inital points
         np.random.seed(self.seed)
-        all_p0 = np.random.uniform(low=lower, high=upper, size=(numPoints-1, len(boundaryNames)))
+        all_p0 = np.random.uniform(low=lower, high=upper, size=(parameterObj.numPoints-1, len(boundaryNames)))
         #add p0 to list of starting points
-        p0 =  np.array([boundaries[k][1] for k in boundaryNames])
+        p0 =  np.array([parameterObj.parameter_combinations[0][k] for k in boundaryNames])
         if all_p0.size!=0:
             all_p0= np.vstack([all_p0, p0])
         else:
             all_p0 = [p0,]
         if trackHistory:
-            trackHistoryPath = [[] for _ in range(numPoints)]
+            trackHistoryPath = [[] for _ in range(parameterObj.numPoints)]
             specifiedObjectiveFunctionList = [partial(
                     objective_function,
                     paramNames=boundaryNames,
                     fixedParams=fixedParams,
-                    equationObj=self,
+                    equationSystemObj=self,
                     data=data,
-                    threads=threads,
+                    threads=parameterObj.threads,
                     verbose=verbose,
                     path=sublist) for sublist in trackHistoryPath]
         else:
@@ -550,28 +581,27 @@ class EquationSystemObj(object):
                     objective_function,
                     paramNames=boundaryNames,
                     fixedParams=fixedParams,
-                    equationObj=self,
+                    equationSystemObj=self,
                     data=data,
-                    threads=threads,
-                    verbose=verbose,
+                    threads=parameterObj.threads,
+                    verbose=verbose
                 )
         
         print(f"[+] Starting optimization.")
         desc="Optimization"
         allResults=[]
-        print(f"[+] Optimization starting for {numPoints-1} random points and 1 given point.")
-        print('Intermediate results (parameters not rescaled!!!!):')
-        print('iteration \t'+'\t'.join(str(name) for name in boundaryNames)+'\t CL')
-        if gridThreads <= 1:
+        print(f"[+] Optimization starting for {parameterObj.numPoints-1} random points and 1 given point.")
+        print('iteration \t'+'\t'.join(str(name) for name in boundaryNames)+'\t lnCL')
+        if parameterObj.gridThreads <= 1:
             #print("[+] Optimization starting from provided starting point.")
             if trackHistory:
                 for startPos, specified_objective_function in zip(all_p0, specifiedObjectiveFunctionList):
-                    allResults.append(run_single_optimiz(startPos, lower, upper, specified_objective_function, maxeval, xtol_rel, ftol_rel))
+                    allResults.append(run_single_optimiz(startPos, lower, upper, specified_objective_function, parameterObj.max_eval, parameterObj.xtol_rel, parameterObj.ftol_rel))
             else:
                 for startPos in all_p0:
-                    allResults.append(run_single_optimiz(startPos, lower, upper, specified_objective_function, maxeval, xtol_rel, ftol_rel))
+                    allResults.append(run_single_optimiz(startPos, lower, upper, specified_objective_function, parameterObj.max_eval, parameterObj.xtol_rel, parameterObj.ftol_rel))
         else:
-            #print(f"[+] Optimization starting for {numPoints-1} random points and 1 given point.")
+            #print(f"[+] Optimization starting for {parameterObj.numPoints-1} random points and 1 given point.")
             if trackHistory:
                 specifiedRunList=[partial(
                     run_single_optimiz,
@@ -579,12 +609,12 @@ class EquationSystemObj(object):
                     lower=lower,
                     upper=upper,
                     specified_objective_function=specified_objective_function,
-                    maxeval=maxeval,
-                    xtol_rel=xtol_rel,
-                    ftol_rel=ftol_rel
+                    maxeval=parameterObj.max_eval,
+                    xtol_rel=parameterObj.xtol_rel,
+                    ftol_rel=parameterObj.ftol_rel
                     ) for p0, specified_objective_function in zip(all_p0,specifiedObjectiveFunctionList)]
                 #other option: specify both specifiy_objective_function and p0 and run list of functions without arguments
-                with concurrent.futures.ProcessPoolExecutor(max_workers=gridThreads) as outer_pool:
+                with concurrent.futures.ProcessPoolExecutor(max_workers=parameterObj.gridThreads) as outer_pool:
                     #this needs to iterate over functions as well as over starting points
                     for single_run in outer_pool.map(fp_map, specifiedRunList):
                         allResults.append(single_run)
@@ -595,11 +625,11 @@ class EquationSystemObj(object):
                     lower=lower,
                     upper=upper,
                     specified_objective_function=specified_objective_function,
-                    maxeval=maxeval,
-                    xtol_rel=xtol_rel,
-                    ftol_rel=ftol_rel
+                    maxeval=parameterObj.max_eval,
+                    xtol_rel=parameterObj.xtol_rel,
+                    ftol_rel=parameterObj.ftol_rel
                     )
-                with concurrent.futures.ProcessPoolExecutor(max_workers=gridThreads) as outer_pool:
+                with concurrent.futures.ProcessPoolExecutor(max_workers=parameterObj.gridThreads) as outer_pool:
                         for single_run in outer_pool.map(specified_run_single_optimizer, all_p0):
                             allResults.append(single_run)
 
@@ -617,28 +647,11 @@ class EquationSystemObj(object):
         print(allResults)
         #process trackhistory
         if not trackHistory:
-            trackHistoryPath = [list(resultd['optimum'].values())+[resultd['CL'],label] for label,resultd in enumerate(allResults)]
+            trackHistoryPath = [list(resultd['optimum'].values())+[resultd['lnCL'],label] for label,resultd in enumerate(allResults)]
         else:
             trackHistoryPath = [list(ar)+[idx,] for idx, sublist in enumerate(trackHistoryPath) for ar in sublist]
-        trackHistoryPath = [boundaryNames+["CL", 'iterLabel'],]+trackHistoryPath 
+        trackHistoryPath = [boundaryNames+["lnCL", 'iterLabel'],]+trackHistoryPath 
         return trackHistoryPath
-        
-    def run_single_optimizer(self, p0, lower, upper, specified_objective_function, maxeval, xtol_rel, ftol_rel):
-    	#old method: no longer used
-        #nlopt.G_MLSL_LDS, nlopt.LN_NELDERMEAD, nlopt.LN_SBPLX
-        opt = nlopt.opt(nlopt.LN_SBPLX, len(p0))
-        opt.set_lower_bounds(lower)
-        opt.set_upper_bounds(upper)
-        opt.set_max_objective(specified_objective_function)
-        opt.set_xtol_rel(xtol_rel)
-        opt.set_ftol_rel(ftol_rel)
-        opt.set_maxeval(maxeval)
-        optimum = opt.optimize(p0)
-        rdict = {}
-        rdict['CL'] = opt.last_optimum_value()
-        rdict['optimum'] = optimum
-        rdict['exitcode'] = opt.last_optimize_result()
-        return rdict
     
     def _get_equationObjs(self, sync_ref=None, sync_targets=None):
         '''
