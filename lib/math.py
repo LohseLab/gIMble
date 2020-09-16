@@ -463,12 +463,12 @@ class EquationSystemObj(object):
     def initiate_model(self, parameterObj=None, check_monomorphic=True):
         print("[=] ==================================================")
         print("[+] Initiating model ...")
-        
+        self.equationObjs = self._get_equationObjs(sync_ref=parameterObj.reference, sync_targets=parameterObj.toBeSynced)
         # Method 2 (has to be tested)
-        if not (parameterObj and parameterObj.reference and parameterObj.toBeSynced):
-           self.equationObjs = self._get_equationObjs(sync_ref=parameterObj.reference, sync_targets=parameterObj.toBeSynced) 
-        else:
-            self.equationObjs = self._get_equationObjs() 
+        #if not (parameterObj and parameterObj.reference and parameterObj.toBeSynced):
+        #   self.equationObjs = self._get_equationObjs(sync_ref=parameterObj.reference, sync_targets=parameterObj.toBeSynced) 
+        #else:
+        #    self.equationObjs = self._get_equationObjs() 
 
         # Method 1 
         #syncing pop sizes (coalescence rates) in the equation, there must be a better way
@@ -587,10 +587,12 @@ class EquationSystemObj(object):
                     verbose=verbose
                 )
         
-        print(f"[+] Starting optimization.")
         desc="Optimization"
         allResults=[]
-        print(f"[+] Optimization starting for {parameterObj.numPoints-1} random points and 1 given point.")
+        startdesc = "[+] Optimization starting for specified point."
+        if parameterObj.numPoints>1:
+            startdesc = f"[+] Optimization starting for specified point and {parameterObj.numPoints-1} random points."
+        print(startdesc)
         print('iteration \t'+'\t'.join(str(name) for name in boundaryNames)+'\t lnCL')
         if parameterObj.gridThreads <= 1:
             #print("[+] Optimization starting from provided starting point.")
@@ -714,10 +716,10 @@ class EquationSystemObj(object):
         for equationObj in equationObjs:
             equationObj.equation = equationObj.equation.subs(replaceMutypesDict)
         if sync_ref and sync_targets:
-            sync_ref_var = sage.all.SR.symbol("C_%s") % sync_ref
+            sync_ref_var = sage.all.SR.symbol(f"C_{sync_ref}")
             for equationObj in equationObjs:
                 for sync_target in sync_targets:
-                    sync_target_var = sage.all.SR.symbol("C_%s") % sync_target
-                    equationObj.equation = equationObj.equation.subs(sage.all.SR.symbol(sync_target_var)==sage.all.SR.symbol(sync_ref_var))
+                    sync_target_var = sage.all.SR.symbol(f"C_{sync_target}")
+                    equationObj.equation = equationObj.equation.subs(sync_target_var==sync_ref_var)
         print("[+] Generated equations for %s mutation tuples" % len(equationObjs))
         return equationObjs
