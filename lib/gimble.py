@@ -818,11 +818,13 @@ class ParameterObj(object):
             #TO BE CHECKED: which bits are we still using
             #determine parameters that are fixed:
             self.fixed_params = self._get_fixed_params()
-            self.config['mu']['blockslength'] = self._get_blocks_length(self.zstore)
-            self.config['parameters']['mu'] = self.config['mu']['mu']
+            #self.config['mu']['blockslength'] = self._get_blocks_length(self.zstore)
+            #self.config['parameters']['mu'] = self.config['mu']['mu']
             reference_pop=self.config['populations']['reference_pop']
             #syncing pop sizes
             self.reference, self.toBeSynced = self._get_pops_to_sync()
+            if reference_pop in self.toBeSynced:
+                sys.exit(f"[X] Set reference pop to {self.reference}.")
             toBeSynced_pops = [f'Ne_{s}' for s in self.toBeSynced] if self.toBeSynced!=None else []
             self.fixed_params = [pop for pop in self.fixed_params if pop not in toBeSynced_pops]
             #verify if any Ne fixed, whether one of those Ne is self.reference
@@ -830,7 +832,7 @@ class ParameterObj(object):
             if len(fixed_Nes)>0:
                 if not f"Ne_{reference_pop}" in fixed_Nes:
                     sys.exit("[X] No. No. No. It would make much more sense to set a population with a fixed size as reference.")
-            self._sync_pop_sizes_optimise(self.reference, self.toBeSynced)
+            #self._sync_pop_sizes_optimise(self.reference, self.toBeSynced)
             self.parameter_combinations = self._return_boundaries()
         else:
             sys.exit("[X] gimble.py_processing_config: Not implemented yet.")

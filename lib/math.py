@@ -520,7 +520,7 @@ class EquationSystemObj(object):
         return ETPs
 
     def optimize_parameters(self, data, parameterObj, trackHistory=True, verbose=False):
-        
+
         fixed_params = parameterObj.fixed_params[:] #synced pops already removed from fixed_params
         fixedParams = {k:parameterObj.parameter_combinations[0][k] for k in fixed_params}
         fixedParams['mu'] = parameterObj.config['mu']['mu']
