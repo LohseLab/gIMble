@@ -73,7 +73,7 @@ def main(params):
             population_by_letter=parameterObj.config['populations'], 
             sample_sets="X", 
             kmax_by_mutype=parameterObj.config['k_max'])
-            
+        
         # load math.EquationSystemObj
         equationSystem = lib.math.EquationSystemObj(parameterObj)
         # initiate model equations

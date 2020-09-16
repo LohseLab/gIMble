@@ -21,6 +21,7 @@ import matplotlib.patches as patches
 import numpy as np
 import cerberus
 import lib.simulate
+#import dask
 import hashlib 
 from timeit import default_timer as timer
 import fractions
@@ -1002,8 +1003,8 @@ class Store(object):
         out = np.zeros(tuple(np.max(mutuples, axis=0) + 1), np.int64)
         # assign values
         out[tuple(mutuples.T)] = counts
-        #if as_dask:
-        #    return dask.array(out)
+        if as_dask:
+            return dask.array(out)
         return out
 
     def set_bsfs(self, data_type='etp', bsfs=None):
@@ -1086,6 +1087,81 @@ class Store(object):
         if f'grids/{unique_hash}' in self.data:
             return True
         return False
+
+    def test_dask(self, grids=None, data=None):
+        if grids is None or data is None:
+            raise ValueError('gridsearch: needs grid and data') 
+        from dask.distributed import LocalCluster, Client
+        cluster= LocalCluster(
+            n_workers=8, 
+            threads_per_worker=1,
+            dashboard_address='localhost:8787', 
+            interface='lo0', 
+            **{'local_directory': 'dasktemp', 'memory_limit': '2G'})
+        client = Client(cluster)
+        array = dask.array.ones((100000,100000), chunks=(10000,10000))
+        a = client.submit(dask.array.mean, array).result()
+        return a.compute()
+        
+    def gridsearch(self, grids=None, data=None):
+        '''returns 2d array of likelihoods of shape (windows, grids)'''
+        if grids is None or data is None:
+            raise ValueError('gridsearch: needs grid and data') 
+        from dask.distributed import Client, LocalCluster
+        cluster= LocalCluster(
+            n_workers=8, 
+            threads_per_worker=1,
+            dashboard_address='localhost:8787', 
+            interface='lo0', 
+            **{'local_directory': 'dasktemp', 'memory_limit': '3G'})
+        client = Client(cluster)
+        data_array = dask.array.from_array(data, chunks=(10000, *data.shape[1:]))
+        print('# data_array', type(data_array))
+        grid_array = dask.array.from_array(grids, chunks=(1, *grids.shape[1:]))
+        print('# grid_array', type(grid_array))
+        grids_masked = dask.array.ma.masked_array(grids, grids==0, fill_value=np.nan)
+        grids_log_temp = client.submit(dask.array.log, grids_masked).result()
+
+        print('# grids_log_temp', type(grids_log_temp))
+        grids_log = client.submit(dask.array.nan_to_num, grids_log_temp).result().compute()
+        print('grids_log', type(grids_log))
+        print('done')
+        # print('data', type(data))
+        # print('grids', type(grids))
+        # data = dask.array.from_array(data, chunks=(500, *data.shape[1:]))
+        # # print('data', type(data), data.chunks)
+        # grids = dask.array.from_array(grids, chunks=(10, *grids.shape[1:]))
+        # # print('grids', type(grids), grids.chunks)
+        # #np.log(grids, where=grids>0, out=grids_log)
+        # grids[grids==0] = np.nan
+        # 
+        # grids_log = client.submit(dask.array.log, grids).result().compute()
+        # print('grids_log', type(grids_log))
+        # grids_log[grids_log==np.nan] = 0
+        # data_scattered = client.scatter(data[:, None])
+        # grids_log_scattered = client.scatter(grids_log)
+        # m_res = client.submit(dask.array.multiply, data_scattered, grids_log_scattered)
+        # #m_res.rechunk({0:100, 1: 4, 2: 4, 3: 4, 4: 4})
+        # #res_scattered = client.scatter(m_res)
+        # #r_res = client.submit(dask.array.apply_over_axes, dask.array.sum, res_scattered, axes=[2,3,4,5])
+        # x_res = client.submit(dask.array.apply_over_axes, dask.array.sum, m_res, axes=[2,3,4,5])
+        # #m1_res.rechunk(100000)
+        # #r_res_scattered = client.scatter(r_res)
+        # y_res = client.submit(dask.array.squeeze, x_res)
+        # y_res.result().compute()
+        # #res.visualize()
+        # print('y_res', type(y_res))
+        # return y_res
+        #return a
+        return True
+
+    def gridsearch_np(self, grids=None, data=None):
+        '''returns 2d array of likelihoods of shape (windows, grids)'''
+        if grids is None or data is None:
+            raise ValueError('gridsearch: needs grid and data')
+        grids_log = np.zeros(grids.shape)
+        np.log(grids, where=grids>0, out=grids_log)
+        return np.squeeze(np.apply_over_axes(np.sum, (data[:, None] * grids_log), axes=[2,3,4,5]))
 
     def _get_grid(self, unique_hash):
         '''
@@ -1482,6 +1558,9 @@ class Store(object):
         self.plot_bsfs_pcp('%s.bsfs_pcp.png' % self.prefix, mutypes_inter, counts_inter)
     
     def _write_gridsearch_bed(self, parameterObj=None, data=None, grid_meta_dict=None):
+        print('parameterObj', type(parameterObj))
+        print('data', type(data))
+        print('grid_meta_dict', type(grid_meta_dict))
         if parameterObj is None or data is None or grid_meta_dict is None:
             raise ValueError('_write_gridsearch_bed: needs parameterObj and data and grid_meta_dict')
         grids = []

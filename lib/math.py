@@ -177,14 +177,6 @@ def calculate_inverse_laplace(params):
         equationObj.result = sage.all.inverse_laplace(equation / dummy_variable, dummy_variable, sage.all.SR.var('T'), algorithm='giac').substitute(T=split_time)
     return equationObj
 
-def gridsearch(grids=None, data=None):
-    '''returns 2d array of likelihoods of shape (windows, grids)'''
-    if grids is None or data is None:
-        raise ValueError('gridsearch: needs grid and data')
-    grids_log = np.zeros(grids.shape)
-    np.log(grids, where=grids>0, out=grids_log)
-    return np.squeeze(np.apply_over_axes(np.sum, (data[:, None] * grids_log), axes=[2,3,4,5]))
-
 #def calculate_composite_likelihood_arrays(grids=None, data=None):
 #    if grids is None or data is None:
 #        raise ValueError('needs grid and data')
