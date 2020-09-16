@@ -1023,8 +1023,8 @@ class Store(object):
         out = np.zeros(tuple(np.max(mutuples, axis=0) + 1), np.int64)
         # assign values
         out[tuple(mutuples.T)] = counts
-        if as_dask:
-            return dask.array(out)
+        #if as_dask:
+        #    return dask.array(out)
         return out
 
     def set_bsfs(self, data_type='etp', bsfs=None):
@@ -1578,9 +1578,6 @@ class Store(object):
         self.plot_bsfs_pcp('%s.bsfs_pcp.png' % self.prefix, mutypes_inter, counts_inter)
     
     def _write_gridsearch_bed(self, parameterObj=None, data=None, grid_meta_dict=None):
-        print('parameterObj', type(parameterObj))
-        print('data', type(data))
-        print('grid_meta_dict', type(grid_meta_dict))
         if parameterObj is None or data is None or grid_meta_dict is None:
             raise ValueError('_write_gridsearch_bed: needs parameterObj and data and grid_meta_dict')
         grids = []
@@ -1596,7 +1593,7 @@ class Store(object):
         ends = np.zeros(meta['window_count'], dtype=np.int64)
         index = np.arange(meta['window_count'])
         offset = 0
-        for seq_name in tqdm(meta['seq_names'], total=len(meta['seq_names']), desc="[%] Preparing data...", ncols=100, unit_scale=True): 
+        for seq_name in tqdm(meta['seq_names'], total=len(meta['seq_names']), desc="[%] Preparing output...", ncols=100, unit_scale=True): 
             start_key = 'seqs/%s/windows/starts' % (seq_name)
             end_key = 'seqs/%s/windows/ends' % (seq_name)
             if start_key in self.data:
