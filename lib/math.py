@@ -211,6 +211,10 @@ def objective_function(paramsToOptimise, grad, paramNames, fixedParams, equation
 
     result = calculate_composite_likelihood(ETPs, data)
     toSave = np.append(paramsToOptimise, result)
+    #scaled parameters are in all_rates
+    #all_rates['theta']/=equationSystemObj.block_length
+    #C_x if x not reference
+    #all_rates[f'theta_{pop}'] = all_rates['theta']/all_rates[f'C_{pop}']
     iteration_number=-1
     if isinstance(path, list):
         path.append(toSave)
