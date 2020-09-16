@@ -84,6 +84,7 @@ def main(params):
         #if parameterObj.trackHistory:
             #df = pd.DataFrame(optimizeResult[1:])
             #df.columns=optimizeResult[0]
+            #df = df.sort_values(by='iterLabel')
         
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:

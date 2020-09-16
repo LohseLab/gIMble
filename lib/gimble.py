@@ -835,8 +835,9 @@ class ParameterObj(object):
             reference_pop=self.config['populations']['reference_pop']
             #syncing pop sizes
             self.reference, self.toBeSynced = self._get_pops_to_sync()
-            if reference_pop in self.toBeSynced:
-                sys.exit(f"[X] Set reference pop to {self.reference}.")
+            if self.toBeSynced:
+                if reference_pop in self.toBeSynced:
+                    sys.exit(f"[X] Set reference pop to {self.reference}.")
             toBeSynced_pops = [f'Ne_{s}' for s in self.toBeSynced] if self.toBeSynced!=None else []
             self.fixed_params = [pop for pop in self.fixed_params if pop not in toBeSynced_pops]
             #verify if any Ne fixed, whether one of those Ne is self.reference
