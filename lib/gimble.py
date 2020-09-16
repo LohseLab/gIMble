@@ -610,6 +610,10 @@ class ParameterObj(object):
             if not ret_none:
                 sys.exit("[X] %r can't be converted to interger." % string)
             return None
+        except ValueError:
+            if not ret_none:
+                sys.exit("[X] %r can't be converted to interger." % string)
+            return None
 
     def _get_float(self, string, ret_none=False):
         try:
@@ -624,6 +628,9 @@ class ParameterObj(object):
             self._PATH, 
             self._MODULE, 
             "".join(["--%s " % " ".join((k, str(v))) for k,v in self.__dict__.items() if not k.startswith("_")]))
+
+    def _get_fixed_params(self):
+        return [param for param,value in self.config['parameters'].items() if isinstance(value,float) or isinstance(value,int)]
 
     def _get_path(self, infile, path=False):
         if infile is None:
@@ -752,7 +759,7 @@ class ParameterObj(object):
                 'type':'dict', 
                 'schema':{
                     'mu': {'required': False, 'empty':True, 'type': 'float', 'coerce':float},
-                    'blocklength': {'required': False, 'empty':True, 'type': 'integer', 'coerce':int}
+                    'blocklength': {'required': False, 'empty':True,'notNoneInt':True, 'coerce':'int_or_empty'}
                     }},
             'parameters': {
                 'type': 'dict', 'required':True, 'empty':False, 
@@ -820,13 +827,25 @@ class ParameterObj(object):
             self.parameter_combinations = self._dict_product()
             self._sync_pop_sizes(self.reference, self.toBeSynced)
         elif self._MODULE in ['optimise', 'optimize']:
-            self.config['mu']['blockslength'] = self._get_blocks_length(self.zstore)
-            self.config['parameters']['mu'] = self.config['mu']['mu']
-            #parameters either float or [mid, min, max]
+            #TO BE CHECKED: which bits are we still using
+            #determine parameters that are fixed:
+            self.fixed_params = self._get_fixed_params()
+            #self.config['mu']['blockslength'] = self._get_blocks_length(self.zstore)
+            #self.config['parameters']['mu'] = self.config['mu']['mu']
+            reference_pop=self.config['populations']['reference_pop']
+            #syncing pop sizes
             self.reference, self.toBeSynced = self._get_pops_to_sync()
-            self._sync_pop_sizes_optimise(self.reference, self.toBeSynced)
+            if reference_pop in self.toBeSynced:
+                sys.exit(f"[X] Set reference pop to {self.reference}.")
+            toBeSynced_pops = [f'Ne_{s}' for s in self.toBeSynced] if self.toBeSynced!=None else []
+            self.fixed_params = [pop for pop in self.fixed_params if pop not in toBeSynced_pops]
+            #verify if any Ne fixed, whether one of those Ne is self.reference
+            fixed_Nes = [p for p in self.fixed_params if p.startswith('Ne')]
+            if len(fixed_Nes)>0:
+                if not f"Ne_{reference_pop}" in fixed_Nes:
+                    sys.exit("[X] No. No. No. It would make much more sense to set a population with a fixed size as reference.")
+            #self._sync_pop_sizes_optimise(self.reference, self.toBeSynced)
             self.parameter_combinations = self._return_boundaries()
-            #ready to be scaled
         else:
             sys.exit("[X] gimble.py_processing_config: Not implemented yet.")
 
