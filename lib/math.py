@@ -198,7 +198,7 @@ def objective_function(paramsToOptimise, grad, paramNames, fixedParams, equation
     all_rates = equationSystemObj._scale_parameter_combination(all_rates, equationSystemObj.reference_pop, equationSystemObj.block_length, 'optimise')
     rates = equationSystemObj._get_base_rate_by_variable(all_rates)
     split_time = equationSystemObj._get_split_time(all_rates)
-
+    
     ETPs = equationSystemObj.calculate_ETPs((rates, split_time, threads, verbose))
 
     result = calculate_composite_likelihood(ETPs, data)
@@ -402,8 +402,10 @@ class EquationSystemObj(object):
         if module in ['makegrid', 'inference','optimise']:
             Ne_ref = sage.all.Rational(combo[f"Ne_{reference_pop}"])
             rdict['theta'] = 4*sage.all.Rational(Ne_ref*combo['mu'])*block_length
-            rdict['C_A']=Ne_ref/sage.all.Rational(combo['Ne_A'])
-            rdict['C_B'] = Ne_ref/sage.all.Rational(combo['Ne_B'])
+            if 'Ne_A' in combo:
+                rdict['C_A']=Ne_ref/sage.all.Rational(combo['Ne_A'])
+            if 'Ne_B' in combo:
+                rdict['C_B'] = Ne_ref/sage.all.Rational(combo['Ne_B'])
             if 'Ne_A_B' in combo:
                 rdict['C_A_B'] = Ne_ref/sage.all.Rational(combo['Ne_A_B'])
             if 'T' in combo:
@@ -638,7 +640,7 @@ class EquationSystemObj(object):
         exitcodeDict = {
                         1: 'optimum found', 
                         2: 'stopvalue reached',
-                        3: 'tolerance on CL reached',
+                        3: 'tolerance on lnCL reached',
                         4: 'tolerance on parameter vector reached',
                         5: 'max number of evaluations reached',
                         6: 'max computation time was reached'
