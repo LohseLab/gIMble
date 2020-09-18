@@ -57,7 +57,7 @@ def main(params):
             population_by_letter=parameterObj.config['population_by_letter'], 
             sample_sets='X', 
             kmax_by_mutype=parameterObj.config['k_max'],
-            as_dask=True)
+            as_dask=False)
         # numpy
         gridsearch_result = gimbleStore.gridsearch_np(data=data, grids=grids)
         
@@ -66,8 +66,7 @@ def main(params):
 
         # test_dask
         #gridsearch_result = gimbleStore.test_dask(data=data, grids=grids)
-    
-        output_f = gimbleStore._write_gridsearch_bed(parameterObj=parameterObj, data=gridsearch_result, grid_meta_dict=grid_meta_dict)
+        output_f = gimbleStore._write_gridsearch_bed(parameterObj=parameterObj, gridsearch_result=gridsearch_result, grid_meta_dict=grid_meta_dict)
         print("[+] Wrote %r." % output_f)
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
         #print('gridsearch_result', gridsearch_result.shape)

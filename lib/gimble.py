@@ -144,6 +144,13 @@ class ReportObj(object):
     def __repr__(self):
         return "\n".join(self.out)
 
+def get_hash_from_dict(d):
+    '''returns md5sum hash of str(dict)'''
+    if isinstance(d, dict):
+        return hashlib.md5(str(d).encode()).hexdigest()
+    else:
+        raise ValueError('must be a dict')
+
 def recursive_get_size(path: str) -> int:
     """Gets size in bytes of the given path, recursing into directories."""
     if os.path.isfile(path):
@@ -905,6 +912,7 @@ class Store(object):
         print("[#] Making blocks...")
         #self._make_blocks_threaded(parameterObj)
         self._make_blocks(parameterObj)
+
         #self.plot_bsfs_pcp(sample_set='X')
         #self._calculate_block_pop_gen_metrics()
         #self._plot_blocks(parameterObj)
@@ -982,7 +990,7 @@ class Store(object):
         else:
             raise ValueError("'query' must be 'X', 'A', 'B', or None")
 
-    def _get_window_bsfs(self, sample_sets='X', sequences=None, population_by_letter=None, kmax_by_mutype=None, as_dask=False):
+    def _get_window_bsfs(self, sample_sets='X', sequences=None, population_by_letter=None, kmax_by_mutype=None):
         """Return bsfs_array of 5 dimensions (fifth dimension is the window-idx across ALL sequences in sequences).
         [ToDo] Ideally this should work with regions, as in CHR:START-STOP.
         [ToDo] put in sample set context (error if not samples set).
@@ -998,8 +1006,6 @@ class Store(object):
         kmax : dict (string -> int) or None
             Mapping of kmax values to mutypes.
         
-        as_dask: boolean
-            Whether to return array as dask array, default is numpy array
         Returns
         -------
         bsfs : (dask) ndarray, int, ndim (1 + mutypes). First dimension is window idx. 
@@ -1023,8 +1029,6 @@ class Store(object):
         out = np.zeros(tuple(np.max(mutuples, axis=0) + 1), np.int64)
         # assign values
         out[tuple(mutuples.T)] = counts
-        #if as_dask:
-        #    return dask.array(out)
         return out
 
     def set_bsfs(self, data_type='etp', bsfs=None):
@@ -1033,20 +1037,29 @@ class Store(object):
         bsfs_key = 'bsfs/%s' % key
         self.data.create_dataset(bsfs_key, data=bsfs, overwrite=True)
 
-    def get_bsfs(self, data_type=None, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None, as_dask=False):
-        """main method for accessing data (needs error-logic)"""
-        key = hashlib.md5(str({k: v for k, v in locals().items() if not k == 'self'}).encode()).hexdigest()
-        bsfs_key = 'bsfs/%s' % key
-        if bsfs_key in self.data:
-            return np.array(self.data[bsfs_key], dtype=np.int64)
+    def get_bsfs(self, data_type=None, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None):
+        """main method for accessing bsfs
+        
+        unique hash-keys have to be made based on defining parameters of bsfs, which varies by data_type.         
+        """
+        meta = self.data['seqs'].attrs
+        params = {k: v for k, v in locals().items() if not k == 'self'}
         if data_type == 'blocks':
-            if not self.has_stage('blocks'):
-                sys.exit("[X] No blocks in GStore.")
-            bsfs = self._get_block_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
+            params['blocks_length'] = meta['blocks_length']
+            params['blocks_span'] = meta['blocks_span']
+            bsfs_key = 'bsfs/%s' % get_hash_from_dict(params)
+            if bsfs_key in self.data:
+                bsfs = np.array(self.data[bsfs_key], dtype=np.int64)
+            else:
+                bsfs = self._get_block_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
         elif data_type == 'windows':
-            if not self.has_stage('windows'):
-                sys.exit("[X] No blocks in GStore.")
-            bsfs = self._get_window_bsfs(population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype, as_dask=False)
+            params['windows_size'] = meta['windows_size']
+            params['windows_step'] = meta['windows_step']
+            bsfs_key = 'bsfs/%s' % get_hash_from_dict(params)
+            if bsfs_key in self.data:
+                bsfs = np.array(self.data[bsfs_key], dtype=np.int64)
+            else:
+                bsfs = self._get_window_bsfs(population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
         else:
             raise ValueError("data_type must be 'blocks' or 'windows'")
         self.data.create_dataset(bsfs_key, data=bsfs, overwrite=True)
@@ -1099,8 +1112,8 @@ class Store(object):
         out[tuple(mutuples.T)] = counts
         return out
 
-    def _set_grid(self, unique_hash, ETPs, grid_labels):
-        dataset = self.data['grids'].create_dataset(unique_hash, data=ETPs)
+    def _set_grid(self, unique_hash, ETPs, grid_labels, overwrite=False):
+        dataset = self.data['grids'].create_dataset(unique_hash, data=ETPs, overwrite=overwrite)
         dataset.attrs.put({idx:combo for idx, combo in enumerate(grid_labels)})
     
     def _has_grid(self, unique_hash):
@@ -1585,16 +1598,17 @@ class Store(object):
         mutypes_inter = self.data[mutypes_inter_key]
         counts_inter = self.data[counts_inter_key]
         self.plot_bsfs_pcp('%s.bsfs_pcp.png' % self.prefix, mutypes_inter, counts_inter)
-    
-    def _write_gridsearch_bed(self, parameterObj=None, data=None, grid_meta_dict=None):
-        if parameterObj is None or data is None or grid_meta_dict is None:
-            raise ValueError('_write_gridsearch_bed: needs parameterObj and data and grid_meta_dict')
+
+    def _write_gridsearch_bed(self, parameterObj=None, gridsearch_result=None, grid_meta_dict=None):
+        if parameterObj is None or gridsearch_result is None or grid_meta_dict is None:
+            raise ValueError('_write_gridsearch_bed: needs parameterObj and gridsearch_result and grid_meta_dict')
         grids = []
         for grid_idx, grid_dict in grid_meta_dict.items():
             grids.append(list(grid_dict.values()))
         params_header = list(grid_dict.keys())
         grid_params = np.array(grids, dtype=np.float64)
-        best_params = grid_params[np.argmax(data, axis=1), :]
+        best_params = grid_params[np.argmax(gridsearch_result, axis=1), :]
+        best_likelihoods = np.max(gridsearch_result, axis=1)
         meta = self.data['seqs'].attrs
         MAX_SEQNAME_LENGTH = max([len(seq_name) for seq_name in meta['seq_names']])
         sequences = np.zeros(meta['window_count'], dtype='<U%s' % MAX_SEQNAME_LENGTH)
@@ -1612,15 +1626,16 @@ class Store(object):
                 ends[offset:offset+window_count] = np.array(self.data[end_key])
                 sequences[offset:offset+window_count] = np.full_like(window_count, seq_name, dtype='<U%s' % MAX_SEQNAME_LENGTH)
                 offset += window_count
-        columns = ['sequence', 'start', 'end', 'index'] + list(params_header)
-        dtypes = {'start': 'int64', 'end': 'int64', 'index': 'int64'}
+        columns = ['sequence', 'start', 'end', 'index', 'lnCL'] + list(params_header)
+        dtypes = {'start': 'int64', 'end': 'int64', 'index': 'int64', 'lnCL': 'float64'}
         for param in params_header:
             dtypes[param] = 'float64'
         '''dtypes := "object", "int64", "float64", "bool", "datetime64", "timedelta", "category"'''
-        int_bed = np.vstack([starts, ends, index, best_params.T]).T
+        int_bed = np.vstack([starts, ends, index, best_likelihoods, best_params.T]).T
         header = ["# %s" % parameterObj._VERSION]
         header += ["# %s" % "\t".join(columns)]  
-        out_f = '%s.%s.gridsearch.bed' % (self.prefix, parameterObj.data_type)
+        out_f = '%s.%s.gridsearch.bestfit.bed' % (self.prefix, parameterObj.data_type)
+        print("[+] Overall lnCL = %s" % np.sum(best_likelihoods))
         with open(out_f, 'w') as out_fh:
             out_fh.write("\n".join(header) + "\n")
         # bed
@@ -1728,6 +1743,21 @@ class Store(object):
             if not self.has_stage('windows'):
                 sys.exit("[X] GStore %r has no windows. Please run 'gimble windows'." % self.path)
 
+    def _wipe_meta(self, stage):
+        meta = self.data['seqs'].attrs
+        if stage == 'blocks':
+            meta['blocks_length'] = 0
+            meta['blocks_span'] = 0
+            meta['blocks_max_missing'] = 0
+            meta['blocks_max_multiallelic'] = 0
+            meta['blocks_by_sample_set_idx'] = {}
+            meta['blocks_raw_per_sample_set_idx'] = {}
+            meta['blocks_maxk_by_mutype'] = {}
+        if stage == 'blocks' or stage == 'windows':
+            meta['window_size'] = 0
+            meta['window_step'] = 0
+            meta['window_count'] = 0
+
     def _preflight_windows(self, parameterObj):
         if not self.has_stage('blocks'):
             sys.exit("[X] GStore %r has no blocks. Please run 'gimble blocks'." % self.path)
@@ -1735,6 +1765,8 @@ class Store(object):
             if not parameterObj.overwrite:
                 sys.exit("[X] GStore %r already contains windows.\n[X] These windows => %r\n[X] Please specify '--force' to overwrite." % (self.path, self.get_stage('windows')))
             print('[-] GStore %r already contains windows. But these will be overwritten...' % (self.path))
+        self.data.create_group("windows/", overwrite=True)
+        self._wipe_meta('windows')
     
     def _preflight_blocks(self, parameterObj):
         if not self.has_stage('setup'):
@@ -1743,8 +1775,10 @@ class Store(object):
             if not parameterObj.overwrite:
                 sys.exit("[X] GStore %r already contains blocks.\n[X] These blocks => %r\n[X] Please specify '--force' to overwrite." % (self.path, self.get_stage('blocks')))
             print('[-] GStore %r already contains blocks. But these will be overwritten...' % (self.path))
-            # wipe bsfs, since new blocks....
+            # wipe bsfs, windows, AND meta, since new blocks...
+            self.data.create_group("windows/", overwrite=True)
             self.data.create_group("bsfs/", overwrite=True)
+            self._wipe_meta('blocks')
 
     def _preflight_simulate(self, parameterObj):
         if 'sims' not in self.data.group_keys():
@@ -1873,21 +1907,19 @@ class Store(object):
                         end_key = 'seqs/%s/blocks/%s/ends' % (seq_name, sample_set_idx)
                         ends.append(np.array(self.data[end_key]))
                     pbar.update()
-                try:
-                    variation_array = np.concatenate(variation, axis=0)
-                    start_array = np.concatenate(starts, axis=0)
-                    end_array = np.concatenate(ends, axis=0)
-                    # window_variation : shape = (windows, blocklength, 4)
-                    window_variation, window_starts, window_ends, window_pos_mean, window_pos_median = cut_windows(variation_array, sample_set_idxs, start_array, end_array, num_blocks=parameterObj.window_size, num_steps=parameterObj.window_step)
-                    #b, counts = np.unique(variation, return_counts=True, axis=0)
-                    self.data.create_dataset("seqs/%s/windows/variation" % seq_name, data=window_variation, overwrite=True)
-                    self.data.create_dataset("seqs/%s/windows/starts" % seq_name, data=window_starts, overwrite=True)
-                    self.data.create_dataset("seqs/%s/windows/ends" % seq_name, data=window_ends, overwrite=True)
-                    self.data.create_dataset("seqs/%s/windows/pos_mean" % seq_name, data=window_pos_mean, overwrite=True)
-                    self.data.create_dataset("seqs/%s/windows/pos_median" % seq_name, data=window_pos_median, overwrite=True)
-                    meta['window_count'] += window_variation.shape[0]
-                except ValueError:
-                    pass
+                variation_array = np.concatenate(variation, axis=0)
+                start_array = np.concatenate(starts, axis=0)
+                end_array = np.concatenate(ends, axis=0)
+                # window_variation : shape = (windows, blocklength, 4)
+                window_variation, window_starts, window_ends, window_pos_mean, window_pos_median = cut_windows(variation_array, sample_set_idxs, start_array, end_array, num_blocks=parameterObj.window_size, num_steps=parameterObj.window_step)
+                #b, counts = np.unique(variation, return_counts=True, axis=0)
+                self.data.create_dataset("seqs/%s/windows/variation" % seq_name, data=window_variation, overwrite=True)
+                self.data.create_dataset("seqs/%s/windows/starts" % seq_name, data=window_starts, overwrite=True)
+                self.data.create_dataset("seqs/%s/windows/ends" % seq_name, data=window_ends, overwrite=True)
+                self.data.create_dataset("seqs/%s/windows/pos_mean" % seq_name, data=window_pos_mean, overwrite=True)
+                self.data.create_dataset("seqs/%s/windows/pos_median" % seq_name, data=window_pos_median, overwrite=True)
+                meta['window_count'] += window_variation.shape[0]
+
         #window_info_rows = []
         #window_mutuple_tally = []
         ## window bsfs
@@ -1965,26 +1997,18 @@ class Store(object):
         meta['blocks_max_multiallelic'] = parameterObj.block_max_multiallelic
         blocks_raw_per_sample_set_idx = collections.Counter()   # all possible blocks
         blocks_per_sample_set_idx = collections.Counter()       # all valid blocks => only these get saved to store
-        parse = True
         with tqdm(total=(len(meta['seq_names']) * len(meta['sample_sets'])), desc="[%] Building blocks ", ncols=100, unit_scale=True) as pbar:        
             for seq_name in meta['seq_names']:
                 pos_key = "seqs/%s/variants/pos" % (seq_name)
                 gt_key = "seqs/%s/variants/matrix" % (seq_name)
                 pos = np.array(self.data[pos_key], dtype=np.int64) if pos_key in self.data else None
                 sa_genotype_array = allel.GenotypeArray(self.data[gt_key].view(read_only=True)) if gt_key in self.data else None
-                #print('\nseq_name', seq_name)
-                #print('sa_genotype_array', sa_genotype_array)
                 for sample_set_idx, sample_set in enumerate(meta['sample_sets']):
-                    #print("\n", seq_name, sample_set_idx, sample_set)
                     start_end = self._get_interval_coordinates_for_sample_set(seq_name=seq_name, sample_set=sample_set)
                     if not start_end is None:
                         # Cut sample-set specific blocks based on intervals and block-algoritm parameters
                         starts, ends = start_end
                         block_sites = cut_blocks(starts, ends, meta['blocks_length'], meta['blocks_span'], meta['blocks_gap_run'])
-                        #print('block_sites', block_sites.shape, block_sites)
-                        #print('block_sites', type(block_sites), block_sites)
-                        #print('np.any(block_sites)', np.any(block_sites))
-                        #print('not block_sites is None', not block_sites is None)
                         if not block_sites is None and np.any(block_sites):
                             # Allocate starts/ends before overwriting position ints
                             block_starts = np.array(block_sites[:, 0], dtype=np.int64)
@@ -2017,7 +2041,6 @@ class Store(object):
                             self.data.create_dataset(blocks_missing_key, data=missing[valid], overwrite=True)
                             blocks_multiallelic_key = 'seqs/%s/blocks/%s/multiallelic' % (seq_name, sample_set_idx)
                             self.data.create_dataset(blocks_multiallelic_key, data=multiallelic[valid], overwrite=True)
-                            #print("[*] Sample_set runtime: %.3fs" % (timer() - sample_set_start_time))
                     pbar.update(1)
         meta['blocks_by_sample_set_idx'] = dict(blocks_per_sample_set_idx) # keys are strings
         meta['blocks_raw_per_sample_set_idx'] = dict(blocks_raw_per_sample_set_idx) # keys are strings
