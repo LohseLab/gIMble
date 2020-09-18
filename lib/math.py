@@ -394,7 +394,7 @@ class EquationSystemObj(object):
             #assert all(ratesPerVariableSet[k]==3 for k in ratesPerVariable.keys() if k not in self.fixed_params or k not self.reference_pop), 'All parameters with boundaries should be associated with a list of length 3.'             
             print(self.fixed_params)
         """
-        if parameterObj._MODULE==['makegrid']:
+        if parameterObj._MODULE=='makegrid':
             result = [self._scale_parameter_combination(combo, self.reference_pop, self.block_length, parameterObj._MODULE) for combo in parameterObj.parameter_combinations]
 
         return result
