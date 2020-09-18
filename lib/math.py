@@ -160,7 +160,7 @@ def param_generator(pcentre, pmin, pmax, psamples, distr):
     if distr == 'linear':
         return np.unique(np.concatenate([np.linspace(start, stop, num=num, endpoint=True, dtype=np.float64) for start, stop, num in zip(starts, ends, nums)]))
     else:
-        raise NotImplmentedError
+        raise ValueError('"distr" must be "linear"')
 
 def calculate_inverse_laplace(params):
     '''
@@ -174,7 +174,7 @@ def calculate_inverse_laplace(params):
     if split_time is None:
         equationObj.result = equation
     else:
-        equationObj.result = sage.all.inverse_laplace(equation / dummy_variable, dummy_variable, sage.all.SR.var('T'), algorithm='giac').substitute(T=split_time)
+        equationObj.result = sage.all.inverse_laplace(equation / dummy_variable, dummy_variable, sage.all.SR.var('T'), algorithm='giac').substitute(T=split_time).simplify_rational()
     return equationObj
 
 #def calculate_composite_likelihood_arrays(grids=None, data=None):

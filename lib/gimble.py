@@ -1350,6 +1350,10 @@ class Store(object):
         return zarr.open(str(self.path), mode='r+')
     
     def _init_meta(self, overwrite=False):
+        '''self.data['sims/seq1/bsfs'] 
+        self.data['sims/seq2/bsfs'] 
+        self.data['sims/bsfs']      # sum of all "bsfs counters"
+        '''
         attrs_by_group = {
             'seqs' : {
                 'vcf_f': None, 
@@ -1379,7 +1383,9 @@ class Store(object):
                 'intervals_span': 0, 
                 'intervals_span_sample': [],
                 'intervals_idx_by_sample': {},
-                'mutypes_count': 4,
+                'mutypes_count': 4
+            },
+            'blocks': {    
                 'blocks_length': 0, 
                 'blocks_span': 0, 
                 'blocks_max_missing': 0, 
@@ -1387,14 +1393,17 @@ class Store(object):
                 'blocks_by_sample_set_idx': {},
                 'blocks_raw_per_sample_set_idx': {},
                 'blocks_maxk_by_mutype': {},
+                'bsfs': {}
+            },
+            'windows': {
                 'window_size': 0, 
                 'window_step': 0, 
-                'window_count': 0, 
+                'window_count': 0,
+                'bsfs': {}
             },
-            'inference': {},
-            'grids': {},
             'sims': {},
-            'bsfs': {}
+            'lnCLs': {},
+            'grids': {}           
         }
         for group, attrs in attrs_by_group.items():
             self.data.require_group(group, overwrite=overwrite)
