@@ -125,3 +125,27 @@ gimble.model.s_A_B.n_1_1.M_B_A.ini
 gimble.model.s_A_B.n_1_1.M_B_A.pdf
 
 gimble.model.s_A_B.n_1_1.M_B_A.tsv
+
+dasktemp/global.lock
+
+dasktemp/purge.lock
+
+gimble.heliconius.intergenic.testing_chr02_chr09_chr18.windows.gridsearch.bed
+
+gimble.heliconius.intergenic.testing_chr02_chr09_chr18.windows.gridsearch.bestfit.bed
+
+gimble.model.s_A_B.n_1_1.M_A_B.J_A_B.ini
+
+gimble.model.s_A_B.n_1_1.M_A_B.J_A_B.pdf
+
+gimble.model.s_A_B.n_1_1.M_A_B.J_A_B.tsv
+
+test_models/gimble.model.s_A_B.n_1_1.J_A_B.10_points.ini
+
+test_models/gimble.model.s_A_B.n_1_1.J_A_B.50_points.ini
+
+test_models/gimble.model.s_A_B.n_1_1.J_A_B.gridsearch_test.ini
+
+test_models/gimble.model.s_A_B.n_1_1.J_A_B.ini
+
+test_models/gimble.model.s_A_B.n_1_1.J_A_B.optimize.ini
