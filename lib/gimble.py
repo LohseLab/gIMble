@@ -1334,8 +1334,10 @@ class Store(object):
             format_count(meta['window_count'])))
         return reportObj
 
-    def info(self, query=None):
+    def info(self, parameterObj):
         width = 100
+        if parameterObj.tree:
+            return self.data.tree()
         report = self._get_storage_report(width)
         if self.has_stage('setup'):
             report += self._get_setup_report(width)    
@@ -1343,7 +1345,7 @@ class Store(object):
             report += self._get_blocks_report(width)
         if self.has_stage('windows'):
             report += self._get_windows_report(width)
-        print(report)
+        return report
 
     def _count_groups(self, name):
         return len(list(self.data[name]))
