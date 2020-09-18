@@ -98,13 +98,14 @@ def main(params):
         elif parameterObj.prefix:
             gimbleStore = lib.gimble.Store(prefix=parameterObj.prefix, create=True)
         else:
-            sys.exit("[X] No config and no prefix specified. Should have been caught.")
+            raise ValueError("[X] No config and no prefix specified. Should have been caught.")
 
         print(f"[+] Generated {len(parameterObj.parameter_combinations)} parameter combinations.") #in parameterObj.parameter_combinations
         equationSystem = lib.math.EquationSystemObj(parameterObj)
         #build the equations
         equationSystem.initiate_model(parameterObj=parameterObj)
         equationSystem.ETPs = equationSystem.calculate_all_ETPs(threads=parameterObj.threads, gridThreads=parameterObj.gridThreads, verbose=False)
+        print('equationSystem.ETPs', equationSystem.ETPs.shape, equationSystem.ETPs)
         gimbleStore._set_grid(unique_hash, equationSystem.ETPs, parameterObj.parameter_combinations, overwrite=parameterObj.overwrite)
         #run_count = gimbleStore._return_group_last_integer('grids')
         #g = gimbleStore.data['grids'].create_dataset(f'grid_{run_count}', data=equationSystem.ETPs)
