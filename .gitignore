@@ -149,3 +149,5 @@ test_models/gimble.model.s_A_B.n_1_1.J_A_B.gridsearch_test.ini
 test_models/gimble.model.s_A_B.n_1_1.J_A_B.ini
 
 test_models/gimble.model.s_A_B.n_1_1.J_A_B.optimize.ini
+
+notes.txt
