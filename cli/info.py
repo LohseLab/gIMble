@@ -27,7 +27,7 @@ def main(params):
         args = docopt(__doc__)
         parameterObj = InfoParameterObj(params, args)
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore)
-        info = gimbleStore.info(parameterObj)
+        info = gimbleStore.info(tree=parameterObj.tree)
         print(info)
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
