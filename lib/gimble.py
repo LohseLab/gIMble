@@ -15,7 +15,6 @@ import warnings
 import pathlib
 import configparser
 import matplotlib.pyplot as plt
-import matplotlib.pyplot as plt
 from matplotlib.path import Path
 import matplotlib.patches as patches
 import numpy as np
@@ -1119,7 +1118,7 @@ class Store(object):
         params = {k: v for k, v in locals().items() if not k == 'self'}
         if data_type == 'blocks':
             meta_blocks = self._get_meta('blocks')
-            print(dict(meta_blocks))
+            #print(dict(meta_blocks))
             if meta_blocks['count'] == 0:
                 sys.exit('[X] No blocks found.')
             params['length'] = meta_blocks['length']
