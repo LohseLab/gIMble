@@ -160,7 +160,7 @@ def param_generator(pcentre, pmin, pmax, psamples, distr):
     if distr == 'linear':
         return np.unique(np.concatenate([np.linspace(start, stop, num=num, endpoint=True, dtype=np.float64) for start, stop, num in zip(starts, ends, nums)]))
     else:
-        raise NotImplmentedError
+        raise ValueError('"distr" must be "linear"')
 
 def calculate_inverse_laplace(params):
     '''
@@ -175,6 +175,7 @@ def calculate_inverse_laplace(params):
         equationObj.result = equation
     else:
         equationObj.result = sage.all.inverse_laplace(equation / dummy_variable, dummy_variable, sage.all.SR.var('T'), algorithm='giac').substitute(T=split_time)
+
     return equationObj
 
 #def calculate_composite_likelihood_arrays(grids=None, data=None):
@@ -196,6 +197,7 @@ def objective_function(paramsToOptimise, grad, paramNames, fixedParams, equation
     all_rates = {k:v for k,v in zip(paramNames, paramsToOptimise)}
     all_rates = {**all_rates, **fixedParams}
     all_rates = equationSystemObj._scale_parameter_combination(all_rates, equationSystemObj.reference_pop, equationSystemObj.block_length, 'optimise')
+
     rates = equationSystemObj._get_base_rate_by_variable(all_rates)
     split_time = equationSystemObj._get_split_time(all_rates)
     
@@ -360,7 +362,7 @@ class EquationSystemObj(object):
             if event.startswith("M"):
                 base_rate_by_variable[sage.all.SR.var(event)] = sage.all.Rational(rate * 0.5)
             if event.startswith("J"):
-                base_rate_by_variable[sage.all.SR.var(event)] = sage.all.SR.var(event)
+                base_rate_by_variable[sage.all.SR.var(event)] = sage.all.SR.var(event, domain='real')
         return base_rate_by_variable
 
     def _scale_all_parameter_combinations(self, parameterObj):
@@ -520,7 +522,7 @@ class EquationSystemObj(object):
             parameter_batches = [((pbatch,),{}) for pbatch in parameter_batches]
             #threads spawns a number of processes
             result = sage.parallel.multiprocessing_sage.parallel_iter(threads, calculate_inverse_laplace,parameter_batches)
-            equationObj_by_matrix_idx = {equationObj.matrix_idx:equationObj for equationObj in [el[-1] for el in result]}
+            equationObj_by_matrix_idx = {equationObj.matrix_idx: equationObj for equationObj in [el[-1] for el in result]}
         
         ETPs = np.zeros(tuple(self.k_max_by_mutype[mutype] + 2 for mutype in self.mutypes), np.float64)
         for matrix_id, equationObj in sorted(equationObj_by_matrix_idx.items()):
@@ -529,7 +531,6 @@ class EquationSystemObj(object):
             else:
                 ETPs[matrix_id] = equationObj.result - sum(ETPs[equationObj.marginal_idx].flatten())
             #verboseprint(matrix_id, ETPs[matrix_id])
-        
         assert math.isclose(np.sum(ETPs.flatten()), 1, rel_tol=1e-5), "[-] sum(ETPs) != 1 (rel_tol=1e-5)"
         return ETPs
 

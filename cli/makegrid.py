@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gIMble makegrid -c <FILE> -m <FILE> (-z <FILE> | -o <STR>) [-t <STR>] [-h|--help]
+"""usage: gIMble makegrid -c <FILE> -m <FILE> (-z <FILE> | -o <STR>) [-f] [-t <STR>] [-h|--help]
                                             
     Options:
         -h --help                                show this
@@ -10,6 +10,7 @@
         -z, --zarr <FILE>                        Path to zarr store
         -o, --outprefix <STR>                    Prefix to use for gimble store
         -t, --threads <STR>                      Threads [default: 1,1]
+        -f, --overwrite                          Overwrite grid in GStore
         
 """
 import pathlib
@@ -69,6 +70,7 @@ class MakeGridParameterObj(lib.gimble.ParameterObj):
         self.model_file = self._get_path(args['--model_file'])
         self.threads, self.gridThreads = [self._get_int(t) for t in args["--threads"].split(',')]
         #self.threads, self.gridThreads = self._get_threads(args["--threads"])
+        self.overwrite = args['--overwrite']
         self.config = self._parse_config(self.config_file)
         self._process_config()
 
@@ -91,19 +93,20 @@ def main(params):
         if parameterObj.zstore:
             gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False, overwrite=False)
             #verify whether grids/unique_hash is already present
-            if gimbleStore._has_grid(unique_hash):
+            if gimbleStore._has_grid(unique_hash) and not parameterObj.overwrite:
                 sys.exit(f"[X] Grid for this config file has already been build with name: {unique_hash}")
         elif parameterObj.prefix:
             gimbleStore = lib.gimble.Store(prefix=parameterObj.prefix, create=True)
         else:
-            sys.exit("[X] No config and no prefix specified. Should have been caught.")
+            raise ValueError("[X] No config and no prefix specified. Should have been caught.")
 
         print(f"[+] Generated {len(parameterObj.parameter_combinations)} parameter combinations.") #in parameterObj.parameter_combinations
         equationSystem = lib.math.EquationSystemObj(parameterObj)
         #build the equations
         equationSystem.initiate_model(parameterObj=parameterObj)
         equationSystem.ETPs = equationSystem.calculate_all_ETPs(threads=parameterObj.threads, gridThreads=parameterObj.gridThreads, verbose=False)
-        gimbleStore._set_grid(unique_hash, equationSystem.ETPs, parameterObj.parameter_combinations)
+        #print('equationSystem.ETPs', equationSystem.ETPs.shape, equationSystem.ETPs)
+        gimbleStore._set_grid(unique_hash, equationSystem.ETPs, parameterObj.parameter_combinations, overwrite=parameterObj.overwrite)
         #run_count = gimbleStore._return_group_last_integer('grids')
         #g = gimbleStore.data['grids'].create_dataset(f'grid_{run_count}', data=equationSystem.ETPs)
         #g.attrs.put({idx:combo for idx, combo in enumerate(parameterObj.parameter_combinations)})
