@@ -105,7 +105,7 @@ def main(params):
         #build the equations
         equationSystem.initiate_model(parameterObj=parameterObj)
         equationSystem.ETPs = equationSystem.calculate_all_ETPs(threads=parameterObj.threads, gridThreads=parameterObj.gridThreads, verbose=False)
-        print('equationSystem.ETPs', equationSystem.ETPs.shape, equationSystem.ETPs)
+        #print('equationSystem.ETPs', equationSystem.ETPs.shape, equationSystem.ETPs)
         gimbleStore._set_grid(unique_hash, equationSystem.ETPs, parameterObj.parameter_combinations, overwrite=parameterObj.overwrite)
         #run_count = gimbleStore._return_group_last_integer('grids')
         #g = gimbleStore.data['grids'].create_dataset(f'grid_{run_count}', data=equationSystem.ETPs)
