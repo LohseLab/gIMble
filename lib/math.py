@@ -16,7 +16,8 @@ from functools import partial
 from functools import partialmethod
 import nlopt
 import concurrent.futures
-
+import logging
+logging.basicConfig(filename='log_file.txt', level=logging.DEBUG)
 #sage.all.numerical_approx(value, digits=1)
 
 '''
@@ -171,11 +172,19 @@ def calculate_inverse_laplace(params):
     equationObj, rates, split_time, dummy_variable = params
     #print(equationObj, rates, split_time, dummy_variable)
     equation = (equationObj.equation).substitute(rates)
-    if split_time is None:
-        equationObj.result = equation
-    else:
-        equationObj.result = sage.all.inverse_laplace(equation / dummy_variable, dummy_variable, sage.all.SR.var('T'), algorithm='giac').substitute(T=split_time)
-
+    try
+        if split_time is None:
+            equationObj.result = equation
+        else:
+            equationObj.result = sage.all.inverse_laplace(equation / dummy_variable, dummy_variable, sage.all.SR.var('T', domain='real'), algorithm='maxima').substitute(T=split_time)
+    except KeyboardInterrupt:
+        print("Interrupted by user.")
+        exit(-1)
+    except Exception:
+        with ('log_equation.txt', 'w') as file:
+            print(equation, file=file)
+        logging.exception('Inverse laplace error')
+        raise
     return equationObj
 
 #def calculate_composite_likelihood_arrays(grids=None, data=None):
@@ -322,7 +331,7 @@ class EquationSystemObj(object):
     def _get_dummy_variable(self):
         '''CAUTION: only works for 2-pop case with single J_* event'''
         dummy_variable = [sage.all.SR.var(var) for var in self.events if var.startswith("J")]
-        return dummy_variable[0] if dummy_variable else sage.all.SR.var('J')
+        return dummy_variable[0] if dummy_variable else sage.all.SR.var('J', domain='real')
 
     def _get_event_tuples_by_idx(self):
         print("[+] Reading model %r" % self.model_file)
@@ -531,7 +540,13 @@ class EquationSystemObj(object):
             else:
                 ETPs[matrix_id] = equationObj.result - sum(ETPs[equationObj.marginal_idx].flatten())
             #verboseprint(matrix_id, ETPs[matrix_id])
-        assert math.isclose(np.sum(ETPs.flatten()), 1, rel_tol=1e-5), "[-] sum(ETPs) != 1 (rel_tol=1e-5)"
+        try:
+            assert math.isclose(np.sum(ETPs.flatten()), 1, rel_tol=1e-5), "[-] sum(ETPs) != 1 (rel_tol=1e-5)"
+        except AssertionError:
+            with open('log_ETPs', 'w') as file:
+                for matrix_id, equationObj in sorted(equationObj_by_matrix_idx.items()):
+                    print(matrix_id, equationObj.result)
+            sys.exit("[-] sum(ETPs) != 1 (rel_tol=1e-5)")
         return ETPs
 
     def optimize_parameters(self, data, parameterObj, trackHistory=True, verbose=False):
