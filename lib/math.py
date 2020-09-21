@@ -545,7 +545,7 @@ class EquationSystemObj(object):
         except AssertionError:
             with open('log_ETPs', 'w') as file:
                 for matrix_id, equationObj in sorted(equationObj_by_matrix_idx.items()):
-                    print(matrix_id, equationObj.result)
+                    print((matrix_id, equationObj.result), file=file)
             sys.exit("[-] sum(ETPs) != 1 (rel_tol=1e-5)")
         return ETPs
 
