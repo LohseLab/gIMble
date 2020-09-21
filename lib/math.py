@@ -172,14 +172,19 @@ def calculate_inverse_laplace(params):
     equationObj, rates, split_time, dummy_variable = params
     #print(equationObj, rates, split_time, dummy_variable)
     equation = (equationObj.equation).substitute(rates)
-    try
+    try:
         if split_time is None:
             equationObj.result = equation
         else:
             equationObj.result = sage.all.inverse_laplace(equation / dummy_variable, dummy_variable, sage.all.SR.var('T', domain='real'), algorithm='maxima').substitute(T=split_time)
+            assert 'ilt' not in str(equationObj.result), "Inverse laplace transform is undefined."
     except KeyboardInterrupt:
         print("Interrupted by user.")
         exit(-1)
+    except AssertionError:
+        with ('log_ilt.txt', 'w') as file:
+            print(equationObj.result, file=file)
+            sys.exit("Inverse laplace transform undefined (using maxima)")
     except Exception:
         with ('log_equation.txt', 'w') as file:
             print(equation, file=file)

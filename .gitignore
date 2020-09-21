@@ -151,3 +151,11 @@ test_models/gimble.model.s_A_B.n_1_1.J_A_B.ini
 test_models/gimble.model.s_A_B.n_1_1.J_A_B.optimize.ini
 
 notes.txt
+
+log_ilt.txt
+
+log_equation.txt
+
+log_file.txt
+
+log_ETPs.txt
