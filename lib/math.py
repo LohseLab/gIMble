@@ -655,8 +655,8 @@ class EquationSystemObj(object):
                     ftol_rel=parameterObj.ftol_rel
                     )
                 with concurrent.futures.ProcessPoolExecutor(max_workers=parameterObj.gridThreads) as outer_pool:
-                        for single_run in outer_pool.map(specified_run_single_optimizer, all_p0):
-                            allResults.append(single_run)
+                    for single_run in outer_pool.map(specified_run_single_optimizer, all_p0):
+                        allResults.append(single_run)
 
         exitcodeDict = {
                         1: 'optimum found', 

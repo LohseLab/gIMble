@@ -253,7 +253,12 @@ def get_n50_from_lengths(lengths):
     cum_sum_2 = min(cum_sum[cum_sum >= half])
     n50_idx = np.where(cum_sum == cum_sum_2)
     return length_sorted[int(n50_idx[0][0])]
-    
+
+def pop_metrics_from_bsfs(bsfs):
+    if not bsfs.ndim == 2:
+        bsfs = bsfs_to_2d(bsfs)
+        #np.set_printoptions(threshold=sys.maxsize)
+    return  1
 def check_unique_pos(pos_array):
     unique_pos, counts_pos = np.unique(pos_array, return_counts=True)
     duplicates = unique_pos[counts_pos > 1]
@@ -435,11 +440,11 @@ def cut_blocks(interval_starts, interval_ends, block_length, block_span, block_g
 
 
 def bsfs_to_2d(bsfs):
-    """Returns 2D array with counts, mutuples. First column is counts.
+    """Converts 4D/5D bsfs to 2D array with (window-idx) counts, mutuples. 
 
     Parameters 
     ----------
-    bsfs : ndarray, int, ndim (4)  
+    bsfs : ndarray, int, ndim (4 or 5)  
     
     Returns
     -------
@@ -447,7 +452,13 @@ def bsfs_to_2d(bsfs):
 
     """
     non_zero_idxs = np.nonzero(bsfs)
-    return np.concatenate([bsfs[non_zero_idxs].reshape(non_zero_idxs[0].shape[0], 1), np.array(non_zero_idxs).T], axis=1)
+    if bsfs.ndim == 4: # blocks
+        return np.concatenate([bsfs[non_zero_idxs].reshape(non_zero_idxs[0].shape[0], 1), np.array(non_zero_idxs).T], axis=1)
+    elif bsfs.ndim == 5: # windows
+        non_zero_idxs_array = np.array(non_zero_idxs).T
+        return np.concatenate([non_zero_idxs_array[:,0].reshape(non_zero_idxs[0].shape[0], 1), bsfs[non_zero_idxs].reshape(non_zero_idxs[0].shape[0], 1), non_zero_idxs_array[:,1:]], axis=1)
+    else:
+        raise ValueError('bsfs_to_2d: bsfs.ndim must be 4 (blocks) or 5 (windows)')
 
 def bsfs_to_counter(bsfs):
     """Returns (dict of) collections.Counter based on bsfs_array of 4 or 5 dimensions.
@@ -1000,14 +1011,16 @@ class Store(object):
         unique_hash = parameterObj._get_unique_hash()
         grids, grid_meta_dict = self._get_grid(unique_hash) 
         if grids is None:
-            sys.exit("[X] No grid for this INI")
-        data = self.get_bsfs(
+            sys.exit("[X] No grid for this INI.")
+        bsfs = self.get_bsfs(
             data_type=parameterObj.data_type, 
             population_by_letter=parameterObj.config['population_by_letter'], 
             sample_sets='X', 
             kmax_by_mutype=parameterObj.config['k_max'])
-        gridsearch_result = self.gridsearch_np(data=data, grids=grids)
-        self._write_gridsearch_bed(parameterObj=parameterObj, gridsearch_result=gridsearch_result, grid_meta_dict=grid_meta_dict)
+        pop_metrics = pop_metrics_from_bsfs(bsfs)
+        lncls = self.gridsearch_np(bsfs=bsfs, grids=grids)
+
+        self._write_gridsearch_bed(parameterObj=parameterObj, lncls=lncls, grid_meta_dict=grid_meta_dict)
 
     def gridsearch(self, parameterObj):
         print("[#] Gridsearching ...")
@@ -1103,12 +1116,12 @@ class Store(object):
         out[tuple(mutuples.T)] = counts
         return out
 
-    def set_bsfs(self, data_type='etp', bsfs=None):
-        '''@Gertjan: do we need this one?'''
-        '''Saves array in GStore and saves parameters (as strings) in meta. Recovery of parameters is possible via key_to_params().''' 
-        key = hashlib.md5(str({k: v for k, v in locals().items() if not k == 'self'}).encode()).hexdigest()
-        bsfs_key = 'bsfs/%s' % key
-        self.data.create_dataset(bsfs_key, data=bsfs, overwrite=True)
+    #def set_bsfs(self, data_type='etp', bsfs=None):
+    #    '''@Gertjan: do we need this one?'''
+    #    '''Saves array in GStore and saves parameters (as strings) in meta. Recovery of parameters is possible via key_to_params().''' 
+    #    key = hashlib.md5(str({k: v for k, v in locals().items() if not k == 'self'}).encode()).hexdigest()
+    #    bsfs_key = 'bsfs/%s' % key
+    #    self.data.create_dataset(bsfs_key, data=bsfs, overwrite=True)
     
     def get_bsfs(self, data_type=None, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None):
         """main method for accessing bsfs
@@ -1123,14 +1136,12 @@ class Store(object):
                 sys.exit('[X] No blocks found.')
             params['length'] = meta_blocks['length']
             params['span'] = meta_blocks['span']
-            bsfs = self._get_block_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
         elif data_type == 'windows':
             meta_windows = self._get_meta('windows')
             if meta_windows['count'] == 0:
                 sys.exit('[X] No windows found.')
             params['size'] = meta_windows['size']
             params['step'] = meta_windows['step']
-            bsfs = self._get_window_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
         else:
             raise ValueError("data_type must be 'blocks' or 'windows'")        
         unique_hash = get_hash_from_dict(params)
@@ -1140,6 +1151,12 @@ class Store(object):
         else:
             meta_bsfs = self._get_meta('bsfs')
             meta_bsfs[unique_hash] = str(params)
+            if data_type == 'blocks':
+                bsfs = self._get_block_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
+            elif data_type == 'windows':
+                bsfs = self._get_window_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
+            else:
+                raise ValueError("data_type must be 'blocks' or 'windows'")        
             self.data.create_dataset(bsfs_data_key, data=bsfs, overwrite=True)
         return bsfs
 
@@ -1257,16 +1274,16 @@ class Store(object):
 #       #return a
 #       return True
 
-    def gridsearch_np(self, grids=None, data=None):
+    def gridsearch_np(self, bsfs=None, grids=None):
         '''returns 2d array of likelihoods of shape (windows, grids)'''
-        if grids is None or data is None:
+        if grids is None or bsfs is None:
             raise ValueError('gridsearch: needs grid and data')
         grids_log = np.zeros(grids.shape)
         np.log(grids, where=grids>0, out=grids_log)
         #print('data.shape', data.shape)
         #print('grids_log.shape', grids_log.shape)
         #print('data[:, None]', data[:, None] * grids_log)
-        return np.squeeze(np.apply_over_axes(np.sum, (data[:, None] * grids_log), axes=[-4,-3,-2,-1]))
+        return np.squeeze(np.apply_over_axes(np.sum, (bsfs[:, None] * grids_log), axes=[-4,-3,-2,-1]))
 
     def _set_grid(self, unique_hash, ETPs, grid_labels, overwrite=False):
         dataset = self.data['grids'].create_dataset(unique_hash, data=ETPs, overwrite=overwrite)
@@ -1638,16 +1655,16 @@ class Store(object):
         counts_inter = self.data[counts_inter_key]
         self.plot_bsfs_pcp('%s.bsfs_pcp.png' % self.prefix, mutypes_inter, counts_inter)
 
-    def _write_gridsearch_bed(self, parameterObj=None, gridsearch_result=None, grid_meta_dict=None):
-        if parameterObj is None or gridsearch_result is None or grid_meta_dict is None:
-            raise ValueError('_write_gridsearch_bed: needs parameterObj and gridsearch_result and grid_meta_dict')
+    def _write_gridsearch_bed(self, parameterObj=None, lncls=None, grid_meta_dict=None):
+        if parameterObj is None or lncls is None or grid_meta_dict is None:
+            raise ValueError('_write_gridsearch_bed: needs parameterObj and lncls and grid_meta_dict')
         grids = []
         for grid_idx, grid_dict in grid_meta_dict.items():
             grids.append(list(grid_dict.values()))
         params_header = list(grid_dict.keys())
         grid_params = np.array(grids, dtype=np.float64)
-        best_params = grid_params[np.argmax(gridsearch_result, axis=1), :]
-        best_likelihoods = np.max(gridsearch_result, axis=1)
+        best_params = grid_params[np.argmax(lncls, axis=1), :]
+        best_likelihoods = np.max(lncls, axis=1)
         meta_seqs = self._get_meta('seqs')
         meta_windows = self._get_meta('windows')
         MAX_SEQNAME_LENGTH = max([len(seq_name) for seq_name in meta_seqs['seq_names']])
@@ -1675,7 +1692,7 @@ class Store(object):
         header = ["# %s" % parameterObj._VERSION]
         header += ["# %s" % "\t".join(columns)]  
         out_f = '%s.%s.gridsearch.bestfit.bed' % (self.prefix, parameterObj.data_type)
-        print("[+] Overall lnCL = %s" % np.sum(best_likelihoods))
+        print("[+] Sum of lnCL for winning parameters = %s" % np.sum(best_likelihoods))
         with open(out_f, 'w') as out_fh:
             out_fh.write("\n".join(header) + "\n")
         # bed
@@ -1919,7 +1936,7 @@ class Store(object):
         meta_windows['size'] = parameterObj.window_size
         meta_windows['step'] = parameterObj.window_step
         meta_windows['count'] = 0
-        sample_set_idxs = self._get_sample_set_idxs(sample_sets)
+        sample_set_idxs = self._get_sample_set_idxs(query=sample_sets)
         with tqdm(meta_seqs['seq_names'], total=(len(meta_seqs['seq_names']) * len(sample_set_idxs)), desc="[%] Constructing windows ", ncols=100, unit_scale=True) as pbar: 
             for seq_name in meta_seqs['seq_names']:
                 variation, starts, ends = [], [], []
