@@ -214,6 +214,7 @@ def objective_function(paramsToOptimise, grad, paramNames, fixedParams, equation
 
     rates = equationSystemObj._get_base_rate_by_variable(all_rates)
     split_time = equationSystemObj._get_split_time(all_rates)
+    print(str(iteration_number)+'\t'+'\t'.join(str(param) for param in paramsToOptimise))
     
     ETPs = equationSystemObj.calculate_ETPs((rates, split_time, threads, verbose))
 
@@ -227,8 +228,8 @@ def objective_function(paramsToOptimise, grad, paramNames, fixedParams, equation
     if isinstance(path, list):
         path.append(toSave)
         iteration_number = len(path)
-
-    print(str(iteration_number)+'\t'+'\t'.join(str(param) for param in paramsToOptimise)+'\t'+str(result))
+    print(str(result))
+    #print(str(iteration_number)+'\t'+'\t'.join(str(param) for param in paramsToOptimise)+'\t'+str(result))
     return result
 
 def run_single_optimiz(p0, lower, upper, specified_objective_function, maxeval, xtol_rel, ftol_rel):
