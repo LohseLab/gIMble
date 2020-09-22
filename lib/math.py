@@ -549,9 +549,11 @@ class EquationSystemObj(object):
             assert math.isclose(np.sum(ETPs.flatten()), 1, rel_tol=1e-5), "[-] sum(ETPs) != 1 (rel_tol=1e-5)"
         except AssertionError:
             with open('log_ETPs', 'w') as file:
+                print(f"rates: {rates}", file=file)
+                print(f"split_time: {split_time}", file=file)
                 for matrix_id, equationObj in sorted(equationObj_by_matrix_idx.items()):
-                    print((matrix_id, equationObj.result), file=file)
-            sys.exit("[-] sum(ETPs) != 1 (rel_tol=1e-5)")
+                    print((matrix_id, float(equationObj.result)), file=file)
+            sys.exit(f"[-] sum(ETPs): {np.sum(ETPs.flatten())} != 1 (rel_tol=1e-5)")
         return ETPs
 
     def optimize_parameters(self, data, parameterObj, trackHistory=True, verbose=False):
