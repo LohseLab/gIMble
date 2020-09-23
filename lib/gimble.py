@@ -254,11 +254,19 @@ def get_n50_from_lengths(lengths):
     n50_idx = np.where(cum_sum == cum_sum_2)
     return length_sorted[int(n50_idx[0][0])]
 
-def pop_metrics_from_bsfs(bsfs):
+def pop_metrics_from_bsfs(bsfs, mutypes=4, block_length=None, window_size=None):
     if not bsfs.ndim == 2:
         bsfs = bsfs_to_2d(bsfs)
-        #np.set_printoptions(threshold=sys.maxsize)
-    return  1
+    mutype_array = np.vstack([np.bincount(bsfs[:, 0], weights=bsfs[:, 1] * bsfs[:, (2 + m_idx)]) for m_idx in range(mutypes)]).T
+    heterozygosity_A = (mutype_array[:,1] + mutype_array[:,2]) / (block_length * window_size)
+    heterozygosity_B = (mutype_array[:,0] + mutype_array[:,2]) / (block_length * window_size)
+    d_xy = ((mutype_array[:,1] + mutype_array[:,0] + mutype_array[:,2]) / 2.0 + mutype_array[:,3]) / (block_length * window_size)
+    mean_pi = (heterozygosity_A + heterozygosity_B) / 2.0
+    f_st = np.full(mutype_array.shape[0], np.nan)
+    np.true_divide((d_xy - mean_pi), (d_xy + mean_pi), out=f_st, where=(d_xy + mean_pi) > 0)
+    pop_metrics = np.vstack([heterozygosity_A, heterozygosity_B, d_xy, f_st])
+    return pop_metrics
+
 def check_unique_pos(pos_array):
     unique_pos, counts_pos = np.unique(pos_array, return_counts=True)
     duplicates = unique_pos[counts_pos > 1]
@@ -438,7 +446,6 @@ def cut_blocks(interval_starts, interval_ends, block_length, block_span, block_g
     block_span_valid_mask = (((block_sites[:, -1] - block_sites[:, 0]) + 1) <= block_span)
     return block_sites[block_span_valid_mask]
 
-
 def bsfs_to_2d(bsfs):
     """Converts 4D/5D bsfs to 2D array with (window-idx) counts, mutuples. 
 
@@ -449,7 +456,6 @@ def bsfs_to_2d(bsfs):
     Returns
     -------
     out : ndarray, int, ndim (2)
-
     """
     non_zero_idxs = np.nonzero(bsfs)
     if bsfs.ndim == 4: # blocks
@@ -1012,15 +1018,21 @@ class Store(object):
         grids, grid_meta_dict = self._get_grid(unique_hash) 
         if grids is None:
             sys.exit("[X] No grid for this INI.")
-        bsfs = self.get_bsfs(
+        bsfs_clipped = self.get_bsfs(
             data_type=parameterObj.data_type, 
             population_by_letter=parameterObj.config['population_by_letter'], 
             sample_sets='X', 
             kmax_by_mutype=parameterObj.config['k_max'])
-        pop_metrics = pop_metrics_from_bsfs(bsfs)
-        lncls = self.gridsearch_np(bsfs=bsfs, grids=grids)
-
-        self._write_gridsearch_bed(parameterObj=parameterObj, lncls=lncls, grid_meta_dict=grid_meta_dict)
+        lncls = self.gridsearch_np(bsfs=bsfs_clipped, grids=grids)
+        bsfs_full = self.get_bsfs(
+            data_type=parameterObj.data_type, 
+            population_by_letter=parameterObj.config['population_by_letter'], 
+            sample_sets='X')
+        meta_seqs = self._get_meta('seqs')
+        meta_blocks = self._get_meta('blocks')
+        meta_windows = self._get_meta('windows')
+        pop_metrics = pop_metrics_from_bsfs(bsfs_full, mutypes=meta_seqs['mutypes_count'], block_length=meta_blocks['length'], window_size=meta_windows['size'])
+        self._write_gridsearch_bed(parameterObj=parameterObj, lncls=lncls, grid_meta_dict=grid_meta_dict, pop_metrics=pop_metrics)
 
     def gridsearch(self, parameterObj):
         print("[#] Gridsearching ...")
@@ -1655,13 +1667,12 @@ class Store(object):
         counts_inter = self.data[counts_inter_key]
         self.plot_bsfs_pcp('%s.bsfs_pcp.png' % self.prefix, mutypes_inter, counts_inter)
 
-    def _write_gridsearch_bed(self, parameterObj=None, lncls=None, grid_meta_dict=None):
+    def _write_gridsearch_bed(self, parameterObj=None, lncls=None, grid_meta_dict=None, pop_metrics=None):
         if parameterObj is None or lncls is None or grid_meta_dict is None:
             raise ValueError('_write_gridsearch_bed: needs parameterObj and lncls and grid_meta_dict')
         grids = []
         for grid_idx, grid_dict in grid_meta_dict.items():
             grids.append(list(grid_dict.values()))
-        params_header = list(grid_dict.keys())
         grid_params = np.array(grids, dtype=np.float64)
         best_params = grid_params[np.argmax(lncls, axis=1), :]
         best_likelihoods = np.max(lncls, axis=1)
@@ -1683,15 +1694,22 @@ class Store(object):
                 ends[offset:offset+window_count] = np.array(self.data[end_key])
                 sequences[offset:offset+window_count] = np.full_like(window_count, seq_name, dtype='<U%s' % MAX_SEQNAME_LENGTH)
                 offset += window_count
-        columns = ['sequence', 'start', 'end', 'index', 'lnCL'] + list(params_header)
-        dtypes = {'start': 'int64', 'end': 'int64', 'index': 'int64', 'lnCL': 'float64'}
-        for param in params_header:
+        grid_center_idx = np.int(len(grid_meta_dict)/2)
+        print("[+] grid center = %s (idx: %s)" % (grid_meta_dict[str(grid_center_idx)], grid_center_idx))
+        delta_lncls = best_likelihoods - lncls[:, grid_center_idx]
+
+        params_header = list(grid_dict.keys())
+        popgen_header = ['heterozygosity_A', 'heterozygosity_B', 'd_xy', 'f_st']
+        columns = ['sequence', 'start', 'end', 'index', 'lnCL', 'delta_lnCl'] + params_header + popgen_header
+        dtypes = {'start': 'int64', 'end': 'int64', 'index': 'int64', 'lnCL': 'float64', 'delta_lnCl': 'float64'}
+        for param in params_header + popgen_header:
             dtypes[param] = 'float64'
         '''dtypes := "object", "int64", "float64", "bool", "datetime64", "timedelta", "category"'''
-        int_bed = np.vstack([starts, ends, index, best_likelihoods, best_params.T]).T
+        int_bed = np.vstack([starts, ends, index, best_likelihoods, delta_lncls, best_params.T, pop_metrics]).T
         header = ["# %s" % parameterObj._VERSION]
-        header += ["# %s" % "\t".join(columns)]  
+        header += ["# %s" % "\t".join(columns)]
         out_f = '%s.%s.gridsearch.bestfit.bed' % (self.prefix, parameterObj.data_type)
+
         print("[+] Sum of lnCL for winning parameters = %s" % np.sum(best_likelihoods))
         with open(out_f, 'w') as out_fh:
             out_fh.write("\n".join(header) + "\n")
@@ -1699,7 +1717,8 @@ class Store(object):
         #print(dtypes)
         bed_df = pd.DataFrame(data=int_bed, columns=columns[1:]).astype(dtype=dtypes)
         bed_df['sequence'] = sequences
-        bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, mode='a', sep='\t', index=False, header=False, columns=columns)
+        # MUST be mode='a' otherwise header gets wiped ...
+        bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=columns, float_format='%.5f')
         #print(bed_df)
         return out_f
 
@@ -1821,6 +1840,7 @@ class Store(object):
             # wipe bsfs, windows, AND meta, since new blocks...
             self._wipe_stage('blocks')
             self._wipe_stage('windows')
+            #self._wipe_stage('blocks')
 
     def _preflight_simulate(self, parameterObj):
         if 'sims' not in self.data.group_keys():
