@@ -214,6 +214,10 @@ def objective_function(paramsToOptimise, grad, paramNames, fixedParams, equation
 
     rates = equationSystemObj._get_base_rate_by_variable(all_rates)
     split_time = equationSystemObj._get_split_time(all_rates)
+    iteration_number=-1
+    if isinstance(path, list):
+        iteration_number = len(path)
+    print(str(iteration_number)+'\t'+'\t'.join(str(param) for param in paramsToOptimise))
     
     ETPs = equationSystemObj.calculate_ETPs((rates, split_time, threads, verbose))
 
@@ -227,8 +231,8 @@ def objective_function(paramsToOptimise, grad, paramNames, fixedParams, equation
     if isinstance(path, list):
         path.append(toSave)
         iteration_number = len(path)
-
-    print(str(iteration_number)+'\t'+'\t'.join(str(param) for param in paramsToOptimise)+'\t'+str(result))
+    print(str(result))
+    #print(str(iteration_number)+'\t'+'\t'.join(str(param) for param in paramsToOptimise)+'\t'+str(result))
     return result
 
 def run_single_optimiz(p0, lower, upper, specified_objective_function, maxeval, xtol_rel, ftol_rel):
@@ -549,9 +553,11 @@ class EquationSystemObj(object):
             assert math.isclose(np.sum(ETPs.flatten()), 1, rel_tol=1e-5), "[-] sum(ETPs) != 1 (rel_tol=1e-5)"
         except AssertionError:
             with open('log_ETPs', 'w') as file:
+                print(f"rates: {rates}", file=file)
+                print(f"split_time: {split_time}", file=file)
                 for matrix_id, equationObj in sorted(equationObj_by_matrix_idx.items()):
-                    print((matrix_id, equationObj.result), file=file)
-            sys.exit("[-] sum(ETPs) != 1 (rel_tol=1e-5)")
+                    print((matrix_id, float(equationObj.result)), file=file)
+            sys.exit(f"[-] sum(ETPs): {np.sum(ETPs.flatten())} != 1 (rel_tol=1e-5)")
         return ETPs
 
     def optimize_parameters(self, data, parameterObj, trackHistory=True, verbose=False):
