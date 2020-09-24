@@ -1148,6 +1148,8 @@ class Store(object):
                 sys.exit('[X] No blocks found.')
             params['length'] = meta_blocks['length']
             params['span'] = meta_blocks['span']
+            params['max_missing'] = meta_blocks['max_missing']
+            params['max_multiallelic'] = meta_blocks['max_multiallelic']
         elif data_type == 'windows':
             meta_windows = self._get_meta('windows')
             if meta_windows['count'] == 0:
@@ -1840,7 +1842,7 @@ class Store(object):
             # wipe bsfs, windows, AND meta, since new blocks...
             self._wipe_stage('blocks')
             self._wipe_stage('windows')
-            #self._wipe_stage('blocks')
+            self._wipe_stage('bsfs')
 
     def _preflight_simulate(self, parameterObj):
         if 'sims' not in self.data.group_keys():
