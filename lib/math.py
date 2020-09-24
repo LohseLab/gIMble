@@ -169,6 +169,7 @@ def calculate_inverse_laplace(params):
     - test for errors due to unsolve equations due to wrong model? 
     - or is there a way to sort out model-coherenece as pre-flight check? 
     '''
+    precision = 165 #the number of bits used to represent the mantissa of a floating-point number.
     equationObj, rates, split_time, dummy_variable = params
     #print(equationObj, rates, split_time, dummy_variable)
     equation = (equationObj.equation).substitute(rates)
@@ -190,6 +191,8 @@ def calculate_inverse_laplace(params):
             print(equation, file=file)
         logging.exception('Inverse laplace error')
         raise
+    #casting sage.expression to real number with arbitrary precision
+    equationObj.result = sage.all.RealField(precision)(equationObj.result)
     return equationObj
 
 #def calculate_composite_likelihood_arrays(grids=None, data=None):
@@ -201,7 +204,7 @@ def calculate_inverse_laplace(params):
 #    return np.squeeze(res)
 
 def calculate_composite_likelihood(ETPs, data):
-    ETP_log = np.zeros(ETPs.shape)
+    ETP_log = np.zeros(ETPs.shape, dtype=np.float64)
     np.log(ETPs, where=ETPs>0, out=ETP_log)
     return np.sum(ETP_log * data)
 
@@ -542,22 +545,42 @@ class EquationSystemObj(object):
             result = sage.parallel.multiprocessing_sage.parallel_iter(threads, calculate_inverse_laplace,parameter_batches)
             equationObj_by_matrix_idx = {equationObj.matrix_idx: equationObj for equationObj in [el[-1] for el in result]}
         
-        ETPs = np.zeros(tuple(self.k_max_by_mutype[mutype] + 2 for mutype in self.mutypes), np.float64)
+        #ETPs = np.zeros(tuple(self.k_max_by_mutype[mutype] + 2 for mutype in self.mutypes), np.float64)
+        ETPs = np.zeros(tuple(self.k_max_by_mutype[mutype] + 2 for mutype in self.mutypes), dtype=object)
         for matrix_id, equationObj in sorted(equationObj_by_matrix_idx.items()):
             if equationObj.marginal_idx is None:
                 ETPs[matrix_id] = equationObj.result
             else:
                 ETPs[matrix_id] = equationObj.result - sum(ETPs[equationObj.marginal_idx].flatten())
             #verboseprint(matrix_id, ETPs[matrix_id])
+        #casting ETPs to numpy floats
+        ETPs=ETPs.astype(np.float64)
+        #these test should go in the final version     
         try:
-            assert math.isclose(np.sum(ETPs.flatten()), 1, rel_tol=1e-5), "[-] sum(ETPs) != 1 (rel_tol=1e-5)"
+            assert math.isclose(np.sum(ETPs.flatten()), 1, rel_tol=1e-5), f"[-] sum(ETPs): {np.sum(ETPs.flatten())} != 1 (rel_tol=1e-5)"
         except AssertionError:
-            with open('log_ETPs', 'w') as file:
+            with open('log_ETPs.txt', 'w') as file:
                 print(f"rates: {rates}", file=file)
                 print(f"split_time: {split_time}", file=file)
-                for matrix_id, equationObj in sorted(equationObj_by_matrix_idx.items()):
-                    print((matrix_id, float(equationObj.result)), file=file)
+                for idx, value in np.ndenumerate(ETPs):
+                    print(idx, value, file=file)
             sys.exit(f"[-] sum(ETPs): {np.sum(ETPs.flatten())} != 1 (rel_tol=1e-5)")
+        try:
+            assert np.all(np.logical_and(ETPs>=0, ETPs<=1)), 'Not all ETPs in [0,1].'
+        except AssertionError:
+            values = ETPs[np.logical_not(np.logical_and(ETPs>=0, ETPs<=1))]
+            indices = np.where(np.logical_not(np.logical_and(ETPs>=0, ETPs<=1)))
+            indices = list(zip(*indices))
+            print("[-] Some ETPs are not in [0,1]. Increase machine precision in the ini file.")
+            with open('log_single_ETP.txt', 'w') as file:
+                for idx, value in zip(indices, values):
+                    print(idx, value, file=file)
+            with open('log_ETPs.txt', 'w') as file:
+                print(f"rates: {rates}", file=file)
+                print(f"split_time: {split_time}", file=file)
+                for idx, value in np.ndenumerate(ETPs):
+                    print(idx, value, file=file)
+
         return ETPs
 
     def optimize_parameters(self, data, parameterObj, trackHistory=True, verbose=False):
@@ -572,7 +595,7 @@ class EquationSystemObj(object):
         if len(boundaryNames) == 0:
             print("[-] No boundaries specified.")
             #scale all parameters
-            scaled_params = self._scale_parameter_combination(parameterObj.parameter_combinations[0], self.reference_pop, self.block_length, parameterObj._MODULE)
+            scaled_params = self._scale_parameter_combination(fixedParams, self.reference_pop, self.block_length, parameterObj._MODULE)
             rate_by_variable = self._get_base_rate_by_variable(scaled_params)
             split_time = self._get_split_time(scaled_params)
             args = rate_by_variable, split_time, parameterObj.threads, True 
