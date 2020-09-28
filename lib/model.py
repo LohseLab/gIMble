@@ -327,7 +327,7 @@ class StateGraph(object):
         # parameters
         config.add_section('parameters')
         config.set('parameters', "## param: floats")
-        config.set('parameters', "## param: (mid, min, max, n, lin|log)")
+        config.set('parameters', "## param: min, [max, [n, (lin|log)]]")
         for event in events:
             if event.startswith("C_"):
                 config.set('parameters', '# Effective population size of %s' % event[2:])
