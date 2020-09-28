@@ -1478,8 +1478,9 @@ class Store(object):
         return self.data[stage].attrs
 
     def _wipe_stage(self, stage):
-        self.data.require_group(stage, overwrite=True)
-        self.data[stage].attrs.put(copy.deepcopy(META_TEMPLATE_BY_STAGE[stage]))
+        if stage in self.data:
+            self.data.create_group(stage, overwrite=True)
+            self.data[stage].attrs.put(copy.deepcopy(META_TEMPLATE_BY_STAGE[stage]))
         if stage in self.data.attrs:
             del self.data.attrs[stage]
 
