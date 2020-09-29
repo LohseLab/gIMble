@@ -1762,7 +1762,7 @@ class Store(object):
     def _write_block_bed(self, parameterObj, cartesian_only=True):
         '''new gimblestore'''
         meta_seqs = self._get_meta('seqs')
-        meta_blocks = self._get_meta('windows')
+        meta_blocks = self._get_meta('blocks')
         sample_set_idxs = [idx for (idx, is_cartesian) in enumerate(meta_seqs['sample_sets_inter']) if is_cartesian] if cartesian_only else range(len(meta_seqs['sample_sets']))
         blocks_count_total = sum([meta_blocks['count_by_sample_set_idx'][str(idx)] for idx in sample_set_idxs])
         starts = np.zeros(blocks_count_total, dtype=np.int64)
