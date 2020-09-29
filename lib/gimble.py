@@ -156,6 +156,15 @@ META_TEMPLATE_BY_STAGE = {
             }
         }
 
+def get_validator_error_string(validator_errors):
+    out = []
+    for section, errors in validator_errors.items():
+        out.append("Section %s ..." % section)
+        for error_dict in errors:
+            for parameter, values in error_dict.items():
+                out.append("[X] %s \t: %s ..." % (parameter, " ".join(values)))
+    return "\n".join(out)
+
 class ReportObj(object):
     '''Info class for making reports
     '''
@@ -205,6 +214,62 @@ def get_hash_from_dict(d):
         return hashlib.md5(str(d).encode()).hexdigest()
     else:
         raise ValueError('must be a dict')
+
+def get_config_schema(module):
+    schema = {
+        'gimble': {
+            'type': 'dict',
+            'schema': {
+                'version': {'required': True, 'empty':False, 'type': 'string'},
+                'precision': {'required': True, 'empty':False, 'type': 'integer', 'coerce': int},
+                'random_seed': {'required': True, 'empty':False, 'type': 'integer', 'coerce': int}}},
+        'populations': {
+            'required': True, 'type': 'dict', 
+            'schema': {
+                'A': {'required':True, 'empty':True, 'type':'string'},
+                'B': {'required':True, 'empty':True, 'type':'string'},
+                'reference_pop': {'required':True, 'empty':False, 'isPop':True},
+                'sync_pop_sizes': {'required':False, 'empty':True, 'isPopSync':True},
+                }},
+        'k_max': {
+            'type': 'dict', 
+            'valuesrules': {'required': True, 'empty':False, 'type': 'integer', 'min': 1, 'coerce':int}},
+        'mu': {
+            'type':'dict', 
+            'schema':{
+                'mu': {'required': False, 'empty':True, 'type': 'float', 'coerce':float},
+                'blocklength': {'required': False, 'empty':True,'notNoneInt':True, 'coerce':'int_or_empty'}
+                }},
+        'parameters': {
+            'type': 'dict', 'required':True, 'empty':False, 
+            'valuesrules': {'coerce':'float_or_list', 'notNone':True}
+        },
+        'simulations':{
+            'required':False, 'empty':True}
+        }
+    if module == 'simulate':
+        schema['simulations'] = {
+        'type': 'dict',
+        'required':True,
+        'schema': {
+            'ploidy': {'empty':False, 'required':True, 'type':'integer', 'min':1, 'coerce':int},
+            'blocks': {'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+            'replicates': {'empty': False, 'type': 'integer', 'min':1, 'coerce':int},
+            'sample_size_A': {'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+            'sample_size_B': {'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+            'recombination_rate': {'empty': True, 'notNoneFloat':True, 'coerce':'float_or_empty', 'min':0.0},
+            'recombination_map': {'empty': True, 'type': 'string', 'isPath':True, 'dependencies':['number_bins', 'cutoff', 'scale']},
+            'number_bins': {'empty': True, 'notNoneInt': True, 'coerce':'int_or_empty', 'min':1},
+            'cutoff': {'empty': True, 'notNoneFloat': True, 'coerce':'float_or_empty', 'min':0},
+            'scale': {'empty':True, 'type':'string', 'allowed':['lin', 'log']}
+        }}
+        schema['mu'] = {
+            'type':'dict', 
+            'schema':{
+                'mu': {'required': True, 'empty':False, 'type': 'float', 'coerce':float},
+                'blocklength': {'required': False, 'empty':True, 'min':1, 'type': 'integer', 'coerce':int}
+                }}
+    return schema
 
 def recursive_get_size(path: str) -> int:
     """Gets size in bytes of the given path, recursing into directories."""
@@ -509,25 +574,17 @@ class CustomNormalizer(cerberus.Validator):
             return float(value)
         except:
             values = value.strip('()[]').split(",")
-            if len(values) == 3:
+            if len(values) == 2 or len(values) == 3:
                 try:
                     return [float(v) for v in values]
                 except ValueError:
                     return None
-            elif len(values) == 2:
-                try:
-                    values = [float(v) for v in values]
-                    mid = np.mean(values)
-                    return [mid,]+values
-                except ValueError:
-                    return None
-                values = []
-            elif len(values) == 5:
-                valid_scales = ['lin', 'log']
-                if not values[4].strip(' ') in valid_scales:
+            elif len(values) == 4:
+                valid_scales = set(['lin', 'log'])
+                if not values[-1].strip(' ') in valid_scales:
                     return None
                 try:
-                    return [float(v) for v in values[:3]]+[int(values[3]),values[4].strip(' ')]
+                    return [float(v) for v in values[:-2]] + [int(values[-2]), values[-1].strip(' ')]
                 except ValueError:
                     return None
             else:
@@ -570,7 +627,7 @@ class CustomNormalizer(cerberus.Validator):
         {'type':'boolean'}
         """
         if not value and notNone:
-            self._error(field, "Must be a float, or a list of length 3 or 5.")
+            self._error(field, "Must be FLOAT, or (MIN, MAX), or (MIN, MAX, STEPS, LIN|LOG).")
 
     def _validate_isPop(self, isPop, field, value):
         """
@@ -628,6 +685,7 @@ class ParameterObj(object):
         return [dict(zip(pdict, x)) for x in zip(*pdict.values())]
 
     def _expand_params(self):
+        print(self.config['parameters'])
         if len(self.config['parameters'])>0:
             for key, value in self.config['parameters'].items():
                 if isinstance(value, float) or isinstance(value, int):
@@ -671,15 +729,17 @@ class ParameterObj(object):
         blocks_length_ini = self._get_int(self.config['mu']['blocklength'], ret_none=True)
         if zstore:
             z = zarr.open(self.zstore, mode='r')
-            blocks_length_zarr =  z['seqs'].attrs.get('blocks_length')
+            meta_blocks = self._get_meta('blocks')
+            blocks_length_zarr =  meta_blocks['length']
         if blocks_length_zarr and blocks_length_ini:
             if blocks_length_zarr != blocks_length_ini:
-                print("[-] block length in ini file and used in GStore differ. Using blocks_length_ini.")
+                print("[-] Block length in INI and GStore differ. Using block length in INI (i.e. %sb)." % blocks_length_ini)
                 return blocks_length_ini
+            return blocks_length_zarr
+        if blocks_length_zarr:
+            return blocks_length_zarr
         if blocks_length_ini:
             return blocks_length_ini
-        elif blocks_length_zarr:
-            return blocks_length_zarr
         else:
             sys.exit("[X] Blocklength needs to be specified in ini file.")
 
@@ -817,87 +877,68 @@ class ParameterObj(object):
         possible_values_dict = {s: dict(possible_values_config.items(s)) for s in possible_values_config.sections()}
         valid_pop_ids = [population.strip(" ") for population in possible_values_dict["populations"]["# possible values reference_pop"].split("|")]
         sample_pop_ids = [population for population in valid_pop_ids if "_" not in population]
-        schema = {
-            'gimble': {
-                'type': 'dict',
-                'schema': {
-                    'version': {'required': True, 'empty':False, 'type': 'string'},
-                    'precision': {'required': True, 'empty':False, 'type': 'integer', 'coerce': int},
-                    'random_seed': {'required': True, 'empty':False, 'type': 'integer', 'coerce': int}}},
-            'populations': {
-                'required': True, 'type': 'dict', 
-                'schema': {
-                    'A': {'required':True, 'empty':True, 'type':'string'},
-                    'B': {'required':True, 'empty':True, 'type':'string'},
-                    'reference_pop': {'required':True, 'empty':False, 'isPop':True},
-                    'sync_pop_sizes': {'required':False, 'empty':True, 'isPopSync':True},
-                    }},
-            'k_max': {
-                'type': 'dict', 
-                'valuesrules': {'required': True, 'empty':False, 'type': 'integer', 'min': 1, 'coerce':int}},
-            'mu': {
-                'type':'dict', 
-                'schema':{
-                    'mu': {'required': False, 'empty':True, 'type': 'float', 'coerce':float},
-                    'blocklength': {'required': False, 'empty':True,'notNoneInt':True, 'coerce':'int_or_empty'}
-                    }},
-            'parameters': {
-                'type': 'dict', 'required':True, 'empty':False, 
-                'valuesrules': {'coerce':'float_or_list', 'notNone':True}
-            },
-            'simulations':{
-                'required':False, 'empty':True}
-            }
-        if self._MODULE=='simulate':
-            schema['simulations'] = {
-                'type': 'dict',
-                'required':True,
-                'schema': {
-                    'ploidy': {'empty':False, 'required':True, 'type':'integer', 'min':1, 'coerce':int},
-                    'blocks': {'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
-                    'replicates': {'empty': False, 'type': 'integer', 'min':1, 'coerce':int},
-                    'sample_size_A': {'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
-                    'sample_size_B': {'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
-                    'recombination_rate': {'empty': True, 'notNoneFloat':True, 'coerce':'float_or_empty', 'min':0.0},
-                    'recombination_map': {'empty': True, 'type': 'string', 'isPath':True, 'dependencies':['number_bins', 'cutoff', 'scale']},
-                    'number_bins': {'empty': True, 'notNoneInt': True, 'coerce':'int_or_empty', 'min':1},
-                    'cutoff': {'empty': True, 'notNoneFloat': True, 'coerce':'float_or_empty', 'min':0},
-                    'scale': {'empty':True, 'type':'string', 'allowed':['lin', 'log']}
-                }}
-            schema['mu'] = {
-                'type':'dict', 
-                'schema':{
-                    'mu': {'required': True, 'empty':False, 'type': 'float', 'coerce':float},
-                    'blocklength': {'required': False, 'empty':True, 'min':1, 'type': 'integer', 'coerce':int}
-                    }}
-
+        schema = get_config_schema(self._MODULE)
         sync_pops = config["populations"]["sync_pop_sizes"].strip(" ")
         valid_sync_pops = [population.strip(" ") for population in possible_values_dict["populations"]["# possible values sync_pop_sizes"].split("|")]
-        if sync_pops !='':
-            if sync_pops in valid_sync_pops:
-                #check whether values are equal  
-                reference, toBeSynced = self._get_pops_to_sync(config)
-                reference_size = config['parameters'][f'Ne_{reference}']
-                tBS_sizes = [config['parameters'][f'Ne_{pop}'] for pop in toBeSynced]
-                reference_size = [s for s in tBS_sizes if s!=None and s!=reference_size and s!='']
-                if len(reference_size)>0:
-                    sys.exit(f"[X] Syncing pop sizes: set same value for Ne_{', Ne_'.join(toBeSynced)} as for Ne_{reference}")
-                for tBS in toBeSynced:
-                    config['parameters'][f'Ne_{tBS}'] = config['parameters'][f'Ne_{reference}']
+        if sync_pops and sync_pops in valid_sync_pops:
+            #check whether values are equal  
+            reference, toBeSynced = self._get_pops_to_sync(config)
+            reference_size = config['parameters'][f'Ne_{reference}']
+            tBS_sizes = [config['parameters'][f'Ne_{pop}'] for pop in toBeSynced]
+            reference_size = [s for s in tBS_sizes if s!=None and s!=reference_size and s!='']
+            print('reference', reference, 'toBeSynced', toBeSynced)
+            print('reference_size', reference_size)
+            if len(reference_size)>0:
+                sys.exit(f"[X] Syncing pop sizes: set same value for Ne_{', Ne_'.join(toBeSynced)} as for Ne_{reference}")
+            for tBS in toBeSynced:
+                config['parameters'][f'Ne_{tBS}'] = config['parameters'][f'Ne_{reference}']
         validator = CustomNormalizer(schema, valid_pop_ids=valid_pop_ids, valid_sync_pops=valid_sync_pops)
         validator.validate(config)
         output = ["[X] INI Config file format error(s) ..."]
         if not validator.validate(config):
-            print("[X] validator.errors", validator.errors)
-            sys.exit()
+            validator_error_string = get_validator_error_string(validator.errors)
+            sys.exit("[X] %s" % validator_error_string)
         config = validator.normalized(config)
         # there is probably a better way for setting config['population_by_letter'] ...
         config['population_by_letter'] = {'A' : config['populations']['A'], 'B' : config['populations']['B']}
         config['populations']['sample_pop_ids'] = sample_pop_ids
         print("[+] Config file validated.")
+        print('config', config)
+        if self._MODULE in set(['makegrid', 'inference', 'simulate', 'gridsearch']):
+            config['mu']['blocklength'] = self._get_blocks_length(self.zstore)
+            config['parameters']['mu'] = self.config['mu']['mu']
+            self._expand_params()
+            #self.reference, self.toBeSynced = self._get_pops_to_sync()
+            self._remove_pop_from_dict(self.toBeSynced)
+            self.parameter_combinations = self._dict_product()
+            self._sync_pop_sizes(self.reference, self.toBeSynced)
+        elif self._MODULE in ['optimise', 'optimize']:
+            #TO BE CHECKED: which bits are we still using
+            #determine parameters that are fixed:
+            self.fixed_params = self._get_fixed_params()
+            #self.config['mu']['blockslength'] = self._get_blocks_length(self.zstore)
+            #self.config['parameters']['mu'] = self.config['mu']['mu']
+            reference_pop=self.config['populations']['reference_pop']
+            #syncing pop sizes
+            #self.reference, self.toBeSynced = self._get_pops_to_sync()
+            if self.toBeSynced:
+                if reference_pop in self.toBeSynced:
+                    sys.exit(f"[X] Set reference pop to {self.reference}.")
+            toBeSynced_pops = [f'Ne_{s}' for s in self.toBeSynced] if self.toBeSynced!=None else []
+            self.fixed_params = [pop for pop in self.fixed_params if pop not in toBeSynced_pops]
+            #verify if any Ne fixed, whether one of those Ne is self.reference
+            fixed_Nes = [p for p in self.fixed_params if p.startswith('Ne')]
+            if len(fixed_Nes)>0:
+                if not f"Ne_{reference_pop}" in fixed_Nes:
+                    sys.exit("[X] No. No. No. It would make much more sense to set a population with a fixed size as reference.")
+            #self._sync_pop_sizes_optimise(self.reference, self.toBeSynced)
+            self.parameter_combinations = self._return_boundaries()
+        else:
+            sys.exit("[X] gimble.py_processing_config: Not implemented yet.")
         return config
 
     def _process_config(self):
+
         if self._MODULE in ['makegrid', 'inference', 'simulate', 'gridsearch']:
             self.config['mu']['blockslength'] = self._get_blocks_length(self.zstore)
             self.config['parameters']['mu'] = self.config['mu']['mu']

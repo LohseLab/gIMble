@@ -45,7 +45,7 @@ class OptimiseParameterObj(lib.gimble.ParameterObj):
         self.xtol_rel = self._get_float(args['--xtol_rel'])
         self.ftol_rel = self._get_float(args['--ftol_rel'])
         self.trackHistory = args['--trackPath']
-        self._process_config()
+        #self._process_config()
 
     def _get_datatype(self, args):
         choices = [args['--blocks'], args['--windows']]

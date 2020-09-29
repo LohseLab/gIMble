@@ -30,7 +30,7 @@ class GridsearchParameterObj(lib.gimble.ParameterObj):
         self.data_type = self._get_datatype([args['--blocks'], args['--windows']])
         self.config_file = self._get_path(args['--config_file'])
         self.config = self._parse_config(self.config_file)
-        self._process_config()
+        #self._process_config()
 
     def _get_datatype(self, args):
         if not any(args):
