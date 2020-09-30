@@ -25,7 +25,7 @@ import hashlib
 from timeit import default_timer as timer
 import fractions
 import copy
-
+import lib.math
 # np.set_printoptions(threshold=sys.maxsize)
 
 
@@ -684,56 +684,16 @@ class ParameterObj(object):
     def _dict_zip(self, pdict):
         return [dict(zip(pdict, x)) for x in zip(*pdict.values())]
 
-    def _expand_params(self):
-        print(self.config['parameters'])
-        if len(self.config['parameters'])>0:
-            for key, value in self.config['parameters'].items():
-                if isinstance(value, float) or isinstance(value, int):
-                    self.config['parameters'][key] = [value,]
-                elif key=='recombination':
-                    pass
-                else:
-                    if len(value) == 5:
-                        if self._MODULE in ['optimise', 'optimize']:
-                            sys.exit(f"[X] {self._MODULE} requires a single point or boundary.")
-                        midv, minv, maxv, n, scale = value
-                        if scale.startswith('lin'):
-                            sim_range = self._expand_params_lin(midv, minv, maxv, n)
-                        elif scale.startswith('log'):
-                            sim_range = self._expand_params_log(midv, minv, maxv, n)
-                        else:
-                            raise ValueError
-                        self.config['parameters'][key] = sim_range
-                    elif len(value) <4:
-                        self.config['parameters'][key] = np.unique(value)
-                    else:
-                        raise ValueError("Uncaught error in config file configuration.")
-
-    def _expand_params_lin(self, pcentre, pmin, pmax, psamples):
-        starts = [pmin, pcentre]
-        ends = [pcentre, pmax]
-        nums = [round(psamples/2) + 1, round(psamples/2)] if psamples % 2 == 0 else [round(psamples/2) + 1, round(psamples/2) + 1]
-        return np.unique(np.concatenate([np.linspace(start, stop, num=num, endpoint=True, dtype=np.float64) for start, stop, num in zip(starts, ends, nums)]))    
-
-    def _expand_params_log(self, pcentre, pmin, pmax, psamples):
-        plogcentre, plogmin, plogmax = np.log10([pcentre, pmin, pmax])
-        temp =  np.logspace(plogmin, plogmax, num=psamples, endpoint=True, dtype=np.float64)
-        left = (temp<pcentre).sum()
-        right = psamples-left
-        left = np.logspace(plogmin, plogcentre, num=left, endpoint=False, dtype=np.float64)
-        right = np.logspace(plogcentre, plogmax, num=right, endpoint=True, dtype=np.float64)
-        return np.unique(np.concatenate([left, right]))
-
-    def _get_blocks_length(self, zstore=None):
+    def _get_blocks_length(self):
         blocks_length_zarr = None
         blocks_length_ini = self._get_int(self.config['mu']['blocklength'], ret_none=True)
-        if zstore:
-            z = zarr.open(self.zstore, mode='r')
-            meta_blocks = self._get_meta('blocks')
-            blocks_length_zarr =  meta_blocks['length']
+        if self.zstore:
+            gimbleStore = lib.gimble.Store(path=self.zstore, create=False, overwrite=False)
+            meta_blocks = gimbleStore._get_meta('blocks')
+            blocks_length_zarr = meta_blocks['length']
         if blocks_length_zarr and blocks_length_ini:
             if blocks_length_zarr != blocks_length_ini:
-                print("[-] Block length in INI and GStore differ. Using block length in INI (i.e. %sb)." % blocks_length_ini)
+                print("[-] Block length in INI and gimbleStore differ. Using block length from INI : %s b" % blocks_length_ini)
                 return blocks_length_ini
             return blocks_length_zarr
         if blocks_length_zarr:
@@ -861,6 +821,41 @@ class ParameterObj(object):
             sys.exit("[X] Parent directory not found: %r" % str(infile))
         return str(path)        
 
+    def _expand_params(self):
+        '''
+        this is a function that returns nothing, should be refactored...
+        '''
+        if len(self.config['parameters'])>0:
+            for key, value in self.config['parameters'].items():
+                if isinstance(value, float) or isinstance(value, int):
+                    self.config['parameters'][key] = [value,]
+                elif key=='recombination':
+                    pass
+                else:
+                    if len(value) == 4:
+                        if self._MODULE in ['optimise', 'optimize']:
+                            sys.exit(f"[X] {self._MODULE} requires a single point or boundary.")
+                        minv, maxv, n, scale = value
+                        if scale.startswith('lin'):
+                            sim_range = self._expand_params_lin(minv, maxv, n)
+                        elif scale.startswith('log'):
+                            sim_range = self._expand_params_log(minv, maxv, n)
+                        else:
+                            raise ValueError
+                        self.config['parameters'][key] = sim_range
+                    elif len(value) <4:
+                        self.config['parameters'][key] = np.unique(value)
+                    else:
+                        raise ValueError("Uncaught error in config file configuration.")
+
+    def _expand_params_lin(self, minv, maxv, n):
+        '''should be refactored into _expand_params'''
+        return np.linspace(minv, maxv, num=n, endpoint=True, dtype=np.float64)
+
+    def _expand_params_log(self, minv, maxv, n):
+        '''should be refactored into _expand_params'''
+        return np.logspace(minv, maxv, num=n, endpoint=True, dtype=np.float64)
+
     def _parse_config(self, config_file):
         '''validates types in INI config, returns dict with keys, values as sections/params/etc
         - does not deal with missing/incompatible values (should be dealt with in ParameterObj subclasses)
@@ -882,68 +877,31 @@ class ParameterObj(object):
         valid_sync_pops = [population.strip(" ") for population in possible_values_dict["populations"]["# possible values sync_pop_sizes"].split("|")]
         if sync_pops and sync_pops in valid_sync_pops:
             #check whether values are equal  
-            reference, toBeSynced = self._get_pops_to_sync(config)
-            reference_size = config['parameters'][f'Ne_{reference}']
-            tBS_sizes = [config['parameters'][f'Ne_{pop}'] for pop in toBeSynced]
+            self.reference, self.toBeSynced = self._get_pops_to_sync(config)
+            reference_size = config['parameters'][f'Ne_{self.reference}']
+            tBS_sizes = [config['parameters'][f'Ne_{pop}'] for pop in self.toBeSynced]
             reference_size = [s for s in tBS_sizes if s!=None and s!=reference_size and s!='']
-            print('reference', reference, 'toBeSynced', toBeSynced)
-            print('reference_size', reference_size)
             if len(reference_size)>0:
-                sys.exit(f"[X] Syncing pop sizes: set same value for Ne_{', Ne_'.join(toBeSynced)} as for Ne_{reference}")
-            for tBS in toBeSynced:
-                config['parameters'][f'Ne_{tBS}'] = config['parameters'][f'Ne_{reference}']
+                sys.exit(f"[X] Syncing pop sizes: set same value for Ne_{', Ne_'.join(self.toBeSynced)} as for Ne_{self.reference}")
+            for tBS in self.toBeSynced:
+                config['parameters'][f'Ne_{tBS}'] = config['parameters'][f'Ne_{self.reference}']
         validator = CustomNormalizer(schema, valid_pop_ids=valid_pop_ids, valid_sync_pops=valid_sync_pops)
         validator.validate(config)
         output = ["[X] INI Config file format error(s) ..."]
         if not validator.validate(config):
             validator_error_string = get_validator_error_string(validator.errors)
             sys.exit("[X] %s" % validator_error_string)
-        config = validator.normalized(config)
+        self.config = validator.normalized(config)
         # there is probably a better way for setting config['population_by_letter'] ...
-        config['population_by_letter'] = {'A' : config['populations']['A'], 'B' : config['populations']['B']}
-        config['populations']['sample_pop_ids'] = sample_pop_ids
-        print("[+] Config file validated.")
-        print('config', config)
+        self.config['population_by_letter'] = {'A' : config['populations']['A'], 'B' : config['populations']['B']}
+        self.config['populations']['sample_pop_ids'] = sample_pop_ids
+        #print("[+] Config file validated.")
+        #print('self.config', self.config)
         if self._MODULE in set(['makegrid', 'inference', 'simulate', 'gridsearch']):
-            config['mu']['blocklength'] = self._get_blocks_length(self.zstore)
-            config['parameters']['mu'] = self.config['mu']['mu']
-            self._expand_params()
-            #self.reference, self.toBeSynced = self._get_pops_to_sync()
-            self._remove_pop_from_dict(self.toBeSynced)
-            self.parameter_combinations = self._dict_product()
-            self._sync_pop_sizes(self.reference, self.toBeSynced)
-        elif self._MODULE in ['optimise', 'optimize']:
-            #TO BE CHECKED: which bits are we still using
-            #determine parameters that are fixed:
-            self.fixed_params = self._get_fixed_params()
-            #self.config['mu']['blockslength'] = self._get_blocks_length(self.zstore)
-            #self.config['parameters']['mu'] = self.config['mu']['mu']
-            reference_pop=self.config['populations']['reference_pop']
-            #syncing pop sizes
-            #self.reference, self.toBeSynced = self._get_pops_to_sync()
-            if self.toBeSynced:
-                if reference_pop in self.toBeSynced:
-                    sys.exit(f"[X] Set reference pop to {self.reference}.")
-            toBeSynced_pops = [f'Ne_{s}' for s in self.toBeSynced] if self.toBeSynced!=None else []
-            self.fixed_params = [pop for pop in self.fixed_params if pop not in toBeSynced_pops]
-            #verify if any Ne fixed, whether one of those Ne is self.reference
-            fixed_Nes = [p for p in self.fixed_params if p.startswith('Ne')]
-            if len(fixed_Nes)>0:
-                if not f"Ne_{reference_pop}" in fixed_Nes:
-                    sys.exit("[X] No. No. No. It would make much more sense to set a population with a fixed size as reference.")
-            #self._sync_pop_sizes_optimise(self.reference, self.toBeSynced)
-            self.parameter_combinations = self._return_boundaries()
-        else:
-            sys.exit("[X] gimble.py_processing_config: Not implemented yet.")
-        return config
-
-    def _process_config(self):
-
-        if self._MODULE in ['makegrid', 'inference', 'simulate', 'gridsearch']:
-            self.config['mu']['blockslength'] = self._get_blocks_length(self.zstore)
+            self.config['mu']['blocklength'] = self._get_blocks_length()
             self.config['parameters']['mu'] = self.config['mu']['mu']
             self._expand_params()
-            self.reference, self.toBeSynced = self._get_pops_to_sync()
+            #self.reference, self.toBeSynced = self._get_pops_to_sync()
             self._remove_pop_from_dict(self.toBeSynced)
             self.parameter_combinations = self._dict_product()
             self._sync_pop_sizes(self.reference, self.toBeSynced)
@@ -955,7 +913,7 @@ class ParameterObj(object):
             #self.config['parameters']['mu'] = self.config['mu']['mu']
             reference_pop=self.config['populations']['reference_pop']
             #syncing pop sizes
-            self.reference, self.toBeSynced = self._get_pops_to_sync()
+            #self.reference, self.toBeSynced = self._get_pops_to_sync()
             if self.toBeSynced:
                 if reference_pop in self.toBeSynced:
                     sys.exit(f"[X] Set reference pop to {self.reference}.")
@@ -974,6 +932,39 @@ class ParameterObj(object):
     def _return_boundaries(self, length_boundary_set=3):
         parameter_combinations = {k:self._cast_to_repeated_list(v, length_boundary_set)[:length_boundary_set] for k,v in self.config['parameters'].items()}    
         return self._dict_zip(parameter_combinations)
+    #def _process_config(self):
+#
+    #    if self._MODULE in ['makegrid', 'inference', 'simulate', 'gridsearch']:
+    #        self.config['mu']['blockslength'] = self._get_blocks_length(self.zstore)
+    #        self.config['parameters']['mu'] = self.config['mu']['mu']
+    #        self._expand_params()
+    #        self.reference, self.toBeSynced = self._get_pops_to_sync()
+    #        self._remove_pop_from_dict(self.toBeSynced)
+    #        self.parameter_combinations = self._dict_product()
+    #        self._sync_pop_sizes(self.reference, self.toBeSynced)
+    #    elif self._MODULE in ['optimise', 'optimize']:
+    #        #TO BE CHECKED: which bits are we still using
+    #        #determine parameters that are fixed:
+    #        self.fixed_params = self._get_fixed_params()
+    #        #self.config['mu']['blockslength'] = self._get_blocks_length(self.zstore)
+    #        #self.config['parameters']['mu'] = self.config['mu']['mu']
+    #        reference_pop=self.config['populations']['reference_pop']
+    #        #syncing pop sizes
+    #        self.reference, self.toBeSynced = self._get_pops_to_sync()
+    #        if self.toBeSynced:
+    #            if reference_pop in self.toBeSynced:
+    #                sys.exit(f"[X] Set reference pop to {self.reference}.")
+    #        toBeSynced_pops = [f'Ne_{s}' for s in self.toBeSynced] if self.toBeSynced!=None else []
+    #        self.fixed_params = [pop for pop in self.fixed_params if pop not in toBeSynced_pops]
+    #        #verify if any Ne fixed, whether one of those Ne is self.reference
+    #        fixed_Nes = [p for p in self.fixed_params if p.startswith('Ne')]
+    #        if len(fixed_Nes)>0:
+    #            if not f"Ne_{reference_pop}" in fixed_Nes:
+    #                sys.exit("[X] No. No. No. It would make much more sense to set a population with a fixed size as reference.")
+    #        #self._sync_pop_sizes_optimise(self.reference, self.toBeSynced)
+    #        self.parameter_combinations = self._return_boundaries()
+    #    else:
+    #        sys.exit("[X] gimble.py_processing_config: Not implemented yet.")
 
 class Store(object):
     def __init__(self, prefix=None, path=None, create=False, overwrite=False):
@@ -1054,11 +1045,16 @@ class Store(object):
         if parameterObj.windows:
             self._write_window_bed(parameterObj, cartesian_only=True)
 
-    def _make_gridsearch(self, parameterObj):
+    def gridsearch(self, parameterObj):
+        '''this works only for windows ('-w') for now... logic for '-b' has to be decided upon'''
+        print("[#] Gridsearching ...")
         unique_hash = parameterObj._get_unique_hash()
-        grids, grid_meta_dict = self._get_grid(unique_hash) 
-        if grids is None:
-            sys.exit("[X] No grid for this INI.")
+        grids, grid_meta_dict = self._get_grid(unique_hash)
+        bsfs_window_sum = self.get_bsfs(
+            data_type='windows_sum', 
+            population_by_letter=parameterObj.config['population_by_letter'], 
+            sample_sets='X', 
+            kmax_by_mutype=parameterObj.config['k_max'])
         bsfs_clipped = self.get_bsfs(
             data_type=parameterObj.data_type, 
             population_by_letter=parameterObj.config['population_by_letter'], 
@@ -1075,9 +1071,46 @@ class Store(object):
         pop_metrics = pop_metrics_from_bsfs(bsfs_full, mutypes=meta_seqs['mutypes_count'], block_length=meta_blocks['length'], window_size=meta_windows['size'])
         self._write_gridsearch_bed(parameterObj=parameterObj, lncls=lncls, grid_meta_dict=grid_meta_dict, pop_metrics=pop_metrics)
 
-    def gridsearch(self, parameterObj):
-        print("[#] Gridsearching ...")
-        self._make_gridsearch(parameterObj)
+    def optimize(self, parameterObj):
+        if not self.has_stage(parameterObj.data_type):
+            sys.exit("[X] gimbleStore has no %r." % parameterObj.data_type)
+        print("[+] Generated all parameter combinations.")
+        data = self.get_bsfs(
+            data_type=parameterObj.data_type, 
+            population_by_letter=parameterObj.config['populations'], 
+            sample_sets="X", 
+            kmax_by_mutype=parameterObj.config['k_max'])
+            
+        # load math.EquationSystemObj
+        equationSystem = lib.math.EquationSystemObj(parameterObj)
+        # initiate model equations
+        equationSystem.initiate_model(parameterObj)
+        optimizeResult=equationSystem.optimize_parameters(
+            data, 
+            parameterObj
+            )
+        #to be used in different function
+        #if parameterObj.trackHistory:
+            #df = pd.DataFrame(optimizeResult[1:])
+            #df.columns=optimizeResult[0]
+            #df = df.sort_values(by='iterLabel')
+
+             
+    def makegrid(self, parameterObj):
+        print("[#] Making grid ...")
+        unique_hash = parameterObj._get_unique_hash()
+        if self._has_grid(unique_hash) and not parameterObj.overwrite:
+            sys.exit(f"[X] Grid for this config file has already been built.")
+        print("[+] Generated %s grid points combinations." % len(parameterObj.parameter_combinations))
+        equationSystem = lib.math.EquationSystemObj(parameterObj)
+        #build the equations
+        equationSystem.initiate_model(parameterObj=parameterObj)
+        equationSystem.ETPs = equationSystem.calculate_all_ETPs(threads=parameterObj.threads, gridThreads=parameterObj.gridThreads, verbose=False)
+        #print('equationSystem.ETPs', equationSystem.ETPs.shape, equationSystem.ETPs)
+        self._set_grid(unique_hash, equationSystem.ETPs, parameterObj.parameter_combinations, overwrite=parameterObj.overwrite)
+        #run_count = gimbleStore._return_group_last_integer('grids')
+        #g = gimbleStore.data['grids'].create_dataset(f'grid_{run_count}', data=equationSystem.ETPs)
+        #g.attrs.put({idx:combo for idx, combo in enumerate(parameterObj.parameter_combinations)})
 
     def _validate_seq_names(self, sequences=None):
         """Returns valid seq_names in sequences or raises ValueError."""
@@ -1157,7 +1190,7 @@ class Store(object):
             variations.append(variation)
         _bsfs = np.concatenate(variations, axis=0)
         if invert_population_flag:
-            _bsfs[0], _bsfs[1] = _bsfs[1], _bsfs[0]
+            _bsfs[:,:,0], _bsfs[:,:,1] = _bsfs[:,:,1], _bsfs[:,:,0]
         bsfs = _bsfs.reshape((_bsfs.shape[0] * _bsfs.shape[1], _bsfs.shape[2]))
         index = np.repeat(np.arange(_bsfs.shape[0]), _bsfs.shape[1]).reshape(_bsfs.shape[0] * _bsfs.shape[1], 1)
         mutuples, counts = np.unique(
@@ -1191,17 +1224,17 @@ class Store(object):
             params['span'] = meta_blocks['span']
             params['max_missing'] = meta_blocks['max_missing']
             params['max_multiallelic'] = meta_blocks['max_multiallelic']
-        elif data_type == 'windows':
+        elif data_type == 'windows' or data_type == 'windows_sum':
             meta_windows = self._get_meta('windows')
             if meta_windows['count'] == 0:
                 sys.exit('[X] No windows found.')
             params['size'] = meta_windows['size']
             params['step'] = meta_windows['step']
         else:
-            raise ValueError("data_type must be 'blocks' or 'windows'")        
+            raise ValueError("data_type must be 'blocks', 'windows', or 'windows_sum'")        
         unique_hash = get_hash_from_dict(params)
         bsfs_data_key = 'bsfs/%s/%s' % (data_type, get_hash_from_dict(params))
-        if bsfs_data_key in self.data:
+        if bsfs_data_key in self.data and False:
             bsfs = np.array(self.data[bsfs_data_key], dtype=np.int64)
         else:
             meta_bsfs = self._get_meta('bsfs')
@@ -1210,10 +1243,37 @@ class Store(object):
                 bsfs = self._get_block_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
             elif data_type == 'windows':
                 bsfs = self._get_window_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
+            elif data_type == 'windows_sum':
+                print('here')
+                bsfs = self._get_window_sum_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
             else:
                 raise ValueError("data_type must be 'blocks' or 'windows'")        
             self.data.create_dataset(bsfs_data_key, data=bsfs, overwrite=True)
         return bsfs
+
+    def _get_window_sum_bsfs(self, sample_sets='X', sequences=None, population_by_letter=None, kmax_by_mutype=None):
+        """Return bsfs_array of 4 dimensions.
+        [ToDo] Ideally this should work with regions, as in CHR:START-STOP.
+        [ToDo] put in sample set context (error if not samples set).
+    
+        Parameters 
+        ----------
+        sequences : list of strings or None
+            Only make bSFS based on variation on these sequences seq_names.
+
+        population_by_letter : dict (string -> string) or None
+            Mapping of population IDs to population letter in model (from INI file).
+
+        kmax : dict (string -> int) or None
+            Mapping of kmax values to mutypes.
+        
+        Returns
+        -------
+        bsfs : (dask) ndarray, int, ndim (1 + mutypes). First dimension is window idx. 
+        """
+        bsfs_2d = bsfs_to_2d(self._get_window_bsfs(sample_sets=sample_sets, sequences=sequences, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype))
+        print('bsfs_2d', bsfs_2d.shape, bsfs_2d)
+        return bsfs_2d
 
     def _get_block_bsfs(self, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None):
         """Returns bsfs_array of 4 dimensions.
@@ -1355,7 +1415,7 @@ class Store(object):
             grid = np.array(self.data[f'grids/{unique_hash}'], dtype=np.float64)
             return (grid, grid_meta)
         else:
-            return (None, None)
+            sys.exit("[X] No grid for this INI.")
 
     def _get_setup_report(self, width):
         meta_seqs = self._get_meta('seqs')
