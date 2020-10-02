@@ -271,7 +271,7 @@ def get_config_schema(module):
                 }}
     return schema
 
-def recursive_get_size(path: str) -> int:
+def recursive_get_size(path):
     """Gets size in bytes of the given path, recursing into directories."""
     if os.path.isfile(path):
         return os.path.getsize(path)
@@ -751,7 +751,7 @@ class ParameterObj(object):
             sys.exit("[X] zstore already exists. Specify using -z or provide new prefix.")
         parent_path = pathlib.Path(prefix).resolve().parent
         if not parent_path.exists():
-            sys.exit("[X] File not found: %r" % str(infile))
+            sys.exit("[X] Path does not exist: %r" % str(parent_path))
         return str(path)
 
     def _get_pops_to_sync(self, config=None):
@@ -887,10 +887,9 @@ class ParameterObj(object):
                 config['parameters'][f'Ne_{tBS}'] = config['parameters'][f'Ne_{self.reference}']
         validator = CustomNormalizer(schema, valid_pop_ids=valid_pop_ids, valid_sync_pops=valid_sync_pops)
         validator.validate(config)
-        output = ["[X] INI Config file format error(s) ..."]
         if not validator.validate(config):
             validator_error_string = get_validator_error_string(validator.errors)
-            sys.exit("[X] %s" % validator_error_string)
+            sys.exit("[X] INI Config file format error(s) ...\n%s" % validator_error_string)
         self.config = validator.normalized(config)
         # there is probably a better way for setting config['population_by_letter'] ...
         self.config['population_by_letter'] = {'A' : config['populations']['A'], 'B' : config['populations']['B']}
@@ -1046,30 +1045,48 @@ class Store(object):
             self._write_window_bed(parameterObj, cartesian_only=True)
 
     def gridsearch(self, parameterObj):
-        '''this works only for windows ('-w') for now... logic for '-b' has to be decided upon'''
+        '''
+        1. Uses window_sum_bsfs (kmax) to get 'best' global gridpoint
+        2. Output 
+        3. Uses block_bsfs (no kmax) to get popgen-metrics
+        4. Uses window_bsfs (kmax) to get 'best' local gridpoint
+        5. Output 
+        
+        Assumptions:
+            - this works only for windows ('-w') for now... logic for '-b' has to be decided upon
+            - same kmax for
+
+        '''
         print("[#] Gridsearching ...")
         unique_hash = parameterObj._get_unique_hash()
         grids, grid_meta_dict = self._get_grid(unique_hash)
-        bsfs_window_sum = self.get_bsfs(
+        # gridsearch windows_sum
+        bsfs_windows_sum = self.get_bsfs(
             data_type='windows_sum', 
             population_by_letter=parameterObj.config['population_by_letter'], 
-            sample_sets='X', 
+            sample_sets='X',
             kmax_by_mutype=parameterObj.config['k_max'])
-        bsfs_clipped = self.get_bsfs(
-            data_type=parameterObj.data_type, 
+        lncls_global = self.gridsearch_np(bsfs=bsfs_windows_sum, grids=grids)
+        best_idx = np.argmax(lncls_global, axis=0)
+        print('[+] Best grid point (based on bSFS within windows): %s' % lncls_global[best_idx])
+        print('[+] \t %s' % "; ".join(["%s = %s" % (k, v) for k, v in grid_meta_dict[str(best_idx)].items()]))
+        # gridsearch windows
+        bsfs_windows_clipped = self.get_bsfs(
+            data_type='windows', 
             population_by_letter=parameterObj.config['population_by_letter'], 
             sample_sets='X', 
             kmax_by_mutype=parameterObj.config['k_max'])
-        lncls = self.gridsearch_np(bsfs=bsfs_clipped, grids=grids)
-        bsfs_full = self.get_bsfs(
-            data_type=parameterObj.data_type, 
-            population_by_letter=parameterObj.config['population_by_letter'], 
-            sample_sets='X')
+        lncls_windows = self.gridsearch_np(bsfs=bsfs_windows_clipped, grids=grids)
+        # pop metrics
         meta_seqs = self._get_meta('seqs')
         meta_blocks = self._get_meta('blocks')
         meta_windows = self._get_meta('windows')
-        pop_metrics = pop_metrics_from_bsfs(bsfs_full, mutypes=meta_seqs['mutypes_count'], block_length=meta_blocks['length'], window_size=meta_windows['size'])
-        self._write_gridsearch_bed(parameterObj=parameterObj, lncls=lncls, grid_meta_dict=grid_meta_dict, pop_metrics=pop_metrics)
+        bsfs_windows_full = self.get_bsfs(
+            data_type='windows', 
+            population_by_letter=parameterObj.config['population_by_letter'], 
+            sample_sets='X')
+        pop_metrics = pop_metrics_from_bsfs(bsfs_windows_full, mutypes=meta_seqs['mutypes_count'], block_length=meta_blocks['length'], window_size=meta_windows['size'])
+        self._write_gridsearch_bed(parameterObj=parameterObj, lncls=lncls_windows, best_idx=best_idx, grid_meta_dict=grid_meta_dict, pop_metrics=pop_metrics)
 
     def optimize(self, parameterObj):
         if not self.has_stage(parameterObj.data_type):
@@ -1085,7 +1102,7 @@ class Store(object):
         equationSystem = lib.math.EquationSystemObj(parameterObj)
         # initiate model equations
         equationSystem.initiate_model(parameterObj)
-        optimizeResult=equationSystem.optimize_parameters(
+        optimizeResult = equationSystem.optimize_parameters(
             data, 
             parameterObj
             )
@@ -1188,11 +1205,14 @@ class Store(object):
         for seq_name in tqdm(sequences, total=len(sequences), desc="[%] Querying data ", ncols=100):
             variation = np.array(self.data["windows/%s/variation" % seq_name], dtype=np.int64)
             variations.append(variation)
-        _bsfs = np.concatenate(variations, axis=0)
-        if invert_population_flag:
-            _bsfs[:,:,0], _bsfs[:,:,1] = _bsfs[:,:,1], _bsfs[:,:,0]
-        bsfs = _bsfs.reshape((_bsfs.shape[0] * _bsfs.shape[1], _bsfs.shape[2]))
-        index = np.repeat(np.arange(_bsfs.shape[0]), _bsfs.shape[1]).reshape(_bsfs.shape[0] * _bsfs.shape[1], 1)
+        variation = np.concatenate(variations, axis=0)
+        mutuples, counts = np.unique(variation, return_counts=True, axis=0)
+        if 1 or invert_population_flag:
+            variation[:, [0, 1]] = variation[:, [1, 0]]
+            mutuples, counts = np.unique(variation, return_counts=True, axis=0)
+        
+        bsfs = variation.reshape((variation.shape[0] * variation.shape[1], variation.shape[2]))
+        index = np.repeat(np.arange(variation.shape[0]), variation.shape[1]).reshape(variation.shape[0] * variation.shape[1], 1)
         mutuples, counts = np.unique(
             np.concatenate([index, np.clip(bsfs, 0, max_k)], axis=-1).reshape(-1, bsfs.shape[-1] + 1),
             return_counts=True, axis=0)
@@ -1201,13 +1221,6 @@ class Store(object):
         # assign values
         out[tuple(mutuples.T)] = counts
         return out
-
-    #def set_bsfs(self, data_type='etp', bsfs=None):
-    #    '''@Gertjan: do we need this one?'''
-    #    '''Saves array in GStore and saves parameters (as strings) in meta. Recovery of parameters is possible via key_to_params().''' 
-    #    key = hashlib.md5(str({k: v for k, v in locals().items() if not k == 'self'}).encode()).hexdigest()
-    #    bsfs_key = 'bsfs/%s' % key
-    #    self.data.create_dataset(bsfs_key, data=bsfs, overwrite=True)
     
     def get_bsfs(self, data_type=None, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None):
         """main method for accessing bsfs
@@ -1244,7 +1257,6 @@ class Store(object):
             elif data_type == 'windows':
                 bsfs = self._get_window_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
             elif data_type == 'windows_sum':
-                print('here')
                 bsfs = self._get_window_sum_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
             else:
                 raise ValueError("data_type must be 'blocks' or 'windows'")        
@@ -1252,28 +1264,23 @@ class Store(object):
         return bsfs
 
     def _get_window_sum_bsfs(self, sample_sets='X', sequences=None, population_by_letter=None, kmax_by_mutype=None):
-        """Return bsfs_array of 4 dimensions.
-        [ToDo] Ideally this should work with regions, as in CHR:START-STOP.
-        [ToDo] put in sample set context (error if not samples set).
-    
-        Parameters 
-        ----------
-        sequences : list of strings or None
-            Only make bSFS based on variation on these sequences seq_names.
-
-        population_by_letter : dict (string -> string) or None
-            Mapping of population IDs to population letter in model (from INI file).
-
-        kmax : dict (string -> int) or None
-            Mapping of kmax values to mutypes.
-        
-        Returns
-        -------
-        bsfs : (dask) ndarray, int, ndim (1 + mutypes). First dimension is window idx. 
-        """
-        bsfs_2d = bsfs_to_2d(self._get_window_bsfs(sample_sets=sample_sets, sequences=sequences, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype))
-        print('bsfs_2d', bsfs_2d.shape, bsfs_2d)
-        return bsfs_2d
+        sequences = self._validate_seq_names(sequences)
+        invert_population_flag = self._get_invert_population_flag(population_by_letter)
+        max_k = np.array(list(kmax_by_mutype.values())) + 1 if kmax_by_mutype else None 
+        variations = []
+        for seq_name in tqdm(sequences, total=len(sequences), desc="[%] Querying data ", ncols=100):
+            variation = np.array(self.data["windows/%s/variation" % seq_name], dtype=np.int64)
+            variations.append(variation)
+        variation = np.concatenate(variations, axis=0)
+        variation = variation.reshape((variation.shape[0] * variation.shape[1], variation.shape[2]))
+        if invert_population_flag:
+            variation[:, [0, 1]] = variation[:, [1, 0]]
+        mutuples, counts = np.unique(np.clip(variation, 0, max_k),return_counts=True, axis=0)
+        # define out based on max values for each column
+        out = np.zeros(tuple(np.max(mutuples, axis=0) + 1), np.int64)
+        # assign values
+        out[tuple(mutuples.T)] = counts
+        return out
 
     def _get_block_bsfs(self, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None):
         """Returns bsfs_array of 4 dimensions.
@@ -1313,7 +1320,7 @@ class Store(object):
                     variations.append(np.array(self.data[variation_key], dtype=np.int64))
         variation = np.concatenate(variations, axis=0) # concatenate is faster than offset-indexes
         if invert_population_flag:
-            variation[0], variation[1] = variation[1], variation[0]        
+            variation[:,[0, 1]] = variation[:,[1, 0]]
         # count mutuples (clipping at k_max, if supplied)
         mutuples, counts = np.unique(np.clip(variation, 0, max_k), return_counts=True, axis=0)
         # define out based on max values for each column
@@ -1321,73 +1328,6 @@ class Store(object):
         # assign values
         out[tuple(mutuples.T)] = counts
         return out
-
-#    def test_dask(self, grids=None, data=None):
-#        if grids is None or data is None:
-#            raise ValueError('gridsearch: needs grid and data') 
-#        from dask.distributed import LocalCluster, Client
-#        cluster= LocalCluster(
-#            n_workers=8, 
-#            threads_per_worker=1,
-#            dashboard_address='localhost:8787', 
-#            interface='lo0', 
-#            **{'local_directory': 'dasktemp', 'memory_limit': '2G'})
-#        client = Client(cluster)
-#        array = dask.array.ones((100000,100000), chunks=(10000,10000))
-#        a = client.submit(dask.array.mean, array).result()
-#        return a.compute()
-        
-#   def gridsearch(self, grids=None, data=None):
-#       '''returns 2d array of likelihoods of shape (windows, grids)'''
-#       if grids is None or data is None:
-#           raise ValueError('gridsearch: needs grid and data') 
-#       from dask.distributed import Client, LocalCluster
-#       cluster= LocalCluster(
-#           n_workers=8, 
-#           threads_per_worker=1,
-#           dashboard_address='localhost:8787', 
-#           interface='lo0', 
-#           **{'local_directory': 'dasktemp', 'memory_limit': '3G'})
-#       client = Client(cluster)
-#       data_array = dask.array.from_array(data, chunks=(10000, *data.shape[1:]))
-#       print('# data_array', type(data_array))
-#       grid_array = dask.array.from_array(grids, chunks=(1, *grids.shape[1:]))
-#       print('# grid_array', type(grid_array))
-#       grids_masked = dask.array.ma.masked_array(grids, grids==0, fill_value=np.nan)
-#       grids_log_temp = client.submit(dask.array.log, grids_masked).result()
-
-#       print('# grids_log_temp', type(grids_log_temp))
-#       grids_log = client.submit(dask.array.nan_to_num, grids_log_temp).result().compute()
-#       print('grids_log', type(grids_log))
-#       print('done')
-#       # print('data', type(data))
-#       # print('grids', type(grids))
-#       # data = dask.array.from_array(data, chunks=(500, *data.shape[1:]))
-#       # # print('data', type(data), data.chunks)
-#       # grids = dask.array.from_array(grids, chunks=(10, *grids.shape[1:]))
-#       # # print('grids', type(grids), grids.chunks)
-#       # #np.log(grids, where=grids>0, out=grids_log)
-#       # grids[grids==0] = np.nan
-#       # 
-#       # grids_log = client.submit(dask.array.log, grids).result().compute()
-#       # print('grids_log', type(grids_log))
-#       # grids_log[grids_log==np.nan] = 0
-#       # data_scattered = client.scatter(data[:, None])
-#       # grids_log_scattered = client.scatter(grids_log)
-#       # m_res = client.submit(dask.array.multiply, data_scattered, grids_log_scattered)
-#       # #m_res.rechunk({0:100, 1: 4, 2: 4, 3: 4, 4: 4})
-#       # #res_scattered = client.scatter(m_res)
-#       # #r_res = client.submit(dask.array.apply_over_axes, dask.array.sum, res_scattered, axes=[2,3,4,5])
-#       # x_res = client.submit(dask.array.apply_over_axes, dask.array.sum, m_res, axes=[2,3,4,5])
-#       # #m1_res.rechunk(100000)
-#       # #r_res_scattered = client.scatter(r_res)
-#       # y_res = client.submit(dask.array.squeeze, x_res)
-#       # y_res.result().compute()
-#       # #res.visualize()
-#       # print('y_res', type(y_res))
-#       # return y_res
-#       #return a
-#       return True
 
     def gridsearch_np(self, bsfs=None, grids=None):
         '''returns 2d array of likelihoods of shape (windows, grids)'''
@@ -1398,6 +1338,8 @@ class Store(object):
         #print('data.shape', data.shape)
         #print('grids_log.shape', grids_log.shape)
         #print('data[:, None]', data[:, None] * grids_log)
+        if bsfs.ndim == 4:
+            return np.squeeze(np.apply_over_axes(np.sum, (bsfs * grids_log), axes=[-4,-3,-2,-1]))
         return np.squeeze(np.apply_over_axes(np.sum, (bsfs[:, None] * grids_log), axes=[-4,-3,-2,-1]))
 
     def _set_grid(self, unique_hash, ETPs, grid_labels, overwrite=False):
@@ -1771,7 +1713,7 @@ class Store(object):
         counts_inter = self.data[counts_inter_key]
         self.plot_bsfs_pcp('%s.bsfs_pcp.png' % self.prefix, mutypes_inter, counts_inter)
 
-    def _write_gridsearch_bed(self, parameterObj=None, lncls=None, grid_meta_dict=None, pop_metrics=None):
+    def _write_gridsearch_bed(self, parameterObj=None, lncls=None, best_idx=None, grid_meta_dict=None, pop_metrics=None):
         if parameterObj is None or lncls is None or grid_meta_dict is None:
             raise ValueError('_write_gridsearch_bed: needs parameterObj and lncls and grid_meta_dict')
         grids = []
@@ -1798,9 +1740,7 @@ class Store(object):
                 ends[offset:offset+window_count] = np.array(self.data[end_key])
                 sequences[offset:offset+window_count] = np.full_like(window_count, seq_name, dtype='<U%s' % MAX_SEQNAME_LENGTH)
                 offset += window_count
-        grid_center_idx = np.int(len(grid_meta_dict)/2)
-        print("[+] grid center = %s (idx: %s)" % (grid_meta_dict[str(grid_center_idx)], grid_center_idx))
-        delta_lncls = best_likelihoods - lncls[:, grid_center_idx]
+        delta_lncls = best_likelihoods - lncls[:, best_idx]
 
         params_header = list(grid_dict.keys())
         popgen_header = ['heterozygosity_A', 'heterozygosity_B', 'd_xy', 'f_st']
@@ -2873,3 +2813,70 @@ class Store(object):
         #pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation_global_array, (self.data.attrs['block_length'] * variation_global_array.shape[0]))
         #print("[+] Pi_%s = %s; Pi_%s = %s; D_xy = %s; F_st = %s; FGVs = %s / %s blocks (%s)" % (self.data.attrs['pop_ids'][0], pi_1, self.data.attrs['pop_ids'][1], pi_2, d_xy, f_st, fgv, variation_global_array.shape[0], format_percentage(fgv / variation_global_array.shape[0]))) 
 
+
+#    def test_dask(self, grids=None, data=None):
+#        if grids is None or data is None:
+#            raise ValueError('gridsearch: needs grid and data') 
+#        from dask.distributed import LocalCluster, Client
+#        cluster= LocalCluster(
+#            n_workers=8, 
+#            threads_per_worker=1,
+#            dashboard_address='localhost:8787', 
+#            interface='lo0', 
+#            **{'local_directory': 'dasktemp', 'memory_limit': '2G'})
+#        client = Client(cluster)
+#        array = dask.array.ones((100000,100000), chunks=(10000,10000))
+#        a = client.submit(dask.array.mean, array).result()
+#        return a.compute()
+        
+#   def gridsearch(self, grids=None, data=None):
+#       '''returns 2d array of likelihoods of shape (windows, grids)'''
+#       if grids is None or data is None:
+#           raise ValueError('gridsearch: needs grid and data') 
+#       from dask.distributed import Client, LocalCluster
+#       cluster= LocalCluster(
+#           n_workers=8, 
+#           threads_per_worker=1,
+#           dashboard_address='localhost:8787', 
+#           interface='lo0', 
+#           **{'local_directory': 'dasktemp', 'memory_limit': '3G'})
+#       client = Client(cluster)
+#       data_array = dask.array.from_array(data, chunks=(10000, *data.shape[1:]))
+#       print('# data_array', type(data_array))
+#       grid_array = dask.array.from_array(grids, chunks=(1, *grids.shape[1:]))
+#       print('# grid_array', type(grid_array))
+#       grids_masked = dask.array.ma.masked_array(grids, grids==0, fill_value=np.nan)
+#       grids_log_temp = client.submit(dask.array.log, grids_masked).result()
+
+#       print('# grids_log_temp', type(grids_log_temp))
+#       grids_log = client.submit(dask.array.nan_to_num, grids_log_temp).result().compute()
+#       print('grids_log', type(grids_log))
+#       print('done')
+#       # print('data', type(data))
+#       # print('grids', type(grids))
+#       # data = dask.array.from_array(data, chunks=(500, *data.shape[1:]))
+#       # # print('data', type(data), data.chunks)
+#       # grids = dask.array.from_array(grids, chunks=(10, *grids.shape[1:]))
+#       # # print('grids', type(grids), grids.chunks)
+#       # #np.log(grids, where=grids>0, out=grids_log)
+#       # grids[grids==0] = np.nan
+#       # 
+#       # grids_log = client.submit(dask.array.log, grids).result().compute()
+#       # print('grids_log', type(grids_log))
+#       # grids_log[grids_log==np.nan] = 0
+#       # data_scattered = client.scatter(data[:, None])
+#       # grids_log_scattered = client.scatter(grids_log)
+#       # m_res = client.submit(dask.array.multiply, data_scattered, grids_log_scattered)
+#       # #m_res.rechunk({0:100, 1: 4, 2: 4, 3: 4, 4: 4})
+#       # #res_scattered = client.scatter(m_res)
+#       # #r_res = client.submit(dask.array.apply_over_axes, dask.array.sum, res_scattered, axes=[2,3,4,5])
+#       # x_res = client.submit(dask.array.apply_over_axes, dask.array.sum, m_res, axes=[2,3,4,5])
+#       # #m1_res.rechunk(100000)
+#       # #r_res_scattered = client.scatter(r_res)
+#       # y_res = client.submit(dask.array.squeeze, x_res)
+#       # y_res.result().compute()
+#       # #res.visualize()
+#       # print('y_res', type(y_res))
+#       # return y_res
+#       #return a
+#       return True
