@@ -1886,7 +1886,6 @@ class Store(object):
         columns += ['missing', 'multiallelic'] + mutypes_count    
         # header
         header = ["# %s" % parameterObj._VERSION]
-        print('sample_set_idxs', sample_set_idxs)
         header += ["# %s = %s" % (sample_set_idx, ", ".join(meta_seqs['sample_sets'][int(sample_set_idx)])) for sample_set_idx in sample_set_idxs] 
         header += ["# %s" % "\t".join(columns)]  
         out_f = '%s.blocks.bed' % self.prefix
