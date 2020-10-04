@@ -25,7 +25,7 @@ import hashlib
 from timeit import default_timer as timer
 import fractions
 import copy
-
+import lib.math
 # np.set_printoptions(threshold=sys.maxsize)
 
 
@@ -156,6 +156,15 @@ META_TEMPLATE_BY_STAGE = {
             }
         }
 
+def get_validator_error_string(validator_errors):
+    out = []
+    for section, errors in validator_errors.items():
+        out.append("Section %s ..." % section)
+        for error_dict in errors:
+            for parameter, values in error_dict.items():
+                out.append("[X] %s \t: %s ..." % (parameter, " ".join(values)))
+    return "\n".join(out)
+
 class ReportObj(object):
     '''Info class for making reports
     '''
@@ -206,7 +215,63 @@ def get_hash_from_dict(d):
     else:
         raise ValueError('must be a dict')
 
-def recursive_get_size(path: str) -> int:
+def get_config_schema(module):
+    schema = {
+        'gimble': {
+            'type': 'dict',
+            'schema': {
+                'version': {'required': True, 'empty':False, 'type': 'string'},
+                'precision': {'required': True, 'empty':False, 'type': 'integer', 'coerce': int},
+                'random_seed': {'required': True, 'empty':False, 'type': 'integer', 'coerce': int}}},
+        'populations': {
+            'required': True, 'type': 'dict', 
+            'schema': {
+                'A': {'required':True, 'empty':True, 'type':'string'},
+                'B': {'required':True, 'empty':True, 'type':'string'},
+                'reference_pop': {'required':True, 'empty':False, 'isPop':True},
+                'sync_pop_sizes': {'required':False, 'empty':True, 'isPopSync':True},
+                }},
+        'k_max': {
+            'type': 'dict', 
+            'valuesrules': {'required': True, 'empty':False, 'type': 'integer', 'min': 1, 'coerce':int}},
+        'mu': {
+            'type':'dict', 
+            'schema':{
+                'mu': {'required': False, 'empty':True, 'type': 'float', 'coerce':float},
+                'blocklength': {'required': False, 'empty':True,'notNoneInt':True, 'coerce':'int_or_empty'}
+                }},
+        'parameters': {
+            'type': 'dict', 'required':True, 'empty':False, 
+            'valuesrules': {'coerce':'float_or_list', 'notNone':True}
+        },
+        'simulations':{
+            'required':False, 'empty':True}
+        }
+    if module == 'simulate':
+        schema['simulations'] = {
+        'type': 'dict',
+        'required':True,
+        'schema': {
+            'ploidy': {'empty':False, 'required':True, 'type':'integer', 'min':1, 'coerce':int},
+            'blocks': {'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+            'replicates': {'empty': False, 'type': 'integer', 'min':1, 'coerce':int},
+            'sample_size_A': {'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+            'sample_size_B': {'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+            'recombination_rate': {'empty': True, 'notNoneFloat':True, 'coerce':'float_or_empty', 'min':0.0},
+            'recombination_map': {'empty': True, 'type': 'string', 'isPath':True, 'dependencies':['number_bins', 'cutoff', 'scale']},
+            'number_bins': {'empty': True, 'notNoneInt': True, 'coerce':'int_or_empty', 'min':1},
+            'cutoff': {'empty': True, 'notNoneFloat': True, 'coerce':'float_or_empty', 'min':0},
+            'scale': {'empty':True, 'type':'string', 'allowed':['lin', 'log']}
+        }}
+        schema['mu'] = {
+            'type':'dict', 
+            'schema':{
+                'mu': {'required': True, 'empty':False, 'type': 'float', 'coerce':float},
+                'blocklength': {'required': False, 'empty':True, 'min':1, 'type': 'integer', 'coerce':int}
+                }}
+    return schema
+
+def recursive_get_size(path):
     """Gets size in bytes of the given path, recursing into directories."""
     if os.path.isfile(path):
         return os.path.getsize(path)
@@ -509,25 +574,17 @@ class CustomNormalizer(cerberus.Validator):
             return float(value)
         except:
             values = value.strip('()[]').split(",")
-            if len(values) == 3:
+            if len(values) == 2 or len(values) == 3:
                 try:
                     return [float(v) for v in values]
                 except ValueError:
                     return None
-            elif len(values) == 2:
-                try:
-                    values = [float(v) for v in values]
-                    mid = np.mean(values)
-                    return [mid,]+values
-                except ValueError:
-                    return None
-                values = []
-            elif len(values) == 5:
-                valid_scales = ['lin', 'log']
-                if not values[4].strip(' ') in valid_scales:
+            elif len(values) == 4:
+                valid_scales = set(['lin', 'log'])
+                if not values[-1].strip(' ') in valid_scales:
                     return None
                 try:
-                    return [float(v) for v in values[:3]]+[int(values[3]),values[4].strip(' ')]
+                    return [float(v) for v in values[:-2]] + [int(values[-2]), values[-1].strip(' ')]
                 except ValueError:
                     return None
             else:
@@ -570,7 +627,7 @@ class CustomNormalizer(cerberus.Validator):
         {'type':'boolean'}
         """
         if not value and notNone:
-            self._error(field, "Must be a float, or a list of length 3 or 5.")
+            self._error(field, "Must be FLOAT, or (MIN, MAX), or (MIN, MAX, STEPS, LIN|LOG).")
 
     def _validate_isPop(self, isPop, field, value):
         """
@@ -627,59 +684,22 @@ class ParameterObj(object):
     def _dict_zip(self, pdict):
         return [dict(zip(pdict, x)) for x in zip(*pdict.values())]
 
-    def _expand_params(self):
-        if len(self.config['parameters'])>0:
-            for key, value in self.config['parameters'].items():
-                if isinstance(value, float) or isinstance(value, int):
-                    self.config['parameters'][key] = [value,]
-                elif key=='recombination':
-                    pass
-                else:
-                    if len(value) == 5:
-                        if self._MODULE in ['optimise', 'optimize']:
-                            sys.exit(f"[X] {self._MODULE} requires a single point or boundary.")
-                        midv, minv, maxv, n, scale = value
-                        if scale.startswith('lin'):
-                            sim_range = self._expand_params_lin(midv, minv, maxv, n)
-                        elif scale.startswith('log'):
-                            sim_range = self._expand_params_log(midv, minv, maxv, n)
-                        else:
-                            raise ValueError
-                        self.config['parameters'][key] = sim_range
-                    elif len(value) <4:
-                        self.config['parameters'][key] = np.unique(value)
-                    else:
-                        raise ValueError("Uncaught error in config file configuration.")
-
-    def _expand_params_lin(self, pcentre, pmin, pmax, psamples):
-        starts = [pmin, pcentre]
-        ends = [pcentre, pmax]
-        nums = [round(psamples/2) + 1, round(psamples/2)] if psamples % 2 == 0 else [round(psamples/2) + 1, round(psamples/2) + 1]
-        return np.unique(np.concatenate([np.linspace(start, stop, num=num, endpoint=True, dtype=np.float64) for start, stop, num in zip(starts, ends, nums)]))    
-
-    def _expand_params_log(self, pcentre, pmin, pmax, psamples):
-        plogcentre, plogmin, plogmax = np.log10([pcentre, pmin, pmax])
-        temp =  np.logspace(plogmin, plogmax, num=psamples, endpoint=True, dtype=np.float64)
-        left = (temp<pcentre).sum()
-        right = psamples-left
-        left = np.logspace(plogmin, plogcentre, num=left, endpoint=False, dtype=np.float64)
-        right = np.logspace(plogcentre, plogmax, num=right, endpoint=True, dtype=np.float64)
-        return np.unique(np.concatenate([left, right]))
-
-    def _get_blocks_length(self, zstore=None):
+    def _get_blocks_length(self):
         blocks_length_zarr = None
         blocks_length_ini = self._get_int(self.config['mu']['blocklength'], ret_none=True)
-        if zstore:
-            z = zarr.open(self.zstore, mode='r')
-            blocks_length_zarr =  z['seqs'].attrs.get('blocks_length')
+        if self.zstore:
+            gimbleStore = lib.gimble.Store(path=self.zstore, create=False, overwrite=False)
+            meta_blocks = gimbleStore._get_meta('blocks')
+            blocks_length_zarr = meta_blocks['length']
         if blocks_length_zarr and blocks_length_ini:
             if blocks_length_zarr != blocks_length_ini:
-                print("[-] block length in ini file and used in GStore differ. Using blocks_length_ini.")
+                print("[-] Block length in INI and gimbleStore differ. Using block length from INI : %s b" % blocks_length_ini)
                 return blocks_length_ini
+            return blocks_length_zarr
+        if blocks_length_zarr:
+            return blocks_length_zarr
         if blocks_length_ini:
             return blocks_length_ini
-        elif blocks_length_zarr:
-            return blocks_length_zarr
         else:
             sys.exit("[X] Blocklength needs to be specified in ini file.")
 
@@ -731,7 +751,7 @@ class ParameterObj(object):
             sys.exit("[X] zstore already exists. Specify using -z or provide new prefix.")
         parent_path = pathlib.Path(prefix).resolve().parent
         if not parent_path.exists():
-            sys.exit("[X] File not found: %r" % str(infile))
+            sys.exit("[X] Path does not exist: %r" % str(parent_path))
         return str(path)
 
     def _get_pops_to_sync(self, config=None):
@@ -801,6 +821,41 @@ class ParameterObj(object):
             sys.exit("[X] Parent directory not found: %r" % str(infile))
         return str(path)        
 
+    def _expand_params(self):
+        '''
+        this is a function that returns nothing, should be refactored...
+        '''
+        if len(self.config['parameters'])>0:
+            for key, value in self.config['parameters'].items():
+                if isinstance(value, float) or isinstance(value, int):
+                    self.config['parameters'][key] = [value,]
+                elif key=='recombination':
+                    pass
+                else:
+                    if len(value) == 4:
+                        if self._MODULE in ['optimise', 'optimize']:
+                            sys.exit(f"[X] {self._MODULE} requires a single point or boundary.")
+                        minv, maxv, n, scale = value
+                        if scale.startswith('lin'):
+                            sim_range = self._expand_params_lin(minv, maxv, n)
+                        elif scale.startswith('log'):
+                            sim_range = self._expand_params_log(minv, maxv, n)
+                        else:
+                            raise ValueError
+                        self.config['parameters'][key] = sim_range
+                    elif len(value) <4:
+                        self.config['parameters'][key] = np.unique(value)
+                    else:
+                        raise ValueError("Uncaught error in config file configuration.")
+
+    def _expand_params_lin(self, minv, maxv, n):
+        '''should be refactored into _expand_params'''
+        return np.linspace(minv, maxv, num=n, endpoint=True, dtype=np.float64)
+
+    def _expand_params_log(self, minv, maxv, n):
+        '''should be refactored into _expand_params'''
+        return np.logspace(minv, maxv, num=n, endpoint=True, dtype=np.float64)
+
     def _parse_config(self, config_file):
         '''validates types in INI config, returns dict with keys, values as sections/params/etc
         - does not deal with missing/incompatible values (should be dealt with in ParameterObj subclasses)
@@ -817,92 +872,35 @@ class ParameterObj(object):
         possible_values_dict = {s: dict(possible_values_config.items(s)) for s in possible_values_config.sections()}
         valid_pop_ids = [population.strip(" ") for population in possible_values_dict["populations"]["# possible values reference_pop"].split("|")]
         sample_pop_ids = [population for population in valid_pop_ids if "_" not in population]
-        schema = {
-            'gimble': {
-                'type': 'dict',
-                'schema': {
-                    'version': {'required': True, 'empty':False, 'type': 'string'},
-                    'precision': {'required': True, 'empty':False, 'type': 'integer', 'coerce': int},
-                    'random_seed': {'required': True, 'empty':False, 'type': 'integer', 'coerce': int}}},
-            'populations': {
-                'required': True, 'type': 'dict', 
-                'schema': {
-                    'A': {'required':True, 'empty':True, 'type':'string'},
-                    'B': {'required':True, 'empty':True, 'type':'string'},
-                    'reference_pop': {'required':True, 'empty':False, 'isPop':True},
-                    'sync_pop_sizes': {'required':False, 'empty':True, 'isPopSync':True},
-                    }},
-            'k_max': {
-                'type': 'dict', 
-                'valuesrules': {'required': True, 'empty':False, 'type': 'integer', 'min': 1, 'coerce':int}},
-            'mu': {
-                'type':'dict', 
-                'schema':{
-                    'mu': {'required': False, 'empty':True, 'type': 'float', 'coerce':float},
-                    'blocklength': {'required': False, 'empty':True,'notNoneInt':True, 'coerce':'int_or_empty'}
-                    }},
-            'parameters': {
-                'type': 'dict', 'required':True, 'empty':False, 
-                'valuesrules': {'coerce':'float_or_list', 'notNone':True}
-            },
-            'simulations':{
-                'required':False, 'empty':True}
-            }
-        if self._MODULE=='simulate':
-            schema['simulations'] = {
-                'type': 'dict',
-                'required':True,
-                'schema': {
-                    'ploidy': {'empty':False, 'required':True, 'type':'integer', 'min':1, 'coerce':int},
-                    'blocks': {'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
-                    'replicates': {'empty': False, 'type': 'integer', 'min':1, 'coerce':int},
-                    'sample_size_A': {'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
-                    'sample_size_B': {'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
-                    'recombination_rate': {'empty': True, 'notNoneFloat':True, 'coerce':'float_or_empty', 'min':0.0},
-                    'recombination_map': {'empty': True, 'type': 'string', 'isPath':True, 'dependencies':['number_bins', 'cutoff', 'scale']},
-                    'number_bins': {'empty': True, 'notNoneInt': True, 'coerce':'int_or_empty', 'min':1},
-                    'cutoff': {'empty': True, 'notNoneFloat': True, 'coerce':'float_or_empty', 'min':0},
-                    'scale': {'empty':True, 'type':'string', 'allowed':['lin', 'log']}
-                }}
-            schema['mu'] = {
-                'type':'dict', 
-                'schema':{
-                    'mu': {'required': True, 'empty':False, 'type': 'float', 'coerce':float},
-                    'blocklength': {'required': False, 'empty':True, 'min':1, 'type': 'integer', 'coerce':int}
-                    }}
-
+        schema = get_config_schema(self._MODULE)
         sync_pops = config["populations"]["sync_pop_sizes"].strip(" ")
         valid_sync_pops = [population.strip(" ") for population in possible_values_dict["populations"]["# possible values sync_pop_sizes"].split("|")]
-        if sync_pops !='':
-            if sync_pops in valid_sync_pops:
-                #check whether values are equal  
-                reference, toBeSynced = self._get_pops_to_sync(config)
-                reference_size = config['parameters'][f'Ne_{reference}']
-                tBS_sizes = [config['parameters'][f'Ne_{pop}'] for pop in toBeSynced]
-                reference_size = [s for s in tBS_sizes if s!=None and s!=reference_size and s!='']
-                if len(reference_size)>0:
-                    sys.exit(f"[X] Syncing pop sizes: set same value for Ne_{', Ne_'.join(toBeSynced)} as for Ne_{reference}")
-                for tBS in toBeSynced:
-                    config['parameters'][f'Ne_{tBS}'] = config['parameters'][f'Ne_{reference}']
+        if sync_pops and sync_pops in valid_sync_pops:
+            #check whether values are equal  
+            self.reference, self.toBeSynced = self._get_pops_to_sync(config)
+            reference_size = config['parameters'][f'Ne_{self.reference}']
+            tBS_sizes = [config['parameters'][f'Ne_{pop}'] for pop in self.toBeSynced]
+            reference_size = [s for s in tBS_sizes if s!=None and s!=reference_size and s!='']
+            if len(reference_size)>0:
+                sys.exit(f"[X] Syncing pop sizes: set same value for Ne_{', Ne_'.join(self.toBeSynced)} as for Ne_{self.reference}")
+            for tBS in self.toBeSynced:
+                config['parameters'][f'Ne_{tBS}'] = config['parameters'][f'Ne_{self.reference}']
         validator = CustomNormalizer(schema, valid_pop_ids=valid_pop_ids, valid_sync_pops=valid_sync_pops)
         validator.validate(config)
-        output = ["[X] INI Config file format error(s) ..."]
         if not validator.validate(config):
-            print("[X] validator.errors", validator.errors)
-            sys.exit()
-        config = validator.normalized(config)
+            validator_error_string = get_validator_error_string(validator.errors)
+            sys.exit("[X] INI Config file format error(s) ...\n%s" % validator_error_string)
+        self.config = validator.normalized(config)
         # there is probably a better way for setting config['population_by_letter'] ...
-        config['population_by_letter'] = {'A' : config['populations']['A'], 'B' : config['populations']['B']}
-        config['populations']['sample_pop_ids'] = sample_pop_ids
-        print("[+] Config file validated.")
-        return config
-
-    def _process_config(self):
-        if self._MODULE in ['makegrid', 'inference', 'simulate', 'gridsearch']:
-            self.config['mu']['blockslength'] = self._get_blocks_length(self.zstore)
+        self.config['population_by_letter'] = {'A' : config['populations']['A'], 'B' : config['populations']['B']}
+        self.config['populations']['sample_pop_ids'] = sample_pop_ids
+        #print("[+] Config file validated.")
+        #print('self.config', self.config)
+        if self._MODULE in set(['makegrid', 'inference', 'simulate', 'gridsearch']):
+            self.config['mu']['blocklength'] = self._get_blocks_length()
             self.config['parameters']['mu'] = self.config['mu']['mu']
             self._expand_params()
-            self.reference, self.toBeSynced = self._get_pops_to_sync()
+            #self.reference, self.toBeSynced = self._get_pops_to_sync()
             self._remove_pop_from_dict(self.toBeSynced)
             self.parameter_combinations = self._dict_product()
             self._sync_pop_sizes(self.reference, self.toBeSynced)
@@ -914,7 +912,7 @@ class ParameterObj(object):
             #self.config['parameters']['mu'] = self.config['mu']['mu']
             reference_pop=self.config['populations']['reference_pop']
             #syncing pop sizes
-            self.reference, self.toBeSynced = self._get_pops_to_sync()
+            #self.reference, self.toBeSynced = self._get_pops_to_sync()
             if self.toBeSynced:
                 if reference_pop in self.toBeSynced:
                     sys.exit(f"[X] Set reference pop to {self.reference}.")
@@ -933,6 +931,39 @@ class ParameterObj(object):
     def _return_boundaries(self, length_boundary_set=3):
         parameter_combinations = {k:self._cast_to_repeated_list(v, length_boundary_set)[:length_boundary_set] for k,v in self.config['parameters'].items()}    
         return self._dict_zip(parameter_combinations)
+    #def _process_config(self):
+#
+    #    if self._MODULE in ['makegrid', 'inference', 'simulate', 'gridsearch']:
+    #        self.config['mu']['blockslength'] = self._get_blocks_length(self.zstore)
+    #        self.config['parameters']['mu'] = self.config['mu']['mu']
+    #        self._expand_params()
+    #        self.reference, self.toBeSynced = self._get_pops_to_sync()
+    #        self._remove_pop_from_dict(self.toBeSynced)
+    #        self.parameter_combinations = self._dict_product()
+    #        self._sync_pop_sizes(self.reference, self.toBeSynced)
+    #    elif self._MODULE in ['optimise', 'optimize']:
+    #        #TO BE CHECKED: which bits are we still using
+    #        #determine parameters that are fixed:
+    #        self.fixed_params = self._get_fixed_params()
+    #        #self.config['mu']['blockslength'] = self._get_blocks_length(self.zstore)
+    #        #self.config['parameters']['mu'] = self.config['mu']['mu']
+    #        reference_pop=self.config['populations']['reference_pop']
+    #        #syncing pop sizes
+    #        self.reference, self.toBeSynced = self._get_pops_to_sync()
+    #        if self.toBeSynced:
+    #            if reference_pop in self.toBeSynced:
+    #                sys.exit(f"[X] Set reference pop to {self.reference}.")
+    #        toBeSynced_pops = [f'Ne_{s}' for s in self.toBeSynced] if self.toBeSynced!=None else []
+    #        self.fixed_params = [pop for pop in self.fixed_params if pop not in toBeSynced_pops]
+    #        #verify if any Ne fixed, whether one of those Ne is self.reference
+    #        fixed_Nes = [p for p in self.fixed_params if p.startswith('Ne')]
+    #        if len(fixed_Nes)>0:
+    #            if not f"Ne_{reference_pop}" in fixed_Nes:
+    #                sys.exit("[X] No. No. No. It would make much more sense to set a population with a fixed size as reference.")
+    #        #self._sync_pop_sizes_optimise(self.reference, self.toBeSynced)
+    #        self.parameter_combinations = self._return_boundaries()
+    #    else:
+    #        sys.exit("[X] gimble.py_processing_config: Not implemented yet.")
 
 class Store(object):
     def __init__(self, prefix=None, path=None, create=False, overwrite=False):
@@ -1008,35 +1039,107 @@ class Store(object):
         print("[#] Preflight...")
         self._preflight_query(parameterObj)
         print("[#] Query...")
-        if parameterObj.blocks:
-            self._write_block_bed(parameterObj, cartesian_only=True)
-        if parameterObj.windows:
-            self._write_window_bed(parameterObj, cartesian_only=True)
+        for query in parameterObj.queries:
+            data_type, format_type = query
+            if format_type == 'bed':
+                if data_type == 'blocks':
+                    self._write_block_bed(parameterObj)
+                elif data_type == 'windows':
+                    self._write_window_bed(parameterObj)
+                else:
+                    pass
+            elif format_type == 'bsfs':
+                if data_type == 'blocks' or data_type == 'windows_sum':
+                    self.dump_bsfs(data_type=data_type, sample_sets='X', kmax_by_mutype=parameterObj.kmax_by_mutype)
+                else:
+                    pass
+            else:
+                pass
 
-    def _make_gridsearch(self, parameterObj):
+    def gridsearch(self, parameterObj):
+        '''
+        1. Uses window_sum_bsfs (kmax) to get 'best' global gridpoint
+        2. Output 
+        3. Uses block_bsfs (no kmax) to get popgen-metrics
+        4. Uses window_bsfs (kmax) to get 'best' local gridpoint
+        5. Output 
+        
+        Assumptions:
+            - this works only for windows ('-w') for now... logic for '-b' has to be decided upon
+            - same kmax for
+
+        '''
+        print("[#] Gridsearching ...")
         unique_hash = parameterObj._get_unique_hash()
-        grids, grid_meta_dict = self._get_grid(unique_hash) 
-        if grids is None:
-            sys.exit("[X] No grid for this INI.")
-        bsfs_clipped = self.get_bsfs(
-            data_type=parameterObj.data_type, 
+        grids, grid_meta_dict = self._get_grid(unique_hash)
+        # gridsearch windows_sum
+        bsfs_windows_sum = self.get_bsfs(
+            data_type='windows_sum', 
+            population_by_letter=parameterObj.config['population_by_letter'], 
+            sample_sets='X',
+            kmax_by_mutype=parameterObj.config['k_max'])
+        lncls_global = self.gridsearch_np(bsfs=bsfs_windows_sum, grids=grids)
+        best_idx = np.argmax(lncls_global, axis=0)
+        print('[+] Best grid point (based on bSFS within windows): %s' % lncls_global[best_idx])
+        print('[+] \t %s' % "; ".join(["%s = %s" % (k, v) for k, v in grid_meta_dict[str(best_idx)].items()]))
+        # gridsearch windows
+        bsfs_windows_clipped = self.get_bsfs(
+            data_type='windows', 
             population_by_letter=parameterObj.config['population_by_letter'], 
             sample_sets='X', 
             kmax_by_mutype=parameterObj.config['k_max'])
-        lncls = self.gridsearch_np(bsfs=bsfs_clipped, grids=grids)
-        bsfs_full = self.get_bsfs(
-            data_type=parameterObj.data_type, 
-            population_by_letter=parameterObj.config['population_by_letter'], 
-            sample_sets='X')
+        lncls_windows = self.gridsearch_np(bsfs=bsfs_windows_clipped, grids=grids)
+        # pop metrics
         meta_seqs = self._get_meta('seqs')
         meta_blocks = self._get_meta('blocks')
         meta_windows = self._get_meta('windows')
-        pop_metrics = pop_metrics_from_bsfs(bsfs_full, mutypes=meta_seqs['mutypes_count'], block_length=meta_blocks['length'], window_size=meta_windows['size'])
-        self._write_gridsearch_bed(parameterObj=parameterObj, lncls=lncls, grid_meta_dict=grid_meta_dict, pop_metrics=pop_metrics)
+        bsfs_windows_full = self.get_bsfs(
+            data_type='windows', 
+            population_by_letter=parameterObj.config['population_by_letter'], 
+            sample_sets='X')
+        pop_metrics = pop_metrics_from_bsfs(bsfs_windows_full, mutypes=meta_seqs['mutypes_count'], block_length=meta_blocks['length'], window_size=meta_windows['size'])
+        self._write_gridsearch_bed(parameterObj=parameterObj, lncls=lncls_windows, best_idx=best_idx, grid_meta_dict=grid_meta_dict, pop_metrics=pop_metrics)
 
-    def gridsearch(self, parameterObj):
-        print("[#] Gridsearching ...")
-        self._make_gridsearch(parameterObj)
+    def optimize(self, parameterObj):
+        if not self.has_stage(parameterObj.data_type):
+            sys.exit("[X] gimbleStore has no %r." % parameterObj.data_type)
+        print("[+] Generated all parameter combinations.")
+        data = self.get_bsfs(
+            data_type=parameterObj.data_type, 
+            population_by_letter=parameterObj.config['populations'], 
+            sample_sets="X", 
+            kmax_by_mutype=parameterObj.config['k_max'])
+            
+        # load math.EquationSystemObj
+        equationSystem = lib.math.EquationSystemObj(parameterObj)
+        # initiate model equations
+        equationSystem.initiate_model(parameterObj)
+        optimizeResult = equationSystem.optimize_parameters(
+            data, 
+            parameterObj
+            )
+        #to be used in different function
+        #if parameterObj.trackHistory:
+            #df = pd.DataFrame(optimizeResult[1:])
+            #df.columns=optimizeResult[0]
+            #df = df.sort_values(by='iterLabel')
+
+             
+    def makegrid(self, parameterObj):
+        print("[#] Making grid ...")
+        unique_hash = parameterObj._get_unique_hash()
+        if self._has_grid(unique_hash) and not parameterObj.overwrite:
+            sys.exit(f"[X] Grid for this config file has already been built.")
+        print("[+] Generated %s grid points combinations." % len(parameterObj.parameter_combinations))
+        equationSystem = lib.math.EquationSystemObj(parameterObj)
+        #build the equations
+        equationSystem.initiate_model(parameterObj=parameterObj)
+        equationSystem.ETPs = equationSystem.calculate_all_ETPs(threads=parameterObj.threads, gridThreads=parameterObj.gridThreads, verbose=False)
+        #print('equationSystem.ETPs', equationSystem.ETPs.shape, equationSystem.ETPs)
+        self._set_grid(unique_hash, equationSystem.ETPs, parameterObj.parameter_combinations, overwrite=parameterObj.overwrite)
+        #run_count = gimbleStore._return_group_last_integer('grids')
+        #g = gimbleStore.data['grids'].create_dataset(f'grid_{run_count}', data=equationSystem.ETPs)
+        #g.attrs.put({idx:combo for idx, combo in enumerate(parameterObj.parameter_combinations)})
 
     def _validate_seq_names(self, sequences=None):
         """Returns valid seq_names in sequences or raises ValueError."""
@@ -1114,11 +1217,14 @@ class Store(object):
         for seq_name in tqdm(sequences, total=len(sequences), desc="[%] Querying data ", ncols=100):
             variation = np.array(self.data["windows/%s/variation" % seq_name], dtype=np.int64)
             variations.append(variation)
-        _bsfs = np.concatenate(variations, axis=0)
-        if invert_population_flag:
-            _bsfs[0], _bsfs[1] = _bsfs[1], _bsfs[0]
-        bsfs = _bsfs.reshape((_bsfs.shape[0] * _bsfs.shape[1], _bsfs.shape[2]))
-        index = np.repeat(np.arange(_bsfs.shape[0]), _bsfs.shape[1]).reshape(_bsfs.shape[0] * _bsfs.shape[1], 1)
+        variation = np.concatenate(variations, axis=0)
+        mutuples, counts = np.unique(variation, return_counts=True, axis=0)
+        if 1 or invert_population_flag:
+            variation[:, [0, 1]] = variation[:, [1, 0]]
+            mutuples, counts = np.unique(variation, return_counts=True, axis=0)
+        
+        bsfs = variation.reshape((variation.shape[0] * variation.shape[1], variation.shape[2]))
+        index = np.repeat(np.arange(variation.shape[0]), variation.shape[1]).reshape(variation.shape[0] * variation.shape[1], 1)
         mutuples, counts = np.unique(
             np.concatenate([index, np.clip(bsfs, 0, max_k)], axis=-1).reshape(-1, bsfs.shape[-1] + 1),
             return_counts=True, axis=0)
@@ -1127,13 +1233,6 @@ class Store(object):
         # assign values
         out[tuple(mutuples.T)] = counts
         return out
-
-    #def set_bsfs(self, data_type='etp', bsfs=None):
-    #    '''@Gertjan: do we need this one?'''
-    #    '''Saves array in GStore and saves parameters (as strings) in meta. Recovery of parameters is possible via key_to_params().''' 
-    #    key = hashlib.md5(str({k: v for k, v in locals().items() if not k == 'self'}).encode()).hexdigest()
-    #    bsfs_key = 'bsfs/%s' % key
-    #    self.data.create_dataset(bsfs_key, data=bsfs, overwrite=True)
     
     def get_bsfs(self, data_type=None, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None):
         """main method for accessing bsfs
@@ -1150,17 +1249,17 @@ class Store(object):
             params['span'] = meta_blocks['span']
             params['max_missing'] = meta_blocks['max_missing']
             params['max_multiallelic'] = meta_blocks['max_multiallelic']
-        elif data_type == 'windows':
+        elif data_type == 'windows' or data_type == 'windows_sum':
             meta_windows = self._get_meta('windows')
             if meta_windows['count'] == 0:
                 sys.exit('[X] No windows found.')
             params['size'] = meta_windows['size']
             params['step'] = meta_windows['step']
         else:
-            raise ValueError("data_type must be 'blocks' or 'windows'")        
+            raise ValueError("data_type must be 'blocks', 'windows', or 'windows_sum'")        
         unique_hash = get_hash_from_dict(params)
         bsfs_data_key = 'bsfs/%s/%s' % (data_type, get_hash_from_dict(params))
-        if bsfs_data_key in self.data:
+        if bsfs_data_key in self.data and False:
             bsfs = np.array(self.data[bsfs_data_key], dtype=np.int64)
         else:
             meta_bsfs = self._get_meta('bsfs')
@@ -1169,10 +1268,31 @@ class Store(object):
                 bsfs = self._get_block_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
             elif data_type == 'windows':
                 bsfs = self._get_window_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
+            elif data_type == 'windows_sum':
+                bsfs = self._get_window_sum_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
             else:
                 raise ValueError("data_type must be 'blocks' or 'windows'")        
             self.data.create_dataset(bsfs_data_key, data=bsfs, overwrite=True)
         return bsfs
+
+    def _get_window_sum_bsfs(self, sample_sets='X', sequences=None, population_by_letter=None, kmax_by_mutype=None):
+        sequences = self._validate_seq_names(sequences)
+        invert_population_flag = self._get_invert_population_flag(population_by_letter)
+        max_k = np.array(list(kmax_by_mutype.values())) + 1 if kmax_by_mutype else None 
+        variations = []
+        for seq_name in tqdm(sequences, total=len(sequences), desc="[%] Querying data ", ncols=100):
+            variation = np.array(self.data["windows/%s/variation" % seq_name], dtype=np.int64)
+            variations.append(variation)
+        variation = np.concatenate(variations, axis=0)
+        variation = variation.reshape((variation.shape[0] * variation.shape[1], variation.shape[2]))
+        if invert_population_flag:
+            variation[:, [0, 1]] = variation[:, [1, 0]]
+        mutuples, counts = np.unique(np.clip(variation, 0, max_k),return_counts=True, axis=0)
+        # define out based on max values for each column
+        out = np.zeros(tuple(np.max(mutuples, axis=0) + 1), np.int64)
+        # assign values
+        out[tuple(mutuples.T)] = counts
+        return out
 
     def _get_block_bsfs(self, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None):
         """Returns bsfs_array of 4 dimensions.
@@ -1212,7 +1332,7 @@ class Store(object):
                     variations.append(np.array(self.data[variation_key], dtype=np.int64))
         variation = np.concatenate(variations, axis=0) # concatenate is faster than offset-indexes
         if invert_population_flag:
-            variation[0], variation[1] = variation[1], variation[0]        
+            variation[:,[0, 1]] = variation[:,[1, 0]]
         # count mutuples (clipping at k_max, if supplied)
         mutuples, counts = np.unique(np.clip(variation, 0, max_k), return_counts=True, axis=0)
         # define out based on max values for each column
@@ -1220,73 +1340,6 @@ class Store(object):
         # assign values
         out[tuple(mutuples.T)] = counts
         return out
-
-#    def test_dask(self, grids=None, data=None):
-#        if grids is None or data is None:
-#            raise ValueError('gridsearch: needs grid and data') 
-#        from dask.distributed import LocalCluster, Client
-#        cluster= LocalCluster(
-#            n_workers=8, 
-#            threads_per_worker=1,
-#            dashboard_address='localhost:8787', 
-#            interface='lo0', 
-#            **{'local_directory': 'dasktemp', 'memory_limit': '2G'})
-#        client = Client(cluster)
-#        array = dask.array.ones((100000,100000), chunks=(10000,10000))
-#        a = client.submit(dask.array.mean, array).result()
-#        return a.compute()
-        
-#   def gridsearch(self, grids=None, data=None):
-#       '''returns 2d array of likelihoods of shape (windows, grids)'''
-#       if grids is None or data is None:
-#           raise ValueError('gridsearch: needs grid and data') 
-#       from dask.distributed import Client, LocalCluster
-#       cluster= LocalCluster(
-#           n_workers=8, 
-#           threads_per_worker=1,
-#           dashboard_address='localhost:8787', 
-#           interface='lo0', 
-#           **{'local_directory': 'dasktemp', 'memory_limit': '3G'})
-#       client = Client(cluster)
-#       data_array = dask.array.from_array(data, chunks=(10000, *data.shape[1:]))
-#       print('# data_array', type(data_array))
-#       grid_array = dask.array.from_array(grids, chunks=(1, *grids.shape[1:]))
-#       print('# grid_array', type(grid_array))
-#       grids_masked = dask.array.ma.masked_array(grids, grids==0, fill_value=np.nan)
-#       grids_log_temp = client.submit(dask.array.log, grids_masked).result()
-
-#       print('# grids_log_temp', type(grids_log_temp))
-#       grids_log = client.submit(dask.array.nan_to_num, grids_log_temp).result().compute()
-#       print('grids_log', type(grids_log))
-#       print('done')
-#       # print('data', type(data))
-#       # print('grids', type(grids))
-#       # data = dask.array.from_array(data, chunks=(500, *data.shape[1:]))
-#       # # print('data', type(data), data.chunks)
-#       # grids = dask.array.from_array(grids, chunks=(10, *grids.shape[1:]))
-#       # # print('grids', type(grids), grids.chunks)
-#       # #np.log(grids, where=grids>0, out=grids_log)
-#       # grids[grids==0] = np.nan
-#       # 
-#       # grids_log = client.submit(dask.array.log, grids).result().compute()
-#       # print('grids_log', type(grids_log))
-#       # grids_log[grids_log==np.nan] = 0
-#       # data_scattered = client.scatter(data[:, None])
-#       # grids_log_scattered = client.scatter(grids_log)
-#       # m_res = client.submit(dask.array.multiply, data_scattered, grids_log_scattered)
-#       # #m_res.rechunk({0:100, 1: 4, 2: 4, 3: 4, 4: 4})
-#       # #res_scattered = client.scatter(m_res)
-#       # #r_res = client.submit(dask.array.apply_over_axes, dask.array.sum, res_scattered, axes=[2,3,4,5])
-#       # x_res = client.submit(dask.array.apply_over_axes, dask.array.sum, m_res, axes=[2,3,4,5])
-#       # #m1_res.rechunk(100000)
-#       # #r_res_scattered = client.scatter(r_res)
-#       # y_res = client.submit(dask.array.squeeze, x_res)
-#       # y_res.result().compute()
-#       # #res.visualize()
-#       # print('y_res', type(y_res))
-#       # return y_res
-#       #return a
-#       return True
 
     def gridsearch_np(self, bsfs=None, grids=None):
         '''returns 2d array of likelihoods of shape (windows, grids)'''
@@ -1297,6 +1350,8 @@ class Store(object):
         #print('data.shape', data.shape)
         #print('grids_log.shape', grids_log.shape)
         #print('data[:, None]', data[:, None] * grids_log)
+        if bsfs.ndim == 4:
+            return np.squeeze(np.apply_over_axes(np.sum, (bsfs * grids_log), axes=[-4,-3,-2,-1]))
         return np.squeeze(np.apply_over_axes(np.sum, (bsfs[:, None] * grids_log), axes=[-4,-3,-2,-1]))
 
     def _set_grid(self, unique_hash, ETPs, grid_labels, overwrite=False):
@@ -1314,7 +1369,7 @@ class Store(object):
             grid = np.array(self.data[f'grids/{unique_hash}'], dtype=np.float64)
             return (grid, grid_meta)
         else:
-            return (None, None)
+            sys.exit("[X] No grid for this INI.")
 
     def _get_setup_report(self, width):
         meta_seqs = self._get_meta('seqs')
@@ -1475,7 +1530,9 @@ class Store(object):
         return zarr.open(str(self.path), mode='r+')
     
     def _get_meta(self, stage):
-        return self.data[stage].attrs
+        if stage in self.data:
+            return self.data[stage].attrs
+        return None
 
     def _wipe_stage(self, stage):
         if stage in self.data:
@@ -1647,13 +1704,39 @@ class Store(object):
         #count_intervals = len(intervals_df.index)
         #count_samples = len(query_samples)
 
-    def dump_bsfs(self, parameterObj):
+    def get_bsfs_filename(self, data_type=None, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None):
+        if data_type == 'blocks':
+            meta_blocks = self._get_meta('blocks')
+            return "%s.l_%s.m_%s.i_%s.u_%s.bsfs.%s.tsv" % (self.prefix, meta_blocks['length'], meta_blocks['span'], meta_blocks['max_missing'], meta_blocks['max_multiallelic'], data_type)
+        elif data_type == 'windows':
+            meta_blocks = self._get_meta('blocks')
+            meta_windows = self._get_meta('windows')
+            return "%s.l_%s.m_%s.i_%s.u_%s.w_%s.s_%s.bsfs.%s.tsv" % (self.prefix, meta_blocks['length'], meta_blocks['span'], meta_blocks['max_missing'], meta_blocks['max_multiallelic'], meta_windows['size'], meta_windows['step'], data_type)
+        elif data_type == 'windows_sum':
+            meta_blocks = self._get_meta('blocks')
+            meta_windows = self._get_meta('windows')
+            return "%s.l_%s.m_%s.i_%s.u_%s.w_%s.s_%s.bsfs.%s.tsv" % (self.prefix, meta_blocks['length'], meta_blocks['span'], meta_blocks['max_missing'], meta_blocks['max_multiallelic'], meta_windows['size'], meta_windows['step'], data_type)
+        else:
+            raise ValueError("data_type %s is not defined" % data_type)
+    
+    def dump_bsfs(self, data_type=None, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None):
         meta_seqs = self._get_meta('seqs')
-        meta_blocks = self._get_meta('blocks')
-        header = ['count'] + [x+1 for x in range(meta_seqs['mutypes_count'])]
-        bsfs_2d = bsfs_to_2d(self.get_bsfs(data_type='blocks', sample_sets='X'))
-        prefix = "%s.l_%s.m_%s.i_%s.u_%s" % (self.prefix, meta_blocks['length'], meta_blocks['span'], meta_blocks['max_missing'], meta_blocks['max_multiallelic'])
-        pd.DataFrame(data=bsfs_2d, columns=header, dtype='int64').to_csv("%s.inter.blocks.tsv" % prefix, index=False, sep='\t')
+        header = ['count'] + [x + 1 for x in range(meta_seqs['mutypes_count'])]
+        bsfs_2d = bsfs_to_2d(
+            self.get_bsfs(
+                data_type=data_type, 
+                sequences=sequences, 
+                sample_sets=sample_sets, 
+                population_by_letter=population_by_letter, 
+                kmax_by_mutype=kmax_by_mutype))
+        bsfs_filename = self.get_bsfs_filename(
+            data_type=data_type,
+            sequences=sequences,
+            sample_sets=sample_sets,
+            population_by_letter=population_by_letter,
+            kmax_by_mutype=kmax_by_mutype
+            )
+        pd.DataFrame(data=bsfs_2d, columns=header, dtype='int64').to_csv(bsfs_filename, index=False, sep='\t')
         #bsfs = self.get_bsfs(self, data_type='blocks', sample_sets='A')
         #pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.intra_A.blocks.h5" % prefix, 'tally', format='table')
         #pd.DataFrame(data=bsfs_2d, columns=header, dtype='int64').to_csv("%s.intra_A.blocks.tsv" % prefix, index=False, sep='\t')
@@ -1670,7 +1753,7 @@ class Store(object):
         counts_inter = self.data[counts_inter_key]
         self.plot_bsfs_pcp('%s.bsfs_pcp.png' % self.prefix, mutypes_inter, counts_inter)
 
-    def _write_gridsearch_bed(self, parameterObj=None, lncls=None, grid_meta_dict=None, pop_metrics=None):
+    def _write_gridsearch_bed(self, parameterObj=None, lncls=None, best_idx=None, grid_meta_dict=None, pop_metrics=None):
         if parameterObj is None or lncls is None or grid_meta_dict is None:
             raise ValueError('_write_gridsearch_bed: needs parameterObj and lncls and grid_meta_dict')
         grids = []
@@ -1697,9 +1780,7 @@ class Store(object):
                 ends[offset:offset+window_count] = np.array(self.data[end_key])
                 sequences[offset:offset+window_count] = np.full_like(window_count, seq_name, dtype='<U%s' % MAX_SEQNAME_LENGTH)
                 offset += window_count
-        grid_center_idx = np.int(len(grid_meta_dict)/2)
-        print("[+] grid center = %s (idx: %s)" % (grid_meta_dict[str(grid_center_idx)], grid_center_idx))
-        delta_lncls = best_likelihoods - lncls[:, grid_center_idx]
+        delta_lncls = best_likelihoods - lncls[:, best_idx]
 
         params_header = list(grid_dict.keys())
         popgen_header = ['heterozygosity_A', 'heterozygosity_B', 'd_xy', 'f_st']
@@ -1725,9 +1806,10 @@ class Store(object):
         #print(bed_df)
         return out_f
 
-    def _write_window_bed(self, parameterObj, cartesian_only=True):
+    def _write_window_bed(self, parameterObj):
         meta_seqs = self._get_meta('seqs')
         meta_windows = self._get_meta('windows')
+        meta_blocks = self._get_meta('blocks')
         #sample_set_idxs = [idx for (idx, is_cartesian) in enumerate(meta_seqs['sample_sets_inter']) if is_cartesian] if cartesian_only else range(len(meta_seqs['sample_sets']))
         MAX_SEQNAME_LENGTH = max([len(seq_name) for seq_name in meta_seqs['seq_names']])
         sequences = np.zeros(meta_windows['count'], dtype='<U%s' % MAX_SEQNAME_LENGTH)
@@ -1745,33 +1827,35 @@ class Store(object):
                 ends[offset:offset+window_count] = np.array(self.data[end_key])
                 sequences[offset:offset+window_count] = np.full_like(window_count, seq_name, dtype='<U%s' % MAX_SEQNAME_LENGTH)
                 offset += window_count
-        columns = ['sequence', 'start', 'end', 'index']
-        int_bed = np.vstack([starts, ends, index]).T    
-        # header
+        columns = ['sequence', 'start', 'end', 'index', 'heterozygosity_A', 'heterozygosity_B', 'd_xy', 'f_st']
+        dtypes = {'start': 'int64', 'end': 'int64', 'index': 'int64', 
+                'heterozygosity_A': 'float64', 'heterozygosity_B': 'float64', 'd_xy': 'float64', 'f_st': 'float64'}
+        bsfs_windows_full = self.get_bsfs(data_type='windows', sample_sets='X')
+        pop_metrics = pop_metrics_from_bsfs(bsfs_windows_full, mutypes=meta_seqs['mutypes_count'], block_length=meta_blocks['length'], window_size=meta_windows['size'])
+        int_bed = np.vstack([starts, ends, index, pop_metrics]).T
         header = ["# %s" % parameterObj._VERSION]
         header += ["# %s" % "\t".join(columns)]  
         out_f = '%s.windows.bed' % self.prefix
         with open(out_f, 'w') as out_fh:
             out_fh.write("\n".join(header) + "\n")
         # bed
-        bed_df = pd.DataFrame(data=int_bed, columns=columns[1:])
+        bed_df = pd.DataFrame(data=int_bed, columns=columns[1:]).astype(dtype=dtypes)
         bed_df['sequence'] = sequences
-        bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, mode='w', sep='\t', index=False, header=False, columns=columns)
+        bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=columns, float_format='%.5f')
+        return out_f
 
-
-    def _write_block_bed(self, parameterObj, cartesian_only=True):
+    def _write_block_bed(self, parameterObj, sample_sets='X'):
         '''new gimblestore'''
         meta_seqs = self._get_meta('seqs')
         meta_blocks = self._get_meta('blocks')
-        sample_set_idxs = [idx for (idx, is_cartesian) in enumerate(meta_seqs['sample_sets_inter']) if is_cartesian] if cartesian_only else range(len(meta_seqs['sample_sets']))
-        blocks_count_total = sum([meta_blocks['count_by_sample_set_idx'][str(idx)] for idx in sample_set_idxs])
+        sample_set_idxs = self._get_sample_set_idxs(query=sample_sets)
+        blocks_count_total = sum([meta_blocks['count_by_sample_set_idx'][idx] for idx in sample_set_idxs])
         starts = np.zeros(blocks_count_total, dtype=np.int64)
         ends = np.zeros(blocks_count_total, dtype=np.int64)
         # dynamically set string dtype for sequence names
         MAX_SEQNAME_LENGTH = max([len(seq_name) for seq_name in meta_seqs['seq_names']])
         sequences = np.zeros(blocks_count_total, dtype='<U%s' % MAX_SEQNAME_LENGTH) 
         sample_sets = np.zeros(blocks_count_total, dtype=np.int64) 
-        # if extended_bed
         variation = np.zeros((blocks_count_total, meta_seqs['mutypes_count']), dtype=np.int64)
         missing = np.zeros(blocks_count_total, dtype=np.int64) 
         multiallelic = np.zeros(blocks_count_total, dtype=np.int64) 
@@ -1788,25 +1872,22 @@ class Store(object):
                         ends[offset:offset+block_count] = np.array(self.data[end_key])
                         sequences[offset:offset+block_count] = np.full_like(block_count, seq_name, dtype='<U%s' % MAX_SEQNAME_LENGTH)
                         sample_sets[offset:offset+block_count] = np.full_like(block_count, sample_set_idx)
-                        if parameterObj.extended_bed:
-                            variation_key = 'blocks/%s/%s/variation' % (seq_name, sample_set_idx)
-                            missing_key = 'blocks/%s/%s/missing' % (seq_name, sample_set_idx)
-                            multiallelic_key = 'blocks/%s/%s/missing' % (seq_name, sample_set_idx)
-                            variation[offset:offset+block_count] = np.array(self.data[variation_key])
-                            missing[offset:offset+block_count] = np.array(self.data[missing_key]).flatten()
-                            multiallelic[offset:offset+block_count] = np.array(self.data[multiallelic_key]).flatten()
+                        variation_key = 'blocks/%s/%s/variation' % (seq_name, sample_set_idx)
+                        missing_key = 'blocks/%s/%s/missing' % (seq_name, sample_set_idx)
+                        multiallelic_key = 'blocks/%s/%s/missing' % (seq_name, sample_set_idx)
+                        variation[offset:offset+block_count] = np.array(self.data[variation_key])
+                        missing[offset:offset+block_count] = np.array(self.data[missing_key]).flatten()
+                        multiallelic[offset:offset+block_count] = np.array(self.data[multiallelic_key]).flatten()
                         offset += block_count
                     pbar.update()
         columns = ['sequence', 'start', 'end', 'sample_set']
-        if not parameterObj.extended_bed:
-            int_bed = np.vstack([starts, ends, sample_sets]).T    
-        else:
-            int_bed = np.vstack([starts, ends, sample_sets, missing, multiallelic, variation.T]).T
-            mutypes_count = ["m_%s" % str(x+1) for x in range(meta_seqs['mutypes_count'])]
-            columns += ['missing', 'multiallelic'] + mutypes_count    
+        int_bed = np.vstack([starts, ends, sample_sets, missing, multiallelic, variation.T]).T
+        mutypes_count = ["m_%s" % str(x+1) for x in range(meta_seqs['mutypes_count'])]
+        columns += ['missing', 'multiallelic'] + mutypes_count    
         # header
         header = ["# %s" % parameterObj._VERSION]
-        header += ["# %s = %s" % (sample_set_idx, ", ".join(meta_seqs['sample_sets'][sample_set_idx])) for sample_set_idx in sample_set_idxs] 
+        print('sample_set_idxs', sample_set_idxs)
+        header += ["# %s = %s" % (sample_set_idx, ", ".join(meta_seqs['sample_sets'][int(sample_set_idx)])) for sample_set_idx in sample_set_idxs] 
         header += ["# %s" % "\t".join(columns)]  
         out_f = '%s.blocks.bed' % self.prefix
         with open(out_f, 'w') as out_fh:
@@ -1814,15 +1895,17 @@ class Store(object):
         # bed
         bed_df = pd.DataFrame(data=int_bed, columns=columns[1:])
         bed_df['sequence'] = sequences
-        bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, mode='w', sep='\t', index=False, header=False, columns=columns)
+        bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=columns, float_format='%.5f')
 
     def _preflight_query(self, parameterObj):
-        if parameterObj.blocks:
-            if not self.has_stage('blocks'):
-                sys.exit("[X] GStore %r has no blocks. Please run 'gimble blocks'." % self.path)
-        if parameterObj.windows:
-            if not self.has_stage('windows'):
-                sys.exit("[X] GStore %r has no windows. Please run 'gimble windows'." % self.path)
+        for query in parameterObj.queries:
+            data_type = query[0]
+            if data_type == 'blocks':
+                if not self.has_stage('blocks'):
+                    sys.exit("[X] GStore %r has no blocks. Please run 'gimble blocks'." % self.path)
+            if data_type == 'windows' or data_type == 'window_sum':
+                if not self.has_stage('windows'):
+                    sys.exit("[X] GStore %r has no windows. Please run 'gimble windows'." % self.path)
 
     def _preflight_windows(self, parameterObj):
         if not self.has_stage('blocks'):
@@ -2772,3 +2855,70 @@ class Store(object):
         #pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation_global_array, (self.data.attrs['block_length'] * variation_global_array.shape[0]))
         #print("[+] Pi_%s = %s; Pi_%s = %s; D_xy = %s; F_st = %s; FGVs = %s / %s blocks (%s)" % (self.data.attrs['pop_ids'][0], pi_1, self.data.attrs['pop_ids'][1], pi_2, d_xy, f_st, fgv, variation_global_array.shape[0], format_percentage(fgv / variation_global_array.shape[0]))) 
 
+
+#    def test_dask(self, grids=None, data=None):
+#        if grids is None or data is None:
+#            raise ValueError('gridsearch: needs grid and data') 
+#        from dask.distributed import LocalCluster, Client
+#        cluster= LocalCluster(
+#            n_workers=8, 
+#            threads_per_worker=1,
+#            dashboard_address='localhost:8787', 
+#            interface='lo0', 
+#            **{'local_directory': 'dasktemp', 'memory_limit': '2G'})
+#        client = Client(cluster)
+#        array = dask.array.ones((100000,100000), chunks=(10000,10000))
+#        a = client.submit(dask.array.mean, array).result()
+#        return a.compute()
+        
+#   def gridsearch(self, grids=None, data=None):
+#       '''returns 2d array of likelihoods of shape (windows, grids)'''
+#       if grids is None or data is None:
+#           raise ValueError('gridsearch: needs grid and data') 
+#       from dask.distributed import Client, LocalCluster
+#       cluster= LocalCluster(
+#           n_workers=8, 
+#           threads_per_worker=1,
+#           dashboard_address='localhost:8787', 
+#           interface='lo0', 
+#           **{'local_directory': 'dasktemp', 'memory_limit': '3G'})
+#       client = Client(cluster)
+#       data_array = dask.array.from_array(data, chunks=(10000, *data.shape[1:]))
+#       print('# data_array', type(data_array))
+#       grid_array = dask.array.from_array(grids, chunks=(1, *grids.shape[1:]))
+#       print('# grid_array', type(grid_array))
+#       grids_masked = dask.array.ma.masked_array(grids, grids==0, fill_value=np.nan)
+#       grids_log_temp = client.submit(dask.array.log, grids_masked).result()
+
+#       print('# grids_log_temp', type(grids_log_temp))
+#       grids_log = client.submit(dask.array.nan_to_num, grids_log_temp).result().compute()
+#       print('grids_log', type(grids_log))
+#       print('done')
+#       # print('data', type(data))
+#       # print('grids', type(grids))
+#       # data = dask.array.from_array(data, chunks=(500, *data.shape[1:]))
+#       # # print('data', type(data), data.chunks)
+#       # grids = dask.array.from_array(grids, chunks=(10, *grids.shape[1:]))
+#       # # print('grids', type(grids), grids.chunks)
+#       # #np.log(grids, where=grids>0, out=grids_log)
+#       # grids[grids==0] = np.nan
+#       # 
+#       # grids_log = client.submit(dask.array.log, grids).result().compute()
+#       # print('grids_log', type(grids_log))
+#       # grids_log[grids_log==np.nan] = 0
+#       # data_scattered = client.scatter(data[:, None])
+#       # grids_log_scattered = client.scatter(grids_log)
+#       # m_res = client.submit(dask.array.multiply, data_scattered, grids_log_scattered)
+#       # #m_res.rechunk({0:100, 1: 4, 2: 4, 3: 4, 4: 4})
+#       # #res_scattered = client.scatter(m_res)
+#       # #r_res = client.submit(dask.array.apply_over_axes, dask.array.sum, res_scattered, axes=[2,3,4,5])
+#       # x_res = client.submit(dask.array.apply_over_axes, dask.array.sum, m_res, axes=[2,3,4,5])
+#       # #m1_res.rechunk(100000)
+#       # #r_res_scattered = client.scatter(r_res)
+#       # y_res = client.submit(dask.array.squeeze, x_res)
+#       # y_res.result().compute()
+#       # #res.visualize()
+#       # print('y_res', type(y_res))
+#       # return y_res
+#       #return a
+#       return True

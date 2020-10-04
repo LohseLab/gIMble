@@ -298,7 +298,7 @@ class EquationSystemObj(object):
         #parameters
         self.threads = parameterObj.threads
         self.k_max_by_mutype = parameterObj.config['k_max']
-        self.seed = parameterObj.config['gimble']['random_seed']
+        self.seed = np.random.seed(parameterObj.config['gimble']['random_seed'])
         self.mutypes = sorted(self.k_max_by_mutype.keys())
         #needed to generate the equationObjs
         self.model_file = parameterObj.model_file
@@ -582,16 +582,15 @@ class EquationSystemObj(object):
                     print(idx, value, file=file)
 
         return ETPs
-
+        
     def optimize_parameters(self, data, parameterObj, trackHistory=True, verbose=False):
-
+        
         fixed_params = parameterObj.fixed_params[:] #synced pops already removed from fixed_params
         fixedParams = {k:parameterObj.parameter_combinations[0][k] for k in fixed_params}
         fixedParams['mu'] = parameterObj.config['mu']['mu']
         #if these are fixed, which ones represent a boundary: all parameters not in fixed except mu
         toBeSynced_pops = [f'Ne_{pop}' for pop in parameterObj.toBeSynced] if parameterObj.toBeSynced!=None else []
         boundaryNames = [k for k in parameterObj.config['parameters'].keys() if not (k=='mu' or k in fixed_params or k in toBeSynced_pops)]
-        
         if len(boundaryNames) == 0:
             print("[-] No boundaries specified.")
             #scale all parameters
@@ -600,22 +599,33 @@ class EquationSystemObj(object):
             split_time = self._get_split_time(scaled_params)
             args = rate_by_variable, split_time, parameterObj.threads, True 
             ETPs = self.calculate_ETPs(args)
-            CL=calculate_composite_likelihood(ETPs, data)
+            CL = calculate_composite_likelihood(ETPs, data)
             print(f"[+] Starting point lnCL={CL}.")
             sys.exit()
         
         #boundaries
-        lower = np.array([parameterObj.parameter_combinations[1][k] for k in boundaryNames])
-        upper = np.array([parameterObj.parameter_combinations[2][k] for k in boundaryNames])
-        #generate number of inital points
-        np.random.seed(self.seed)
-        all_p0 = np.random.uniform(low=lower, high=upper, size=(parameterObj.numPoints-1, len(boundaryNames)))
-        #add p0 to list of starting points
-        p0 =  np.array([parameterObj.parameter_combinations[0][k] for k in boundaryNames])
-        if all_p0.size!=0:
-            all_p0= np.vstack([all_p0, p0])
-        else:
-            all_p0 = [p0,]
+
+        # Did this really work before?
+        # lower = np.array([parameterObj.parameter_combinations[1][k] for k in boundaryNames])
+        # upper = np.array([parameterObj.parameter_combinations[2][k] for k in boundaryNames])
+        # #generate number of inital points
+        # np.random.seed(self.seed)
+        # all_p0 = np.random.uniform(low=lower, high=upper, size=(parameterObj.numPoints-1, len(boundaryNames)))
+        # #add p0 to list of starting points
+        # p0 =  np.array([parameterObj.parameter_combinations[0][k] for k in boundaryNames])
+        # if all_p0.size!=0:
+        #     all_p0= np.vstack([all_p0, p0])
+        # else:
+        #     all_p0 = [p0,]
+
+        '''
+        if one starting point: use the midpoint of the boundaries as starting point (p0)
+        if > 1 starting points: pick starting points randomly based on seed
+        '''
+        parameter_combinations_lowest = np.array([parameterObj.parameter_combinations[0][k] for k in boundaryNames])
+        parameter_combinations_highest = np.array([parameterObj.parameter_combinations[-1][k] for k in boundaryNames])
+        starting_points = np.random.uniform(low=parameter_combinations_lowest, high=parameter_combinations_highest, size=(parameterObj.numPoints, len(boundaryNames)))
+        
         if trackHistory:
             trackHistoryPath = [[] for _ in range(parameterObj.numPoints)]
             specifiedObjectiveFunctionList = [partial(
@@ -660,13 +670,13 @@ class EquationSystemObj(object):
                 specifiedRunList=[partial(
                     run_single_optimiz,
                     p0=p0,
-                    lower=lower,
-                    upper=upper,
+                    lower=parameter_combinations_lowest,
+                    upper=parameter_combinations_highest,
                     specified_objective_function=specified_objective_function,
                     maxeval=parameterObj.max_eval,
                     xtol_rel=parameterObj.xtol_rel,
                     ftol_rel=parameterObj.ftol_rel
-                    ) for p0, specified_objective_function in zip(all_p0,specifiedObjectiveFunctionList)]
+                    ) for p0, specified_objective_function in zip(starting_points, specifiedObjectiveFunctionList)]
                 #other option: specify both specifiy_objective_function and p0 and run list of functions without arguments
                 with concurrent.futures.ProcessPoolExecutor(max_workers=parameterObj.gridThreads) as outer_pool:
                     #this needs to iterate over functions as well as over starting points
@@ -676,15 +686,15 @@ class EquationSystemObj(object):
             else:
                 specified_run_single_optimizer=partial(
                     run_single_optimiz,
-                    lower=lower,
-                    upper=upper,
+                    lower=parameter_combinations_lowest,
+                    upper=parameter_combinations_highest,
                     specified_objective_function=specified_objective_function,
                     maxeval=parameterObj.max_eval,
                     xtol_rel=parameterObj.xtol_rel,
                     ftol_rel=parameterObj.ftol_rel
                     )
                 with concurrent.futures.ProcessPoolExecutor(max_workers=parameterObj.gridThreads) as outer_pool:
-                    for single_run in outer_pool.map(specified_run_single_optimizer, all_p0):
+                    for single_run in outer_pool.map(specified_run_single_optimizer, starting_points):
                         allResults.append(single_run)
 
         exitcodeDict = {

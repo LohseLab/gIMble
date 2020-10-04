@@ -39,13 +39,14 @@ class OptimiseParameterObj(lib.gimble.ParameterObj):
         self.model_file = self._get_path(args['--model_file'])
         self.threads, self.gridThreads = [self._get_int(t) for t in args["--threads"].split(',')]
         #self.threads, self.gridThreads = self._get_threads(args["--threads"])
-        self.config = self._parse_config(self.config_file)
         self.numPoints = self._get_int(args['--n_points'])
         self.max_eval = self._get_int(args['--iterations'])
         self.xtol_rel = self._get_float(args['--xtol_rel'])
         self.ftol_rel = self._get_float(args['--ftol_rel'])
         self.trackHistory = args['--trackPath']
-        self._process_config()
+        self.config = None
+        self._parse_config(self.config_file)
+        #self._process_config()
 
     def _get_datatype(self, args):
         choices = [args['--blocks'], args['--windows']]
@@ -61,30 +62,8 @@ def main(params):
         start_time = timer()
         args = docopt(__doc__)
         parameterObj = OptimiseParameterObj(params, args)
-        print("[+] Generated all parameter combinations.")
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
-        if not gimbleStore.has_stage(parameterObj.data_type):
-            sys.exit("[X] GStore has no %r." % parameterObj.data_type)
-
-        data = gimbleStore.get_bsfs(
-            data_type=parameterObj.data_type, 
-            population_by_letter=parameterObj.config['populations'], 
-            sample_sets="X", 
-            kmax_by_mutype=parameterObj.config['k_max'])
-        
-        # load math.EquationSystemObj
-        equationSystem = lib.math.EquationSystemObj(parameterObj)
-        # initiate model equations
-        equationSystem.initiate_model(parameterObj)
-        optimizeResult=equationSystem.optimize_parameters(
-            data, 
-            parameterObj
-            )
-        #to be used in different function
-        #if parameterObj.trackHistory:
-            #df = pd.DataFrame(optimizeResult[1:])
-            #df.columns=optimizeResult[0]
-            #df = df.sort_values(by='iterLabel')
+        gimbleStore.optimize(parameterObj)
         
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
