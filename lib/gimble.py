@@ -1039,10 +1039,22 @@ class Store(object):
         print("[#] Preflight...")
         self._preflight_query(parameterObj)
         print("[#] Query...")
-        if parameterObj.blocks:
-            self._write_block_bed(parameterObj, cartesian_only=True)
-        if parameterObj.windows:
-            self._write_window_bed(parameterObj, cartesian_only=True)
+        for query in parameterObj.queries:
+            data_type, format_type = query
+            if format_type == 'bed':
+                if data_type == 'blocks':
+                    self._write_block_bed(parameterObj)
+                elif data_type == 'windows':
+                    self._write_window_bed(parameterObj)
+                else:
+                    pass
+            elif format_type == 'bsfs':
+                if data_type == 'blocks' or data_type == 'windows_sum':
+                    self.dump_bsfs(data_type=data_type, sample_sets='X', kmax_by_mutype=parameterObj.kmax_by_mutype)
+                else:
+                    pass
+            else:
+                pass
 
     def gridsearch(self, parameterObj):
         '''
@@ -1518,7 +1530,9 @@ class Store(object):
         return zarr.open(str(self.path), mode='r+')
     
     def _get_meta(self, stage):
-        return self.data[stage].attrs
+        if stage in self.data:
+            return self.data[stage].attrs
+        return None
 
     def _wipe_stage(self, stage):
         if stage in self.data:
@@ -1690,13 +1704,39 @@ class Store(object):
         #count_intervals = len(intervals_df.index)
         #count_samples = len(query_samples)
 
-    def dump_bsfs(self, parameterObj):
+    def get_bsfs_filename(self, data_type=None, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None):
+        if data_type == 'blocks':
+            meta_blocks = self._get_meta('blocks')
+            return "%s.l_%s.m_%s.i_%s.u_%s.bsfs.%s.tsv" % (self.prefix, meta_blocks['length'], meta_blocks['span'], meta_blocks['max_missing'], meta_blocks['max_multiallelic'], data_type)
+        elif data_type == 'windows':
+            meta_blocks = self._get_meta('blocks')
+            meta_windows = self._get_meta('windows')
+            return "%s.l_%s.m_%s.i_%s.u_%s.w_%s.s_%s.bsfs.%s.tsv" % (self.prefix, meta_blocks['length'], meta_blocks['span'], meta_blocks['max_missing'], meta_blocks['max_multiallelic'], meta_windows['size'], meta_windows['step'], data_type)
+        elif data_type == 'windows_sum':
+            meta_blocks = self._get_meta('blocks')
+            meta_windows = self._get_meta('windows')
+            return "%s.l_%s.m_%s.i_%s.u_%s.w_%s.s_%s.bsfs.%s.tsv" % (self.prefix, meta_blocks['length'], meta_blocks['span'], meta_blocks['max_missing'], meta_blocks['max_multiallelic'], meta_windows['size'], meta_windows['step'], data_type)
+        else:
+            raise ValueError("data_type %s is not defined" % data_type)
+    
+    def dump_bsfs(self, data_type=None, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None):
         meta_seqs = self._get_meta('seqs')
-        meta_blocks = self._get_meta('blocks')
-        header = ['count'] + [x+1 for x in range(meta_seqs['mutypes_count'])]
-        bsfs_2d = bsfs_to_2d(self.get_bsfs(data_type='blocks', sample_sets='X'))
-        prefix = "%s.l_%s.m_%s.i_%s.u_%s" % (self.prefix, meta_blocks['length'], meta_blocks['span'], meta_blocks['max_missing'], meta_blocks['max_multiallelic'])
-        pd.DataFrame(data=bsfs_2d, columns=header, dtype='int64').to_csv("%s.inter.blocks.tsv" % prefix, index=False, sep='\t')
+        header = ['count'] + [x + 1 for x in range(meta_seqs['mutypes_count'])]
+        bsfs_2d = bsfs_to_2d(
+            self.get_bsfs(
+                data_type=data_type, 
+                sequences=sequences, 
+                sample_sets=sample_sets, 
+                population_by_letter=population_by_letter, 
+                kmax_by_mutype=kmax_by_mutype))
+        bsfs_filename = self.get_bsfs_filename(
+            data_type=data_type,
+            sequences=sequences,
+            sample_sets=sample_sets,
+            population_by_letter=population_by_letter,
+            kmax_by_mutype=kmax_by_mutype
+            )
+        pd.DataFrame(data=bsfs_2d, columns=header, dtype='int64').to_csv(bsfs_filename, index=False, sep='\t')
         #bsfs = self.get_bsfs(self, data_type='blocks', sample_sets='A')
         #pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.intra_A.blocks.h5" % prefix, 'tally', format='table')
         #pd.DataFrame(data=bsfs_2d, columns=header, dtype='int64').to_csv("%s.intra_A.blocks.tsv" % prefix, index=False, sep='\t')
@@ -1766,9 +1806,10 @@ class Store(object):
         #print(bed_df)
         return out_f
 
-    def _write_window_bed(self, parameterObj, cartesian_only=True):
+    def _write_window_bed(self, parameterObj):
         meta_seqs = self._get_meta('seqs')
         meta_windows = self._get_meta('windows')
+        meta_blocks = self._get_meta('blocks')
         #sample_set_idxs = [idx for (idx, is_cartesian) in enumerate(meta_seqs['sample_sets_inter']) if is_cartesian] if cartesian_only else range(len(meta_seqs['sample_sets']))
         MAX_SEQNAME_LENGTH = max([len(seq_name) for seq_name in meta_seqs['seq_names']])
         sequences = np.zeros(meta_windows['count'], dtype='<U%s' % MAX_SEQNAME_LENGTH)
@@ -1786,33 +1827,35 @@ class Store(object):
                 ends[offset:offset+window_count] = np.array(self.data[end_key])
                 sequences[offset:offset+window_count] = np.full_like(window_count, seq_name, dtype='<U%s' % MAX_SEQNAME_LENGTH)
                 offset += window_count
-        columns = ['sequence', 'start', 'end', 'index']
-        int_bed = np.vstack([starts, ends, index]).T    
-        # header
+        columns = ['sequence', 'start', 'end', 'index', 'heterozygosity_A', 'heterozygosity_B', 'd_xy', 'f_st']
+        dtypes = {'start': 'int64', 'end': 'int64', 'index': 'int64', 
+                'heterozygosity_A': 'float64', 'heterozygosity_B': 'float64', 'd_xy': 'float64', 'f_st': 'float64'}
+        bsfs_windows_full = self.get_bsfs(data_type='windows', sample_sets='X')
+        pop_metrics = pop_metrics_from_bsfs(bsfs_windows_full, mutypes=meta_seqs['mutypes_count'], block_length=meta_blocks['length'], window_size=meta_windows['size'])
+        int_bed = np.vstack([starts, ends, index, pop_metrics]).T
         header = ["# %s" % parameterObj._VERSION]
         header += ["# %s" % "\t".join(columns)]  
         out_f = '%s.windows.bed' % self.prefix
         with open(out_f, 'w') as out_fh:
             out_fh.write("\n".join(header) + "\n")
         # bed
-        bed_df = pd.DataFrame(data=int_bed, columns=columns[1:])
+        bed_df = pd.DataFrame(data=int_bed, columns=columns[1:]).astype(dtype=dtypes)
         bed_df['sequence'] = sequences
-        bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, mode='w', sep='\t', index=False, header=False, columns=columns)
+        bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=columns, float_format='%.5f')
+        return out_f
 
-
-    def _write_block_bed(self, parameterObj, cartesian_only=True):
+    def _write_block_bed(self, parameterObj, sample_sets='X'):
         '''new gimblestore'''
         meta_seqs = self._get_meta('seqs')
-        meta_blocks = self._get_meta('windows')
-        sample_set_idxs = [idx for (idx, is_cartesian) in enumerate(meta_seqs['sample_sets_inter']) if is_cartesian] if cartesian_only else range(len(meta_seqs['sample_sets']))
-        blocks_count_total = sum([meta_blocks['count_by_sample_set_idx'][str(idx)] for idx in sample_set_idxs])
+        meta_blocks = self._get_meta('blocks')
+        sample_set_idxs = self._get_sample_set_idxs(query=sample_sets)
+        blocks_count_total = sum([meta_blocks['count_by_sample_set_idx'][idx] for idx in sample_set_idxs])
         starts = np.zeros(blocks_count_total, dtype=np.int64)
         ends = np.zeros(blocks_count_total, dtype=np.int64)
         # dynamically set string dtype for sequence names
         MAX_SEQNAME_LENGTH = max([len(seq_name) for seq_name in meta_seqs['seq_names']])
         sequences = np.zeros(blocks_count_total, dtype='<U%s' % MAX_SEQNAME_LENGTH) 
         sample_sets = np.zeros(blocks_count_total, dtype=np.int64) 
-        # if extended_bed
         variation = np.zeros((blocks_count_total, meta_seqs['mutypes_count']), dtype=np.int64)
         missing = np.zeros(blocks_count_total, dtype=np.int64) 
         multiallelic = np.zeros(blocks_count_total, dtype=np.int64) 
@@ -1829,25 +1872,22 @@ class Store(object):
                         ends[offset:offset+block_count] = np.array(self.data[end_key])
                         sequences[offset:offset+block_count] = np.full_like(block_count, seq_name, dtype='<U%s' % MAX_SEQNAME_LENGTH)
                         sample_sets[offset:offset+block_count] = np.full_like(block_count, sample_set_idx)
-                        if parameterObj.extended_bed:
-                            variation_key = 'blocks/%s/%s/variation' % (seq_name, sample_set_idx)
-                            missing_key = 'blocks/%s/%s/missing' % (seq_name, sample_set_idx)
-                            multiallelic_key = 'blocks/%s/%s/missing' % (seq_name, sample_set_idx)
-                            variation[offset:offset+block_count] = np.array(self.data[variation_key])
-                            missing[offset:offset+block_count] = np.array(self.data[missing_key]).flatten()
-                            multiallelic[offset:offset+block_count] = np.array(self.data[multiallelic_key]).flatten()
+                        variation_key = 'blocks/%s/%s/variation' % (seq_name, sample_set_idx)
+                        missing_key = 'blocks/%s/%s/missing' % (seq_name, sample_set_idx)
+                        multiallelic_key = 'blocks/%s/%s/missing' % (seq_name, sample_set_idx)
+                        variation[offset:offset+block_count] = np.array(self.data[variation_key])
+                        missing[offset:offset+block_count] = np.array(self.data[missing_key]).flatten()
+                        multiallelic[offset:offset+block_count] = np.array(self.data[multiallelic_key]).flatten()
                         offset += block_count
                     pbar.update()
         columns = ['sequence', 'start', 'end', 'sample_set']
-        if not parameterObj.extended_bed:
-            int_bed = np.vstack([starts, ends, sample_sets]).T    
-        else:
-            int_bed = np.vstack([starts, ends, sample_sets, missing, multiallelic, variation.T]).T
-            mutypes_count = ["m_%s" % str(x+1) for x in range(meta_seqs['mutypes_count'])]
-            columns += ['missing', 'multiallelic'] + mutypes_count    
+        int_bed = np.vstack([starts, ends, sample_sets, missing, multiallelic, variation.T]).T
+        mutypes_count = ["m_%s" % str(x+1) for x in range(meta_seqs['mutypes_count'])]
+        columns += ['missing', 'multiallelic'] + mutypes_count    
         # header
         header = ["# %s" % parameterObj._VERSION]
-        header += ["# %s = %s" % (sample_set_idx, ", ".join(meta_seqs['sample_sets'][sample_set_idx])) for sample_set_idx in sample_set_idxs] 
+        print('sample_set_idxs', sample_set_idxs)
+        header += ["# %s = %s" % (sample_set_idx, ", ".join(meta_seqs['sample_sets'][int(sample_set_idx)])) for sample_set_idx in sample_set_idxs] 
         header += ["# %s" % "\t".join(columns)]  
         out_f = '%s.blocks.bed' % self.prefix
         with open(out_f, 'w') as out_fh:
@@ -1855,15 +1895,17 @@ class Store(object):
         # bed
         bed_df = pd.DataFrame(data=int_bed, columns=columns[1:])
         bed_df['sequence'] = sequences
-        bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, mode='w', sep='\t', index=False, header=False, columns=columns)
+        bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=columns, float_format='%.5f')
 
     def _preflight_query(self, parameterObj):
-        if parameterObj.blocks:
-            if not self.has_stage('blocks'):
-                sys.exit("[X] GStore %r has no blocks. Please run 'gimble blocks'." % self.path)
-        if parameterObj.windows:
-            if not self.has_stage('windows'):
-                sys.exit("[X] GStore %r has no windows. Please run 'gimble windows'." % self.path)
+        for query in parameterObj.queries:
+            data_type = query[0]
+            if data_type == 'blocks':
+                if not self.has_stage('blocks'):
+                    sys.exit("[X] GStore %r has no blocks. Please run 'gimble blocks'." % self.path)
+            if data_type == 'windows' or data_type == 'window_sum':
+                if not self.has_stage('windows'):
+                    sys.exit("[X] GStore %r has no windows. Please run 'gimble windows'." % self.path)
 
     def _preflight_windows(self, parameterObj):
         if not self.has_stage('blocks'):
