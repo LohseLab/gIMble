@@ -45,6 +45,7 @@ class OptimiseParameterObj(lib.gimble.ParameterObj):
         self.ftol_rel = self._get_float(args['--ftol_rel'])
         self.trackHistory = args['--trackPath']
         self.config = None
+        self.toBeSynced = None
         self._parse_config(self.config_file)
         #self._process_config()
 
