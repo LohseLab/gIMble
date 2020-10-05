@@ -659,11 +659,11 @@ class EquationSystemObj(object):
         if parameterObj.gridThreads <= 1:
             #print("[+] Optimization starting from provided starting point.")
             if trackHistory:
-                for startPos, specified_objective_function in zip(all_p0, specifiedObjectiveFunctionList):
-                    allResults.append(run_single_optimiz(startPos, lower, upper, specified_objective_function, parameterObj.max_eval, parameterObj.xtol_rel, parameterObj.ftol_rel))
+                for startPos, specified_objective_function in zip(starting_points, specifiedObjectiveFunctionList):
+                    allResults.append(run_single_optimiz(startPos, parameter_combinations_lowest, parameter_combinations_highest, specified_objective_function, parameterObj.max_eval, parameterObj.xtol_rel, parameterObj.ftol_rel))
             else:
-                for startPos in all_p0:
-                    allResults.append(run_single_optimiz(startPos, lower, upper, specified_objective_function, parameterObj.max_eval, parameterObj.xtol_rel, parameterObj.ftol_rel))
+                for startPos in starting_points:
+                    allResults.append(run_single_optimiz(startPos, parameter_combinations_lowest, parameter_combinations_highest, specified_objective_function, parameterObj.max_eval, parameterObj.xtol_rel, parameterObj.ftol_rel))
         else:
             #print(f"[+] Optimization starting for {parameterObj.numPoints-1} random points and 1 given point.")
             if trackHistory:
