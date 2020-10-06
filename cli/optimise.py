@@ -46,6 +46,7 @@ class OptimiseParameterObj(lib.gimble.ParameterObj):
         self.trackHistory = args['--trackPath']
         self.config = None
         self.toBeSynced = None
+        self.reference = None
         self._parse_config(self.config_file)
         #self._process_config()
 
