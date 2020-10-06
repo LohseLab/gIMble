@@ -1066,16 +1066,8 @@ class Store(object):
 
     def gridsearch(self, parameterObj):
         '''
-        1. Uses window_sum_bsfs (kmax) to get 'best' global gridpoint
-        2. Output 
-        3. Uses block_bsfs (no kmax) to get popgen-metrics
-        4. Uses window_bsfs (kmax) to get 'best' local gridpoint
-        5. Output 
-        
         Assumptions:
             - this works only for windows ('-w') for now... logic for '-b' has to be decided upon
-            - same kmax for
-
         '''
         print("[#] Gridsearching ...")
         unique_hash = parameterObj._get_unique_hash()
