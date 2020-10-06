@@ -531,6 +531,10 @@ def bsfs_to_2d(bsfs):
     else:
         raise ValueError('bsfs_to_2d: bsfs.ndim must be 4 (blocks) or 5 (windows)')
 
+def sum_wbsfs(bsfs_windows):
+    assert bsfs_windows.ndim == 5, "only works for bsfs_windows.ndim = 5"
+    return bsfs_windows.sum(axis=0)
+
 def bsfs_to_counter(bsfs):
     """Returns (dict of) collections.Counter based on bsfs_array of 4 or 5 dimensions.
 
@@ -860,12 +864,16 @@ class ParameterObj(object):
         '''validates types in INI config, returns dict with keys, values as sections/params/etc
         - does not deal with missing/incompatible values (should be dealt with in ParameterObj subclasses)
             https://docs.python-cerberus.org/en/stable/usage.html
+
+        ideas
+        - could the whole 'possible_values' stuff be removed by adding population_ids as field to the INI filed coming from model?
+            population_ids = A, B, A_B
+
         '''
         raw_config = configparser.ConfigParser(inline_comment_prefixes='#', allow_no_value=True)
         raw_config.optionxform=str # otherwise keys are lowercase
         raw_config.read(config_file)
         config = {s: dict(raw_config.items(s)) for s in raw_config.sections()}
-        
         possible_values_config = configparser.ConfigParser(allow_no_value=True, strict=False, comment_prefixes=None)
         possible_values_config.optionxform=str # otherwise keys are lowercase
         possible_values_config.read(config_file)
@@ -1072,22 +1080,20 @@ class Store(object):
         print("[#] Gridsearching ...")
         unique_hash = parameterObj._get_unique_hash()
         grids, grid_meta_dict = self._get_grid(unique_hash)
-        # gridsearch windows_sum
-        bsfs_windows_sum = self.get_bsfs(
-            data_type='windows_sum', 
-            population_by_letter=parameterObj.config['population_by_letter'], 
-            sample_sets='X',
-            kmax_by_mutype=parameterObj.config['k_max'])
-        lncls_global = self.gridsearch_np(bsfs=bsfs_windows_sum, grids=grids)
-        best_idx = np.argmax(lncls_global, axis=0)
-        print('[+] Best grid point (based on bSFS within windows): %s' % lncls_global[best_idx])
-        print('[+] \t %s' % "; ".join(["%s = %s" % (k, v) for k, v in grid_meta_dict[str(best_idx)].items()]))
         # gridsearch windows
+        print('[+] Getting wbSFSs ...')
         bsfs_windows_clipped = self.get_bsfs(
             data_type='windows', 
             population_by_letter=parameterObj.config['population_by_letter'], 
             sample_sets='X', 
             kmax_by_mutype=parameterObj.config['k_max'])
+        # gridsearch windows_sum
+        print('[+] Summing wbSFSs ...')
+        bsfs_windows_clipped_summed = sum_wbsfs(bsfs_windows_clipped)
+        lncls_global = self.gridsearch_np(bsfs=bsfs_windows_clipped_summed, grids=grids)
+        best_idx = np.argmax(lncls_global, axis=0)
+        print('[+] Best grid point (based on bSFS within windows): %s' % lncls_global[best_idx])
+        print('[+] \t %s' % "; ".join(["%s = %s" % (k, v) for k, v in grid_meta_dict[str(best_idx)].items()]))
         lncls_windows = self.gridsearch_np(bsfs=bsfs_windows_clipped, grids=grids)
         # pop metrics
         meta_seqs = self._get_meta('seqs')
@@ -1249,14 +1255,14 @@ class Store(object):
             params['span'] = meta_blocks['span']
             params['max_missing'] = meta_blocks['max_missing']
             params['max_multiallelic'] = meta_blocks['max_multiallelic']
-        elif data_type == 'windows' or data_type == 'windows_sum':
+        elif data_type == 'windows':
             meta_windows = self._get_meta('windows')
             if meta_windows['count'] == 0:
                 sys.exit('[X] No windows found.')
             params['size'] = meta_windows['size']
             params['step'] = meta_windows['step']
         else:
-            raise ValueError("data_type must be 'blocks', 'windows', or 'windows_sum'")        
+            raise ValueError("data_type must be 'blocks' or 'windows'")        
         unique_hash = get_hash_from_dict(params)
         bsfs_data_key = 'bsfs/%s/%s' % (data_type, get_hash_from_dict(params))
         if bsfs_data_key in self.data and False:
@@ -1268,31 +1274,10 @@ class Store(object):
                 bsfs = self._get_block_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
             elif data_type == 'windows':
                 bsfs = self._get_window_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
-            elif data_type == 'windows_sum':
-                bsfs = self._get_window_sum_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
             else:
                 raise ValueError("data_type must be 'blocks' or 'windows'")        
             self.data.create_dataset(bsfs_data_key, data=bsfs, overwrite=True)
         return bsfs
-
-    def _get_window_sum_bsfs(self, sample_sets='X', sequences=None, population_by_letter=None, kmax_by_mutype=None):
-        sequences = self._validate_seq_names(sequences)
-        invert_population_flag = self._get_invert_population_flag(population_by_letter)
-        max_k = np.array(list(kmax_by_mutype.values())) + 1 if kmax_by_mutype else None 
-        variations = []
-        for seq_name in tqdm(sequences, total=len(sequences), desc="[%] Querying data ", ncols=100):
-            variation = np.array(self.data["windows/%s/variation" % seq_name], dtype=np.int64)
-            variations.append(variation)
-        variation = np.concatenate(variations, axis=0)
-        variation = variation.reshape((variation.shape[0] * variation.shape[1], variation.shape[2]))
-        if invert_population_flag:
-            variation[:, [0, 1]] = variation[:, [1, 0]]
-        mutuples, counts = np.unique(np.clip(variation, 0, max_k),return_counts=True, axis=0)
-        # define out based on max values for each column
-        out = np.zeros(tuple(np.max(mutuples, axis=0) + 1), np.int64)
-        # assign values
-        out[tuple(mutuples.T)] = counts
-        return out
 
     def _get_block_bsfs(self, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None):
         """Returns bsfs_array of 4 dimensions.
