@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gimble gridsearch                  -z FILE [-g STR] -c FILE (-b|-w) [-h|--help]
+"""usage: gimble gridsearch                  -z FILE -c FILE (-b|-w) [-h|--help]
                                             
                                             
     Options:
@@ -10,7 +10,6 @@
         -b, --blocks                                Using blocks
         -w, --windows                               Using windows
         -c, --config_file FILE
-        -g, --grid_name STR                         Unique grid hash
 """
 import pathlib
 import collections

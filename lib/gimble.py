@@ -784,7 +784,12 @@ class ParameterObj(object):
             gridThreads = num//threads
         return (threads, gridThreads)
 
+    def _get_unique_hash_from_dict(self, d):
+        '''active'''
+        return hashlib.md5(str(d).encode()).hexdigest()
+
     def _get_unique_hash(self):
+        '''passive'''
         to_hash = copy.deepcopy(self.config)
         if self._MODULE in ['makegrid','gridsearch']:
             del to_hash['simulations']
