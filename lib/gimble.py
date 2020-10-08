@@ -787,17 +787,15 @@ class ParameterObj(object):
     def _get_unique_hash(self):
         to_hash = copy.deepcopy(self.config)
         if self._MODULE in ['makegrid','gridsearch']:
-            for pop_name in ['A', 'B']:
-                del to_hash['populations'][pop_name]
             del to_hash['simulations']
-            del to_hash['gimble']
         elif self._MODULE == 'simulate':
-            for pop_name in ['A', 'B']:
-                del to_hash['populations'][pop_name]
-            del to_hash['gimble']
+            pass
         else:
             ValueError("Not implemented yet.")
-
+        del to_hash['population_by_letter']
+        for pop_name in ['A', 'B']:
+            del to_hash['populations'][pop_name]
+        del to_hash['gimble']
         return hashlib.md5(str(to_hash).encode()).hexdigest()
         
     def _remove_pop_from_dict(self, toRemove):
@@ -1730,7 +1728,11 @@ class Store(object):
         counts_inter = self.data[counts_inter_key]
         self.plot_bsfs_pcp('%s.bsfs_pcp.png' % self.prefix, mutypes_inter, counts_inter)
 
+    def _get_lncls(self, parameterObj=None, lncls=None, best_idx=None, grid_meta_dict=None):
+        pass
+
     def _write_gridsearch_bed(self, parameterObj=None, lncls=None, best_idx=None, grid_meta_dict=None, pop_metrics=None):
+        '''remove all lncls-compuation for here. only worry about BED output here.'''
         if parameterObj is None or lncls is None or grid_meta_dict is None:
             raise ValueError('_write_gridsearch_bed: needs parameterObj and lncls and grid_meta_dict')
         grids = []
@@ -1779,7 +1781,7 @@ class Store(object):
         bed_df = pd.DataFrame(data=int_bed, columns=columns[1:]).astype(dtype=dtypes)
         bed_df['sequence'] = sequences
         # MUST be mode='a' otherwise header gets wiped ...
-        bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=columns, float_format='%.5f')
+        bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=columns)
         #print(bed_df)
         return out_f
 
