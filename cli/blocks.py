@@ -40,14 +40,12 @@ class BlockParameterObj(lib.gimble.ParameterObj):
     
     def _get_block_span(self, block_span):
         if block_span is None:
-            return 2*self.block_length
-        else:
-            block_span = self._get_int(block_span)
-            if block_span >= self.block_length:
-                return block_span
-            else:
-                sys.exit("[X] Block span ('-m') must be greater than block length '-l'")
-
+            return 2 * self.block_length
+        block_span = self._get_int(block_span)
+        if block_span < self.block_length:
+            sys.exit("[X] Block span ('-m') must be greater or equal to block length '-l'")
+        return block_span
+        
 def main(params):
     try:
         start_time = timer()
