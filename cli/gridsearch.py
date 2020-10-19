@@ -25,7 +25,7 @@ class GridsearchParameterObj(lib.gimble.ParameterObj):
     def __init__(self, params, args):
         super().__init__(params)
         self.zstore = self._get_path(args['--zarr_file'])
-        self.grid_name = args['--grid_name']
+        #self.grid_name = args['--grid_name']
         self.data_type = self._get_datatype([args['--blocks'], args['--windows']])
         self.config_file = self._get_path(args['--config_file'])
         self.config = None
