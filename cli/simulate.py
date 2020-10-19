@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gIMble simulate                   [-z DIR] [-o DIR | -b INT]
-                                            -c FILE 
-                                            [-r INT]
-                                            [-t INT] [-h|--help]
+"""usage: gIMble simulate                   [-z <DIR>] [-o <DIR> | -b <INT>] -c <FILE> [-r <INT>] [-t <INT>] [-h|--help]
                                             
     Options:
         -h --help                                   show this
         -z, --zarr DIR                              Path to zarr store
-        -o, --outprefix DIR                            prefix to make new zarr store
-        -c, --config_file FILE                      Config file with parameters (if not present, empty config file is created)
+        -o, --outprefix DIR                         prefix to make new zarr store
+        -c, --config_file FILE                      Config file with parameters
         -b, --blocks INT                            Number of blocks per replicate
         -r, --replicates INT                        Number of replicates per parametercombo
         -t, --threads INT                           Threads [default: 1]
@@ -53,9 +50,8 @@ class SimulateParameterObj(lib.gimble.ParameterObj):
         self.prefix = self._get_prefix(args["--outprefix"])
         self.threads = self._get_int(args["--threads"])
         self._set_or_write_config(args["--blocks"], args["--replicates"])
-        self._set_recombination_rate()
-        self._process_config()  
-
+        self._set_recombination_rate()  
+        
     def _set_or_write_config(self, blocks, replicates):
         #in case no config file is provided
         if self.config_file is None:
@@ -63,7 +59,7 @@ class SimulateParameterObj(lib.gimble.ParameterObj):
             sys.exit("[X] Use gimble model to generate a config file.")
         else:
             print("[+] Validating config file.")
-            self.config = self._parse_config(self.config_file)
+            self._parse_config(self.config_file)
             if blocks:
                 blocks = self._get_int(blocks)
                 self.config['simulations']['blocks'] = blocks
@@ -71,7 +67,7 @@ class SimulateParameterObj(lib.gimble.ParameterObj):
                 replicates = self._get_int(replicates)
                 self.config['simulations']['replicates'] = replicates
 
-    def _set_recombination_rate(self):        
+    def _set_recombination_rate(self):      
         rmap_path = self.config["simulations"]["recombination_map"]
         if os.path.isfile(rmap_path):
             #check validity of recombinatin map in _parse_recombination_map()
