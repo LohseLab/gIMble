@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gIMble simulate                   [-z <DIR>] [-o <DIR> | -b <INT>] -c <FILE> [-r <INT>] [-t <INT>] [-h|--help]
+"""usage: gIMble simulate                   [-z <DIR>] [-o <DIR> | -b <INT>] -c <FILE> [-r <INT>] [-t <INT>] [-h|--help] [-l <STR>]
                                             
     Options:
         -h --help                                   show this
@@ -11,6 +11,7 @@
         -b, --blocks INT                            Number of blocks per replicate
         -r, --replicates INT                        Number of replicates per parametercombo
         -t, --threads INT                           Threads [default: 1]
+        -l, --label STR                             Custom name for simulation run
         
 """
 import pathlib
@@ -49,6 +50,7 @@ class SimulateParameterObj(lib.gimble.ParameterObj):
         self.zstore = self._get_path(args["--zarr"])
         self.prefix = self._get_prefix(args["--outprefix"])
         self.threads = self._get_int(args["--threads"])
+        self.label = args["--label"]
         self._set_or_write_config(args["--blocks"], args["--replicates"])
         self._set_recombination_rate()  
         

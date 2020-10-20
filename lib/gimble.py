@@ -254,7 +254,7 @@ def get_config_schema(module):
         'schema': {
             'ploidy': {'empty':False, 'required':True, 'type':'integer', 'min':1, 'coerce':int},
             'blocks': {'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
-            'chuncks': {'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+            'chunks': {'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
             'replicates': {'empty': False, 'type': 'integer', 'min':1, 'coerce':int},
             'sample_size_A': {'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
             'sample_size_B': {'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
@@ -1329,16 +1329,6 @@ class Store(object):
         out[tuple(mutuples.T)] = counts
         return out
 
-    def _get_sims_bsfs(self, sample_sets=None, population_by_letter=None, kmax_by_mutype=None):
-        #this leads to duplicated code! wanted to make this work first
-        # count mutuples (clipping at k_max, if supplied)
-        mutuples, counts = np.unique(np.clip(variation, 0, max_k), return_counts=True, axis=0)
-        # define out based on max values for each column
-        out = np.zeros(tuple(np.max(mutuples, axis=0) + 1), np.int64)
-        # assign values
-        out[tuple(mutuples.T)] = counts
-        return out
-
     def gridsearch_np(self, bsfs=None, grids=None):
         '''returns 2d array of likelihoods of shape (windows, grids)'''
         if grids is None or bsfs is None:
@@ -1557,7 +1547,7 @@ class Store(object):
     def _return_group_last_integer(self, name):
         '''needed? yes, lib.simulate.py'''
         try:
-            all_groups = [int([namestring for namestring in groupnames.split('_')][-1]) for groupnames in list(self.data[name])]
+            all_groups = [int([namestring for namestring in groupnames.split('_')][-1]) for groupnames in list(self.data[name]) if groupnames.startswith('run')]
         except KeyError:
             return 0
         if len(all_groups):
@@ -1932,6 +1922,8 @@ class Store(object):
     def _preflight_simulate(self, parameterObj):
         if 'sims' not in self.data.group_keys():
             self._init_meta(overwrite=False, module='sims')
+        if parameterObj.label in self.data['sims'].group_keys():
+            sys.exit(f"[X] There already is a simulation run labeled {parameterObj.label}")
 
     #def dump_windows(self, parameterObj):
     #    window_info_rows = []

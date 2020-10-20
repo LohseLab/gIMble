@@ -17,10 +17,19 @@ import collections
 def run_sim(parameterObj, gimbleStore):
     threads = parameterObj.threads
     global_info = parameterObj.config["simulations"]
-    blocklength = parameterObj.config['mu']['blocklength']
     ploidy = global_info["ploidy"]
     blocks = global_info["blocks"]
+    chunks=global_info["chunks"]
+    blocklength = parameterObj.config['mu']['blocklength']
     replicates = global_info["replicates"]
+    if chunks>1:
+        if blocks==1:
+            print(f"[-] Can't split 1 block into {chunks} chunks. Simulation will continue without chunking.")
+            chunks=1
+        else:
+            blocks//=chunks
+            replicates*=chunks
+    k_max = parameterObj.config['k_max']
     sim_configs = parameterObj.parameter_combinations
     global_info['sample_pop_ids'] = parameterObj.config['populations']['sample_pop_ids']
     A,B = global_info['sample_pop_ids']
@@ -32,10 +41,14 @@ def run_sim(parameterObj, gimbleStore):
         global_info[f"sample_size_{A}"], global_info[f"sample_size_{B}"]
     )
     
-    print(f"[+] simulating {replicates} replicate(s) of {blocks} block(s) for {len(sim_configs)} parameter combinations")
+    print(f"[+] simulating {int(replicates//chunks)} replicate(s) of {int(blocks*chunks)} block(s) for {len(sim_configs)} parameter combinations")
     #with tqdm(total=replicates*len(sim_configs), desc="[%] running sims ", ncols=100, unit_scale=True) as pbar:
-    run_count = gimbleStore._return_group_last_integer('sims')
-    gimbleStore.data.require_group(f'sims/run_{run_count}')
+    if parameterObj.label:
+        group_name=parameterObj.label
+    else:
+        run_count = gimbleStore._return_group_last_integer('sims')
+        group_name = f"run_{run_count}"
+    gimbleStore.data.require_group(f'sims/{group_name}')
     for idx, (config, zarr_attrs) in enumerate(tqdm(zip(msprime_configs, sim_configs),desc='Overall simulation progress',ncols=100, unit_scale=True, total=len(sim_configs))):
         seeds = np.random.randint(1, 2 ** 32, replicates)
         result_list = []
@@ -49,6 +62,7 @@ def run_sim(parameterObj, gimbleStore):
                 blocks=blocks,
                 blocklength=blocklength,
                 comparisons=all_interpop_comparisons,
+                k_max=k_max
             )
     
                 result_list = list(tqdm(pool.imap(run_sims_specified, seeds),desc=f'running parameter combination {idx}',ncols=100, unit_scale=True, total=replicates))
@@ -61,12 +75,14 @@ def run_sim(parameterObj, gimbleStore):
                         ploidy=ploidy,
                         blocks=blocks,
                         blocklength=blocklength,
-                        comparisons=all_interpop_comparisons
+                        comparisons=all_interpop_comparisons,
+                        k_max=k_max
                     )
                 )
             
         name = f"parameter_combination_{idx}"
-        g = gimbleStore.data[f'sims/run_{run_count}'].create_dataset(name, data=np.array(result_list), overwrite=True)
+        result_list = _combine_chunks(result_list, chunks)
+        g = gimbleStore.data[f'sims/{group_name}'].create_dataset(name, data=result_list, overwrite=True)
         g.attrs.put(zarr_attrs)
         g.attrs['seeds']=tuple([int(s) for s in seeds])
             
@@ -138,7 +154,8 @@ def run_ind_sim(
     ploidy,
     blocks,
     blocklength,
-    comparisons
+    comparisons,
+    k_max
 ):
     (
         population_configurations,
@@ -188,7 +205,7 @@ def run_ind_sim(
     # generate all comparisons
     num_comparisons = len(comparisons)
     #result = np.zeros((num_comparisons, blocks, blocklength), dtype="int8")
-    result = np.zeros((num_comparisons, blocks, 4), dtype="int64") #get number of mutypes
+    result = np.zeros((num_comparisons, blocks, len(k_max)), dtype="int64") #get number of mutypes
     for idx, pair in enumerate(comparisons):
         block_sites = np.arange(total_length).reshape(blocks, blocklength)
         # slice genotype array
@@ -208,8 +225,24 @@ def run_ind_sim(
         )
         multiallelic, missing, monomorphic, variation = lib.gimble.block_sites_to_variation_arrays(block_sites)
         result[idx] = variation
-    return result
+    #flatten
+    result = result.reshape(-1, result.shape[-1])
+    #result = np.hstack(result).reshape(num_comparisons*blocks, len(k_max))
+    #apply get_bsfs to this
+    # count mutuples (clipping at k_max, if supplied)
+    max_k = np.array(list(k_max.values())) + 1 if k_max else None
+    mutuples, counts = np.unique(np.clip(result, 0, max_k), return_counts=True, axis=0)
+    # define out based on max values for each column
+    out = np.zeros(tuple(max_k + 1), np.int64)
+    # assign values
+    out[tuple(mutuples.T)] = counts
+    return out
 
+def _combine_chunks(result_list, chunks):
+    if chunks>1:
+        return np.array([np.add.reduce(m) for m in np.split(result_list,list(range(0,len(result_list),chunks))[1:])])
+    else:
+        return np.array(result_list)
 
 def get_genotypes(ts, ploidy, num_samples):
     if ts.num_mutations == 0:
