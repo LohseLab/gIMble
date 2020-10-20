@@ -254,6 +254,7 @@ def get_config_schema(module):
         'schema': {
             'ploidy': {'empty':False, 'required':True, 'type':'integer', 'min':1, 'coerce':int},
             'blocks': {'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+            'chunks': {'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
             'replicates': {'empty': False, 'type': 'integer', 'min':1, 'coerce':int},
             'sample_size_A': {'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
             'sample_size_B': {'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
@@ -694,7 +695,8 @@ class ParameterObj(object):
         if self.zstore:
             gimbleStore = lib.gimble.Store(path=self.zstore, create=False, overwrite=False)
             meta_blocks = gimbleStore._get_meta('blocks')
-            blocks_length_zarr = meta_blocks['length']
+            if isinstance(meta_blocks, dict):
+                blocks_length_zarr = meta_blocks.get('length', None)
         if blocks_length_zarr and blocks_length_ini:
             if blocks_length_zarr != blocks_length_ini:
                 print("[-] Block length in INI and gimbleStore differ. Using block length from INI : %s b" % blocks_length_ini)
@@ -913,6 +915,8 @@ class ParameterObj(object):
             self._expand_params()
             #self.reference, self.toBeSynced = self._get_pops_to_sync()
             self._remove_pop_from_dict(self.toBeSynced)
+            if self._MODULE=='simulate':
+                self._set_recombination_rate()
             self.parameter_combinations = self._dict_product()
             self._sync_pop_sizes(self.reference, self.toBeSynced)
         elif self._MODULE in ['optimise', 'optimize']:
@@ -1256,11 +1260,13 @@ class Store(object):
                 sys.exit('[X] No windows found.')
             params['size'] = meta_windows['size']
             params['step'] = meta_windows['step']
+        elif data_type == 'sims':
+            pass
         else:
             raise ValueError("data_type must be 'blocks' or 'windows'")        
         unique_hash = get_hash_from_dict(params)
         bsfs_data_key = 'bsfs/%s/%s' % (data_type, get_hash_from_dict(params))
-        if bsfs_data_key in self.data and False:
+        if bsfs_data_key in self.data:
             bsfs = np.array(self.data[bsfs_data_key], dtype=np.int64)
         else:
             meta_bsfs = self._get_meta('bsfs')
@@ -1269,6 +1275,8 @@ class Store(object):
                 bsfs = self._get_block_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
             elif data_type == 'windows':
                 bsfs = self._get_window_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
+            elif data_type == 'sims':
+                pass
             else:
                 raise ValueError("data_type must be 'blocks' or 'windows'")        
             self.data.create_dataset(bsfs_data_key, data=bsfs, overwrite=True)
@@ -1536,16 +1544,16 @@ class Store(object):
     #    else:
     #        return name in list(self.data[subgroup].group_keys())
 
-    #def _return_group_last_integer(self, name):
-    #    '''needed?'''
-    #    try:
-    #        all_groups = [int([namestring for namestring in groupnames.split('_')][-1]) for groupnames in list(self.data[name])]
-    #    except KeyError:
-    #        return 0
-    #    if len(all_groups):
-    #        return max(all_groups)+1
-    #    else:
-    #        return 0
+    def _return_group_last_integer(self, name):
+        '''needed? yes, lib.simulate.py'''
+        try:
+            all_groups = [int([namestring for namestring in groupnames.split('_')][-1]) for groupnames in list(self.data[name]) if groupnames.startswith('run')]
+        except KeyError:
+            return 0
+        if len(all_groups):
+            return max(all_groups)+1
+        else:
+            return 0
 
     def _set_sequences(self, parameterObj):
         meta = self._get_meta('seqs')
@@ -1914,6 +1922,8 @@ class Store(object):
     def _preflight_simulate(self, parameterObj):
         if 'sims' not in self.data.group_keys():
             self._init_meta(overwrite=False, module='sims')
+        if parameterObj.label in self.data['sims'].group_keys():
+            sys.exit(f"[X] There already is a simulation run labeled {parameterObj.label}")
 
     #def dump_windows(self, parameterObj):
     #    window_info_rows = []
