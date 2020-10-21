@@ -1127,28 +1127,45 @@ class Store(object):
     def optimize(self, parameterObj):
         if not self.has_stage(parameterObj.data_type):
             sys.exit("[X] gimbleStore has no %r." % parameterObj.data_type)
-        print("[+] Generated all parameter combinations.")
+        label = parameterObj.label if hasattr(parameterObj, 'label') else None
+
         data = self.get_bsfs(
             data_type=parameterObj.data_type, 
             population_by_letter=parameterObj.config['populations'], 
             sample_sets="X", 
-            kmax_by_mutype=parameterObj.config['k_max'])
-            
+            kmax_by_mutype=parameterObj.config['k_max'],
+            label=label
+            )
+    
         # load math.EquationSystemObj
         equationSystem = lib.math.EquationSystemObj(parameterObj)
         # initiate model equations
         equationSystem.initiate_model(parameterObj)
-        optimizeResult = equationSystem.optimize_parameters(
-            data, 
-            parameterObj
-            )
-        #to be used in different function
-        #if parameterObj.trackHistory:
-            #df = pd.DataFrame(optimizeResult[1:])
-            #df.columns=optimizeResult[0]
-            #df = df.sort_values(by='iterLabel')
+        #this is for a single dataset
+        if parameterObj.data_type=='simulate':
+            #data is an iterator over parameter_combination_name, parameter_combination_array
+            #each p_c_array contains n replicates
+            all_results={}
+            for param_combo, replicates in data:
+                print(f"Optimising replicates {param_combo}")
+                result = equationSystem.optimize_parameters(replicates, parameterObj, trackHistory=False, verbose=False)
+                all_results[param_combo] = result
+                self._temp_to_csv(result, param_combo)
+        else:
+            results = equationSystem.optimize_parameters(
+                data, 
+                parameterObj,
+                trackHistory=True,
+                verbose=True
+                )
 
-             
+    def _temp_to_csv(self, results, label):
+        df = pd.DataFrame(results[1:])
+        df.columns=results[0]
+        df = df.sort_values(by='iterLabel')
+        df.set_index('iterLabel', inplace=True)
+        df.to_csv(f'{label}.csv')
+
     def makegrid(self, parameterObj):
         print("[#] Making grid ...")
         unique_hash = parameterObj._get_unique_hash()
@@ -1256,6 +1273,51 @@ class Store(object):
         out[tuple(mutuples.T)] = counts
         return out
     
+    def get_bsfs(self, data_type=None, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None, label=None):
+        """main method for accessing bsfs
+        
+        unique hash-keys have to be made based on defining parameters of bsfs, which varies by data_type.         
+        """
+        params = {k: v for k, v in locals().items() if not k == 'self'}
+        params_blocks = ['length', 'span', 'max_missing', 'max_multiallelic']
+        params_windows = ['size', 'step']
+        data_type_bws = set(['blocks', 'windows', 'windows_sum'])
+        data_type_ws = set(['windows', 'windows_sum'])
+        if data_type in data_type_bws:
+            meta_blocks = self._get_meta('blocks')
+            assert meta_blocks['count'] > 0, sys.exit('[X] No blocks found.')
+            for key in params_blocks:
+                params[key] = meta_blocks[key]
+        if data_type in data_type_ws:
+            meta_windows = self._get_meta('windows')
+            assert meta_windows['count'] > 0, sys.exit('[X] No windows found.')
+            for key in params_windows:
+                params[key] = meta_windows[key]
+        elif data_type == 'simulate':
+            bsfs = self._get_sims_bsfs(label)
+            return bsfs
+        unique_hash = get_hash_from_dict(params)
+        bsfs_data_key = 'bsfs/%s/%s' % (data_type, unique_hash)
+        if bsfs_data_key in self.data: 
+            # bsfs exists
+            print("[+] bsfs found in GimbleStore. Retrieving...")
+            return np.array(self.data[bsfs_data_key], dtype=np.int64)
+        print("[+] bsfs not found in GimbleStore. Generating...")
+        if data_type == 'blocks':
+            bsfs = self._get_block_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
+        elif data_type == 'windows':
+            bsfs = self._get_window_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
+        elif data_type == 'windows_sum':
+            bsfs = sum_wbsfs(self._get_window_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype))
+        elif data_type == 'sims':
+            raise ValueError("Error in sequence of if/else statements for get_bsfs with simulate.")
+        else:
+            raise ValueError("data_type must be 'blocks', 'windows', or 'windows_sum")
+        meta_bsfs = self._get_meta('bsfs')
+        meta_bsfs[unique_hash] = str(params)
+        self.data.create_dataset(bsfs_data_key, data=bsfs, overwrite=True)
+        return bsfs
+
     def _get_block_bsfs(self, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None):
         """Returns bsfs_array of 4 dimensions.
 
@@ -1303,47 +1365,16 @@ class Store(object):
         out[tuple(mutuples.T)] = counts
         return out
 
-    def get_bsfs(self, data_type=None, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None):
-        """main method for accessing bsfs
-        
-        unique hash-keys have to be made based on defining parameters of bsfs, which varies by data_type.         
-        """
-        params = {k: v for k, v in locals().items() if not k == 'self'}
-        params_blocks = ['length', 'span', 'max_missing', 'max_multiallelic']
-        params_windows = ['size', 'step']
-        data_type_bws = set(['blocks', 'windows', 'windows_sum'])
-        data_type_ws = set(['windows', 'windows_sum'])
-        if data_type in data_type_bws:
-            meta_blocks = self._get_meta('blocks')
-            assert meta_blocks['count'] > 0, sys.exit('[X] No blocks found.')
-            for key in params_blocks:
-                params[key] = meta_blocks[key]
-        if data_type in data_type_ws:
-            meta_windows = self._get_meta('windows')
-            assert meta_windows['count'] > 0, sys.exit('[X] No windows found.')
-            for key in params_windows:
-                params[key] = meta_windows[key]
-        unique_hash = get_hash_from_dict(params)
-        bsfs_data_key = 'bsfs/%s/%s' % (data_type, unique_hash)
-        if bsfs_data_key in self.data: 
-            # bsfs exists
-            print("[+] bsfs found in GimbleStore. Retrieving...")
-            return np.array(self.data[bsfs_data_key], dtype=np.int64)
-        print("[+] bsfs not found in GimbleStore. Generating...")
-        if data_type == 'blocks':
-            bsfs = self._get_block_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
-        elif data_type == 'windows':
-            bsfs = self._get_window_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
-        elif data_type == 'windows_sum':
-            bsfs = sum_wbsfs(self._get_window_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype))
-        elif data_type == 'sims':
-            pass
+    def _get_sims_bsfs(self, label):
+        #returns an iterator over parameter_combinations: (name, array) 
+        if label:
+            if label in self.data['sims']:
+                return self.data[f'sims/{label}'].arrays()
         else:
-            raise ValueError("data_type must be 'blocks', 'windows', or 'windows_sum")
-        meta_bsfs = self._get_meta('bsfs')
-        meta_bsfs[unique_hash] = str(params)
-        self.data.create_dataset(bsfs_data_key, data=bsfs, overwrite=True)
-        return bsfs
+            if len(self.data['sims']) == 1:
+                key=list(self.data['sims'].group_keys())[0]
+                return self.data[f'sims/{key}'].arrays()
+        sys.exit(f"[X] label should be one of {', '.join(self.data['sims'].group_keys())}")
 
     def gridsearch_np(self, bsfs=None, grids=None):
         '''returns 2d array of likelihoods of shape (windows, grids)'''
