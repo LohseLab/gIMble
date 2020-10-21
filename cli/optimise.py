@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gimble optimise                  [-z FILE] -c FILE [-m FILE] [-b|-w] [-t STR] [-n INT] 
+"""usage: gimble optimise                  [-z FILE] -c FILE [-m FILE] [-b|-w|-s] [-t STR] [-n INT] 
                                             [-x FLOAT -i INT] [-f FLOAT] [-e INT] [-p]
                                             [-h|--help]
                                             
@@ -13,12 +13,14 @@
         -m, --model_file FILE                       gimble model TSV
         -b, --blocks                                Optimise based on blocks 
         -w, --windows                               Optimise based on windows (might take very long)
+        -s, --sims                                  Optimise based on sims
         -t, --threads STR                           Threads [default: 1,1]
         -n, --n_points INT                          Number of starting points [default: 1]
         -i, --iterations INT                        Number of iterations to perform when optimizing [default: 100]
         -x, --xtol_rel FLOAT                        Set relative tolerance on norm of vector of optimisation parameters [default: 0.00000001]
         -f, --ftol_rel FLOAT                        Set relative tolerance on lnCL [default: 0.000000001]
-        -p, --trackPath                             Track likelihood search                        
+        -p, --trackPath                             Track likelihood search
+        -l, --label STR                             Specify which simulation run to optimise.                        
 """
 from timeit import default_timer as timer
 from docopt import docopt
@@ -35,6 +37,7 @@ class OptimiseParameterObj(lib.gimble.ParameterObj):
         super().__init__(params)
         self.zstore = self._get_path(args['--zarr_file'])
         self.data_type = self._get_datatype(args)
+        self.label = args["--label"]
         self.config_file = self._get_path(args['--config_file'])
         self.model_file = self._get_path(args['--model_file'])
         self.threads, self.gridThreads = [self._get_int(t) for t in args["--threads"].split(',')]
@@ -48,17 +51,18 @@ class OptimiseParameterObj(lib.gimble.ParameterObj):
         self.toBeSynced = None
         self.reference = None
         self._parse_config(self.config_file)
-        #self._process_config()
 
     def _get_datatype(self, args):
-        choices = [args['--blocks'], args['--windows']]
+        choices = [args['--blocks'], args['--windows'], args['--sims']]
         if all(choices) or not any(choices):
             sys.exit("[X] Please specify either '--blocks' or '--windows'.")
         if args['--blocks']:
             return 'blocks'
         if args['--windows']:
             return 'windows'
-        
+        if args['--sims']:
+            return 'sims'
+
 def main(params):
     try:
         start_time = timer()

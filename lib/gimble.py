@@ -1108,21 +1108,35 @@ class Store(object):
     def optimize(self, parameterObj):
         if not self.has_stage(parameterObj.data_type):
             sys.exit("[X] gimbleStore has no %r." % parameterObj.data_type)
-        print("[+] Generated all parameter combinations.")
+        label = parameterObj.label if hasattr(parameterObj, 'label') else None
+
         data = self.get_bsfs(
             data_type=parameterObj.data_type, 
             population_by_letter=parameterObj.config['populations'], 
             sample_sets="X", 
-            kmax_by_mutype=parameterObj.config['k_max'])
+            kmax_by_mutype=parameterObj.config['k_max'],
+            label=label
+            )
             
         # load math.EquationSystemObj
         equationSystem = lib.math.EquationSystemObj(parameterObj)
         # initiate model equations
         equationSystem.initiate_model(parameterObj)
-        optimizeResult = equationSystem.optimize_parameters(
-            data, 
-            parameterObj
-            )
+        #this is for a single dataset
+        if parameterObj.data_type=='sims':
+            #data is an iterator over parameter_combination_name, parameter_combination_array
+            #each p_c_array contains n replicates
+            all_results={}
+            for param_combo, replicates in data:
+                all_results[param_combo] = equationSystem.optimize_parameters(replicates, parameterObj, trackHistory=False, verbose=False)
+            
+        else:
+            results = equationSystem.optimize_parameters(
+                data, 
+                parameterObj,
+                trackHistory=True,
+                verbose=True
+                )
         #to be used in different function
         #if parameterObj.trackHistory:
             #df = pd.DataFrame(optimizeResult[1:])
@@ -1239,7 +1253,7 @@ class Store(object):
         out[tuple(mutuples.T)] = counts
         return out
     
-    def get_bsfs(self, data_type=None, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None):
+    def get_bsfs(self, data_type=None, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None, label=None):
         """main method for accessing bsfs
         
         unique hash-keys have to be made based on defining parameters of bsfs, which varies by data_type.         
@@ -1261,9 +1275,10 @@ class Store(object):
             params['size'] = meta_windows['size']
             params['step'] = meta_windows['step']
         elif data_type == 'sims':
-            pass
+            bsfs = self._get_sims_bsfs(label)
+            return bsfs
         else:
-            raise ValueError("data_type must be 'blocks' or 'windows'")        
+            raise ValueError("data_type must be 'blocks', 'windows' or 'sims'")        
         unique_hash = get_hash_from_dict(params)
         bsfs_data_key = 'bsfs/%s/%s' % (data_type, get_hash_from_dict(params))
         if bsfs_data_key in self.data:
@@ -1278,7 +1293,7 @@ class Store(object):
             elif data_type == 'sims':
                 pass
             else:
-                raise ValueError("data_type must be 'blocks' or 'windows'")        
+                raise ValueError("data_type must be 'blocks', 'windows' or 'sims'")        
             self.data.create_dataset(bsfs_data_key, data=bsfs, overwrite=True)
         return bsfs
 
@@ -1328,6 +1343,17 @@ class Store(object):
         # assign values
         out[tuple(mutuples.T)] = counts
         return out
+
+    def _get_sims_bsfs(self, label):
+        #returns an iterator over parameter_combinations: (name, array) 
+        if label:
+            if label in self.data['sims']:
+                return self.data[f'sims/{label}'].arrays()
+        else:
+            if len(self.data['sims']) == 1:
+                key=list(self.data['sims'].group_keys())[0]
+                return self.data[f'sims/{key}'].arrays()
+        sys.exit(f"[X] label should be one of {', '.join(self.data['sims'].group_keys())}")
 
     def gridsearch_np(self, bsfs=None, grids=None):
         '''returns 2d array of likelihoods of shape (windows, grids)'''
