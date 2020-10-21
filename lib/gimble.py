@@ -165,6 +165,11 @@ def get_validator_error_string(validator_errors):
                 out.append("[X] %s \t: %s ..." % (parameter, " ".join(values)))
     return "\n".join(out)
 
+def calculate_bsfs_marginality(bsfs_2d, kmax_by_mutype=None):
+    if not kmax_by_mutype:
+        return format_percentage(0.0)
+    return format_percentage(np.sum(bsfs_2d[np.any((np.array(list(kmax_by_mutype.values())) - bsfs_2d[:,1:]) < 0, axis=1), 0]) / np.sum(bsfs_2d[:,0]))
+
 class ReportObj(object):
     '''Info class for making reports
     '''
@@ -1051,21 +1056,23 @@ class Store(object):
         self._preflight_query(parameterObj)
         print("[#] Query...")
         for query in parameterObj.queries:
+            print(query)
             data_type, format_type = query
             if format_type == 'bed':
                 if data_type == 'blocks':
+                    print("[#] Writing block BED...")
                     self._write_block_bed(parameterObj)
                 elif data_type == 'windows':
+                    print("[#] Writing window BED...")
                     self._write_window_bed(parameterObj)
                 else:
-                    pass
+                    raise ValueError("'data_type' must be must be 'blocks' or 'windows'")
             elif format_type == 'bsfs':
-                if data_type == 'blocks' or data_type == 'windows_sum':
-                    self.dump_bsfs(data_type=data_type, sample_sets='X', kmax_by_mutype=parameterObj.kmax_by_mutype)
-                else:
-                    pass
+                self.dump_bsfs(data_type=data_type, sample_sets='X', kmax_by_mutype=parameterObj.kmax_by_mutype)
             else:
-                pass
+                sys.exit("[+] Nothing to be done.")
+                bsfs_type = '%s-bSFS' % ('b' if data_type == 'blocks' else 's')
+                print("[#] Getting %s ..." % bsfs_type)
 
     def gridsearch(self, parameterObj):
         '''
@@ -1074,7 +1081,11 @@ class Store(object):
         '''
         print("[#] Gridsearching ...")
         unique_hash = parameterObj._get_unique_hash()
+        # make unique hash based on params that matter for grid
+        print('parameterObj', parameterObj.__dict__)
         grids, grid_meta_dict = self._get_grid(unique_hash)
+        # save grid_meta_dict by unique hash
+
         # gridsearch windows
         print('[+] Getting wbSFSs ...')
         bsfs_windows_clipped = self.get_bsfs(
@@ -1219,11 +1230,9 @@ class Store(object):
             variation = np.array(self.data["windows/%s/variation" % seq_name], dtype=np.int64)
             variations.append(variation)
         variation = np.concatenate(variations, axis=0)
+        if invert_population_flag:
+            variation[:,:,[0, 1]] = variation[:,:,[1, 0]]
         mutuples, counts = np.unique(variation, return_counts=True, axis=0)
-        if 1 or invert_population_flag:
-            variation[:, [0, 1]] = variation[:, [1, 0]]
-            mutuples, counts = np.unique(variation, return_counts=True, axis=0)
-        
         bsfs = variation.reshape((variation.shape[0] * variation.shape[1], variation.shape[2]))
         index = np.repeat(np.arange(variation.shape[0]), variation.shape[1]).reshape(variation.shape[0] * variation.shape[1], 1)
         mutuples, counts = np.unique(
@@ -1235,45 +1244,6 @@ class Store(object):
         out[tuple(mutuples.T)] = counts
         return out
     
-    def get_bsfs(self, data_type=None, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None):
-        """main method for accessing bsfs
-        
-        unique hash-keys have to be made based on defining parameters of bsfs, which varies by data_type.         
-        """
-        params = {k: v for k, v in locals().items() if not k == 'self'}
-        if data_type == 'blocks':
-            meta_blocks = self._get_meta('blocks')
-            #print(dict(meta_blocks))
-            if meta_blocks['count'] == 0:
-                sys.exit('[X] No blocks found.')
-            params['length'] = meta_blocks['length']
-            params['span'] = meta_blocks['span']
-            params['max_missing'] = meta_blocks['max_missing']
-            params['max_multiallelic'] = meta_blocks['max_multiallelic']
-        elif data_type == 'windows':
-            meta_windows = self._get_meta('windows')
-            if meta_windows['count'] == 0:
-                sys.exit('[X] No windows found.')
-            params['size'] = meta_windows['size']
-            params['step'] = meta_windows['step']
-        else:
-            raise ValueError("data_type must be 'blocks' or 'windows'")        
-        unique_hash = get_hash_from_dict(params)
-        bsfs_data_key = 'bsfs/%s/%s' % (data_type, get_hash_from_dict(params))
-        if bsfs_data_key in self.data and False:
-            bsfs = np.array(self.data[bsfs_data_key], dtype=np.int64)
-        else:
-            meta_bsfs = self._get_meta('bsfs')
-            meta_bsfs[unique_hash] = str(params)
-            if data_type == 'blocks':
-                bsfs = self._get_block_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
-            elif data_type == 'windows':
-                bsfs = self._get_window_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
-            else:
-                raise ValueError("data_type must be 'blocks' or 'windows'")        
-            self.data.create_dataset(bsfs_data_key, data=bsfs, overwrite=True)
-        return bsfs
-
     def _get_block_bsfs(self, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None):
         """Returns bsfs_array of 4 dimensions.
 
@@ -1312,7 +1282,7 @@ class Store(object):
                     variations.append(np.array(self.data[variation_key], dtype=np.int64))
         variation = np.concatenate(variations, axis=0) # concatenate is faster than offset-indexes
         if invert_population_flag:
-            variation[:,[0, 1]] = variation[:,[1, 0]]
+            variation[:, [0, 1]] = variation[:, [1, 0]]
         # count mutuples (clipping at k_max, if supplied)
         mutuples, counts = np.unique(np.clip(variation, 0, max_k), return_counts=True, axis=0)
         # define out based on max values for each column
@@ -1320,6 +1290,45 @@ class Store(object):
         # assign values
         out[tuple(mutuples.T)] = counts
         return out
+
+    def get_bsfs(self, data_type=None, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None):
+        """main method for accessing bsfs
+        
+        unique hash-keys have to be made based on defining parameters of bsfs, which varies by data_type.         
+        """
+        params = {k: v for k, v in locals().items() if not k == 'self'}
+        params_blocks = ['length', 'span', 'max_missing', 'max_multiallelic']
+        params_windows = ['size', 'step']
+        data_type_bws = set(['blocks', 'windows', 'windows_sum'])
+        data_type_ws = set(['windows', 'windows_sum'])
+        if data_type in data_type_bws:
+            meta_blocks = self._get_meta('blocks')
+            assert meta_blocks['count'] > 0, sys.exit('[X] No blocks found.')
+            for key in params_blocks:
+                params[key] = meta_blocks[key]
+        if data_type in data_type_ws:
+            meta_windows = self._get_meta('windows')
+            assert meta_windows['count'] > 0, sys.exit('[X] No windows found.')
+            for key in params_windows:
+                params[key] = meta_windows[key]
+        unique_hash = get_hash_from_dict(params)
+        bsfs_data_key = 'bsfs/%s/%s' % (data_type, unique_hash)
+        if bsfs_data_key in self.data: 
+            # bsfs exists
+            return np.array(self.data[bsfs_data_key], dtype=np.int64)
+        if data_type == 'blocks':
+            bsfs = self._get_block_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
+        elif data_type == 'windows':
+            bsfs = self._get_window_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
+        elif data_type == 'windows_sum':
+            bsfs = sum_wbsfs(self._get_window_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype))
+        else:
+            raise ValueError("data_type must be 'blocks', 'windows', or 'windows_sum")
+        print(bsfs_to_2d(bsfs))
+        meta_bsfs = self._get_meta('bsfs')
+        meta_bsfs[unique_hash] = str(params)
+        self.data.create_dataset(bsfs_data_key, data=bsfs, overwrite=True)
+        return bsfs
 
     def gridsearch_np(self, bsfs=None, grids=None):
         '''returns 2d array of likelihoods of shape (windows, grids)'''
@@ -1698,10 +1707,12 @@ class Store(object):
             return "%s.l_%s.m_%s.i_%s.u_%s.w_%s.s_%s.bsfs.%s.tsv" % (self.prefix, meta_blocks['length'], meta_blocks['span'], meta_blocks['max_missing'], meta_blocks['max_multiallelic'], meta_windows['size'], meta_windows['step'], data_type)
         else:
             raise ValueError("data_type %s is not defined" % data_type)
-    
+
     def dump_bsfs(self, data_type=None, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None):
         meta_seqs = self._get_meta('seqs')
         header = ['count'] + [x + 1 for x in range(meta_seqs['mutypes_count'])]
+        bsfs_type = '%s-bSFS' % ('b' if data_type == 'blocks' else 's')
+        print("[#] Getting %s ..." % bsfs_type)
         bsfs_2d = bsfs_to_2d(
             self.get_bsfs(
                 data_type=data_type, 
@@ -1709,6 +1720,8 @@ class Store(object):
                 sample_sets=sample_sets, 
                 population_by_letter=population_by_letter, 
                 kmax_by_mutype=kmax_by_mutype))
+        bsfs_marginality = calculate_bsfs_marginality(bsfs_2d, kmax_by_mutype=kmax_by_mutype) # float, proportion of data summarised at that kmax_by_mutype
+        print('[+] Proportion of %s-data in marginals (w/ kmax = %s) = %s' % (bsfs_type, list(kmax_by_mutype.values()) if kmax_by_mutype else None, bsfs_marginality))
         bsfs_filename = self.get_bsfs_filename(
             data_type=data_type,
             sequences=sequences,
@@ -1717,12 +1730,6 @@ class Store(object):
             kmax_by_mutype=kmax_by_mutype
             )
         pd.DataFrame(data=bsfs_2d, columns=header, dtype='int64').to_csv(bsfs_filename, index=False, sep='\t')
-        #bsfs = self.get_bsfs(self, data_type='blocks', sample_sets='A')
-        #pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.intra_A.blocks.h5" % prefix, 'tally', format='table')
-        #pd.DataFrame(data=bsfs_2d, columns=header, dtype='int64').to_csv("%s.intra_A.blocks.tsv" % prefix, index=False, sep='\t')
-        #bsfs = self.get_bsfs(self, data_type='blocks', sample_sets='B')
-        #pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_hdf("%s.intra_B.blocks.h5" % prefix, 'tally', format='table')
-        #pd.DataFrame(data=bsfs, columns=header, dtype='int64').to_csv("%s.intra_B.blocks.tsv" % prefix, index=False, sep='\t')
 
     def _plot_blocks(self, parameterObj):
         # mutuple barchart
@@ -1886,7 +1893,7 @@ class Store(object):
             if data_type == 'blocks':
                 if not self.has_stage('blocks'):
                     sys.exit("[X] GStore %r has no blocks. Please run 'gimble blocks'." % self.path)
-            if data_type == 'windows' or data_type == 'window_sum':
+            if data_type == 'windows' or data_type == 'windows_sum':
                 if not self.has_stage('windows'):
                     sys.exit("[X] GStore %r has no windows. Please run 'gimble windows'." % self.path)
 
