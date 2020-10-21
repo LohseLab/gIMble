@@ -206,7 +206,6 @@ def objective_function(paramsToOptimise, grad, paramNames, fixedParams, equation
     all_rates = {k:v for k,v in zip(paramNames, paramsToOptimise)}
     all_rates = {**all_rates, **fixedParams}
     all_rates = equationSystemObj._scale_parameter_combination(all_rates, equationSystemObj.reference_pop, equationSystemObj.block_length, 'optimise')
-
     rates = equationSystemObj._get_base_rate_by_variable(all_rates)
     split_time = equationSystemObj._get_split_time(all_rates)
     iteration_number=-1
@@ -582,7 +581,6 @@ class EquationSystemObj(object):
         fixedParams = self._optimize_get_fixed_params(parameterObj)
         boundaryNames = self._optimize_get_boundary_names(parameterObj, fixedParams)
         starting_points, parameter_combinations_lowest, parameter_combinations_highest = self._optimize_get_boundaries(parameterObj, boundaryNames)
-        
         trackHistoryPath = [[] for _ in range(parameterObj.numPoints)]
         #specify the objective function to be optimized
         specified_objective_function_list = self._optimize_specify_objective_function(parameterObj, trackHistoryPath, data, boundaryNames,fixedParams, verbose)
@@ -596,16 +594,16 @@ class EquationSystemObj(object):
             print('iteration \t'+'\t'.join(str(name) for name in boundaryNames)+'\t lnCL')
         
         #parallelize over starting points or data points
-        allResults=[]
+        allResults=[] 
         if parameterObj.gridThreads <= 1:
-            for startPos, specified_objective_function in zip(itertools.cycle(starting_points), specified_objective_function_list):
+            for startPos, specified_objective_function in tqdm(zip(itertools.cycle(starting_points), specified_objective_function_list), desc="progress", total=len(specified_objective_function_list),disable=verbose):
                 allResults.append(run_single_optimiz(startPos, parameter_combinations_lowest, parameter_combinations_highest, specified_objective_function, parameterObj.max_eval, parameterObj.xtol_rel, parameterObj.ftol_rel))
             
         else:
             #single_runs need to be specified before passing them to the pool
             specified_run_list = self._optimize_specify_run_list_(parameterObj, specified_objective_function_list, starting_points, parameter_combinations_lowest, parameter_combinations_highest)
             with concurrent.futures.ProcessPoolExecutor(max_workers=parameterObj.gridThreads) as outer_pool:
-                for single_run in outer_pool.map(fp_map, specified_run_list):
+                for single_run in tqdm(outer_pool.map(fp_map, specified_run_list), desc="progress", total=len(specified_run_list), disable=verbose):
                     allResults.append(single_run)
 
         #process results found in allResults (final step including exit code), and trackHistoryPath (all steps) 
@@ -617,7 +615,7 @@ class EquationSystemObj(object):
                         5: 'max number of evaluations reached',
                         6: 'max computation time was reached'
                     }
-        result = _optimize_reshape_output(self, allResults, trackHistoryPath, boundaryNames, exitcodeDict, verbose)
+        result = self._optimize_reshape_output(allResults, trackHistoryPath, boundaryNames, exitcodeDict, trackHistory, verbose)
         return result
 
     def _optimize_get_boundary_names(self, parameterObj, fixedParams):
@@ -642,25 +640,26 @@ class EquationSystemObj(object):
         fixedParams['mu'] = parameterObj.config['mu']['mu']
         return fixedParams
     
-    def _optimize_get_boundaries(self, parameterObj, boundary_names)
-        parameter_combinations_lowest = np.array([parameterObj.parameter_combinations[0][k] for k in boundaryNames])
-        parameter_combinations_highest = np.array([parameterObj.parameter_combinations[-1][k] for k in boundaryNames])
+    def _optimize_get_boundaries(self, parameterObj, boundary_names):
+
+        parameter_combinations_lowest = np.array([parameterObj.parameter_combinations[0][k] for k in boundary_names])
+        parameter_combinations_highest = np.array([parameterObj.parameter_combinations[1][k] for k in boundary_names])
         #start from midpoint
         pmid = np.mean(np.vstack((parameter_combinations_lowest, parameter_combinations_highest)), axis=0)
         if parameterObj.numPoints > 1:
             np.random.seed(self.seed)
-            starting_points = np.random.uniform(low=parameter_combinations_lowest, high=parameter_combinations_highest, size=(parameterObj.numPoints-1, len(boundaryNames)))
+            starting_points = np.random.uniform(low=parameter_combinations_lowest, high=parameter_combinations_highest, size=(parameterObj.numPoints-1, len(boundary_names)))
             starting_points = np.vstack((pmid,starting_points))
         else:
             starting_points = [pmid,]
     
         return (starting_points, parameter_combinations_lowest, parameter_combinations_highest)
     
-    def _optimize_specify_objective_function(self, parameterObj, trackHistoryPath, data, boundaryNames, fixedParams, verbose):
-        if parameterObj.data_type=='sims':
+    def _optimize_specify_objective_function(self, parameterObj, trackHistoryPath, data, boundary_names, fixedParams, verbose):
+        if parameterObj.data_type=='simulate':
             specified_objective_function_list = [partial(
                     objective_function,
-                    paramNames=boundaryNames,
+                    paramNames=boundary_names,
                     fixedParams=fixedParams,
                     equationSystemObj=self,
                     data=bsfs,
@@ -668,10 +667,10 @@ class EquationSystemObj(object):
                     verbose=verbose,
                     path=None) for bsfs in data]
     
-        elif parameterObj.data_type='blocks':
+        elif parameterObj.data_type=='blocks':
             specified_objective_function_list = [partial(
                         objective_function,
-                        paramNames=boundaryNames,
+                        paramNames=boundary_names,
                         fixedParams=fixedParams,
                         equationSystemObj=self,
                         data=data,
@@ -695,7 +694,7 @@ class EquationSystemObj(object):
                     ) for p0, specified_objective_function in zip(itertools.cycle(starting_points), specified_objective_function_list)]
         return specified_run_list
     
-    def _optimize_reshape_output(self, raw_output, trackHistoryPath, boundaryNames, exitcodeDict, verbose):
+    def _optimize_reshape_output(self, raw_output, trackHistoryPath, boundary_names, exitcodeDict, trackHistory, verbose):
         #raw_output is list of dicts with {"lnCL":value, "optimum":list, "exitcode":value}
         if verbose:
             print([exitcodeDict.get(resultd['exitcode'],'Not in exitcodeDict.') for resultd in raw_output])
@@ -703,10 +702,10 @@ class EquationSystemObj(object):
         #process trackhistory
         if not trackHistory:
             trackHistoryPath = [list(resultd['optimum'])+[resultd['lnCL'],label, resultd['exitcode']] for label,resultd in enumerate(raw_output)]
-            result = [boundaryNames+["lnCL", 'iterLabel', 'exitcode'],]+trackHistoryPath 
+            result = [boundary_names+["lnCL", 'iterLabel', 'exitcode'],]+trackHistoryPath 
         else:
             trackHistoryPath = [list(ar)+[idx,] for idx, sublist in enumerate(trackHistoryPath) for ar in sublist]
-            result = [boundaryNames+["lnCL", 'iterLabel'],]+trackHistoryPath
+            result = [boundary_names+["lnCL", 'iterLabel'],]+trackHistoryPath
 
         return result
     

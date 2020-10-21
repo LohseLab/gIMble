@@ -1117,19 +1117,21 @@ class Store(object):
             kmax_by_mutype=parameterObj.config['k_max'],
             label=label
             )
-            
+    
         # load math.EquationSystemObj
         equationSystem = lib.math.EquationSystemObj(parameterObj)
         # initiate model equations
         equationSystem.initiate_model(parameterObj)
         #this is for a single dataset
-        if parameterObj.data_type=='sims':
+        if parameterObj.data_type=='simulate':
             #data is an iterator over parameter_combination_name, parameter_combination_array
             #each p_c_array contains n replicates
             all_results={}
             for param_combo, replicates in data:
-                all_results[param_combo] = equationSystem.optimize_parameters(replicates, parameterObj, trackHistory=False, verbose=False)
-            
+                print(f"Optimising replicates {param_combo}")
+                result = equationSystem.optimize_parameters(replicates, parameterObj, trackHistory=False, verbose=False)
+                all_results[param_combo] = result
+                self._temp_to_csv(result, param_combo)
         else:
             results = equationSystem.optimize_parameters(
                 data, 
@@ -1137,13 +1139,14 @@ class Store(object):
                 trackHistory=True,
                 verbose=True
                 )
-        #to be used in different function
-        #if parameterObj.trackHistory:
-            #df = pd.DataFrame(optimizeResult[1:])
-            #df.columns=optimizeResult[0]
-            #df = df.sort_values(by='iterLabel')
 
-             
+    def _temp_to_csv(self, results, label):
+        df = pd.DataFrame(results[1:])
+        df.columns=results[0]
+        df = df.sort_values(by='iterLabel')
+        df.set_index('iterLabel', inplace=True)
+        df.to_csv(f'{label}.csv')
+
     def makegrid(self, parameterObj):
         print("[#] Making grid ...")
         unique_hash = parameterObj._get_unique_hash()
@@ -1261,7 +1264,6 @@ class Store(object):
         params = {k: v for k, v in locals().items() if not k == 'self'}
         if data_type == 'blocks':
             meta_blocks = self._get_meta('blocks')
-            #print(dict(meta_blocks))
             if meta_blocks['count'] == 0:
                 sys.exit('[X] No blocks found.')
             params['length'] = meta_blocks['length']
@@ -1274,11 +1276,11 @@ class Store(object):
                 sys.exit('[X] No windows found.')
             params['size'] = meta_windows['size']
             params['step'] = meta_windows['step']
-        elif data_type == 'sims':
+        elif data_type == 'simulate':
             bsfs = self._get_sims_bsfs(label)
             return bsfs
         else:
-            raise ValueError("data_type must be 'blocks', 'windows' or 'sims'")        
+            raise ValueError("data_type must be 'blocks', 'windows' or 'simulate'")        
         unique_hash = get_hash_from_dict(params)
         bsfs_data_key = 'bsfs/%s/%s' % (data_type, get_hash_from_dict(params))
         if bsfs_data_key in self.data:
@@ -1290,10 +1292,10 @@ class Store(object):
                 bsfs = self._get_block_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
             elif data_type == 'windows':
                 bsfs = self._get_window_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
-            elif data_type == 'sims':
-                pass
+            elif data_type == 'simulate':
+                raise ValueError("Error in sequence of if/else statements for get_bsfs with simulate.")
             else:
-                raise ValueError("data_type must be 'blocks', 'windows' or 'sims'")        
+                raise ValueError("data_type must be 'blocks', 'windows' or 'simulate'")        
             self.data.create_dataset(bsfs_data_key, data=bsfs, overwrite=True)
         return bsfs
 

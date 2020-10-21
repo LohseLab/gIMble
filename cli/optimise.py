@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gimble optimise                  [-z FILE] -c FILE [-m FILE] [-b|-w|-s] [-t STR] [-n INT] 
+"""usage: gimble optimise                  [-z FILE] -c FILE -m FILE [-b|-w|-s] [-t STR] [-n INT] 
                                             [-x FLOAT -i INT] [-f FLOAT] [-e INT] [-p]
-                                            [-h|--help]
+                                            [-h|--help] [-l STR]
                                             
                                             
     Options:
@@ -61,7 +61,7 @@ class OptimiseParameterObj(lib.gimble.ParameterObj):
         if args['--windows']:
             return 'windows'
         if args['--sims']:
-            return 'sims'
+            return 'simulate'
 
 def main(params):
     try:
