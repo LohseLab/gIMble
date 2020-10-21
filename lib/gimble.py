@@ -1262,41 +1262,43 @@ class Store(object):
         unique hash-keys have to be made based on defining parameters of bsfs, which varies by data_type.         
         """
         params = {k: v for k, v in locals().items() if not k == 'self'}
-        if data_type == 'blocks':
+        params_blocks = ['length', 'span', 'max_missing', 'max_multiallelic']
+        params_windows = ['size', 'step']
+        data_type_bws = set(['blocks', 'windows', 'windows_sum'])
+        data_type_ws = set(['windows', 'windows_sum'])
+        if data_type in data_type_bws:
             meta_blocks = self._get_meta('blocks')
-            if meta_blocks['count'] == 0:
-                sys.exit('[X] No blocks found.')
-            params['length'] = meta_blocks['length']
-            params['span'] = meta_blocks['span']
-            params['max_missing'] = meta_blocks['max_missing']
-            params['max_multiallelic'] = meta_blocks['max_multiallelic']
-        elif data_type == 'windows':
+            assert meta_blocks['count'] > 0, sys.exit('[X] No blocks found.')
+            for key in params_blocks:
+                params[key] = meta_blocks[key]
+        if data_type in data_type_ws:
             meta_windows = self._get_meta('windows')
-            if meta_windows['count'] == 0:
-                sys.exit('[X] No windows found.')
-            params['size'] = meta_windows['size']
-            params['step'] = meta_windows['step']
+            assert meta_windows['count'] > 0, sys.exit('[X] No windows found.')
+            for key in params_windows:
+                params[key] = meta_windows[key]
         elif data_type == 'simulate':
             bsfs = self._get_sims_bsfs(label)
             return bsfs
-        else:
-            raise ValueError("data_type must be 'blocks', 'windows' or 'simulate'")        
         unique_hash = get_hash_from_dict(params)
-        bsfs_data_key = 'bsfs/%s/%s' % (data_type, get_hash_from_dict(params))
-        if bsfs_data_key in self.data:
-            bsfs = np.array(self.data[bsfs_data_key], dtype=np.int64)
+        bsfs_data_key = 'bsfs/%s/%s' % (data_type, unique_hash)
+        if bsfs_data_key in self.data: 
+            # bsfs exists
+            print("[+] bsfs found in GimbleStore. Retrieving...")
+            return np.array(self.data[bsfs_data_key], dtype=np.int64)
+        print("[+] bsfs not found in GimbleStore. Generating...")
+        if data_type == 'blocks':
+            bsfs = self._get_block_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
+        elif data_type == 'windows':
+            bsfs = self._get_window_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
+        elif data_type == 'windows_sum':
+            bsfs = sum_wbsfs(self._get_window_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype))
+        elif data_type == 'sims':
+            raise ValueError("Error in sequence of if/else statements for get_bsfs with simulate.")
         else:
-            meta_bsfs = self._get_meta('bsfs')
-            meta_bsfs[unique_hash] = str(params)
-            if data_type == 'blocks':
-                bsfs = self._get_block_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
-            elif data_type == 'windows':
-                bsfs = self._get_window_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
-            elif data_type == 'simulate':
-                raise ValueError("Error in sequence of if/else statements for get_bsfs with simulate.")
-            else:
-                raise ValueError("data_type must be 'blocks', 'windows' or 'simulate'")        
-            self.data.create_dataset(bsfs_data_key, data=bsfs, overwrite=True)
+            raise ValueError("data_type must be 'blocks', 'windows', or 'windows_sum")
+        meta_bsfs = self._get_meta('bsfs')
+        meta_bsfs[unique_hash] = str(params)
+        self.data.create_dataset(bsfs_data_key, data=bsfs, overwrite=True)
         return bsfs
 
     def _get_block_bsfs(self, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None):
