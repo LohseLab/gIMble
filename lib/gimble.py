@@ -1336,6 +1336,8 @@ class Store(object):
             bsfs = self._get_window_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
         elif data_type == 'windows_sum':
             bsfs = sum_wbsfs(self._get_window_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype))
+        elif data_type == 'sims':
+            pass
         else:
             raise ValueError("data_type must be 'blocks', 'windows', or 'windows_sum")
         meta_bsfs = self._get_meta('bsfs')
