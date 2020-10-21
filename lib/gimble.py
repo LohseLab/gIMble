@@ -217,9 +217,19 @@ def get_hash_from_dict(d):
     '''returns md5sum hash of str(dict)'''
     if isinstance(d, dict):
         return hashlib.md5(str(d).encode()).hexdigest()
-    else:
-        raise ValueError('must be a dict')
+    raise ValueError('must be a dict')
 
+def get_grid_hash(parameterObj):
+    params = {}
+    return get_hash_from_dict(params)
+
+def get_bsfs_hash(parameterObj):
+    params = {}
+    return get_hash_from_dict(params)
+
+def get_lncl_hash(parameterObj):
+    pass
+    
 def get_config_schema(module):
     schema = {
         'gimble': {
@@ -1056,7 +1066,6 @@ class Store(object):
         self._preflight_query(parameterObj)
         print("[#] Query...")
         for query in parameterObj.queries:
-            print(query)
             data_type, format_type = query
             if format_type == 'bed':
                 if data_type == 'blocks':
@@ -1071,8 +1080,6 @@ class Store(object):
                 self.dump_bsfs(data_type=data_type, sample_sets='X', kmax_by_mutype=parameterObj.kmax_by_mutype)
             else:
                 sys.exit("[+] Nothing to be done.")
-                bsfs_type = '%s-bSFS' % ('b' if data_type == 'blocks' else 's')
-                print("[#] Getting %s ..." % bsfs_type)
 
     def gridsearch(self, parameterObj):
         '''
@@ -1080,12 +1087,13 @@ class Store(object):
             - this works only for windows ('-w') for now... logic for '-b' has to be decided upon
         '''
         print("[#] Gridsearching ...")
+        #gridsearch_hash = get_gridsearch_hash(parameterObj)
         unique_hash = parameterObj._get_unique_hash()
         # make unique hash based on params that matter for grid
-        print('parameterObj', parameterObj.__dict__)
+
+        #print('parameterObj', parameterObj.__dict__)
         grids, grid_meta_dict = self._get_grid(unique_hash)
         # save grid_meta_dict by unique hash
-
         # gridsearch windows
         print('[+] Getting wbSFSs ...')
         bsfs_windows_clipped = self.get_bsfs(
@@ -1315,7 +1323,9 @@ class Store(object):
         bsfs_data_key = 'bsfs/%s/%s' % (data_type, unique_hash)
         if bsfs_data_key in self.data: 
             # bsfs exists
+            print("[+] bsfs found in GimbleStore. Retrieving...")
             return np.array(self.data[bsfs_data_key], dtype=np.int64)
+        print("[+] bsfs not found in GimbleStore. Generating...")
         if data_type == 'blocks':
             bsfs = self._get_block_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
         elif data_type == 'windows':
@@ -1324,7 +1334,6 @@ class Store(object):
             bsfs = sum_wbsfs(self._get_window_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype))
         else:
             raise ValueError("data_type must be 'blocks', 'windows', or 'windows_sum")
-        print(bsfs_to_2d(bsfs))
         meta_bsfs = self._get_meta('bsfs')
         meta_bsfs[unique_hash] = str(params)
         self.data.create_dataset(bsfs_data_key, data=bsfs, overwrite=True)
@@ -1729,6 +1738,7 @@ class Store(object):
             population_by_letter=population_by_letter,
             kmax_by_mutype=kmax_by_mutype
             )
+        print("[#] Writing %s ..." % bsfs_type)
         pd.DataFrame(data=bsfs_2d, columns=header, dtype='int64').to_csv(bsfs_filename, index=False, sep='\t')
 
     def _plot_blocks(self, parameterObj):
