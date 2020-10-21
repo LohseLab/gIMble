@@ -16,6 +16,14 @@
 
 """
 
+'''
+query based on grid idx/params
+
+
+output CSV
+    for each windows best
+'''
+
 from timeit import default_timer as timer
 from docopt import docopt
 import lib.gimble
@@ -49,8 +57,8 @@ class QueryParameterObj(lib.gimble.ParameterObj):
         queries = []
         for query in itertools.product(data_choice, format_choice):
             data_type, format_type = query
-            if (data_type == 'windows' and format_type == 'bsfs') or (data_type == 'windows_sum' and format_type == 'bed'):
-                pass
+            if (data_type == 'windows_sum' and format_type == 'bed') or (data_type == 'windows' and format_type == 'bsfs'):
+                sys.exit("[X] %r and %r are incompatible." % (data_type, format_type))
             else:
                 queries.append(query)
         return queries
