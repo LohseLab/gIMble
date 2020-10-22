@@ -1150,7 +1150,7 @@ class Store(object):
                 print(f"Optimising replicates {param_combo}")
                 result = equationSystem.optimize_parameters(replicates, parameterObj, trackHistory=False, verbose=False)
                 all_results[param_combo] = result
-                self._temp_to_csv(result, param_combo)
+                self._optimize_to_csv(result, label, param_combo)
         else:
             results = equationSystem.optimize_parameters(
                 data, 
@@ -1159,12 +1159,17 @@ class Store(object):
                 verbose=True
                 )
 
-    def _temp_to_csv(self, results, label):
+    def _optimize_to_csv(self, results, label, param_combo):
         df = pd.DataFrame(results[1:])
         df.columns=results[0]
         df = df.sort_values(by='iterLabel')
         df.set_index('iterLabel', inplace=True)
-        df.to_csv(f'{label}.csv')
+        df.to_csv(f'{label}_{param_combo}.csv')
+        self._optimize_describe_df(df, label, param_combo)
+
+    def _optimize_describe_df(self, df, label, param_combo):
+        summary=df.drop(labels=['lnCL', 'exitcode'], axis=1).describe(percentiles=[0.025,0.975])
+        summary.to_csv(f'{label}_{param_combo}_summary.csv')
 
     def makegrid(self, parameterObj):
         print("[#] Making grid ...")
