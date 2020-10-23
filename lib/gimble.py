@@ -903,6 +903,7 @@ class ParameterObj(object):
         schema = get_config_schema(self._MODULE)
         sync_pops = config["populations"]["sync_pop_sizes"].strip(" ")
         valid_sync_pops = [population.strip(" ") for population in possible_values_dict["populations"]["# possible values sync_pop_sizes"].split("|")]
+        self.toBeSynced=None
         if sync_pops and sync_pops in valid_sync_pops:
             #check whether values are equal  
             self.reference, self.toBeSynced = self._get_pops_to_sync(config)
@@ -933,7 +934,8 @@ class ParameterObj(object):
             if self._MODULE=='simulate':
                 self._set_recombination_rate()
             self.parameter_combinations = self._dict_product()
-            self._sync_pop_sizes(self.reference, self.toBeSynced)
+            if self.toBeSynced:
+                self._sync_pop_sizes(self.reference, self.toBeSynced)
         elif self._MODULE in ['optimise', 'optimize']:
             #TO BE CHECKED: which bits are we still using
             #determine parameters that are fixed:
