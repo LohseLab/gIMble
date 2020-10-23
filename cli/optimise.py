@@ -17,8 +17,8 @@
         -t, --threads STR                           Threads [default: 1,1]
         -n, --n_points INT                          Number of starting points [default: 1]
         -i, --iterations INT                        Number of iterations to perform when optimizing [default: 100]
-        -x, --xtol_rel FLOAT                        Set relative tolerance on norm of vector of optimisation parameters [default: 0.00000001]
-        -f, --ftol_rel FLOAT                        Set relative tolerance on lnCL [default: 0.000000001]
+        -x, --xtol_rel FLOAT                        Set relative tolerance on norm of vector of optimisation parameters [default: -1.0]
+        -f, --ftol_rel FLOAT                        Set relative tolerance on lnCL [default: -1.0]
         -p, --trackPath                             Track likelihood search
         -l, --label STR                             Specify which simulation run to optimise.                        
 """

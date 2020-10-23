@@ -903,6 +903,7 @@ class ParameterObj(object):
         schema = get_config_schema(self._MODULE)
         sync_pops = config["populations"]["sync_pop_sizes"].strip(" ")
         valid_sync_pops = [population.strip(" ") for population in possible_values_dict["populations"]["# possible values sync_pop_sizes"].split("|")]
+        self.toBeSynced, self.reference = None, None
         if sync_pops and sync_pops in valid_sync_pops:
             #check whether values are equal  
             self.reference, self.toBeSynced = self._get_pops_to_sync(config)
@@ -933,7 +934,8 @@ class ParameterObj(object):
             if self._MODULE=='simulate':
                 self._set_recombination_rate()
             self.parameter_combinations = self._dict_product()
-            self._sync_pop_sizes(self.reference, self.toBeSynced)
+            if self.toBeSynced:
+                self._sync_pop_sizes(self.reference, self.toBeSynced)
         elif self._MODULE in ['optimise', 'optimize']:
             #TO BE CHECKED: which bits are we still using
             #determine parameters that are fixed:
@@ -1136,7 +1138,9 @@ class Store(object):
             kmax_by_mutype=parameterObj.config['k_max'],
             label=label
             )
-    
+
+        #resample blocks and determine for each parameter ftol_abs
+        self._set_stopping_criteria(data, parameterObj, label)
         # load math.EquationSystemObj
         equationSystem = lib.math.EquationSystemObj(parameterObj)
         # initiate model equations
@@ -1170,6 +1174,67 @@ class Store(object):
     def _optimize_describe_df(self, df, label, param_combo):
         summary=df.drop(labels=['lnCL', 'exitcode'], axis=1).describe(percentiles=[0.025,0.975])
         summary.to_csv(f'{label}_{param_combo}_summary.csv')
+
+    def _set_stopping_criteria(self, data, parameterObj, label):
+        set_by_user = True
+        if parameterObj.ftol_rel<0:
+            set_by_user = False
+            lnCL_sd, lnCL_all_data = self._get_lnCL_SD(data, parameterObj, label)
+            parameterObj.ftol_rel = abs(1.96*lnCL_sd/lnCL_all_data)
+        print("Stopping criteria for this optimization run:")
+        print(f"Max number of evaluations: {parameterObj.max_eval}")
+        if set_by_user:
+            print(f"Relative tolerance on lnCL: {parameterObj.ftol_rel}")
+        else:
+            print(f"Relative tolerance on lnCL set by data resampling: {parameterObj.ftol_rel}")
+        if parameterObj.xtol_rel>0:
+            print(f"Relative tolerance on norm of parameter vector: {parameterObj.ftol_rel}")
+        
+    def _get_lnCL_SD(self, all_data, parameterObj, label):
+        if parameterObj.data_type in ['simulate', 'windows']:
+            #if windows transform to sum_windowwise_bsfs
+            #if simulate data contains all replicates
+            data = np.sum(all_data, axis=0)
+        else:
+            data = all_data
+        total_num_blocks = np.sum(data)
+        ETPs = data/total_num_blocks
+        
+        if parameterObj.data_type=='simulate':
+            #no need to resample, we have enough replicates
+            #we treat the total dataset as approximating the truth
+            #and turn those into ETPs
+            lnCLs_resample = [lib.math.calculate_composite_likelihood(ETPs, replicate) for replicate in all_data]
+            replicates = len(lnCLs_resample)
+            resample_size = replicates
+        else:
+            replicates=100
+            resample_size=min(1000, total_num_blocks)
+            kmax_by_mutype=list(parameterObj.config['k_max'].values())
+            resample_bsfs=self._resample_bsfs(data, resample_size, replicates, kmax_by_mutype)
+            #get lnCL for each resampled dataset
+            lnCLs_resample = [lib.math.calculate_composite_likelihood(ETPs, resample) for resample in resample_bsfs]
+            #determine sd of outcome
+        sd_mini = np.std(lnCLs_resample, ddof=1)
+        sd = sd_mini * np.sqrt((resample_size-1)/(total_num_blocks-1))
+        lnCL_all_data = lib.math.calculate_composite_likelihood(ETPs, data)
+        return (sd, lnCL_all_data)
+
+    def _resample_bsfs(self, data, resample_size, replicates, kmax_by_mutype):
+        bsfs_2d = lib.gimble.bsfs_to_2d(data)
+        bsfs_configs = bsfs_2d[:,1:]
+        bsfs_probs = bsfs_2d[:,0]
+        bsfs_probs=bsfs_probs/np.sum(bsfs_probs)
+        resample=np.random.choice(np.arange(bsfs_configs.shape[0]), (replicates, resample_size), replace=True, p=bsfs_probs)
+        resample_bsfs=bsfs_configs[resample]
+        resample_bsfs=resample_bsfs.reshape(-1,len(kmax_by_mutype))
+        index=np.repeat(np.arange(replicates), resample_size).reshape(replicates*resample_size,1)
+        resample_bsfs_index=np.concatenate([index, resample_bsfs], axis=1)
+        mutuples, counts = np.unique(resample_bsfs_index, return_counts=True, axis=0)
+        shape_out = [replicates,]+[k+2 for k in kmax_by_mutype]
+        out = np.zeros(tuple(shape_out), np.int64)
+        out[tuple(mutuples.T)]=counts
+        return out    
 
     def makegrid(self, parameterObj):
         print("[#] Making grid ...")
