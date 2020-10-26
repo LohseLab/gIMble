@@ -306,7 +306,7 @@ class StateGraph(object):
         config.set('simulations', 'ploidy', str(parameterObj.ploidy))
         config.set('simulations', "# Number of blocks to simulate")
         config.set('simulations', 'blocks', "")
-        config.set('simulations', 'chunks', 1)
+        config.set('simulations', 'chunks', "1")
         config.set('simulations', "# Number of replicates")
         config.set('simulations', 'replicates', "")
         config.set('simulations', f'sample_size_{A}', str(sample_size_A))
