@@ -173,6 +173,9 @@ def calculate_inverse_laplace(params):
     equationObj, rates, split_time, dummy_variable = params
     #print(equationObj, rates, split_time, dummy_variable)
     equation = (equationObj.equation).substitute(rates)
+    #for testing purposes only: this needs to be done elsewhere!
+    assert(len(equation.arguments())<=1), f"Parameters left unspecified: {equation.arguments()}"
+    
     try:
         if split_time is None:
             equationObj.result = equation
@@ -482,6 +485,12 @@ class EquationSystemObj(object):
         print("[=] ==================================================")
         print("[+] Initiating model ...")
         self.equationObjs = self._get_equationObjs(sync_ref=parameterObj.reference, sync_targets=parameterObj.toBeSynced)
+        #this is an essential model check: however, processing of ini file needs to be unified first
+        #currently mu is missing from parameter_combinations in case of optimize for example.
+        #for equationObj in self.equationObjs:
+        #    if len(equationObj.equation.arguments)>len(parameterObj.parameter_combinations[0]):
+        #       sys.exit("[X] Specified model contains more parameters than provided in ini file.")
+        #check self.equationObjs
         # Method 2 (has to be tested)
         #if not (parameterObj and parameterObj.reference and parameterObj.toBeSynced):
         #   self.equationObjs = self._get_equationObjs(sync_ref=parameterObj.reference, sync_targets=parameterObj.toBeSynced) 
