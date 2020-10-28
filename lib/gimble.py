@@ -73,6 +73,7 @@ DFRT = '├──'
 DPPM = '    '
 DFRL = '└──'
 DPPL = '│   '
+
 ############## Only needed once we have demand for multidimensional pairing function
 # def multidimensional_box_pairing(lengths: List[int], indexes: List[int]) -> int:
 #     n = len(lengths)
@@ -212,23 +213,6 @@ class ReportObj(object):
 
     def __repr__(self):
         return "\n".join(self.out)
-
-def get_hash_from_dict(d):
-    '''returns md5sum hash of str(dict)'''
-    if isinstance(d, dict):
-        return hashlib.md5(str(d).encode()).hexdigest()
-    raise ValueError('must be a dict')
-
-def get_grid_hash(parameterObj):
-    params = {}
-    return get_hash_from_dict(params)
-
-def get_bsfs_hash(parameterObj):
-    params = {}
-    return get_hash_from_dict(params)
-
-def get_lncl_hash(parameterObj):
-    pass
     
 def get_config_schema(module):
     schema = {
@@ -583,6 +567,22 @@ def ordered_intersect(a=[], b=[], order='a'):
         B, A = a, b
     return [_a for _a in A if _a in set(B)]
 
+def get_hash_from_dict(d):
+    '''returns md5sum hash of str(dict)'''
+    if isinstance(d, dict):
+        return hashlib.md5(str(d).encode()).hexdigest()
+    raise ValueError('must be a dict')
+
+def grid_meta_dict_to_value_arrays_by_parameter(grid_meta_dict):
+    _values_by_parameter = collections.defaultdict(list)
+    for grid_idx, grid_dict in grid_meta_dict.items():
+        for key, value in grid_dict.items():
+            _values_by_parameter[key].append(value)
+    values_by_parameter = {}
+    for key, values in _values_by_parameter.items():
+        values_by_parameter[key] = np.array(values)
+    return values_by_parameter
+
 class CustomNormalizer(cerberus.Validator):
     def __init__(self, *args, **kwargs):
         super(CustomNormalizer, self).__init__(*args, **kwargs)
@@ -670,6 +670,10 @@ class CustomNormalizer(cerberus.Validator):
         """
         if value.strip(" ") != '' and not os.path.isfile(value):
             self._error(field, 'Must be a valid path to the recombination map.')
+
+#def get_unique_hash(parameterObj, purpose='makegrid'):
+#    if purpose == 'makegrid':
+#        print(parameterObj)
 
 class ParameterObj(object):
     '''Superclass ParameterObj'''
@@ -808,8 +812,10 @@ class ParameterObj(object):
     def _get_unique_hash(self):
         '''passive'''
         to_hash = copy.deepcopy(self.config)
-        if self._MODULE in ['makegrid','gridsearch']:
+        if self._MODULE in set(['makegrid','gridsearch', 'query']):
             del to_hash['simulations']
+            if 'kmax_by_mutype' in to_hash:
+                del to_hash['--kmax_by_mutype']
         elif self._MODULE == 'simulate':
             pass
         else:
@@ -832,11 +838,13 @@ class ParameterObj(object):
                     paramCombo[f'Ne_{pop}'] = paramCombo[f'Ne_{reference}']
 
     def _sync_pop_sizes_optimise(self, reference, toBeSynced):
+        # @GB is this needed?
         if toBeSynced and reference:
             for pop in toBeSynced:
                 self.config['parameters'][f'Ne_{pop}']=self.config['parameters'][f'Ne_{reference}']
 
     def _verify_parent(self, infile):
+        # @GB is this needed?
         if infile is None:
             return None
         path = pathlib.Path(infile).resolve()
@@ -924,7 +932,7 @@ class ParameterObj(object):
         self.config['populations']['sample_pop_ids'] = sample_pop_ids
         #print("[+] Config file validated.")
         #print('self.config', self.config)
-        if self._MODULE in set(['makegrid', 'inference', 'simulate', 'gridsearch']):
+        if self._MODULE in set(['makegrid', 'inference', 'simulate', 'gridsearch', 'query']):
             self.config['mu']['blocklength'] = self._get_blocks_length()
             self.config['parameters']['mu'] = self.config['mu']['mu']
             self._expand_params()
@@ -961,39 +969,6 @@ class ParameterObj(object):
     def _return_boundaries(self, length_boundary_set=3):
         parameter_combinations = {k:self._cast_to_repeated_list(v, length_boundary_set)[:length_boundary_set] for k,v in self.config['parameters'].items()}    
         return self._dict_zip(parameter_combinations)
-    #def _process_config(self):
-#
-    #    if self._MODULE in ['makegrid', 'inference', 'simulate', 'gridsearch']:
-    #        self.config['mu']['blockslength'] = self._get_blocks_length(self.zstore)
-    #        self.config['parameters']['mu'] = self.config['mu']['mu']
-    #        self._expand_params()
-    #        self.reference, self.toBeSynced = self._get_pops_to_sync()
-    #        self._remove_pop_from_dict(self.toBeSynced)
-    #        self.parameter_combinations = self._dict_product()
-    #        self._sync_pop_sizes(self.reference, self.toBeSynced)
-    #    elif self._MODULE in ['optimise', 'optimize']:
-    #        #TO BE CHECKED: which bits are we still using
-    #        #determine parameters that are fixed:
-    #        self.fixed_params = self._get_fixed_params()
-    #        #self.config['mu']['blockslength'] = self._get_blocks_length(self.zstore)
-    #        #self.config['parameters']['mu'] = self.config['mu']['mu']
-    #        reference_pop=self.config['populations']['reference_pop']
-    #        #syncing pop sizes
-    #        self.reference, self.toBeSynced = self._get_pops_to_sync()
-    #        if self.toBeSynced:
-    #            if reference_pop in self.toBeSynced:
-    #                sys.exit(f"[X] Set reference pop to {self.reference}.")
-    #        toBeSynced_pops = [f'Ne_{s}' for s in self.toBeSynced] if self.toBeSynced!=None else []
-    #        self.fixed_params = [pop for pop in self.fixed_params if pop not in toBeSynced_pops]
-    #        #verify if any Ne fixed, whether one of those Ne is self.reference
-    #        fixed_Nes = [p for p in self.fixed_params if p.startswith('Ne')]
-    #        if len(fixed_Nes)>0:
-    #            if not f"Ne_{reference_pop}" in fixed_Nes:
-    #                sys.exit("[X] No. No. No. It would make much more sense to set a population with a fixed size as reference.")
-    #        #self._sync_pop_sizes_optimise(self.reference, self.toBeSynced)
-    #        self.parameter_combinations = self._return_boundaries()
-    #    else:
-    #        sys.exit("[X] gimble.py_processing_config: Not implemented yet.")
 
 class Store(object):
     def __init__(self, prefix=None, path=None, create=False, overwrite=False):
@@ -1069,22 +1044,161 @@ class Store(object):
         print("[#] Preflight...")
         self._preflight_query(parameterObj)
         print("[#] Query...")
-        for query in parameterObj.queries:
-            data_type, format_type = query
-            if format_type == 'bed':
-                if data_type == 'blocks':
-                    print("[#] Writing block BED...")
-                    self._write_block_bed(parameterObj)
-                elif data_type == 'windows':
-                    print("[#] Writing window BED...")
-                    self._write_window_bed(parameterObj)
-                else:
-                    raise ValueError("'data_type' must be must be 'blocks' or 'windows'")
-            elif format_type == 'bsfs':
-                self.dump_bsfs(data_type=data_type, sample_sets='X', kmax_by_mutype=parameterObj.kmax_by_mutype)
+        if parameterObj.data_format == 'bed':
+            if parameterObj.data_type == 'blocks':
+                print("[#] Writing block BED...")
+                self._write_block_bed(parameterObj)
+            elif parameterObj.data_type == 'windows':
+                print("[#] Writing window BED...")
+                self._write_window_bed(parameterObj)
             else:
-                sys.exit("[+] Nothing to be done.")
+                raise ValueError("'data_type' must be must be 'blocks' or 'windows'")
+        elif parameterObj.data_format == 'bsfs':
+            self.dump_bsfs(data_type=parameterObj.data_type, sample_sets='X', kmax_by_mutype=parameterObj.kmax_by_mutype)
+        elif parameterObj.data_format == 'lncls':
+            self.dump_lncls(parameterObj)
+        else:
+            sys.exit("[+] Nothing to be done.")
 
+    def dump_lncls(self, parameterObj):
+        unique_hash = parameterObj._get_unique_hash()
+        grids, grid_meta_dict = self._get_grid(unique_hash)
+        lncls_global, lncls_windows = self._get_lncls(unique_hash)
+        values_by_parameter = grid_meta_dict_to_value_arrays_by_parameter(grid_meta_dict)
+        # get BED
+        meta_seqs = self._get_meta('seqs')
+        meta_windows = self._get_meta('windows')
+        MAX_SEQNAME_LENGTH = max([len(seq_name) for seq_name in meta_seqs['seq_names']])
+        sequences = np.zeros(meta_windows['count'], dtype='<U%s' % MAX_SEQNAME_LENGTH)
+        starts = np.zeros(meta_windows['count'], dtype=np.int64)
+        ends = np.zeros(meta_windows['count'], dtype=np.int64)
+        index = np.arange(meta_windows['count'],  dtype=np.int64)
+        offset = 0
+        for seq_name in tqdm(meta_seqs['seq_names'], total=len(meta_seqs['seq_names']), desc="[%] Preparing output...", ncols=100, unit_scale=True): 
+            start_key = 'windows/%s/starts' % (seq_name)
+            end_key = 'windows/%s/ends' % (seq_name)
+            if start_key in self.data:
+                start_array = np.array(self.data[start_key])
+                window_count = start_array.shape[0]
+                starts[offset:offset+window_count] = start_array
+                ends[offset:offset+window_count] = np.array(self.data[end_key])
+                sequences[offset:offset+window_count] = np.full_like(window_count, seq_name, dtype='<U%s' % MAX_SEQNAME_LENGTH)
+                offset += window_count
+        parameter_names = [name for name in values_by_parameter.keys() if name != 'mu']
+        column_headers = ['sequence', 'start', 'end', 'index', 'lnCL'] + parameter_names + ['fixed']
+        dtypes = {'start': 'int64', 'end': 'int64', 'index': 'int64', 'lnCL': 'float64'}
+        for param in parameter_names:
+            dtypes[param] = 'float64'
+        MAX_PARAM_LENGTH = max([len(param) for param in parameter_names])
+        for parameter in tqdm(parameter_names, total=len(parameter_names), desc="[%] Writing output...", ncols=100, unit_scale=True): 
+            bed_dfs = []
+            out_f = '%s.%s.gridsearch.lnCls.%s_fixed.tsv' % (self.prefix, parameterObj.data_type, parameter)
+            fixed = np.full_like(lncls_windows.shape[0], parameter, dtype='<U%s' % MAX_PARAM_LENGTH)
+            for grid_meta_idxs in self.get_slice_grid_meta_idxs(grid_meta_dict=grid_meta_dict, lncls=lncls_windows, fixed_parameter=parameter, parameter_value=None):
+                best_likelihoods = lncls_windows[np.arange(lncls_windows.shape[0]), grid_meta_idxs]
+                meta_dicts = list(np.vectorize(grid_meta_dict.__getitem__)(grid_meta_idxs.astype(str)))
+                columns = []
+                for param in parameter_names:
+                    column = []
+                    for meta_dict in meta_dicts:
+                        column.append(meta_dict[param])
+                    columns.append(column)
+                best_params = np.vstack(columns).T
+                int_bed = np.vstack([starts, ends, index, best_likelihoods, best_params.T]).T
+                header = ["# %s" % parameterObj._VERSION]
+                header += ["# %s" % "\t".join(column_headers)]
+                with open(out_f, 'w') as out_fh:
+                    out_fh.write("\n".join(header) + "\n")
+                bed_df = pd.DataFrame(data=int_bed, columns=column_headers[1:-1]).astype(dtype=dtypes)
+                bed_df['sequence'] = sequences
+                bed_df['fixed'] = fixed
+                # MUST be mode='a' otherwise header gets wiped ...
+                bed_dfs.append(bed_df)
+            df = pd.concat(bed_dfs, ignore_index=True, axis=0)
+            df.sort_values(['index'], ascending=[True]).to_csv(out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=column_headers)
+
+    def _write_gridsearch_bed(self, parameterObj=None, lncls=None, best_idx=None, grid_meta_dict=None, pop_metrics=None):
+        '''remove all lncls-compuation for here. only worry about BED output here.'''
+        if parameterObj is None or lncls is None or grid_meta_dict is None:
+            raise ValueError('_write_gridsearch_bed: needs parameterObj and lncls and grid_meta_dict')
+        grids = []
+        for grid_idx, grid_dict in grid_meta_dict.items():
+            grids.append(list(grid_dict.values()))
+        grid_params = np.array(grids, dtype=np.float64)
+        best_params = grid_params[np.argmax(lncls, axis=1), :]
+        best_likelihoods = np.max(lncls, axis=1)
+        meta_seqs = self._get_meta('seqs')
+        meta_windows = self._get_meta('windows')
+        MAX_SEQNAME_LENGTH = max([len(seq_name) for seq_name in meta_seqs['seq_names']])
+        sequences = np.zeros(meta_windows['count'], dtype='<U%s' % MAX_SEQNAME_LENGTH)
+        starts = np.zeros(meta_windows['count'], dtype=np.int64)
+        ends = np.zeros(meta_windows['count'], dtype=np.int64)
+        index = np.arange(meta_windows['count'],  dtype=np.int64)
+        offset = 0
+        for seq_name in tqdm(meta_seqs['seq_names'], total=len(meta_seqs['seq_names']), desc="[%] Preparing output...", ncols=100, unit_scale=True): 
+            start_key = 'windows/%s/starts' % (seq_name)
+            end_key = 'windows/%s/ends' % (seq_name)
+            if start_key in self.data:
+                start_array = np.array(self.data[start_key])
+                window_count = start_array.shape[0]
+                starts[offset:offset+window_count] = start_array
+                ends[offset:offset+window_count] = np.array(self.data[end_key])
+                sequences[offset:offset+window_count] = np.full_like(window_count, seq_name, dtype='<U%s' % MAX_SEQNAME_LENGTH)
+                offset += window_count
+        delta_lncls = best_likelihoods - lncls[:, best_idx]
+
+        params_header = list(grid_dict.keys())
+        popgen_header = ['heterozygosity_A', 'heterozygosity_B', 'd_xy', 'f_st']
+        columns = ['sequence', 'start', 'end', 'index', 'lnCL', 'delta_lnCl'] + params_header + popgen_header
+        dtypes = {'start': 'int64', 'end': 'int64', 'index': 'int64', 'lnCL': 'float64', 'delta_lnCl': 'float64'}
+        for param in params_header + popgen_header:
+            dtypes[param] = 'float64'
+        '''dtypes := "object", "int64", "float64", "bool", "datetime64", "timedelta", "category"'''
+        int_bed = np.vstack([starts, ends, index, best_likelihoods, delta_lncls, best_params.T, pop_metrics]).T
+        header = ["# %s" % parameterObj._VERSION]
+        header += ["# %s" % "\t".join(columns)]
+        out_f = '%s.%s.gridsearch.bestfit.bed' % (self.prefix, parameterObj.data_type)
+
+        print("[+] Sum of lnCL for winning parameters = %s" % np.sum(best_likelihoods))
+        with open(out_f, 'w') as out_fh:
+            out_fh.write("\n".join(header) + "\n")
+        # bed
+        #print(dtypes)
+        bed_df = pd.DataFrame(data=int_bed, columns=columns[1:]).astype(dtype=dtypes)
+        bed_df['sequence'] = sequences
+        # MUST be mode='a' otherwise header gets wiped ...
+        bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=columns)
+        #print(bed_df)
+        return out_f
+
+    def get_slice_grid_meta_idxs(self, grid_meta_dict=None, lncls=None, fixed_parameter=None, parameter_value=None):
+        '''
+        fixed_parameter=None, parameter_value=None  => 1 idx (overall max likelihood gridkey)
+        fixed_parameter=str, parameter_value=None   => list of n 1d-arrays of idxs with shape (windows,) (n=unique values of parameter)
+        fixed_parameter=str, parameter_value=float  => 1d-array of idxs with shape (windows,) 
+        '''
+        if fixed_parameter: 
+            values_by_parameter = grid_meta_dict_to_value_arrays_by_parameter(grid_meta_dict)
+            if not fixed_parameter in values_by_parameter:
+                raise ValueError("%r is not part of this model" % fixed_parameter)
+            fixed_parameter_values = np.array(values_by_parameter[fixed_parameter])
+            if parameter_value:
+                fixed_parameter_indices = np.concatenate(np.argwhere(parameter_value==fixed_parameter_values))
+                if not np.any(fixed_parameter_indices):
+                    raise ValueError("parameter_value %r not found in grid" % parameter_value)
+                fixed_parameter_lncls = lncls[:, fixed_parameter_indices]
+                fixed_parameter_lncls_max_idx = np.argmax(fixed_parameter_lncls, axis=1)        
+                return fixed_parameter_lncls_max_idx
+            results = []
+            for i in np.unique(fixed_parameter_values):
+                fixed_parameter_indices = np.concatenate(np.argwhere(i==fixed_parameter_values))
+                fixed_parameter_lncls = lncls[:, fixed_parameter_indices]
+                fixed_parameter_lncls_max_idx = np.argmax(fixed_parameter_lncls, axis=1)
+                idxs = fixed_parameter_indices[fixed_parameter_lncls_max_idx]
+                results.append(idxs)
+            return results
+        return np.argmax(lncls, axis=1)
+        
     def gridsearch(self, parameterObj):
         '''
         Assumptions:
@@ -1109,10 +1223,12 @@ class Store(object):
         print('[+] Summing wbSFSs ...')
         bsfs_windows_clipped_summed = sum_wbsfs(bsfs_windows_clipped)
         lncls_global = self.gridsearch_np(bsfs=bsfs_windows_clipped_summed, grids=grids)
+        self._set_lncls(unique_hash, lncls_global, lncls_type='global', overwrite=parameterObj.overwrite)
         best_idx = np.argmax(lncls_global, axis=0)
         print('[+] Best grid point (based on bSFS within windows): %s' % lncls_global[best_idx])
         print('[+] \t %s' % "; ".join(["%s = %s" % (k, v) for k, v in grid_meta_dict[str(best_idx)].items()]))
         lncls_windows = self.gridsearch_np(bsfs=bsfs_windows_clipped, grids=grids)
+        self._set_lncls(unique_hash, lncls_windows, lncls_type='windows', overwrite=parameterObj.overwrite)
         # pop metrics
         meta_seqs = self._get_meta('seqs')
         meta_blocks = self._get_meta('blocks')
@@ -1123,6 +1239,32 @@ class Store(object):
             sample_sets='X')
         pop_metrics = pop_metrics_from_bsfs(bsfs_windows_full, mutypes=meta_seqs['mutypes_count'], block_length=meta_blocks['length'], window_size=meta_windows['size'])
         self._write_gridsearch_bed(parameterObj=parameterObj, lncls=lncls_windows, best_idx=best_idx, grid_meta_dict=grid_meta_dict, pop_metrics=pop_metrics)
+        #g, w = self._get_lncls(unique_hash)        
+        #print('global_lncls', g.shape)
+        #print('windows_lncls', w.shape)
+
+
+    def _set_lncls(self, unique_hash, lncls, lncls_type='global', overwrite=False):
+        '''lncls_type := 'global' or 'windows'
+        '''
+        key = "%s/%s" % (lncls_type, unique_hash)
+        dataset = self.data['lncls'].create_dataset(key, data=lncls, overwrite=overwrite)
+
+    def _has_lncls(self, unique_hash):
+        path = "lncls/%s/%s" % ('global', unique_hash)
+        if path in self.data:
+            return True
+        return False
+
+    def _get_lncls(self, unique_hash):
+        if self._has_lncls(unique_hash):
+            key_global = "lncls/%s/%s" % ('global', unique_hash)
+            lncls_global = np.array(self.data[key_global], dtype=np.float64)
+            key_windows = "lncls/%s/%s" % ('windows', unique_hash)
+            lncls_windows = np.array(self.data[key_windows], dtype=np.float64)
+            return (lncls_global, lncls_windows)
+        else:
+            sys.exit("[X] No lnCLs for this INI.")
 
     def optimize(self, parameterObj):
         if not self.has_stage(parameterObj.data_type):
@@ -1186,6 +1328,23 @@ class Store(object):
         #run_count = gimbleStore._return_group_last_integer('grids')
         #g = gimbleStore.data['grids'].create_dataset(f'grid_{run_count}', data=equationSystem.ETPs)
         #g.attrs.put({idx:combo for idx, combo in enumerate(parameterObj.parameter_combinations)})
+
+    def _set_grid(self, unique_hash, ETPs, grid_labels, overwrite=False):
+        dataset = self.data['grids'].create_dataset(unique_hash, data=ETPs, overwrite=overwrite)
+        dataset.attrs.put({idx:combo for idx, combo in enumerate(grid_labels)})
+
+    def _has_grid(self, unique_hash):
+        if f'grids/{unique_hash}' in self.data:
+            return True
+        return False
+
+    def _get_grid(self, unique_hash):
+        if f'grids/{unique_hash}' in self.data:
+            grid_meta = self.data[f'grids/{unique_hash}'].attrs.asdict()
+            grid = np.array(self.data[f'grids/{unique_hash}'], dtype=np.float64)
+            return (grid, grid_meta)
+        else:
+            sys.exit("[X] No grid for this INI.")
 
     def _validate_seq_names(self, sequences=None):
         """Returns valid seq_names in sequences or raises ValueError."""
@@ -1393,23 +1552,6 @@ class Store(object):
         if bsfs.ndim == 4:
             return np.squeeze(np.apply_over_axes(np.sum, (bsfs * grids_log), axes=[-4,-3,-2,-1]))
         return np.squeeze(np.apply_over_axes(np.sum, (bsfs[:, None] * grids_log), axes=[-4,-3,-2,-1]))
-
-    def _set_grid(self, unique_hash, ETPs, grid_labels, overwrite=False):
-        dataset = self.data['grids'].create_dataset(unique_hash, data=ETPs, overwrite=overwrite)
-        dataset.attrs.put({idx:combo for idx, combo in enumerate(grid_labels)})
-
-    def _has_grid(self, unique_hash):
-        if f'grids/{unique_hash}' in self.data:
-            return True
-        return False
-
-    def _get_grid(self, unique_hash):
-        if f'grids/{unique_hash}' in self.data:
-            grid_meta = self.data[f'grids/{unique_hash}'].attrs.asdict()
-            grid = np.array(self.data[f'grids/{unique_hash}'], dtype=np.float64)
-            return (grid, grid_meta)
-        else:
-            sys.exit("[X] No grid for this INI.")
 
     def _get_setup_report(self, width):
         meta_seqs = self._get_meta('seqs')
@@ -1792,9 +1934,6 @@ class Store(object):
         counts_inter = self.data[counts_inter_key]
         self.plot_bsfs_pcp('%s.bsfs_pcp.png' % self.prefix, mutypes_inter, counts_inter)
 
-    def _get_lncls(self, parameterObj=None, lncls=None, best_idx=None, grid_meta_dict=None):
-        pass
-
     def _write_gridsearch_bed(self, parameterObj=None, lncls=None, best_idx=None, grid_meta_dict=None, pop_metrics=None):
         '''remove all lncls-compuation for here. only worry about BED output here.'''
         if parameterObj is None or lncls is None or grid_meta_dict is None:
@@ -1940,14 +2079,12 @@ class Store(object):
         bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=columns, float_format='%.5f')
 
     def _preflight_query(self, parameterObj):
-        for query in parameterObj.queries:
-            data_type = query[0]
-            if data_type == 'blocks':
-                if not self.has_stage('blocks'):
-                    sys.exit("[X] GStore %r has no blocks. Please run 'gimble blocks'." % self.path)
-            if data_type == 'windows' or data_type == 'windows_sum':
-                if not self.has_stage('windows'):
-                    sys.exit("[X] GStore %r has no windows. Please run 'gimble windows'." % self.path)
+        if parameterObj.data_type == 'blocks':
+            if not self.has_stage('blocks'):
+                sys.exit("[X] GStore %r has no blocks. Please run 'gimble blocks'." % self.path)
+        if parameterObj.data_type == 'windows' or parameterObj.data_type == 'windows_sum':
+            if not self.has_stage('windows'):
+                sys.exit("[X] GStore %r has no windows. Please run 'gimble windows'." % self.path)
 
     def _preflight_windows(self, parameterObj):
         if not self.has_stage('blocks'):
@@ -2966,3 +3103,37 @@ class Store(object):
 #       # return y_res
 #       #return a
 #       return True
+
+    #def _process_config(self):
+#
+    #    if self._MODULE in ['makegrid', 'inference', 'simulate', 'gridsearch']:
+    #        self.config['mu']['blockslength'] = self._get_blocks_length(self.zstore)
+    #        self.config['parameters']['mu'] = self.config['mu']['mu']
+    #        self._expand_params()
+    #        self.reference, self.toBeSynced = self._get_pops_to_sync()
+    #        self._remove_pop_from_dict(self.toBeSynced)
+    #        self.parameter_combinations = self._dict_product()
+    #        self._sync_pop_sizes(self.reference, self.toBeSynced)
+    #    elif self._MODULE in ['optimise', 'optimize']:
+    #        #TO BE CHECKED: which bits are we still using
+    #        #determine parameters that are fixed:
+    #        self.fixed_params = self._get_fixed_params()
+    #        #self.config['mu']['blockslength'] = self._get_blocks_length(self.zstore)
+    #        #self.config['parameters']['mu'] = self.config['mu']['mu']
+    #        reference_pop=self.config['populations']['reference_pop']
+    #        #syncing pop sizes
+    #        self.reference, self.toBeSynced = self._get_pops_to_sync()
+    #        if self.toBeSynced:
+    #            if reference_pop in self.toBeSynced:
+    #                sys.exit(f"[X] Set reference pop to {self.reference}.")
+    #        toBeSynced_pops = [f'Ne_{s}' for s in self.toBeSynced] if self.toBeSynced!=None else []
+    #        self.fixed_params = [pop for pop in self.fixed_params if pop not in toBeSynced_pops]
+    #        #verify if any Ne fixed, whether one of those Ne is self.reference
+    #        fixed_Nes = [p for p in self.fixed_params if p.startswith('Ne')]
+    #        if len(fixed_Nes)>0:
+    #            if not f"Ne_{reference_pop}" in fixed_Nes:
+    #                sys.exit("[X] No. No. No. It would make much more sense to set a population with a fixed size as reference.")
+    #        #self._sync_pop_sizes_optimise(self.reference, self.toBeSynced)
+    #        self.parameter_combinations = self._return_boundaries()
+    #    else:
+    #        sys.exit("[X] gimble.py_processing_config: Not implemented yet.")
