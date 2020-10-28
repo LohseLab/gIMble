@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gimble gridsearch                  -z FILE -c FILE (-b|-w) [-h|--help]
+"""usage: gimble gridsearch                  -z FILE -c FILE (-b|-w) [-f] [-h|--help]
                                             
                                             
     Options:
@@ -10,6 +10,7 @@
         -b, --blocks                                Using blocks
         -w, --windows                               Using windows
         -c, --config_file FILE
+        -f, --overwrite                             Overwrite lnCLs in GStore
 """
 import pathlib
 import collections
@@ -31,6 +32,7 @@ class GridsearchParameterObj(lib.gimble.ParameterObj):
         self.config = None
         self._parse_config(self.config_file)
         #self._process_config()
+        self.overwrite = args['--overwrite']
 
     def _get_datatype(self, args):
         if not any(args):
@@ -47,6 +49,7 @@ def main(params):
         start_time = timer()
         args = docopt(__doc__)
         parameterObj = GridsearchParameterObj(params, args)
+        #print(parameterObj)
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
         gimbleStore.gridsearch(parameterObj)
         
