@@ -232,11 +232,12 @@ def objective_function(paramsToOptimize, grad, paramNames, fixedParams, equation
         iteration_number = len(path)
     #print(str(iteration_number)+'\t'+'\t'.join(str(param) for param in paramsToOptimize)+'\t'+str(result))
     if verbose:
+        time = str(datetime.timedelta(seconds=round(timer()-start_time, 1)))
         print("[+] i=%s -- {%s} -- L=%s -- %s" % (
             str(iteration_number).ljust(4), 
             " ".join(["%s=%s" % (k, '{:.2e}'.format(float(v))) for k, v in all_rates.items()]), 
             '{:.2f}'.format(float(result)), 
-            str(datetime.timedelta(seconds=round(timer()-start_time, 1)))[:-5]))
+            str(time[:-5]) if len(time) > 9 else str(time))) # rounding is hard ...
     return result
 
 def run_single_optimize(p0, lower, upper, specified_objective_function, maxeval, xtol_rel, ftol_rel):
