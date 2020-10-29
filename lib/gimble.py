@@ -837,7 +837,7 @@ class ParameterObj(object):
                 for paramCombo in self.parameter_combinations:
                     paramCombo[f'Ne_{pop}'] = paramCombo[f'Ne_{reference}']
 
-    def _sync_pop_sizes_optimise(self, reference, toBeSynced):
+    def _sync_pop_sizes_optimize(self, reference, toBeSynced):
         # @GB is this needed?
         if toBeSynced and reference:
             for pop in toBeSynced:
@@ -865,7 +865,7 @@ class ParameterObj(object):
                     pass
                 else:
                     if len(value) == 4:
-                        if self._MODULE in ['optimise', 'optimize']:
+                        if self._MODULE == 'optimize':
                             sys.exit(f"[X] {self._MODULE} requires a single point or boundary.")
                         minv, maxv, n, scale = value
                         if scale.startswith('lin'):
@@ -944,7 +944,7 @@ class ParameterObj(object):
             self.parameter_combinations = self._dict_product()
             if self.toBeSynced:
                 self._sync_pop_sizes(self.reference, self.toBeSynced)
-        elif self._MODULE in ['optimise', 'optimize']:
+        elif self._MODULE == 'optimize':
             #TO BE CHECKED: which bits are we still using
             #determine parameters that are fixed:
             self.fixed_params = self._get_fixed_params()
@@ -963,7 +963,7 @@ class ParameterObj(object):
             if len(fixed_Nes)>0:
                 if not f"Ne_{reference_pop}" in fixed_Nes:
                     sys.exit("[X] No. No. No. It would make much more sense to set a population with a fixed size as reference.")
-            #self._sync_pop_sizes_optimise(self.reference, self.toBeSynced)
+            #self._sync_pop_sizes_optimize(self.reference, self.toBeSynced)
             self.parameter_combinations = self._return_boundaries()
         else:
             sys.exit("[X] gimble.py_processing_config: Not implemented yet.")
@@ -3116,7 +3116,7 @@ class Store(object):
     #        self._remove_pop_from_dict(self.toBeSynced)
     #        self.parameter_combinations = self._dict_product()
     #        self._sync_pop_sizes(self.reference, self.toBeSynced)
-    #    elif self._MODULE in ['optimise', 'optimize']:
+    #    elif self._MODULE in ['optimize', 'optimize']:
     #        #TO BE CHECKED: which bits are we still using
     #        #determine parameters that are fixed:
     #        self.fixed_params = self._get_fixed_params()
@@ -3135,7 +3135,7 @@ class Store(object):
     #        if len(fixed_Nes)>0:
     #            if not f"Ne_{reference_pop}" in fixed_Nes:
     #                sys.exit("[X] No. No. No. It would make much more sense to set a population with a fixed size as reference.")
-    #        #self._sync_pop_sizes_optimise(self.reference, self.toBeSynced)
+    #        #self._sync_pop_sizes_optimize(self.reference, self.toBeSynced)
     #        self.parameter_combinations = self._return_boundaries()
     #    else:
     #        sys.exit("[X] gimble.py_processing_config: Not implemented yet.")

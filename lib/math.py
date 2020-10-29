@@ -17,6 +17,8 @@ from functools import partialmethod
 import nlopt
 import concurrent.futures
 import logging
+import datetime
+from timeit import default_timer as timer
 logging.basicConfig(filename='log_file.txt', level=logging.DEBUG)
 #sage.all.numerical_approx(value, digits=1)
 
@@ -173,15 +175,15 @@ def calculate_inverse_laplace(params):
     equationObj, rates, split_time, dummy_variable = params
     #print(equationObj, rates, split_time, dummy_variable)
     equation = (equationObj.equation).substitute(rates)
-    #for testing purposes only: this needs to be done elsewhere!
-    assert(len(equation.arguments())<=1), f"Parameters left unspecified: {equation.arguments()}"
-    
+    # GB: for testing purposes only: this needs to be done elsewhere!
+    # DRL: where? you can only tell after substituting. And that's here
+    assert(len(equation.arguments())<=1), "Parameters left unspecified: %s" % str(equation.arguments())
     try:
         if split_time is None:
             equationObj.result = equation
         else:
             equationObj.result = sage.all.inverse_laplace(equation / dummy_variable, dummy_variable, sage.all.SR.var('T', domain='real'), algorithm='maxima').substitute(T=split_time)
-            assert 'ilt' not in str(equationObj.result), "Inverse laplace transform is undefined."
+            assert 'ilt' not in str(equationObj.result), "Inverse laplace transform is undefined for equation: %s" % equation 
     except KeyboardInterrupt:
         print("Interrupted by user.")
         exit(-1)
@@ -189,11 +191,12 @@ def calculate_inverse_laplace(params):
         with ('log_ilt.txt', 'w') as file:
             print(equationObj.result, file=file)
             sys.exit("Inverse laplace transform undefined (using maxima)")
-    except Exception:
-        with ('log_equation.txt', 'w') as file:
-            print(equation, file=file)
-        logging.exception('Inverse laplace error')
-        raise
+    ## i commented this out since i don't know whether that actually works ...
+    # except Exception:
+    #     with ('log_equation.txt', 'w') as file:
+    #         print(equation, file=file)
+    #     logging.exception('Inverse laplace error')
+    #     raise
     #casting sage.expression to real number with arbitrary precision
     equationObj.result = sage.all.RealField(precision)(equationObj.result)
     return equationObj
@@ -203,24 +206,22 @@ def calculate_composite_likelihood(ETPs, data):
     np.log(ETPs, where=ETPs>0, out=ETP_log)
     return np.sum(ETP_log * data)
 
-def objective_function(paramsToOptimise, grad, paramNames, fixedParams, equationSystemObj, data, threads, verbose=True, path=None):
+def objective_function(paramsToOptimize, grad, paramNames, fixedParams, equationSystemObj, data, threads, verbose=True, path=None):
     if grad.size:
         raise ValueError('no optimization with derivatives implemented')
-    all_rates = {k:v for k,v in zip(paramNames, paramsToOptimise)}
+    start_time = timer()
+    all_rates = {k:v for k,v in zip(paramNames, paramsToOptimize)}
     all_rates = {**all_rates, **fixedParams}
-    all_rates = equationSystemObj._scale_parameter_combination(all_rates, equationSystemObj.reference_pop, equationSystemObj.block_length, 'optimise')
+    all_rates = equationSystemObj._scale_parameter_combination(all_rates, equationSystemObj.reference_pop, equationSystemObj.block_length, 'optimize')
     rates = equationSystemObj._get_base_rate_by_variable(all_rates)
     split_time = equationSystemObj._get_split_time(all_rates)
     iteration_number=-1
     if isinstance(path, list):
         iteration_number = len(path)
-    if verbose:
-        print(str(iteration_number)+'\t'+'\t'.join(str(param) for param in paramsToOptimise))
-    
     ETPs = equationSystemObj.calculate_ETPs((rates, split_time, threads, verbose))
 
     result = calculate_composite_likelihood(ETPs, data)
-    toSave = np.append(paramsToOptimise, result)
+    toSave = np.append(paramsToOptimize, result)
     #scaled parameters are in all_rates
     #all_rates['theta']/=equationSystemObj.block_length
     #C_x if x not reference
@@ -229,12 +230,16 @@ def objective_function(paramsToOptimise, grad, paramNames, fixedParams, equation
     if isinstance(path, list):
         path.append(toSave)
         iteration_number = len(path)
+    #print(str(iteration_number)+'\t'+'\t'.join(str(param) for param in paramsToOptimize)+'\t'+str(result))
     if verbose:
-        print(str(result))
-    #print(str(iteration_number)+'\t'+'\t'.join(str(param) for param in paramsToOptimise)+'\t'+str(result))
+        print("[+] i=%s -- {%s} -- L=%s -- %s" % (
+            str(iteration_number).ljust(4), 
+            " ".join(["%s=%s" % (k, '{:.2e}'.format(float(v))) for k, v in all_rates.items()]), 
+            '{:.2f}'.format(float(result)), 
+            str(datetime.timedelta(seconds=round(timer()-start_time, 1)))[:-5]))
     return result
 
-def run_single_optimiz(p0, lower, upper, specified_objective_function, maxeval, xtol_rel, ftol_rel):
+def run_single_optimize(p0, lower, upper, specified_objective_function, maxeval, xtol_rel, ftol_rel):
 
     #nlopt.G_MLSL_LDS, nlopt.LN_NELDERMEAD, nlopt.LN_SBPLX
     opt = nlopt.opt(nlopt.LN_SBPLX, len(p0))
@@ -387,7 +392,7 @@ class EquationSystemObj(object):
         self.block_length = sage.all.Rational(parameterObj.config['mu']['blocklength'])
         result = []
         """
-        if parameterObj._MODULE == 'optimise':
+        if parameterObj._MODULE == 'optimize':
             #currently not used, can be removed once function is rewritten.
             mid = self._scale_parameter_combination(parameterObj.parameter_combinations[0], self.reference_pop, self.block_length, parameterObj._MODULE)
             min_combo, max_combo = self._scale_min_max_parameter_combination(parameterObj.parameter_combinations[1], parameterObj.parameter_combinations[2], self.reference_pop, self.block_length, parameterObj)
@@ -418,7 +423,7 @@ class EquationSystemObj(object):
 
     def _scale_parameter_combination(self, combo, reference_pop, block_length, module):
         rdict = {}
-        if module in ['makegrid', 'inference','optimise']:
+        if module in ['makegrid', 'inference','optimize']:
             Ne_ref = sage.all.Rational(combo[f"Ne_{reference_pop}"])
             rdict['theta'] = 4*sage.all.Rational(Ne_ref*combo['mu'])*block_length
             if 'Ne_A' in combo:
@@ -441,7 +446,7 @@ class EquationSystemObj(object):
     def _scale_min_max_parameter_combination(self, min_combo, max_combo, reference_pop, block_length, parameterObj):
         #currently not used: can be deleted
         rdict = {}
-        if parameterObj._MODULE == 'optimise':
+        if parameterObj._MODULE == 'optimize':
             Ne_ref = [sage.all.Rational(min_combo[f"Ne_{reference_pop}"]),sage.all.Rational(max_combo[f"Ne_{reference_pop}"])]
             
             rdict['theta'] = [4*sage.all.Rational(ref*combo['mu'])*block_length for combo, ref in zip([min_combo, max_combo],Ne_ref)]
@@ -468,7 +473,7 @@ class EquationSystemObj(object):
 
     def _unscale_parameter_combination(self, combo, reference_pop, block_length):
         rdict = {}
-        if parameterObj._MODULE in ['optimise']:
+        if parameterObj._MODULE in ['optimize']:
             #check if parameter needs to be scaled, e.g. not if already provided.
             theta/=blocklength 
             Ne_ref=theta/(2*mu) #remark 2's: theta here is 2*Ne*mu @KL right?
@@ -548,7 +553,7 @@ class EquationSystemObj(object):
             equationObj_by_matrix_idx = {equationObj.matrix_idx: equationObj for equationObj in [el[-1] for el in result]}
         
         #ETPs = np.zeros(tuple(self.k_max_by_mutype[mutype] + 2 for mutype in self.mutypes), np.float64)
-        ETPs = np.zeros(tuple(self.k_max_by_mutype[mutype] + 2 for mutype in self.mutypes), dtype=object)
+        ETPs = np.zeros(tuple(self.k_max_by_mutype[mutype] + 2 for mutype in self.mutypes), dtype=object) # why not float?
         for matrix_id, equationObj in sorted(equationObj_by_matrix_idx.items()):
             if equationObj.marginal_idx is None:
                 ETPs[matrix_id] = equationObj.result
@@ -600,13 +605,13 @@ class EquationSystemObj(object):
             startdesc = f"[+] Optimization starting for specified point and {parameterObj.numPoints-1} random points."
         if verbose:
             print(startdesc)
-            print('iteration \t'+'\t'.join(str(name) for name in boundaryNames)+'\t lnCL')
+            #print('iteration \t'+'\t'.join(str(name) for name in boundaryNames)+'\t lnCL')
         
         #parallelize over starting points or data points
         allResults=[] 
         if parameterObj.gridThreads <= 1:
             for startPos, specified_objective_function in tqdm(zip(itertools.cycle(starting_points), specified_objective_function_list), desc="progress", total=len(specified_objective_function_list),disable=verbose):
-                allResults.append(run_single_optimiz(startPos, parameter_combinations_lowest, parameter_combinations_highest, specified_objective_function, parameterObj.max_eval, parameterObj.xtol_rel, parameterObj.ftol_rel))
+                allResults.append(run_single_optimize(startPos, parameter_combinations_lowest, parameter_combinations_highest, specified_objective_function, parameterObj.max_eval, parameterObj.xtol_rel, parameterObj.ftol_rel))
             
         else:
             #single_runs need to be specified before passing them to the pool
@@ -644,13 +649,14 @@ class EquationSystemObj(object):
         return boundaryNames
     
     def _optimize_get_fixed_params(self, parameterObj):
+        # not actually using self, should be standalone function...
         fixed_params = parameterObj.fixed_params[:] #synced pops already removed from fixed_params
         fixedParams = {k:parameterObj.parameter_combinations[0][k] for k in fixed_params}
         fixedParams['mu'] = parameterObj.config['mu']['mu']
         return fixedParams
     
     def _optimize_get_boundaries(self, parameterObj, boundary_names):
-
+        # not actually using self, should be standalone function...
         parameter_combinations_lowest = np.array([parameterObj.parameter_combinations[0][k] for k in boundary_names])
         parameter_combinations_highest = np.array([parameterObj.parameter_combinations[1][k] for k in boundary_names])
         #start from midpoint
@@ -665,6 +671,7 @@ class EquationSystemObj(object):
         return (starting_points, parameter_combinations_lowest, parameter_combinations_highest)
     
     def _optimize_specify_objective_function(self, parameterObj, trackHistoryPath, data, boundary_names, fixedParams, verbose):
+        # not actually using self, should be standalone function...
         if parameterObj.data_type=='simulate':
             specified_objective_function_list = [partial(
                     objective_function,
@@ -691,8 +698,9 @@ class EquationSystemObj(object):
         return specified_objective_function_list
     
     def _optimize_specify_run_list_(self, parameterObj, specified_objective_function_list, starting_points, parameter_combinations_lowest, parameter_combinations_highest):
+        # not actually using self, should be standalone function...
         specified_run_list=[partial(
-                    run_single_optimiz,
+                    run_single_optimize,
                     p0=p0,
                     lower=parameter_combinations_lowest,
                     upper=parameter_combinations_highest,
@@ -704,6 +712,8 @@ class EquationSystemObj(object):
         return specified_run_list
     
     def _optimize_reshape_output(self, raw_output, trackHistoryPath, boundary_names, exitcodeDict, trackHistory, verbose):
+        # not actually using self, should be standalone function...
+
         #raw_output is list of dicts with {"lnCL":value, "optimum":list, "exitcode":value}
         if verbose:
             print([exitcodeDict.get(resultd['exitcode'],'Not in exitcodeDict.') for resultd in raw_output])
