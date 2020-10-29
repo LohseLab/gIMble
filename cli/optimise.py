@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gimble optimise                  [-z FILE] -c FILE -m FILE [-b|-w|-s] [-t STR] [-n INT] 
+"""usage: gimble optimize                  [-z FILE] -c FILE -m FILE [-b|-w|-s] [-t STR] [-n INT] 
                                             [-x FLOAT -i INT] [-f FLOAT] [-e INT] [-p]
                                             [-h|--help] [-l STR]
                                             
@@ -11,16 +11,16 @@
         -z, --zarr_file FILE                        ZARR datastore
         -c, --config_file FILE                      INI config file
         -m, --model_file FILE                       gimble model TSV
-        -b, --blocks                                Optimise based on blocks 
-        -w, --windows                               Optimise based on windows (might take very long)
-        -s, --sims                                  Optimise based on sims
+        -b, --blocks                                Optimize based on blocks 
+        -w, --windows                               Optimize based on windows (might take very long)
+        -s, --sims                                  Optimize based on sims
         -t, --threads STR                           Threads [default: 1,1]
         -n, --n_points INT                          Number of starting points [default: 1]
         -i, --iterations INT                        Number of iterations to perform when optimizing [default: 100]
         -x, --xtol_rel FLOAT                        Set relative tolerance on norm of vector of optimisation parameters [default: 0.00000001]
         -f, --ftol_rel FLOAT                        Set relative tolerance on lnCL [default: 0.000000001]
         -p, --trackPath                             Track likelihood search
-        -l, --label STR                             Specify which simulation run to optimise.                        
+        -l, --label STR                             Specify which simulation run to optimize.                        
 """
 from timeit import default_timer as timer
 from docopt import docopt
@@ -30,7 +30,7 @@ import lib.math
 import zarr
 import numpy as np
 
-class OptimiseParameterObj(lib.gimble.ParameterObj):
+class OptimizeParameterObj(lib.gimble.ParameterObj):
     '''Sanitises command line arguments and stores parameters.'''
 
     def __init__(self, params, args):
@@ -67,7 +67,7 @@ def main(params):
     try:
         start_time = timer()
         args = docopt(__doc__)
-        parameterObj = OptimiseParameterObj(params, args)
+        parameterObj = OptimizeParameterObj(params, args)
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
         gimbleStore.optimize(parameterObj)
         
