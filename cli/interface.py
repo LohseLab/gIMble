@@ -88,7 +88,7 @@ def main(gimble_dir):
         elif args['<module>'] == 'makegrid':
             import cli.makegrid as makegrid
             makegrid.main(params)
-        elif args['<module>'] == 'optimize':
+        elif args['<module>'] == 'optimize' or args['<module>'] == 'optimise':
             import cli.optimise as optimize
             optimize.main(params)
         else:
