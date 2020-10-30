@@ -809,14 +809,15 @@ class ParameterObj(object):
         '''active'''
         return hashlib.md5(str(d).encode()).hexdigest()
 
-    def _get_unique_hash(self):
+    def _get_unique_hash(self, module=None):
         '''passive'''
+        module = module if module else self._MODULE
         to_hash = copy.deepcopy(self.config)
-        if self._MODULE in set(['makegrid','gridsearch', 'query']):
+        if module in set(['makegrid','gridsearch', 'query']):
             del to_hash['simulations']
             if 'kmax_by_mutype' in to_hash:
                 del to_hash['--kmax_by_mutype']
-        elif self._MODULE == 'simulate':
+        elif module == 'simulate':
             pass
         else:
             ValueError("Not implemented yet.")
@@ -1039,6 +1040,8 @@ class Store(object):
         print("[#] Preflight...")
         self._preflight_simulate(parameterObj)
         print("[+] Checks passed.")
+        if parameterObj.sim_grid:
+            self._get_sim_grid(self, parameterObj)
         lib.simulate.run_sim(parameterObj, self)
         self.log_stage(parameterObj)
 
@@ -1347,6 +1350,32 @@ class Store(object):
             return (grid, grid_meta)
         else:
             sys.exit("[X] No grid for this INI.")
+
+    def _get_sim_grid(self, parameterObj):
+        unique_hash = parameterObj._get_unique_hash(module='makegrid')
+        #parameter_combinations = {"0":{combo1}, "1":{combo2}}
+        parameter_combinations = self.data[f'grids/{unique_hash}'].attrs.asdict()
+        #return winning parameter combo across grid
+        #get bsfs_sum_win
+        if not self._has_lncls(unique_hash):
+            print("[-] Running gridsearch module first to calculate lnCLs.")
+            self.gridsearch(parameterObj)
+        lncls_global, lncls_windows = _get_lncls(unique_hash)
+        global_winning_fixed_param_idx = self.get_slice_grid_meta_idxs(lncls=lncls_global)
+        global_winning_fixed_param_value
+
+        #get optimal parametercombo given background for fixed parameter
+        self.get_slice_grid_meta_idxs(lncls=lncls_windows)
+         
+        # df with seqs - start - stop - parameter_combo_idx
+
+        #combine with recombination rate/map
+        if isinstance(parameterObj.recombination_map, pd.DataFrame):
+            #recombination map contains binned rec rate for each window
+        else:
+            #add recom to each of the parametercombinations
+            rec_rate = parameterObj.config["parameters"]["recombination"]
+        #return dict containing parameter_combo : [list of windows (seq, start, stop) for that param]
 
     def _validate_seq_names(self, sequences=None):
         """Returns valid seq_names in sequences or raises ValueError."""
@@ -2114,6 +2143,12 @@ class Store(object):
             self._init_meta(overwrite=False, module='sims')
         if parameterObj.label in self.data['sims'].group_keys():
             sys.exit(f"[X] There already is a simulation run labeled {parameterObj.label}")
+        if parameterObj.sim_grid:
+            if isinstance(parameterObj.recombination_map, pd.DataFrame):
+                parameterObj._validate_recombination_map(self, parameterObj.recombination_map)
+            unique_hash = parameterObj._get_unique_hash(module='makegrid')
+            if not self._has_grid(unique_hash):
+                sys.exit("[X] Provided config file does not correspond with an existing grid.")
 
     #def dump_windows(self, parameterObj):
     #    window_info_rows = []
