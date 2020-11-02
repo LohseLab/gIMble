@@ -10,11 +10,6 @@
         -h --help                                   show this
 """
 
-'''
-needs grid info
-- listing for each variable their range and their index so that it can be displayed to the user
-
-'''
 from timeit import default_timer as timer
 from docopt import docopt
 import lib.gimble
