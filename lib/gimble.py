@@ -172,8 +172,8 @@ def calculate_bsfs_marginality(bsfs_2d, kmax_by_mutype=None):
     return format_percentage(np.sum(bsfs_2d[np.any((np.array(list(kmax_by_mutype.values())) - bsfs_2d[:,1:]) < 0, axis=1), 0]) / np.sum(bsfs_2d[:,0]))
 
 class ReportObj(object):
-    '''Info class for making reports
-    '''
+    '''Report class for making reports'''
+
     def __init__(self, width=80):
         '''
         Parameters 
@@ -189,7 +189,7 @@ class ReportObj(object):
     
     def add_line(self, prefix="[+]", branch="", left='', center='', right='', fill=' '):
         '''
-        Writes line to Info Object
+        Writes line to Report Object
         Lines is composed of {prefix} {branch} {left} {fill} {center} {fill} {right}
         SIGNS = {'T': '├──', 'F': '└──', 'S': '    ', 'P': '│   ', 'B': '───'}
         '''
@@ -1674,6 +1674,18 @@ class Store(object):
         return reportObj
 
     def info(self, tree=False):
+        '''
+        blocks/windows/seqs/
+
+        bsfs/
+        grids->
+        bsfs->blocks->
+        bsfs->windows->
+        bsfs->windows_sum->
+        lncls->global->
+        lncls->local->
+
+        '''
         width = 100
         if tree:
             return self.data.tree()
@@ -2102,6 +2114,9 @@ class Store(object):
     def _preflight_simulate(self, parameterObj):
         if 'sims' not in self.data.group_keys():
             self._init_meta(overwrite=False, module='sims')
+        # DRL: checking for existance should only return true if a simulations has actually finished successfully
+        # currently one can ctrl+c during sims and this part below will exit
+        # probably easiest to use self.log_stage() / self.has_stage()
         if parameterObj.label in self.data['sims'].group_keys():
             sys.exit(f"[X] There already is a simulation run labeled {parameterObj.label}")
 
