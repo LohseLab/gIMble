@@ -98,8 +98,14 @@ DPPL = '│   '
 #             return subshell_count * index_i + recursive_index(dim + 1)
 #     return shell ** n + recursive_index(0)
 
-SIGNS = {'T': '├──', 'F': '└──', 'S': '    ', 'P': '│   ', 'B': '───'}
+SIGNS = {
+        'T': '%s%s%s' % (u"\u251C", u"\u2500", u"\u2500"),  # '├──'
+        'S': '    ',                                        # '    '
+        'F': '%s%s%s' % (u"\u2514", u"\u2500", u"\u2500"),  # '└──'
+        'P': '%s   ' % u"\u2502",                           # '│   '
+        'B': '%s%s%s' % (u"\u2500", u"\u2500",  u"\u2500")} # '───'
 
+# SIGNS = {'T': '├──', 'F': '└──', 'S': '    ', 'P': '│   ', 'B': '───'}
 META_TEMPLATE_BY_STAGE = {
             'seqs': {
                 'vcf_f': None, 
