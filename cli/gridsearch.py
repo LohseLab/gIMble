@@ -1,22 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gimble gridsearch                  -z FILE -c FILE (-b|-w) [-f] [-h|--help]
+"""usage: gimble gridsearch -z <FILE> -c <FILE> (-b | -w) [-f] [-h|--help]
                                             
                                             
     Options:
         -h --help                                   show this
-        -z, --zarr_file FILE                        ZARR datastore
+        
+        -z, --zarr_file <FILE>                      Path to existing GimbleStore
+        -c, --config_file <FILE>                    Config file with model parameters (defines grid)
         -b, --blocks                                Using blocks
         -w, --windows                               Using windows
-        -c, --config_file FILE
-        -f, --overwrite                             Overwrite lnCLs in GStore
+        -f, --overwrite                             Overwrite lnCLs in GimbleStore
+
 """
-import pathlib
-import collections
 from timeit import default_timer as timer
 from docopt import docopt
-import sys
 import lib.gimble
 import lib.math
 
@@ -26,33 +25,26 @@ class GridsearchParameterObj(lib.gimble.ParameterObj):
     def __init__(self, params, args):
         super().__init__(params)
         self.zstore = self._get_path(args['--zarr_file'])
-        #self.grid_name = args['--grid_name']
-        self.data_type = self._get_datatype([args['--blocks'], args['--windows']])
+        self.data_type = self._get_datatype(args)
         self.config_file = self._get_path(args['--config_file'])
+        self.overwrite = args['--overwrite']
         self.config = None
         self._parse_config(self.config_file)
-        #self._process_config()
-        self.overwrite = args['--overwrite']
 
     def _get_datatype(self, args):
-        if not any(args):
-            return None
-        elif args[0]:
+        if args['--blocks']:
             return 'blocks'
-        elif args[1]:
+        if args['--windows']:
             return 'windows'
-        else:
-            sys.exit("[X1] This should not have happened.")
+        return None
         
 def main(params):
     try:
         start_time = timer()
         args = docopt(__doc__)
         parameterObj = GridsearchParameterObj(params, args)
-        #print(parameterObj)
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
         gimbleStore.gridsearch(parameterObj)
-        
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:
         print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
