@@ -692,6 +692,7 @@ class ParameterObj(object):
             ))
 
     def _cast_to_repeated_list(self, x, repeat=1):
+        '''DRL: not using self, should be separate function'''
         if isinstance(x, list):
             return x
         elif isinstance(x, str):
@@ -706,6 +707,7 @@ class ParameterObj(object):
             return [dict(zip(self.config["parameters"], x)) for x in itertools.product(*self.config["parameters"].values())]
 
     def _dict_zip(self, pdict):
+        '''DRL: if this is only used once, no need for being separate function'''
         return [dict(zip(pdict, x)) for x in zip(*pdict.values())]
 
     def _get_blocks_length(self):
@@ -793,6 +795,9 @@ class ParameterObj(object):
         return (reference, to_be_synced)
 
     def _get_threads(self, num):
+        '''
+        DRL: i think there should only be one int for threads. 
+        '''
         try:
             num=int(num)
         except TypeError:
@@ -893,9 +898,8 @@ class ParameterObj(object):
         - does not deal with missing/incompatible values (should be dealt with in ParameterObj subclasses)
             https://docs.python-cerberus.org/en/stable/usage.html
 
-        ideas
-        - could the whole 'possible_values' stuff be removed by adding population_ids as field to the INI filed coming from model?
-            population_ids = A, B, A_B
+        DRL: could the whole 'possible_values' stuff be removed by adding population_ids as field to the INI filed coming from model?
+            (population_ids = A, B, A_B)
 
         '''
         raw_config = configparser.ConfigParser(inline_comment_prefixes='#', allow_no_value=True)
@@ -906,6 +910,7 @@ class ParameterObj(object):
         possible_values_config.optionxform=str # otherwise keys are lowercase
         possible_values_config.read(config_file)
         possible_values_dict = {s: dict(possible_values_config.items(s)) for s in possible_values_config.sections()}
+        # possible_values_dict is only needed for valid_pop_ids and valid_sync_pops
         valid_pop_ids = [population.strip(" ") for population in possible_values_dict["populations"]["# possible values reference_pop"].split("|")]
         sample_pop_ids = [population for population in valid_pop_ids if "_" not in population]
         schema = get_config_schema(self._MODULE)
@@ -922,6 +927,7 @@ class ParameterObj(object):
                 sys.exit(f"[X] Syncing pop sizes: set same value for Ne_{', Ne_'.join(self.toBeSynced)} as for Ne_{self.reference}")
             for tBS in self.toBeSynced:
                 config['parameters'][f'Ne_{tBS}'] = config['parameters'][f'Ne_{self.reference}']
+        # DRL: scaling (should be it's own function)
         validator = CustomNormalizer(schema, valid_pop_ids=valid_pop_ids, valid_sync_pops=valid_sync_pops)
         validator.validate(config)
         if not validator.validate(config):
@@ -1067,25 +1073,7 @@ class Store(object):
         grids, grid_meta_dict = self._get_grid(unique_hash)
         lncls_global, lncls_windows = self._get_lncls(unique_hash)
         values_by_parameter = grid_meta_dict_to_value_arrays_by_parameter(grid_meta_dict)
-        # get BED
-        meta_seqs = self._get_meta('seqs')
-        meta_windows = self._get_meta('windows')
-        MAX_SEQNAME_LENGTH = max([len(seq_name) for seq_name in meta_seqs['seq_names']])
-        sequences = np.zeros(meta_windows['count'], dtype='<U%s' % MAX_SEQNAME_LENGTH)
-        starts = np.zeros(meta_windows['count'], dtype=np.int64)
-        ends = np.zeros(meta_windows['count'], dtype=np.int64)
-        index = np.arange(meta_windows['count'],  dtype=np.int64)
-        offset = 0
-        for seq_name in tqdm(meta_seqs['seq_names'], total=len(meta_seqs['seq_names']), desc="[%] Preparing output...", ncols=100, unit_scale=True): 
-            start_key = 'windows/%s/starts' % (seq_name)
-            end_key = 'windows/%s/ends' % (seq_name)
-            if start_key in self.data:
-                start_array = np.array(self.data[start_key])
-                window_count = start_array.shape[0]
-                starts[offset:offset+window_count] = start_array
-                ends[offset:offset+window_count] = np.array(self.data[end_key])
-                sequences[offset:offset+window_count] = np.full_like(window_count, seq_name, dtype='<U%s' % MAX_SEQNAME_LENGTH)
-                offset += window_count
+        sequences, starts, ends, index = self._get_window_bed_columns()
         parameter_names = [name for name in values_by_parameter.keys() if name != 'mu']
         column_headers = ['sequence', 'start', 'end', 'index', 'lnCL'] + parameter_names + ['fixed']
         dtypes = {'start': 'int64', 'end': 'int64', 'index': 'int64', 'lnCL': 'float64'}
@@ -1119,23 +1107,13 @@ class Store(object):
             df = pd.concat(bed_dfs, ignore_index=True, axis=0)
             df.sort_values(['index'], ascending=[True]).to_csv(out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=column_headers)
 
-    def _write_gridsearch_bed(self, parameterObj=None, lncls=None, best_idx=None, grid_meta_dict=None, pop_metrics=None):
-        '''remove all lncls-compuation for here. only worry about BED output here.'''
-        if parameterObj is None or lncls is None or grid_meta_dict is None:
-            raise ValueError('_write_gridsearch_bed: needs parameterObj and lncls and grid_meta_dict')
-        grids = []
-        for grid_idx, grid_dict in grid_meta_dict.items():
-            grids.append(list(grid_dict.values()))
-        grid_params = np.array(grids, dtype=np.float64)
-        best_params = grid_params[np.argmax(lncls, axis=1), :]
-        best_likelihoods = np.max(lncls, axis=1)
+    def _get_window_bed_columns(self):
         meta_seqs = self._get_meta('seqs')
         meta_windows = self._get_meta('windows')
         MAX_SEQNAME_LENGTH = max([len(seq_name) for seq_name in meta_seqs['seq_names']])
         sequences = np.zeros(meta_windows['count'], dtype='<U%s' % MAX_SEQNAME_LENGTH)
         starts = np.zeros(meta_windows['count'], dtype=np.int64)
         ends = np.zeros(meta_windows['count'], dtype=np.int64)
-        index = np.arange(meta_windows['count'],  dtype=np.int64)
         offset = 0
         for seq_name in tqdm(meta_seqs['seq_names'], total=len(meta_seqs['seq_names']), desc="[%] Preparing output...", ncols=100, unit_scale=True): 
             start_key = 'windows/%s/starts' % (seq_name)
@@ -1147,8 +1125,23 @@ class Store(object):
                 ends[offset:offset+window_count] = np.array(self.data[end_key])
                 sequences[offset:offset+window_count] = np.full_like(window_count, seq_name, dtype='<U%s' % MAX_SEQNAME_LENGTH)
                 offset += window_count
-        delta_lncls = best_likelihoods - lncls[:, best_idx]
+        index = np.arange(meta_windows['count'],  dtype=np.int64)
+        return (sequences, starts, ends, index)
 
+
+    def _write_gridsearch_bed(self, parameterObj=None, lncls=None, best_idx=None, grid_meta_dict=None, pop_metrics=None):
+        if parameterObj is None or lncls is None or grid_meta_dict is None:
+            raise ValueError('_write_gridsearch_bed: needs parameterObj and lncls and grid_meta_dict')
+        grids = []
+        for grid_idx, grid_dict in grid_meta_dict.items():
+            grids.append(list(grid_dict.values()))
+        grid_params = np.array(grids, dtype=np.float64)
+        best_params = grid_params[np.argmax(lncls, axis=1), :]
+        best_likelihoods = np.max(lncls, axis=1)
+        meta_seqs = self._get_meta('seqs')
+        meta_windows = self._get_meta('windows')
+        sequences, starts, ends, index = self._get_window_bed_columns() 
+        delta_lncls = best_likelihoods - lncls[:, best_idx]
         params_header = list(grid_dict.keys())
         popgen_header = ['heterozygosity_A', 'heterozygosity_B', 'd_xy', 'f_st']
         columns = ['sequence', 'start', 'end', 'index', 'lnCL', 'delta_lnCl'] + params_header + popgen_header
@@ -1160,17 +1153,13 @@ class Store(object):
         header = ["# %s" % parameterObj._VERSION]
         header += ["# %s" % "\t".join(columns)]
         out_f = '%s.%s.gridsearch.bestfit.bed' % (self.prefix, parameterObj.data_type)
-
         print("[+] Sum of lnCL for winning parameters = %s" % np.sum(best_likelihoods))
         with open(out_f, 'w') as out_fh:
             out_fh.write("\n".join(header) + "\n")
-        # bed
-        #print(dtypes)
         bed_df = pd.DataFrame(data=int_bed, columns=columns[1:]).astype(dtype=dtypes)
         bed_df['sequence'] = sequences
         # MUST be mode='a' otherwise header gets wiped ...
         bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=columns)
-        #print(bed_df)
         return out_f
 
     def get_slice_grid_meta_idxs(self, grid_meta_dict=None, lncls=None, fixed_parameter=None, parameter_value=None):
@@ -1286,6 +1275,10 @@ class Store(object):
         # initiate model equations
         equationSystem.initiate_model(parameterObj)
         #this is for a single dataset
+        
+        '''
+        DRL: is there a way of not making distinction between data_type below? 
+        '''
         if parameterObj.data_type=='simulate':
             #data is an iterator over parameter_combination_name, parameter_combination_array
             #each p_c_array contains n replicates
@@ -1316,20 +1309,17 @@ class Store(object):
         summary.to_csv(f'{label}_{param_combo}_summary.csv')
 
     def makegrid(self, parameterObj):
-        print("[#] Making grid ...")
         unique_hash = parameterObj._get_unique_hash()
         if self._has_grid(unique_hash) and not parameterObj.overwrite:
-            sys.exit(f"[X] Grid for this config file has already been built.")
+            sys.exit("[X] Grid for this config file already exists.")
         print("[+] Generated %s grid points combinations." % len(parameterObj.parameter_combinations))
+        sys.exit()
         equationSystem = lib.math.EquationSystemObj(parameterObj)
         #build the equations
         equationSystem.initiate_model(parameterObj=parameterObj)
         equationSystem.ETPs = equationSystem.calculate_all_ETPs(threads=parameterObj.threads, gridThreads=parameterObj.gridThreads, verbose=False)
-        #print('equationSystem.ETPs', equationSystem.ETPs.shape, equationSystem.ETPs)
         self._set_grid(unique_hash, equationSystem.ETPs, parameterObj.parameter_combinations, overwrite=parameterObj.overwrite)
-        #run_count = gimbleStore._return_group_last_integer('grids')
-        #g = gimbleStore.data['grids'].create_dataset(f'grid_{run_count}', data=equationSystem.ETPs)
-        #g.attrs.put({idx:combo for idx, combo in enumerate(parameterObj.parameter_combinations)})
+        
 
     def _set_grid(self, unique_hash, ETPs, grid_labels, overwrite=False):
         dataset = self.data['grids'].create_dataset(unique_hash, data=ETPs, overwrite=overwrite)
