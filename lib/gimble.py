@@ -26,6 +26,7 @@ from timeit import default_timer as timer
 import fractions
 import copy
 import lib.math
+import tabulate
 # np.set_printoptions(threshold=sys.maxsize)
 
 
@@ -100,9 +101,10 @@ DPPL = '│   '
 
 SIGNS = {
         'T': '%s%s%s' % (u"\u251C", u"\u2500", u"\u2500"),  # '├──'
-        'S': '    ',                                        # '    '
+        'S': '%s%s%s' % (" ", " ", " "),                    # '    '
         'F': '%s%s%s' % (u"\u2514", u"\u2500", u"\u2500"),  # '└──'
-        'P': '%s   ' % u"\u2502",                           # '│   '
+        'W': '%s%s%s' % (u"\u250C", u"\u2500", u"\u2500"),  # '└──'
+        'P': '%s%s%s' % (u"\u2502", " ", " "),              # '│   '
         'B': '%s%s%s' % (u"\u2500", u"\u2500",  u"\u2500")} # '───'
 
 # SIGNS = {'T': '├──', 'F': '└──', 'S': '    ', 'P': '│   ', 'B': '───'}
@@ -820,7 +822,8 @@ class ParameterObj(object):
         '''active'''
         return hashlib.md5(str(d).encode()).hexdigest()
 
-    def _get_unique_hash(self):
+
+    def _get_unique_hash(self, return_dict=False):
         '''passive'''
         to_hash = copy.deepcopy(self.config)
         if self._MODULE in set(['makegrid','gridsearch', 'query']):
@@ -835,6 +838,8 @@ class ParameterObj(object):
         for pop_name in ['A', 'B']:
             del to_hash['populations'][pop_name]
         del to_hash['gimble']
+        if return_dict:
+            return (hashlib.md5(str(to_hash).encode()).hexdigest(), to_hash)
         return hashlib.md5(str(to_hash).encode()).hexdigest()
         
     def _remove_pop_from_dict(self, toRemove):
@@ -1034,7 +1039,6 @@ class Store(object):
         print("[#] Making blocks...")
         #self._make_blocks_threaded(parameterObj)
         self._make_blocks(parameterObj)
-
         #self.plot_bsfs_pcp(sample_set='X')
         #self._calculate_block_pop_gen_metrics()
         #self._plot_blocks(parameterObj)
@@ -1202,11 +1206,8 @@ class Store(object):
             - this works only for windows ('-w') for now... logic for '-b' has to be decided upon
         '''
         print("[#] Gridsearching ...")
-        #gridsearch_hash = get_gridsearch_hash(parameterObj)
-        unique_hash = parameterObj._get_unique_hash()
+        unique_hash, params = parameterObj._get_unique_hash(return_dict=True)
         # make unique hash based on params that matter for grid
-
-        #print('parameterObj', parameterObj.__dict__)
         grids, grid_meta_dict = self._get_grid(unique_hash)
         # save grid_meta_dict by unique hash
         # gridsearch windows
@@ -1240,28 +1241,30 @@ class Store(object):
         #print('global_lncls', g.shape)
         #print('windows_lncls', w.shape)
 
-
     def _set_lncls(self, unique_hash, lncls, lncls_type='global', overwrite=False):
         '''lncls_type := 'global' or 'windows'
         '''
-        key = "%s/%s" % (lncls_type, unique_hash)
+        key = "%s/%s" % (unique_hash, lncls_type)
         dataset = self.data['lncls'].create_dataset(key, data=lncls, overwrite=overwrite)
 
-    def _has_lncls(self, unique_hash):
-        path = "lncls/%s/%s" % ('global', unique_hash)
+    def _has_lncls(self, unique_hash, legacy=False):
+        path = "lncls/%s" % unique_hash if not legacy else "lncls/global/%s" % unique_hash
         if path in self.data:
             return True
         return False
 
     def _get_lncls(self, unique_hash):
         if self._has_lncls(unique_hash):
-            key_global = "lncls/%s/%s" % ('global', unique_hash)
-            lncls_global = np.array(self.data[key_global], dtype=np.float64)
-            key_windows = "lncls/%s/%s" % ('windows', unique_hash)
-            lncls_windows = np.array(self.data[key_windows], dtype=np.float64)
-            return (lncls_global, lncls_windows)
+            key_global = "lncls/%s/global" % unique_hash
+            key_windows = "lncls/%s/windows" % unique_hash
+        elif self._has_lncls(unique_hash, legacy=True):
+            key_global = "lncls/global/%s" % unique_hash
+            key_windows = "lncls/windows/%s" % unique_hash
         else:
             sys.exit("[X] No lnCLs for this INI.")
+        lncls_global = np.array(self.data[key_global], dtype=np.float64)
+        lncls_windows = np.array(self.data[key_windows], dtype=np.float64)
+        return (lncls_global, lncls_windows)
 
     def optimize(self, parameterObj):
         if not self.has_stage(parameterObj.data_type):
@@ -1319,7 +1322,6 @@ class Store(object):
         if self._has_grid(unique_hash) and not parameterObj.overwrite:
             sys.exit("[X] Grid for this config file already exists.")
         print("[+] Generated %s grid points combinations." % len(parameterObj.parameter_combinations))
-        sys.exit()
         equationSystem = lib.math.EquationSystemObj(parameterObj)
         #build the equations
         equationSystem.initiate_model(parameterObj=parameterObj)
@@ -1462,9 +1464,9 @@ class Store(object):
         bsfs_data_key = 'bsfs/%s/%s' % (data_type, unique_hash)
         if bsfs_data_key in self.data: 
             # bsfs exists
-            print("[+] bsfs found in GimbleStore. Retrieving...")
+            # print("[+] bsfs found in GimbleStore. Retrieving...")
             return np.array(self.data[bsfs_data_key], dtype=np.int64)
-        print("[+] bsfs not found in GimbleStore. Generating...")
+        # print("[+] bsfs not found in GimbleStore. Generating...")
         if data_type == 'blocks':
             bsfs = self._get_block_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
         elif data_type == 'windows':
@@ -1681,30 +1683,72 @@ class Store(object):
 
     def info(self, tree=False):
         '''
-        blocks/windows/seqs/
-
-        bsfs/
-        grids->
-        bsfs->blocks->
-        bsfs->windows->
-        bsfs->windows_sum->
-        lncls->global->
-        lncls->local->
-
+        single instance data/stages:
+            setup/blocks/windows/ 
+        
+        multiple-instance data/stages
+            bsfs/grids/lncls/sims
         '''
         width = 100
         if tree:
             return self.data.tree()
         report = self._get_storage_report(width)
+        # single instance data/stages
         if self.has_stage('setup'):
             report += self._get_setup_report(width)    
         if self.has_stage('blocks'):
             report += self._get_blocks_report(width)
         if self.has_stage('windows'):
             report += self._get_windows_report(width)
+        #self._get_grids_report(width)
+        report += self._get_grids_report(width)
+        report += self._get_lncls_report(width)
+        #report += self._get_bsfs_report(width)
+        #report += self._get_sims_report(width)
+        # multiple instance data
         return report
 
+    def _get_grids_report(self, width):
+        reportObj = ReportObj(width=width)
+        reportObj.add_line(prefix="[+]", left='[', center='Grids', right=']', fill='=')
+        for grid_id in self.data['grids/']:
+            grid_path = 'grids/%s' % grid_id
+            grid_dict = self.data[grid_path].attrs.asdict()
+            print(self.data[grid_path].attrs)
+            reportObj.add_line(prefix="[+]", branch='W', fill=".", left=grid_id, right=' %s grid points' % format_count(len(grid_dict)))
+            # also needs kmax, populations? sync?
+            table = []
+            for grid_point, grid_params in grid_dict.items():
+                table.append([grid_point] + list(grid_params.values()))
+            rows = tabulate.tabulate(table, numalign="right", headers=['i'] + list(grid_params.keys())).split("\n")
+            for i, row in enumerate(rows):
+                branch = 'F' if (i + 1) == len(rows) else 'P'
+                reportObj.add_line(prefix="[+]", branch=branch, fill="", left=row, right='')
+        return reportObj
+
+    def _get_lncls_report(self, width):
+        reportObj = ReportObj(width=width)
+        reportObj.add_line(prefix="[+]", left='[', center='lnCLs', right=']', fill='=')
+        legacy = True if 'global' in self.data['lncls/'] else False
+        lncls_path = 'lncls/global' if legacy else 'lncls/'
+        for grid_id in self.data[lncls_path]:
+            
+            shape = self.data["%s/%s" % (lncls_path, grid_id)].shape
+            reportObj.add_line(prefix="[+]", branch='S', fill=".", left=grid_id, right='NA')
+
+            # grid_dict = self.data[grid_path].attrs.asdict()
+            # reportObj.add_line(prefix="[+]", branch='W', fill=".", left=grid_id, right=' %s grid points' % format_count(len(grid_dict)))
+            # table = []
+            # for grid_point, grid_params in grid_dict.items():
+            #     table.append([grid_point] + list(grid_params.values()))
+            # rows = tabulate.tabulate(table, numalign="right", headers=['i'] + list(grid_params.keys())).split("\n")
+            # for i, row in enumerate(rows):
+            #     branch = 'F' if (i + 1) == len(rows) else 'P'
+            #     reportObj.add_line(prefix="[+]", branch=branch, fill="", left=row, right='')
+        return reportObj
+
     def _count_groups(self, name):
+        '''DRL: is this being used?'''
         return len(list(self.data[name]))
 
     def _init_store(self, create, overwrite):
