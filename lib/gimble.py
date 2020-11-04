@@ -913,6 +913,8 @@ class ParameterObj(object):
             (population_ids = A, B, A_B)
 
         '''
+        if config_file is None:
+            return None
         raw_config = configparser.ConfigParser(inline_comment_prefixes='#', allow_no_value=True)
         raw_config.optionxform=str # otherwise keys are lowercase
         raw_config.read(config_file)
