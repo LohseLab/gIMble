@@ -417,21 +417,25 @@ class StateGraph(object):
             #G.get_node(node_idx).attr['label']="|".join(["<f%s> %s" % (idx, pop_string) for idx, pop_string in enumerate(label.split(";"))])
             G.get_node(node_idx).attr['label']="".join(newlabel)
         for event, edgelist in self.edges_by_event.items():
-            if event.startswith("C="):
-                colour = 'dodgerblue'
-            elif event.startswith("M="):
+            if event.startswith("C"):
+                label = "C"
                 colour = 'orange'
+            elif event.startswith("M"):
+                label = "M"
+                colour = 'dodgerblue'
             else:
+                label = "J"
                 colour = 'grey'
             for source, sink, count in edgelist:
                 G.get_edge(source, sink).attr['color'] = colour
-                G.get_edge(source, sink).attr['label'] = count
+                #G.get_edge(source, sink).attr['label'] = "%s [%s]" % (label, count)
+                G.get_edge(source, sink).attr['label'] = "%s" % (count)
                 G.get_edge(source, sink).attr['fontcolor'] = colour
                 G.get_edge(source, sink).attr['penwidth'] = count
         G.layout()
-        out_f = "%s.pdf" % parameterObj.out_prefix
+        out_f = "%s.png" % parameterObj.out_prefix
         print("[>]\tCreated: %r" % out_f)
-        G.draw(out_f, prog='dot', args="-Nfontname=Courier -Efontname=Courier -Gfontname=Courier -Gratio='compress' -Gsize='7.5,10'")
+        G.draw(out_f, prog='dot', args="-Nfontname=Palatino -Efontname=Palatino -Gfontname=Palatino -Gratio='compress' -Gsize='7.5,10'")
 
     def is_directed_acyclic_graph(self):
         return nx.is_directed_acyclic_graph(self.graph)
