@@ -1714,7 +1714,6 @@ class Store(object):
         for grid_id in self.data['grids/']:
             grid_path = 'grids/%s' % grid_id
             grid_dict = self.data[grid_path].attrs.asdict()
-            print(self.data[grid_path].attrs)
             reportObj.add_line(prefix="[+]", branch='W', fill=".", left=grid_id, right=' %s grid points' % format_count(len(grid_dict)))
             # also needs kmax, populations? sync?
             table = []
