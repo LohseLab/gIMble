@@ -296,11 +296,14 @@ def parse_csv(csv_f='', dtype=[], usecols=[], sep=',', header=None):
         sys.exit("[X] Bad file format %r." % csv_f)
     return df
 
-def format_bases(bases: int) -> str:
+def format_bases(bases):
     return "%s b" % format(bases, ',d')
 
-def format_percentage(fraction: float, precision=2) -> str:
-    return "{:.{}%}".format(fraction, precision)
+def format_percentage(fraction, precision=2):
+    try:
+        return "{:.{}%}".format(float(fraction), precision)
+    except ValueError:
+        return fraction
 
 def format_proportion(fraction, precision=2):
     if fraction == '-':
@@ -530,6 +533,8 @@ def bsfs_to_2d(bsfs):
     -------
     out : ndarray, int, ndim (2)
     """
+    if bsfs is None:
+        return None
     non_zero_idxs = np.nonzero(bsfs)
     if bsfs.ndim == 4: # blocks
         return np.concatenate([bsfs[non_zero_idxs].reshape(non_zero_idxs[0].shape[0], 1), np.array(non_zero_idxs).T], axis=1)
@@ -1479,9 +1484,10 @@ class Store(object):
             raise ValueError("Error in sequence of if/else statements for get_bsfs with simulate.")
         else:
             raise ValueError("data_type must be 'blocks', 'windows', or 'windows_sum")
-        meta_bsfs = self._get_meta('bsfs')
-        meta_bsfs[unique_hash] = str(params)
-        self.data.create_dataset(bsfs_data_key, data=bsfs, overwrite=True)
+        if bsfs:
+            meta_bsfs = self._get_meta('bsfs')
+            meta_bsfs[unique_hash] = str(params)
+            self.data.create_dataset(bsfs_data_key, data=bsfs, overwrite=True)
         return bsfs
 
     def _get_block_bsfs(self, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None):
@@ -1520,6 +1526,8 @@ class Store(object):
                 variation_key = 'blocks/%s/%s/variation' % (seq_name, sample_set_idx)
                 if variation_key in self.data:
                     variations.append(np.array(self.data[variation_key], dtype=np.int64))
+        if not variations:
+            return None
         variation = np.concatenate(variations, axis=0) # concatenate is faster than offset-indexes
         if invert_population_flag:
             variation[:, [0, 1]] = variation[:, [1, 0]]
@@ -1624,54 +1632,62 @@ class Store(object):
             left="'-l %s -m %s -u %s -i %s'" % (meta_blocks['length'],meta_blocks['span'],meta_blocks['max_missing'],meta_blocks['max_multiallelic']),
             right=' %s blocks (%s discarded)' % (format_count(blocks_count_total), format_percentage(1 - block_validity)))
         column_just = 14
-        reportObj.add_line(prefix="[+]", branch="P", right="".join([c.rjust(column_just) for c in ["X", "A", "B"]]))
-        bsfs_X = bsfs_to_2d(self.get_bsfs(data_type='blocks', sample_sets='X'))
-        X_hetB, X_hetA, X_hetAB, X_fixed = (np.sum(bsfs_X[:,0] * bsfs_X[:,1]), np.sum(bsfs_X[:,0] * bsfs_X[:,2]), 
-                                            np.sum(bsfs_X[:,0] * bsfs_X[:,3]), np.sum(bsfs_X[:,0] * bsfs_X[:,4]))
-        bsfs_A = bsfs_to_2d(self.get_bsfs(data_type='blocks', sample_sets='A'))
-        A_hetB, A_hetA, A_hetAB, A_fixed = (np.sum(bsfs_A[:,0] * bsfs_A[:,1]), np.sum(bsfs_A[:,0] * bsfs_A[:,2]), 
-                                            np.sum(bsfs_A[:,0] * bsfs_A[:,3]), np.sum(bsfs_A[:,0] * bsfs_A[:,4]))
-        total_SA = np.sum(bsfs_A[:,0, None] * bsfs_A[:,1:])
-        bsfs_B = bsfs_to_2d(self.get_bsfs(data_type='blocks', sample_sets='B'))
-        B_hetB, B_hetA, B_hetAB, B_fixed = (np.sum(bsfs_B[:,0] * bsfs_B[:,1]), np.sum(bsfs_B[:,0] * bsfs_B[:,2]), 
-                                            np.sum(bsfs_B[:,0] * bsfs_B[:,3]), np.sum(bsfs_B[:,0] * bsfs_B[:,4]))
-        total_SB = np.sum(bsfs_A[:,0, None] * bsfs_A[:,1:])
-        reportObj.add_line(prefix="[+]", branch='T', left='interval coverage', right="".join(
-            [format_percentage(c).rjust(column_just) for c in [
-                (meta_blocks['length'] * np.sum(bsfs_X[:,0]) / meta_seqs['intervals_span'] / len(self._get_sample_set_idxs("X"))),
-                (meta_blocks['length'] * np.sum(bsfs_A[:,0]) / meta_seqs['intervals_span'] / len(self._get_sample_set_idxs("A"))),
-                (meta_blocks['length'] * np.sum(bsfs_B[:,0]) / meta_seqs['intervals_span'] / len(self._get_sample_set_idxs("B")))
-                ]]))
-        reportObj.add_line(prefix="[+]", branch='T', left='total blocks', right="".join([format_count(c).rjust(column_just) for c in [np.sum(bsfs_X[:,0]), np.sum(bsfs_A[:,0]), np.sum(bsfs_B[:,0])]]))
-        reportObj.add_line(prefix="[+]", branch='T', left='invariant blocks', right="".join(
-            [format_percentage(c).rjust(column_just) for c in [
-                bsfs_X[0,0] / np.sum(bsfs_X[:,0]), 
-                bsfs_A[0,0] / np.sum(bsfs_A[:,0]), 
-                bsfs_B[0,0] / np.sum(bsfs_B[:,0])
-                ]]))
-        reportObj.add_line(prefix="[+]", branch='T', left='four-gamete-violation blocks', right="".join(
-            [format_percentage(c, precision=2).rjust(column_just) for c in [
-                np.sum(bsfs_X[(bsfs_X[:,3]>0) & (bsfs_X[:,4]>0)][:,0]) / np.sum(bsfs_X[:,0]), 
-                np.sum(bsfs_A[(bsfs_A[:,3]>0) & (bsfs_A[:,4]>0)][:,0]) / np.sum(bsfs_A[:,0]), 
-                np.sum(bsfs_B[(bsfs_B[:,3]>0) & (bsfs_B[:,4]>0)][:,0]) / np.sum(bsfs_B[:,0])]]))
-        heterozygosity_XA = (X_hetA + X_hetAB) / (meta_blocks['length'] * np.sum(bsfs_X[:,0]))
-        heterozygosity_XB = (X_hetB + X_hetAB) / (meta_blocks['length'] * np.sum(bsfs_X[:,0]))
-        dxy_X = ((X_hetA + X_hetB + X_hetAB) / 2.0 + X_fixed) / (meta_blocks['length'] * np.sum(bsfs_X[:,0]))
-        mean_pi = (heterozygosity_XA + heterozygosity_XB) / 2.0
-        total_pi = (dxy_X + mean_pi) / 2.0 
-        fst_X = (dxy_X - mean_pi) / (dxy_X + mean_pi) if (total_pi) else np.nan
-        pi_A = float(fractions.Fraction(1, 2) * (A_hetA + A_hetB) + fractions.Fraction(2, 3) * (A_hetAB + A_fixed)) / (meta_blocks['length'] * np.sum(bsfs_A[:,0]))
-        watterson_theta_A = total_SA / float(harmonic(3)) / (meta_blocks['length'] * np.sum(bsfs_A[:,0]))
-        heterozygosity_A = (A_hetA + A_hetAB) / (meta_blocks['length'] * np.sum(bsfs_A[:,0]))
-        pi_B = float(fractions.Fraction(1, 2) * (B_hetA + B_hetB) + fractions.Fraction(2, 3) * (B_hetAB + B_fixed)) / (meta_blocks['length'] * np.sum(bsfs_B[:,0]))
-        watterson_theta_B = total_SB / float(harmonic(3)) / (meta_blocks['length'] * np.sum(bsfs_B[:,0]))
-        heterozygosity_B = (B_hetA + B_hetAB) / (meta_blocks['length'] * np.sum(bsfs_B[:,0]))
-        reportObj.add_line(prefix="[+]", branch='T', left='heterozygosity (A)', right="".join([format_proportion(c, precision=5).rjust(column_just) for c in [heterozygosity_XA,heterozygosity_A, '-']]))
-        reportObj.add_line(prefix="[+]", branch='T', left='heterozygosity (B)', right="".join([format_proportion(c, precision=5).rjust(column_just) for c in [heterozygosity_XB,'-', heterozygosity_B]]))
-        reportObj.add_line(prefix="[+]", branch='T', left='D_xy', right="".join([format_proportion(c, precision=5).rjust(column_just) for c in [dxy_X,'-', '-']]))
-        reportObj.add_line(prefix="[+]", branch='T', left='F_st', right="".join([format_proportion(c, precision=5).rjust(column_just) for c in [fst_X,'-', '-']]))
-        reportObj.add_line(prefix="[+]", branch='T', left='Pi', right="".join([format_proportion(c, precision=5).rjust(column_just) for c in ['-',pi_A, pi_B]]))
-        reportObj.add_line(prefix="[+]", branch='F', left='Watterson theta', right="".join([format_proportion(c, precision=5).rjust(column_just) for c in ['-',watterson_theta_A, watterson_theta_B]]))
+        if blocks_count_total:
+            reportObj.add_line(prefix="[+]", branch="P", right="".join([c.rjust(column_just) for c in ["X", "A", "B"]]))
+            bsfs_X = bsfs_to_2d(self.get_bsfs(data_type='blocks', sample_sets='X'))
+            bsfs_A = bsfs_to_2d(self.get_bsfs(data_type='blocks', sample_sets='A'))
+            bsfs_B = bsfs_to_2d(self.get_bsfs(data_type='blocks', sample_sets='B'))
+            interval_coverage_X = meta_blocks['length'] * np.sum(bsfs_X[:,0]) / meta_seqs['intervals_span'] / len(self._get_sample_set_idxs("X"))
+            interval_coverage_A = meta_blocks['length'] * np.sum(bsfs_A[:,0]) / meta_seqs['intervals_span'] / len(self._get_sample_set_idxs("A")) if np.any(bsfs_A) else "N/A"
+            interval_coverage_B = meta_blocks['length'] * np.sum(bsfs_B[:,0]) / meta_seqs['intervals_span'] / len(self._get_sample_set_idxs("B")) if np.any(bsfs_B) else "N/A"
+            reportObj.add_line(prefix="[+]", branch='T', left='interval coverage', right="".join(
+                [format_percentage(c).rjust(column_just) for c in [interval_coverage_X,interval_coverage_A, interval_coverage_B]]))
+            total_blocks_X = np.sum(bsfs_X[:,0]) if np.any(bsfs_X) else "N/A"
+            total_blocks_A = np.sum(bsfs_A[:,0]) if np.any(bsfs_A) else "N/A"
+            total_blocks_B = np.sum(bsfs_B[:,0]) if np.any(bsfs_B) else "N/A"
+            reportObj.add_line(prefix="[+]", branch='T', left='total blocks', right="".join([format_count(c).rjust(column_just) for c in [total_blocks_X, total_blocks_A, total_blocks_B]]))
+            invariant_blocks_X = bsfs_X[0,0] / np.sum(bsfs_X[:,0]) if np.any(bsfs_X) else "N/A"
+            invariant_blocks_A = bsfs_A[0,0] / np.sum(bsfs_A[:,0]) if np.any(bsfs_A) else "N/A"
+            invariant_blocks_B = bsfs_B[0,0] / np.sum(bsfs_B[:,0]) if np.any(bsfs_B) else "N/A"
+            reportObj.add_line(prefix="[+]", branch='T', left='invariant blocks', right="".join([format_percentage(c).rjust(column_just) for c in [invariant_blocks_X, invariant_blocks_A, invariant_blocks_B]]))
+            fgv_blocks_X = np.sum(bsfs_X[(bsfs_X[:,3]>0) & (bsfs_X[:,4]>0)][:,0]) / np.sum(bsfs_X[:,0]) if np.any(bsfs_X) else "N/A"
+            fgv_blocks_A = np.sum(bsfs_A[(bsfs_A[:,3]>0) & (bsfs_A[:,4]>0)][:,0]) / np.sum(bsfs_A[:,0]) if np.any(bsfs_A) else "N/A"
+            fgv_blocks_B = np.sum(bsfs_B[(bsfs_B[:,3]>0) & (bsfs_B[:,4]>0)][:,0]) / np.sum(bsfs_B[:,0]) if np.any(bsfs_B) else "N/A"
+            reportObj.add_line(prefix="[+]", branch='T', left='four-gamete-violation blocks', right="".join([format_percentage(c, precision=2).rjust(column_just) for c in [fgv_blocks_X, fgv_blocks_A, fgv_blocks_B]]))
+            X_hetB = np.sum(bsfs_X[:,0] * bsfs_X[:,1]) 
+            X_hetA = np.sum(bsfs_X[:,0] * bsfs_X[:,2])
+            X_hetAB = np.sum(bsfs_X[:,0] * bsfs_X[:,3]) 
+            X_fixed = np.sum(bsfs_X[:,0] * bsfs_X[:,4])
+            heterozygosity_XA = (X_hetA + X_hetAB) / (meta_blocks['length'] * np.sum(bsfs_X[:,0]))
+            heterozygosity_XB = (X_hetB + X_hetAB) / (meta_blocks['length'] * np.sum(bsfs_X[:,0]))
+            dxy_X = ((X_hetA + X_hetB + X_hetAB) / 2.0 + X_fixed) / (meta_blocks['length'] * np.sum(bsfs_X[:,0]))
+            mean_pi = (heterozygosity_XA + heterozygosity_XB) / 2.0
+            total_pi = (dxy_X + mean_pi) / 2.0 
+            fst_X = (dxy_X - mean_pi) / (dxy_X + mean_pi) if (total_pi) else np.nan
+            if np.any(bsfs_A):
+                A_hetB = np.sum(bsfs_A[:,0] * bsfs_A[:,1])
+                A_hetA = np.sum(bsfs_A[:,0] * bsfs_A[:,2])
+                A_hetAB = np.sum(bsfs_A[:,0] * bsfs_A[:,3])
+                A_fixed = np.sum(bsfs_A[:,0] * bsfs_A[:,4])
+                total_SA = np.sum(bsfs_A[:,0, None] * bsfs_A[:,1:])
+            pi_A = float(fractions.Fraction(1, 2) * (A_hetA + A_hetB) + fractions.Fraction(2, 3) * (A_hetAB + A_fixed)) / (meta_blocks['length'] * np.sum(bsfs_A[:,0])) if np.any(bsfs_A) else "N/A"
+            watterson_theta_A = total_SA / float(harmonic(3)) / (meta_blocks['length'] * np.sum(bsfs_A[:,0])) if np.any(bsfs_A) else "N/A"
+            heterozygosity_A = (A_hetA + A_hetAB) / (meta_blocks['length'] * np.sum(bsfs_A[:,0])) if np.any(bsfs_A) else "N/A"
+            if np.any(bsfs_B):
+                B_hetB = np.sum(bsfs_B[:,0] * bsfs_B[:,1])
+                B_hetA = np.sum(bsfs_B[:,0] * bsfs_B[:,2])
+                B_hetAB = np.sum(bsfs_B[:,0] * bsfs_B[:,3])
+                B_fixed = np.sum(bsfs_B[:,0] * bsfs_B[:,4])
+                total_SB = np.sum(bsfs_B[:,0, None] * bsfs_B[:,1:])
+            pi_B = float(fractions.Fraction(1, 2) * (B_hetA + B_hetB) + fractions.Fraction(2, 3) * (B_hetAB + B_fixed)) / (meta_blocks['length'] * np.sum(bsfs_B[:,0])) if np.any(bsfs_B) else "N/A"
+            watterson_theta_B = total_SB / float(harmonic(3)) / (meta_blocks['length'] * np.sum(bsfs_B[:,0])) if np.any(bsfs_B) else "N/A"
+            heterozygosity_B = (B_hetA + B_hetAB) / (meta_blocks['length'] * np.sum(bsfs_B[:,0])) if np.any(bsfs_B) else "N/A"
+            reportObj.add_line(prefix="[+]", branch='T', left='heterozygosity (A)', right="".join([format_proportion(c, precision=5).rjust(column_just) for c in [heterozygosity_XA, heterozygosity_A, '-']]))
+            reportObj.add_line(prefix="[+]", branch='T', left='heterozygosity (B)', right="".join([format_proportion(c, precision=5).rjust(column_just) for c in [heterozygosity_XB,'-', heterozygosity_B]]))
+            reportObj.add_line(prefix="[+]", branch='T', left='D_xy', right="".join([format_proportion(c, precision=5).rjust(column_just) for c in [dxy_X,'-', '-']]))
+            reportObj.add_line(prefix="[+]", branch='T', left='F_st', right="".join([format_proportion(c, precision=5).rjust(column_just) for c in [fst_X,'-', '-']]))
+            reportObj.add_line(prefix="[+]", branch='T', left='Pi', right="".join([format_proportion(c, precision=5).rjust(column_just) for c in ['-',pi_A, pi_B]]))
+            reportObj.add_line(prefix="[+]", branch='F', left='Watterson theta', right="".join([format_proportion(c, precision=5).rjust(column_just) for c in ['-',watterson_theta_A, watterson_theta_B]]))
         return reportObj
 
     def _get_windows_report(self, width):
