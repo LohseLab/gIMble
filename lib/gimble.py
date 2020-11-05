@@ -1637,7 +1637,7 @@ class Store(object):
             bsfs_X = bsfs_to_2d(self.get_bsfs(data_type='blocks', sample_sets='X'))
             bsfs_A = bsfs_to_2d(self.get_bsfs(data_type='blocks', sample_sets='A'))
             bsfs_B = bsfs_to_2d(self.get_bsfs(data_type='blocks', sample_sets='B'))
-            interval_coverage_X = meta_blocks['length'] * np.sum(bsfs_X[:,0]) / meta_seqs['intervals_span'] / len(self._get_sample_set_idxs("X"))
+            interval_coverage_X = meta_blocks['length'] * np.sum(bsfs_X[:,0]) / meta_seqs['intervals_span'] / len(self._get_sample_set_idxs("X")) if np.any(bsfs_X) else "N/A"
             interval_coverage_A = meta_blocks['length'] * np.sum(bsfs_A[:,0]) / meta_seqs['intervals_span'] / len(self._get_sample_set_idxs("A")) if np.any(bsfs_A) else "N/A"
             interval_coverage_B = meta_blocks['length'] * np.sum(bsfs_B[:,0]) / meta_seqs['intervals_span'] / len(self._get_sample_set_idxs("B")) if np.any(bsfs_B) else "N/A"
             reportObj.add_line(prefix="[+]", branch='T', left='interval coverage', right="".join(
