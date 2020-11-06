@@ -809,7 +809,7 @@ class ParameterObj(object):
         '''active'''
         return hashlib.md5(str(d).encode()).hexdigest()
 
-    def _get_unique_hash(self, module=None):
+    def _get_unique_hash(self, return_dict=False, module=None):
         '''passive'''
         module = module if module else self._MODULE
         to_hash = copy.deepcopy(self.config)
