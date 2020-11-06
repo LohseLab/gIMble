@@ -259,12 +259,12 @@ def get_config_schema(module):
         'type': 'dict',
         'required':True,
         'schema': {
-            'ploidy': {'empty':False, 'required':True, 'type':'integer', 'min':1, 'coerce':int},
-            'blocks': {'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
-            'chunks': {'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
-            'replicates': {'empty': False, 'type': 'integer', 'min':1, 'coerce':int},
-            'sample_size_A': {'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
-            'sample_size_B': {'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+            'ploidy': {'required':True,'empty':False, 'required':True, 'type':'integer', 'min':1, 'coerce':int},
+            'blocks': {'required':True, 'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+            'chunks': {'required':True, 'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+            'replicates': {'required':True,'empty': False, 'type': 'integer', 'min':1, 'coerce':int},
+            'sample_size_A': {'required':True,'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+            'sample_size_B': {'required':True,'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
             'recombination_rate': {'empty': True, 'notNoneFloat':True, 'coerce':'float_or_empty', 'min':0.0},
             'recombination_map': {'empty': True, 'type': 'string', 'isPath':True, 'dependencies':['number_bins', 'cutoff', 'scale']},
             'number_bins': {'empty': True, 'notNoneInt': True, 'coerce':'int_or_empty', 'min':1},
@@ -832,15 +832,17 @@ class ParameterObj(object):
         '''active'''
         return hashlib.md5(str(d).encode()).hexdigest()
 
-
-    def _get_unique_hash(self, return_dict=False):
+    def _get_unique_hash(self, return_dict=False, module=None):
         '''passive'''
+        module = module if module else self._MODULE
         to_hash = copy.deepcopy(self.config)
-        if self._MODULE in set(['makegrid','gridsearch', 'query']):
+        if module in set(['makegrid','gridsearch', 'query']):
             del to_hash['simulations']
             if 'kmax_by_mutype' in to_hash:
                 del to_hash['--kmax_by_mutype']
-        elif self._MODULE == 'simulate':
+            if 'recombination' in to_hash['parameters']:
+                del to_hash['parameters']['recombination']
+        elif module == 'simulate':
             pass
         else:
             ValueError("Not implemented yet.")
@@ -1067,6 +1069,8 @@ class Store(object):
         print("[#] Preflight...")
         self._preflight_simulate(parameterObj)
         print("[+] Checks passed.")
+        if parameterObj.sim_grid:
+            parameterObj.parameter_combinations = self._get_sim_grid(parameterObj)
         lib.simulate.run_sim(parameterObj, self)
         self.log_stage(parameterObj)
 
@@ -1210,7 +1214,7 @@ class Store(object):
                 idxs = fixed_parameter_indices[fixed_parameter_lncls_max_idx]
                 results.append(idxs)
             return results
-        return np.argmax(lncls, axis=1)
+        return np.argmax(lncls) #used to be axis=1 @Dom 
         
     def gridsearch(self, parameterObj):
         '''
@@ -1357,6 +1361,84 @@ class Store(object):
             return (grid, grid_meta)
         else:
             sys.exit("[X] No grid for this INI.")
+
+    def _get_sim_grid(self, parameterObj):
+        unique_hash = parameterObj._get_unique_hash(module='makegrid')
+        grid_meta_dict = self.data[f'grids/{unique_hash}'].attrs.asdict()
+        if not self._has_lncls(unique_hash):
+            print("[-] Running gridsearch module first to calculate lnCLs.")
+            self.gridsearch(parameterObj)
+        lncls_global, lncls_windows = self._get_lncls(unique_hash)
+        #lncls global should be based on w_bsfs !
+        global_winning_fixed_param_idx = self.get_slice_grid_meta_idxs(lncls=lncls_global)
+        global_winning_fixed_param_value = grid_meta_dict[str(global_winning_fixed_param_idx)][parameterObj.fixed_param_grid]
+        #get optimal parametercombo given background for fixed parameter
+        local_winning_fixed_param_idx = self.get_slice_grid_meta_idxs(lncls=lncls_windows, grid_meta_dict=grid_meta_dict, fixed_parameter=parameterObj.fixed_param_grid, parameter_value=global_winning_fixed_param_value)
+        
+        # df with seqs - start - stop - parameter_combo_idx
+        #combine with recombination rate/map
+        if isinstance(parameterObj.recombination_map, pd.DataFrame):
+            assert(parameterObj.recombination_map.shape[0]==len(local_winning_fixed_param_idx)), "Index recmap and windows not matching. Should have been caught."
+            grid_to_sim, window_df = self._get_sim_grid_with_rec_map(parameterObj, local_winning_fixed_param_idx, grid_meta_dict)
+        else:
+            grid_to_sim, window_df = self._get_sim_grid_fixed_rec(parameterObj, local_winning_fixed_param_idx, grid_meta_dict)
+
+        param_df = pd.DataFrame(grid_to_sim)
+        param_df.drop(labels=['mu'], inplace=True, axis=1)
+        param_df.to_csv('data/simulated_grid.tsv', sep='\t')
+        print("[+] Wrote simulated_grid.tsv containing all simulated parameter combinations.")
+        window_df.to_csv('data/windows_sims_param_idx.tsv', sep='\t')
+        print("[+] Wrote windows_sims_param_idx.tsv containing all windowwise info.")
+        return grid_to_sim
+
+    def _get_sim_grid_with_rec_map(self, parameterObj, local_winning_fixed_param_idx, grid_meta_dict):
+        parameterObj.recombination_map['param_idx']=local_winning_fixed_param_idx
+        param_for_window = parameterObj.recombination_map[['rec_bins','param_idx']].to_dict(orient='split')['data']
+        param_for_window = [tuple(window) for window in param_for_window]
+        unique, param_combo_idxs = np.unique(param_for_window, return_inverse=True, axis=0)
+        parameterObj.recombination_map['param_with_rec_idx'] = param_combo_idxs
+        grid_to_sim = []
+        for r, idx in unique:
+            param_dict = copy.deepcopy(grid_meta_dict[str(int(idx))])
+            param_dict['recombination'] = r
+            grid_to_sim.append(param_dict)
+        window_df = parameterObj.recombination_map[['sequence', 'start', 'end', 'param_with_rec_idx']]
+        return (grid_to_sim, window_df)
+
+    def _get_sim_grid_fixed_rec(self, parameterObj, local_winning_fixed_param_idx, grid_meta_dict):
+        param_combo_idxs = np.unique(local_winning_fixed_param_idx)
+        rec_rate = parameterObj.config["parameters"]["recombination"][0]
+        grid_to_sim=[]
+        old_to_new_idx = {} #dict to translate old idx to new in grid_to_sim
+        for new_idx, old_idx in enumerate(param_combo_idxs):
+            old_to_new_idx[old_idx] = new_idx
+            param_dict = copy.deepcopy(grid_meta_dict[str(int(old_idx))])
+            param_dict['recombination'] = rec_rate
+            grid_to_sim.append(param_dict)
+        window_df = self._get_window_coordinates()
+        window_df['param_idx'] = [old_to_new_idx[idx] for idx in local_winning_fixed_param_idx]
+        return (grid_to_sim, window_df) 
+
+    def _get_window_coordinates(self):
+        meta_seqs = self._get_meta('seqs')
+        meta_windows = self._get_meta('windows')
+        MAX_SEQNAME_LENGTH = max([len(seq_name) for seq_name in meta_seqs['seq_names']])
+        sequences = np.zeros(meta_windows['count'], dtype='<U%s' % MAX_SEQNAME_LENGTH)
+        starts = np.zeros(meta_windows['count'], dtype=np.int64)
+        ends = np.zeros(meta_windows['count'], dtype=np.int64)
+        #retrieving window coordinates
+        offset = 0
+        for seq_name in meta_seqs['seq_names']: 
+            start_key = 'windows/%s/starts' % (seq_name)
+            end_key = 'windows/%s/ends' % (seq_name)
+            if start_key in self.data:
+                start_array = np.array(self.data[start_key])
+                window_count = start_array.shape[0]
+                starts[offset:offset+window_count] = start_array
+                ends[offset:offset+window_count] = np.array(self.data[end_key])
+                sequences[offset:offset+window_count] = np.full_like(window_count, seq_name, dtype='<U%s' % MAX_SEQNAME_LENGTH)
+                offset += window_count
+        return pd.DataFrame({'sequence':sequences, 'start':starts, 'end':ends})
 
     def _validate_seq_names(self, sequences=None):
         """Returns valid seq_names in sequences or raises ValueError."""
@@ -2187,11 +2269,17 @@ class Store(object):
     def _preflight_simulate(self, parameterObj):
         if 'sims' not in self.data.group_keys():
             self._init_meta(overwrite=False, module='sims')
-        # DRL: checking for existance should only return true if a simulations has actually finished successfully
-        # currently one can ctrl+c during sims and this part below will exit
-        # probably easiest to use self.log_stage() / self.has_stage()
+        for group in self.data['sims'].group_keys():
+            if not bool(self.data[f'sims/{group}']):
+                del self.data[f'sims/{group}']
         if parameterObj.label in self.data['sims'].group_keys():
             sys.exit(f"[X] There already is a simulation run labeled {parameterObj.label}")
+        if parameterObj.sim_grid:
+            if isinstance(parameterObj.recombination_map, pd.DataFrame):
+                parameterObj.recombination_map = parameterObj._validate_recombination_map(self, parameterObj.recombination_map)
+            unique_hash = parameterObj._get_unique_hash(module='makegrid')
+            if not self._has_grid(unique_hash):
+                sys.exit("[X] Provided config file does not correspond to an existing grid.")
 
     #def dump_windows(self, parameterObj):
     #    window_info_rows = []
