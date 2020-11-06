@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gIMble simulate                   [-z <DIR>] [-o <DIR> | -b <INT>] -c <FILE> [-r <INT>] [-t <INT>] [-h|--help] [-l <STR>] [-g]
+"""usage: gIMble simulate                   [-z <DIR>] [-o <DIR> | -b <INT>] -c <FILE> [-r <INT>] [-t <INT>] [-h|--help] [-i <STR>] [(-g --fixed <STR>)]
                                             
     Options:
         -h --help                                   show this
@@ -11,9 +11,9 @@
         -b, --blocks INT                            Number of blocks per replicate
         -r, --replicates INT                        Number of replicates per parametercombo
         -t, --threads INT                           Threads [default: 1]
-        -l, --label STR                             Custom name for simulation run
-        -g, --grid
-        
+        -i, --simID STR                             Custom name for simulation run
+        -g, --grid                                  
+        --fixed STR                                 Parameter to fix to global optimum
 """
 import pathlib
 import collections
@@ -51,10 +51,11 @@ class SimulateParameterObj(lib.gimble.ParameterObj):
         self.zstore = self._get_path(args["--zarr"])
         self.prefix = self._get_prefix(args["--outprefix"])
         self.threads = self._get_int(args["--threads"])
-        self.label = args["--label"]
+        self.label = args["--simID"]
         self.sim_grid = args["--grid"]
         self._set_or_write_config(args["--blocks"], args["--replicates"])
-        #self._set_recombination_rate()  
+        self.fixed_param_grid = self._verify_fixed(args["--fixed"])
+        #self._set_recombination_rate()
         
     def _set_or_write_config(self, blocks, replicates):
         #in case no config file is provided
@@ -71,11 +72,19 @@ class SimulateParameterObj(lib.gimble.ParameterObj):
                 replicates = self._get_int(replicates)
                 self.config['simulations']['replicates'] = replicates
 
+    def _verify_fixed(self, fixed):
+        if fixed:
+            if fixed in self.config['parameters']:
+                return fixed
+            else:
+                can_be_fixed = [p for p in self.config['parameters'] if p not in ['mu', 'recombination']]
+                sys.exit(f"[X] Parameter to fix should be one of the following: {', '.join(can_be_fixed)}.")
+
     def _set_recombination_rate(self):      
         self.recombination_map = None
         rmap_path = self.config["simulations"]["recombination_map"]
         rec = self.config["simulations"]["recombination_rate"]
-        rec=0.0 if rec==None else rec
+        rec=0.0 if rec=='' else rec
         if os.path.isfile(rmap_path):
             if not self.sim_grid:
                 print("[-] A recombination map can only be used with the flag --sim_grid.")
@@ -85,6 +94,9 @@ class SimulateParameterObj(lib.gimble.ParameterObj):
                 rbins = self.config["simulations"]["number_bins"]
                 cutoff = self.config["simulations"]["cutoff"]
                 scale = self.config["simulations"]["scale"]
+                rbins = 10 if rbins=='' else rbins
+                scale = 'lin' if scale=='' else scale
+                cutoff = 90 if cutoff=='' else cutoff
                 self.config["parameters"]["recombination"] = [None,]
                 self.recombination_map = self._parse_recombination_map(rmap_path, cutoff, rbins, scale)
         else:
@@ -93,8 +105,7 @@ class SimulateParameterObj(lib.gimble.ParameterObj):
     def _parse_recombination_map(self, path, cutoff, bins, scale):
         #load bedfile
         hapmap = pd.read_csv(path, sep='\t', 
-            names=['sequence', 'start', 'end', 'rec'], header=None)
-        #check validity: is number of columns correct?
+            names=['sequence', 'start', 'end', 'rec'], header=0)
         #from cM/Mb to rec/bp
         hapmap['rec_scaled'] = hapmap['rec']*1e-8
         return self._make_bins(hapmap, scale, cutoff, bins)
@@ -115,22 +126,15 @@ class SimulateParameterObj(lib.gimble.ParameterObj):
         to_be_simulated  = [(bstop + bstart)/2 for bstart, bstop in zip(bin_edges[:-1],bin_edges[1:])]     
         df['rec_bins'] = pd.cut(df['rec_clipped'], bins, labels=to_be_simulated).astype(float)
         df['rec_bins'].replace(np.nan, 0.0, inplace=True)
-        return df
+        return df[['sequence', 'start', 'end', 'rec_bins']]
 
     def _validate_recombination_map(self, store, df):
-        meta_seqs = store._get_meta('seqs')
-        meta_windows = store._get_meta('windows')
-        MAX_SEQNAME_LENGTH = max([len(seq_name) for seq_name in meta_seqs['seq_names']])
-        sequences = np.zeros(meta_windows['count'], dtype='<U%s' % MAX_SEQNAME_LENGTH)
-        starts = np.zeros(meta_windows['count'], dtype=np.int64)
-        ends = np.zeros(meta_windows['count'], dtype=np.int64)
-        df_store = pd.DataFrame({'sequence':sequences, 'start':starts, 'end':ends})
-
+        df_store = store._get_window_coordinates()
         df_to_test = df[['sequence', 'start', 'end']]
         df_merge = df_to_test.merge(df_store, how='outer', on=['sequence', 'start', 'end'])
         if df_store.shape != df_merge.shape:
             sys.exit("[X] Recombination map coordinates do not match window coordinates. Use query to get window coordinates.")
-        
+        return df_store.merge(df, on=['sequence', 'start', 'end'])
 
 def main(params):
     try:
