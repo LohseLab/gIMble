@@ -538,7 +538,7 @@ def bsfs_to_2d(bsfs):
     -------
     out : ndarray, int, ndim (2)
     """
-    if bsfs is None:
+    if not np.any(bsfs):
         return None
     non_zero_idxs = np.nonzero(bsfs)
     if bsfs.ndim == 4: # blocks
@@ -1571,7 +1571,7 @@ class Store(object):
             raise ValueError("Error in sequence of if/else statements for get_bsfs with simulate.")
         else:
             raise ValueError("data_type must be 'blocks', 'windows', or 'windows_sum")
-        if bsfs:
+        if np.any(bsfs):
             meta_bsfs = self._get_meta('bsfs')
             meta_bsfs[unique_hash] = str(params)
             self.data.create_dataset(bsfs_data_key, data=bsfs, overwrite=True)
