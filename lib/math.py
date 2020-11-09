@@ -177,6 +177,9 @@ def calculate_inverse_laplace(params):
     equation = (equationObj.equation).substitute(rates)
     # GB: for testing purposes only: this needs to be done elsewhere!
     # DRL: where? you can only tell after substituting. And that's here
+    # GB: here we wanted to verify whether all parameters are correctly passed by nlopt
+    # however, we could catch these errors quicker by testing once the equations are built
+    # whether they match with the number of parameters provided.
     assert(len(equation.arguments())<=1), "Parameters left unspecified: %s" % str(equation.arguments())
     try:
         if split_time is None:
@@ -242,7 +245,7 @@ def objective_function(paramsToOptimize, grad, paramNames, fixedParams, equation
 
 def run_single_optimize(p0, lower, upper, specified_objective_function, maxeval, xtol_rel, ftol_rel):
 
-    #nlopt.G_MLSL_LDS, nlopt.LN_NELDERMEAD, nlopt.LN_SBPLX
+    #nlopt.LN_NELDERMEAD, nlopt.LN_SBPLX
     opt = nlopt.opt(nlopt.LN_SBPLX, len(p0))
     opt.set_lower_bounds(lower)
     opt.set_upper_bounds(upper)
@@ -477,8 +480,8 @@ class EquationSystemObj(object):
         if parameterObj._MODULE in ['optimize']:
             #check if parameter needs to be scaled, e.g. not if already provided.
             theta/=blocklength 
-            Ne_ref=theta/(2*mu) #remark 2's: theta here is 2*Ne*mu @KL right?
-            m_e = M/(2*Ne_ref) #remark 2's: M is here 2*Ne*m_e: @KL right?
+            Ne_ref=theta/(2*mu) #remark 2's: theta here is 2*Ne*mu 
+            m_e = M/(2*Ne_ref) #remark 2's: M is here 2*Ne*m_e
             tau = T/(2*Ne_ref)
             Ne_A = Ne_ref/C_A
             Ne_B = Ne_ref/C_B

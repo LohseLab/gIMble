@@ -1385,9 +1385,9 @@ class Store(object):
 
         param_df = pd.DataFrame(grid_to_sim)
         param_df.drop(labels=['mu'], inplace=True, axis=1)
-        param_df.to_csv('data/simulated_grid.tsv', sep='\t')
+        param_df.to_csv('simulated_grid.tsv', sep='\t')
         print("[+] Wrote simulated_grid.tsv containing all simulated parameter combinations.")
-        window_df.to_csv('data/windows_sims_param_idx.tsv', sep='\t')
+        window_df.to_csv('windows_sims_param_idx.tsv', sep='\t')
         print("[+] Wrote windows_sims_param_idx.tsv containing all windowwise info.")
         return grid_to_sim
 
