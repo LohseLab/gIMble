@@ -1227,35 +1227,94 @@ class Store(object):
         grids, grid_meta_dict = self._get_grid(unique_hash)
         # save grid_meta_dict by unique hash
         # gridsearch windows
-        print('[+] Getting wbSFSs ...')
-        bsfs_windows_clipped = self.get_bsfs(
-            data_type='windows', 
-            population_by_letter=parameterObj.config['population_by_letter'], 
-            sample_sets='X', 
-            kmax_by_mutype=parameterObj.config['k_max'])
-        # gridsearch windows_sum
-        print('[+] Summing wbSFSs ...')
-        bsfs_windows_clipped_summed = sum_wbsfs(bsfs_windows_clipped)
-        lncls_global = self.gridsearch_np(bsfs=bsfs_windows_clipped_summed, grids=grids)
-        self._set_lncls(unique_hash, lncls_global, lncls_type='global', overwrite=parameterObj.overwrite)
-        best_idx = np.argmax(lncls_global, axis=0)
-        print('[+] Best grid point (based on bSFS within windows): %s' % lncls_global[best_idx])
-        print('[+] \t %s' % "; ".join(["%s = %s" % (k, v) for k, v in grid_meta_dict[str(best_idx)].items()]))
-        lncls_windows = self.gridsearch_np(bsfs=bsfs_windows_clipped, grids=grids)
-        self._set_lncls(unique_hash, lncls_windows, lncls_type='windows', overwrite=parameterObj.overwrite)
-        # pop metrics
-        meta_seqs = self._get_meta('seqs')
-        meta_blocks = self._get_meta('blocks')
-        meta_windows = self._get_meta('windows')
-        bsfs_windows_full = self.get_bsfs(
-            data_type='windows', 
-            population_by_letter=parameterObj.config['population_by_letter'], 
-            sample_sets='X')
-        pop_metrics = pop_metrics_from_bsfs(bsfs_windows_full, mutypes=meta_seqs['mutypes_count'], block_length=meta_blocks['length'], window_size=meta_windows['size'])
-        self._write_gridsearch_bed(parameterObj=parameterObj, lncls=lncls_windows, best_idx=best_idx, grid_meta_dict=grid_meta_dict, pop_metrics=pop_metrics)
-        #g, w = self._get_lncls(unique_hash)        
-        #print('global_lncls', g.shape)
-        #print('windows_lncls', w.shape)
+        if parameterObj.data_type == 'windows':    
+            print('[+] Getting wbSFSs ...')
+            bsfs_windows_clipped = self.get_bsfs(
+                data_type='windows', 
+                population_by_letter=parameterObj.config['population_by_letter'], 
+                sample_sets='X', 
+                kmax_by_mutype=parameterObj.config['k_max'])
+            # gridsearch windows_sum
+            print('[+] Summing wbSFSs ...')
+            bsfs_windows_clipped_summed = sum_wbsfs(bsfs_windows_clipped)
+            lncls_global = self.gridsearch_np(bsfs=bsfs_windows_clipped_summed, grids=grids)
+            self._set_lncls(unique_hash, lncls_global, lncls_type='global', overwrite=parameterObj.overwrite)
+            best_idx = np.argmax(lncls_global, axis=0)
+            print('[+] Best grid point (based on bSFS within windows): %s' % lncls_global[best_idx])
+            print('[+] \t %s' % "; ".join(["%s = %s" % (k, v) for k, v in grid_meta_dict[str(best_idx)].items()]))
+            lncls_windows = self.gridsearch_np(bsfs=bsfs_windows_clipped, grids=grids)
+            self._set_lncls(unique_hash, lncls_windows, lncls_type='windows', overwrite=parameterObj.overwrite)
+            # pop metrics
+            meta_seqs = self._get_meta('seqs')
+            meta_blocks = self._get_meta('blocks')
+            meta_windows = self._get_meta('windows')
+            bsfs_windows_full = self.get_bsfs(
+                data_type='windows', 
+                population_by_letter=parameterObj.config['population_by_letter'], 
+                sample_sets='X')
+            pop_metrics = pop_metrics_from_bsfs(bsfs_windows_full, mutypes=meta_seqs['mutypes_count'], block_length=meta_blocks['length'], window_size=meta_windows['size'])
+            self._write_gridsearch_bed(parameterObj=parameterObj, lncls=lncls_windows, best_idx=best_idx, grid_meta_dict=grid_meta_dict, pop_metrics=pop_metrics)
+            #g, w = self._get_lncls(unique_hash)        
+            #print('global_lncls', g.shape)
+            #print('windows_lncls', w.shape)
+        elif parameterObj.data_type == 'simulate':
+            print(grids.shape)
+            print('grid_meta_dict')
+            print(grid_meta_dict)
+            sys.exit()
+            self._gridsearch_sims(parameterObj, grids, grid_meta_dict)
+        elif parameterObj.data_type == 'blocks':
+            sys.exit("Gridsearch on blocks has not been implemented yet. Stay tuned.")
+        else:
+            raise ValueError("Datatype other than windows, blocks or simulate was specified using gridsearch. Should have been caught earlier.")
+
+    def _gridsearch_sims(self, parameterObj, grids, grid_meta_dict):
+        #get fixed param
+        if 'fixed_param_grid' in self.data[f'sims/{parameterObj.label}'].attrs:
+            fixed_param_grid = self.data[f'sims/{parameterObj.label}'].attrs['fixed_param_grid']
+        else:
+            fixed_param_grid = None
+        #check parameters that were fixed initially:
+        all_dicts = [param_combo[str(i)] for i in range(len(grid_meta_dict))] #this can be omitted once parameterObj.parameter_combinations is
+        #in the shape {Ne_A:[v1, v2, v3, v4, ...], Ne_B:[v1', v2' , ...], ...}
+        keys = list(all_dicts[0].keys())
+        key_all_values_dict = {}
+        for key in keys:
+            key_all_values_dict[key] = np.array([d[key] for d in all_dicts], dtype=np.float64)
+        gridded_params = sorted([key for key, items in key_all_values_dict.items() if len(set(items))>1])
+       
+        param_combo_iterator = self.get_bsfs(
+            data_type='simulate', 
+            population_by_letter=parameterObj.config['populations'], 
+            sample_sets="X", 
+            kmax_by_mutype=parameterObj.config['k_max'],
+            label=parameterObj.label
+            ) #iterator over each parameter combination that was sim'ed
+        for name, data in param_combo_iterator:
+            self._gridsearch_sims_single(data, grids, fixed_param_grid, gridded_params, all_dicts)
+
+    def _gridsearch_sims_single(self, data, grids, fixed_param_grid, gridded_params, grid_meta_dict):
+        #multiply with grid to get lnCLs
+        assert np.product(data.shape[1:])==np.product(grids.shape[1:]), "Dimensions of sim bSFS and grid bSFS do not correspond. k_max does not correspond but not caught."
+        assert fixed_param_grid in gridded_params, "fixed param for bootstrap not in gridded_params list! Report this issue."
+        data = np.reshape(data, (data.shape[0],-1)) #data shape: replicates * bSFS
+        grids = np.reshape(grids, (grids.shape[0],-1)) #grids shape: num_grid_points * bSFS
+        grids_log = np.zeros(grids.shape, dtype=np.float64)
+        grids = np.log(grids, where=grids>0, out=grids_log)
+        result = np.inner(data, grids_log) #result shape: replicates*num_grid_points
+        param_idxs = np.argmax(result, axis=1) #returns optimal index for each replicate
+        #easiest approach:
+        #for each gridded param, extract values given by param_idxs
+        #result = {Ne_A:[v1, v2, v3, v4, ...], Ne_B:[v1', v2' , ...], ...}
+        results_dict = {}
+        for key in gridded_params:
+            results_dict[key] = grid_meta_dict[key][param_idxs]
+        
+        #get two things out:
+        #SD and 2.5, 5 and 95, 97.5 percentiles for each of the estimated
+        #mind: some parameters are fixed!
+
+        #ln_m_e_reduced for each of the values of the fixed parameter up to the background
 
     def _set_lncls(self, unique_hash, lncls, lncls_type='global', overwrite=False):
         '''lncls_type := 'global' or 'windows'
@@ -1302,7 +1361,9 @@ class Store(object):
         #this is for a single dataset
         
         '''
-        DRL: is there a way of not making distinction between data_type below? 
+        DRL: is there a way of not making distinction between data_type below?
+        GB: Yes, that would be making the distinction between running optimize across
+        replicates and running it across multiple starting points. 
         '''
         if parameterObj.data_type=='simulate':
             #data is an iterator over parameter_combination_name, parameter_combination_array
