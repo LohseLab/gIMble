@@ -32,7 +32,6 @@ from tqdm import tqdm
 import pysam
 import pandas as pd
 import tabulate
-import oyaml as yaml
 
 '''
 [To Do]
