@@ -407,8 +407,9 @@ def get_coverage_counts(coverages, idxs, num_blocks):
 
 def block_sites_to_variation_arrays(block_sites, cols=np.array([1,2,3]), max_type_count=7):
     temp_sites = block_sites + (max_type_count * np.arange(block_sites.shape[0], dtype=np.int64).reshape(block_sites.shape[0], 1))
-    # return multiallelic, missing, monomorphic, variation
-    return np.hsplit(np.bincount(temp_sites.ravel(), minlength=(block_sites.shape[0] * max_type_count)).reshape(-1, max_type_count), cols)
+    multiallelic, missing, monomorphic, variation = np.hsplit(np.bincount(temp_sites.ravel(), minlength=(block_sites.shape[0] * max_type_count)).reshape(-1, max_type_count), cols)
+    return (multiallelic, missing, monomorphic, variation)
+    # return np.hsplit(np.bincount(temp_sites.ravel(), minlength=(block_sites.shape[0] * max_type_count)).reshape(-1, max_type_count), cols)
 
 # def calculate_popgen_from_array(mutype_array, sites):
 #     # print('# Mutypes: 0=MULTI, 1=MISS, 2=MONO, 3=HetB, 4=HetA, 5=HetAB, 6=Fixed')
@@ -1253,9 +1254,6 @@ class Store(object):
             sample_sets='X')
         pop_metrics = pop_metrics_from_bsfs(bsfs_windows_full, mutypes=meta_seqs['mutypes_count'], block_length=meta_blocks['length'], window_size=meta_windows['size'])
         self._write_gridsearch_bed(parameterObj=parameterObj, lncls=lncls_windows, best_idx=best_idx, grid_meta_dict=grid_meta_dict, pop_metrics=pop_metrics)
-        #g, w = self._get_lncls(unique_hash)        
-        #print('global_lncls', g.shape)
-        #print('windows_lncls', w.shape)
 
     def _set_lncls(self, unique_hash, lncls, lncls_type='global', overwrite=False):
         '''lncls_type := 'global' or 'windows'
@@ -1343,7 +1341,6 @@ class Store(object):
         equationSystem.initiate_model(parameterObj=parameterObj)
         equationSystem.ETPs = equationSystem.calculate_all_ETPs(threads=parameterObj.threads, gridThreads=parameterObj.gridThreads, verbose=False)
         self._set_grid(unique_hash, equationSystem.ETPs, parameterObj.parameter_combinations, overwrite=parameterObj.overwrite)
-        
 
     def _set_grid(self, unique_hash, ETPs, grid_labels, overwrite=False):
         dataset = self.data['grids'].create_dataset(unique_hash, data=ETPs, overwrite=overwrite)
@@ -1514,7 +1511,7 @@ class Store(object):
         max_k = np.array(list(kmax_by_mutype.values())) + 1 if kmax_by_mutype else None 
         variations = []
         for seq_name in tqdm(sequences, total=len(sequences), desc="[%] Querying data ", ncols=100):
-            variation = np.array(self.data["windows/%s/variation" % seq_name], dtype=np.int64)
+            variation = np.array(self.data["windows/%s/variation" % seq_name], dtype=np.uint16)
             variations.append(variation)
         variation = np.concatenate(variations, axis=0)
         if invert_population_flag:
@@ -1526,7 +1523,10 @@ class Store(object):
             np.concatenate([index, np.clip(bsfs, 0, max_k)], axis=-1).reshape(-1, bsfs.shape[-1] + 1),
             return_counts=True, axis=0)
         # define out based on max values for each column
-        out = np.zeros(tuple(np.max(mutuples, axis=0) + 1), np.int64)
+        try:
+            out = np.zeros(tuple(np.max(mutuples, axis=0) + 1), np.uint16) # set to np.uint16 [0..65535]
+        except MemoryError as e:
+            sys.exit('[+] Gimble ran out of memory. %s' % str(e))
         # assign values
         out[tuple(mutuples.T)] = counts
         return out
@@ -1556,11 +1556,9 @@ class Store(object):
             return bsfs
         unique_hash = get_hash_from_dict(params)
         bsfs_data_key = 'bsfs/%s/%s' % (data_type, unique_hash)
-        if bsfs_data_key in self.data: 
-            # bsfs exists
-            # print("[+] bsfs found in GimbleStore. Retrieving...")
-            return np.array(self.data[bsfs_data_key], dtype=np.int64)
-        # print("[+] bsfs not found in GimbleStore. Generating...")
+        #if bsfs_data_key in self.data: 
+        #    # bsfs exists
+        #    return np.array(self.data[bsfs_data_key], dtype=np.int64)
         if data_type == 'blocks':
             bsfs = self._get_block_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
         elif data_type == 'windows':
@@ -1790,11 +1788,8 @@ class Store(object):
 
     def info(self, tree=False):
         '''
-        single instance data/stages:
-            setup/blocks/windows/ 
-        
-        multiple-instance data/stages
-            bsfs/grids/lncls/sims
+        single instance data/stages: setup/blocks/windows/ 
+        multiple-instance data/stages : bsfs/grids/lncls/sims
         '''
         width = 100
         if tree:
@@ -1805,7 +1800,6 @@ class Store(object):
             report += self._get_setup_report(width)    
         report += self._get_blocks_report(width)
         report += self._get_windows_report(width)
-        #self._get_grids_report(width)
         report += self._get_grids_report(width)
         report += self._get_lncls_report(width)
         #report += self._get_bsfs_report(width)
