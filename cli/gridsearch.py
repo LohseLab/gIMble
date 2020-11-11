@@ -12,7 +12,7 @@
         -b, --blocks                                Using blocks
         -w, --windows                               Using windows
         -f, --overwrite                             Overwrite lnCLs in GimbleStore
-        --simID                                     Name of sim run in GimbleStore
+        --simID <STR>                               Name of sim run in GimbleStore
 
 """
 from timeit import default_timer as timer
