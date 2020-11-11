@@ -1556,9 +1556,9 @@ class Store(object):
             return bsfs
         unique_hash = get_hash_from_dict(params)
         bsfs_data_key = 'bsfs/%s/%s' % (data_type, unique_hash)
-        #if bsfs_data_key in self.data: 
-        #    # bsfs exists
-        #    return np.array(self.data[bsfs_data_key], dtype=np.int64)
+        if bsfs_data_key in self.data: 
+            # bsfs exists
+            return np.array(self.data[bsfs_data_key], dtype=np.int64)
         if data_type == 'blocks':
             bsfs = self._get_block_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
         elif data_type == 'windows':
