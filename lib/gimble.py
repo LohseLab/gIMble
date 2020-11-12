@@ -47,13 +47,12 @@ import tabulate
 [To Do]
 - generalise prefligth-checks for relevant modules
 
-- inference
-    - calculate different Pi's
 
--info:
-    - window
+[FASTA parsing]
+- https://pypi.org/project/pyfasta/
+
     
-- QC plots
+[QC plots]
     - variants 
         - plot barcharts of HOMREF/HOMALT/HET/MISS/MULTI as proportion of total records
     - intervals
@@ -61,10 +60,6 @@ import tabulate
         - plot distance
     - mutuples
         - mutuple pcp
-
-- data dumping 
-- metrics dumping
-
 '''
 
 PURPLE = '#4F3D63'
