@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gimble gridsearch -z <FILE> -c <FILE> (-b | -w) [-f] [-h|--help]
+"""usage: gimble gridsearch -z <FILE> -c <FILE> (-b | -w | --simID <STR>) [-f] [-h|--help]
                                             
                                             
     Options:
@@ -12,6 +12,7 @@
         -b, --blocks                                Using blocks
         -w, --windows                               Using windows
         -f, --overwrite                             Overwrite lnCLs in GimbleStore
+        --simID <STR>                               Name of sim run in GimbleStore
 
 """
 from timeit import default_timer as timer
@@ -36,6 +37,9 @@ class GridsearchParameterObj(lib.gimble.ParameterObj):
             return 'blocks'
         if args['--windows']:
             return 'windows'
+        if args['--simID']:
+            self.label = args['--simID']
+            return 'simulate'
         return None
         
 def main(params):

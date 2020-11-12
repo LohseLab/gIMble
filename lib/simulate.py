@@ -49,6 +49,7 @@ def run_sim(parameterObj, gimbleStore):
         run_count = gimbleStore._return_group_last_integer('sims')
         group_name = f"run_{run_count}"
     gimbleStore.data.require_group(f'sims/{group_name}')
+    gimbleStore.data[f'sims/{group_name}'].attrs['fixed_param_grid'] = parameterObj.fixed_param_grid
     for idx, (config, zarr_attrs) in enumerate(tqdm(zip(msprime_configs, sim_configs),desc='Overall simulation progress',ncols=100, unit_scale=True, total=len(sim_configs))):
         seeds = np.random.randint(1, 2 ** 32, replicates)
         result_list = []

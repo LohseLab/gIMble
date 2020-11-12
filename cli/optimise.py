@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gimble optimize                  [-z FILE] -c FILE -m FILE [-b|-w|-s] [-t STR] [-n INT] 
+"""usage: gimble optimize                  [-z FILE] -c FILE -m FILE [-b|-w|(-s -l <STR>)] [-t STR] [-n INT] 
                                             [-x FLOAT -i INT] [-f FLOAT] [-e INT] [-p]
-                                            [-h|--help] [-l STR]
+                                            [-h|--help]
                                             
                                             
     Options:
