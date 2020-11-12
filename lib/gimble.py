@@ -1205,6 +1205,7 @@ class Store(object):
                     raise ValueError("parameter_value %r not found in grid" % parameter_value)
                 fixed_parameter_lncls = lncls[:, fixed_parameter_indices]
                 fixed_parameter_lncls_max_idx = np.argmax(fixed_parameter_lncls, axis=1)        
+                fixed_parameter_lncls_max_idx = fixed_parameter_indices[fixed_parameter_lncls_max_idx] #translate back to larger grid_meta_dict idxs
                 return fixed_parameter_lncls_max_idx
             results = []
             for i in np.unique(fixed_parameter_values): #these values are sorted
@@ -1265,10 +1266,6 @@ class Store(object):
             raise ValueError("Datatype other than windows, blocks or simulate was specified using gridsearch. Should have been caught earlier.")
 
     def _gridsearch_sims(self, parameterObj, grids, grid_meta_dict):
-        if 'fixed_param_grid' in self.data[f'sims/{parameterObj.label}'].attrs:
-            fixed_param_grid = self.data[f'sims/{parameterObj.label}'].attrs['fixed_param_grid']
-        else:
-            fixed_param_grid = None
         #check parameters that were fixed initially:
         all_dicts = [grid_meta_dict[str(i)] for i in range(len(grid_meta_dict))] #this can be omitted once parameterObj.parameter_combinations is
         #in the shape {Ne_A:[v1, v2, v3, v4, ...], Ne_B:[v1', v2' , ...], ...}
@@ -1277,6 +1274,15 @@ class Store(object):
         for key in keys:
             key_all_values_dict[key] = np.array([d[key] for d in all_dicts], dtype=np.float64)
         gridded_params = sorted([key for key, items in key_all_values_dict.items() if len(set(items))>1])
+
+        if 'fixed_param_grid' in self.data[f'sims/{parameterObj.label}'].attrs:
+            fixed_param_grid = self.data[f'sims/{parameterObj.label}'].attrs['fixed_param_grid']
+            fixed_param_grid_value = self.data[f'sims/{parameterObj.label}/parameter_combination_0'].attrs[fixed_param_grid]
+            unique_values_fixed_param = np.unique(key_all_values_dict[fixed_param_grid])
+            fixed_param_grid_value_idx = np.where(unique_values_fixed_param==fixed_param_grid_value)[0][0]
+        else:
+            fixed_param_grid = None
+            fixed_param_grid_value = None
         
         param_combo_iterator = self.get_bsfs(
             data_type='simulate', 
@@ -1287,15 +1293,15 @@ class Store(object):
             ) #iterator over each parameter combination that was sim'ed
         num_param_combos = self.data[f'sims/{parameterObj.label}'].__len__()
         for name, data in tqdm(param_combo_iterator, desc='Processing all parameter combinations', total=num_param_combos,  ncols=100):
-            df, df_fixed_param = self._gridsearch_sims_single(data, grids, fixed_param_grid, gridded_params, key_all_values_dict, grid_meta_dict, parameterObj.label, name)
+            df, df_fixed_param = self._gridsearch_sims_single(data, grids, fixed_param_grid, gridded_params, key_all_values_dict, grid_meta_dict, parameterObj.label, name, fixed_param_grid_value_idx)
+        
         print(f"[+] Output written to {os.getcwd()}")    
         if fixed_param_grid:
-            unique_values_fixed_param=np.unique(key_all_values_dict[fixed_param_grid])
             print("[+] Fixed param values:")
-            print('\t'.join(f'{fixed_param_grid}_{i}' for i in range(len(unique_values_fixed_param))))
+            print('\t'.join(f'{fixed_param_grid}_{i}' if i !=fixed_param_grid_value_idx else f'{fixed_param_grid}_background' for i in range(len(unique_values_fixed_param))))
             print('\t'.join("{:.3e}".format(value) for value in unique_values_fixed_param))
 
-    def _gridsearch_sims_single(self, data, grids, fixed_param_grid, gridded_params, grid_meta_dict, grid_meta_dict_original, label, name):
+    def _gridsearch_sims_single(self, data, grids, fixed_param_grid, gridded_params, grid_meta_dict, grid_meta_dict_original, label, name, fixed_param_grid_value_idx):
         assert np.product(data.shape[1:])==np.product(grids.shape[1:]), "Dimensions of sim bSFS and grid bSFS do not correspond. k_max does not correspond but not caught."
         data = np.reshape(data, (data.shape[0],-1)) #data shape: replicates * bSFS
         grids = np.reshape(grids, (grids.shape[0],-1)) #grids shape: num_grid_points * bSFS
@@ -1321,7 +1327,7 @@ class Store(object):
                 columns.append(best_likelihoods)
             #results in column are sorted from smallest to largest param value
             columns= np.array(columns).T
-            df_fixed_param = pd.DataFrame(columns, columns=[f"{fixed_param_grid}_{str(i)}" for i in range(columns.shape[1])])
+            df_fixed_param = pd.DataFrame(columns, columns=[f"{fixed_param_grid}_{str(i)}" if i!=fixed_param_grid_value_idx else f'{fixed_param_grid}_background' for i in range(columns.shape[1])])
             df_fixed_param.to_csv(f'{label}_{name}_lnCL_dist.csv')
         return (df, df_fixed_param)
 
@@ -1436,8 +1442,7 @@ class Store(object):
         unique_hash = parameterObj._get_unique_hash(module='makegrid')
         grid_meta_dict = self.data[f'grids/{unique_hash}'].attrs.asdict()
         if not self._has_lncls(unique_hash):
-            print("[-] Running gridsearch module first to calculate lnCLs.")
-            self.gridsearch(parameterObj)
+            sys.exit("[X] Run gridsearch -w module first to calculate lnCLs.")
         lncls_global, lncls_windows = self._get_lncls(unique_hash)
         #lncls global should be based on w_bsfs !
         global_winning_fixed_param_idx = np.argmax(lncls_global)
@@ -1445,8 +1450,6 @@ class Store(object):
         #get optimal parametercombo given background for fixed parameter
         local_winning_fixed_param_idx = self.get_slice_grid_meta_idxs(lncls=lncls_windows, grid_meta_dict=grid_meta_dict, fixed_parameter=parameterObj.fixed_param_grid, parameter_value=global_winning_fixed_param_value)
         
-        # df with seqs - start - stop - parameter_combo_idx
-        #combine with recombination rate/map
         if isinstance(parameterObj.recombination_map, pd.DataFrame):
             assert(parameterObj.recombination_map.shape[0]==len(local_winning_fixed_param_idx)), "Index recmap and windows not matching. Should have been caught."
             grid_to_sim, window_df = self._get_sim_grid_with_rec_map(parameterObj, local_winning_fixed_param_idx, grid_meta_dict)
