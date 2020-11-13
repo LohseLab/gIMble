@@ -808,22 +808,6 @@ class ParameterObj(object):
                 to_be_synced = syncing[1:]
         return (reference, to_be_synced)
 
-    def _get_threads(self, num):
-        '''
-        DRL: i think there should only be one int for threads. 
-        '''
-        try:
-            num=int(num)
-        except TypeError:
-            return (1,1)
-        if num == 1:
-            return (1,1)
-        else: 
-            split = [num%i for i in (2,3)]
-            threads = min(split)
-            gridThreads = num//threads
-        return (threads, gridThreads)
-
     def _get_unique_hash_from_dict(self, d):
         '''active'''
         return hashlib.md5(str(d).encode()).hexdigest()
@@ -867,15 +851,15 @@ class ParameterObj(object):
             for pop in toBeSynced:
                 self.config['parameters'][f'Ne_{pop}']=self.config['parameters'][f'Ne_{reference}']
 
-    def _verify_parent(self, infile):
-        # @GB is this needed?
-        if infile is None:
-            return None
-        path = pathlib.Path(infile).resolve()
-        parent = path.parent
-        if not parent.exists():
-            sys.exit("[X] Parent directory not found: %r" % str(infile))
-        return str(path)        
+    #def _verify_parent(self, infile):
+    #    # @GB is this needed?
+    #    if infile is None:
+    #        return None
+    #    path = pathlib.Path(infile).resolve()
+    #    parent = path.parent
+    #    if not parent.exists():
+    #        sys.exit("[X] Parent directory not found: %r" % str(infile))
+    #    return str(path)        
 
     def _expand_params(self):
         '''
@@ -1356,7 +1340,11 @@ class Store(object):
         if not self.has_stage(parameterObj.data_type):
             sys.exit("[X] gimbleStore has no %r." % parameterObj.data_type)
         label = parameterObj.label if hasattr(parameterObj, 'label') else None
-
+        
+        if parameterObj.numPoints>1: #numPoints can only be used with blocks
+            if parameterObj.data_type != 'blocks':
+                print("[-] --n_points cannot be set with datatypes other than blocks. Will be set to 1.")
+                parameterObj.numPoints = 1
         data = self.get_bsfs(
             data_type=parameterObj.data_type, 
             population_by_letter=parameterObj.config['populations'], 
@@ -1379,8 +1367,11 @@ class Store(object):
         replicates and running it across multiple starting points. 
         '''
         if parameterObj.data_type=='simulate':
+            if parameterObj.trackHistory:
+                print("[-] Tracking optimization cannot be enabled when optimising simulations.")
+                parameterObj.trackHistory = False
             #data is an iterator over parameter_combination_name, parameter_combination_array
-            #each p_c_array contains n replicates
+            #each param_comb_array contains n replicates
             all_results={}
             for param_combo, replicates in data:
                 print(f"Optimising replicates {param_combo}")
@@ -1401,6 +1392,7 @@ class Store(object):
         df = df.sort_values(by='iterLabel')
         df.set_index('iterLabel', inplace=True)
         df.to_csv(f'{label}_{param_combo}.csv')
+        #print(f"[] Optimize output saved to {os.getcwd()}")
         self._optimize_describe_df(df, label, param_combo)
 
     def _optimize_describe_df(self, df, label, param_combo):
@@ -1409,13 +1401,13 @@ class Store(object):
 
     def _set_stopping_criteria(self, data, parameterObj, label):
         set_by_user = True
-        if parameterObj.ftol_rel<0:
-            set_by_user = False
-            lnCL_sd, lnCL_all_data = self._get_lnCL_SD(data, parameterObj, label)
-            parameterObj.ftol_rel = abs(1.96*lnCL_sd/lnCL_all_data)
+        #if parameterObj.ftol_rel<0:
+        #    set_by_user = False
+        #    lnCL_sd, lnCL_all_data = self._get_lnCL_SD(data, parameterObj, label)
+        #    parameterObj.ftol_rel = abs(1.96*lnCL_sd/lnCL_all_data)
         print("Stopping criteria for this optimization run:")
         print(f"Max number of evaluations: {parameterObj.max_eval}")
-        if set_by_user:
+        if set_by_user and parameterObj.ftol_rel>0:
             print(f"Relative tolerance on lnCL: {parameterObj.ftol_rel}")
         else:
             print(f"Relative tolerance on lnCL set by data resampling: {parameterObj.ftol_rel}")
@@ -1423,9 +1415,13 @@ class Store(object):
             print(f"Relative tolerance on norm of parameter vector: {parameterObj.ftol_rel}")
         
     def _get_lnCL_SD(self, all_data, parameterObj, label):
-        if parameterObj.data_type in ['simulate', 'windows']:
+        if parameterObj.data_type == 'windows':
+            data = np.sum(all_data, axis=0)
             #if windows transform to sum_windowwise_bsfs
+        elif parameterObj.data_type == 'simulate':    
             #if simulate data contains all replicates
+            #if datatype=simulate all_data is an iterator! adapt this!
+            all_data = self._get_sims_bsfs(label, single=True)
             data = np.sum(all_data, axis=0)
         else:
             data = all_data
@@ -1758,16 +1754,25 @@ class Store(object):
         out[tuple(mutuples.T)] = counts
         return out
 
-    def _get_sims_bsfs(self, label):
+    def _get_sims_bsfs(self, label, single=False):
         #returns an iterator over parameter_combinations: (name, array) 
         if label:
             if label in self.data['sims']:
-                return self.data[f'sims/{label}'].arrays()
+                if single:
+                    return np.array(self.data[f'sims/{label}/parameter_combination_0'], dtype=np.int32) 
+                else:
+                    return self.data[f'sims/{label}'].arrays()
+            else:
+                sys.exit(f"[X] label should be one of {', '.join(self.data['sims'].group_keys())}")
         else:
             if len(self.data['sims']) == 1:
                 key=list(self.data['sims'].group_keys())[0]
-                return self.data[f'sims/{key}'].arrays()
-        sys.exit(f"[X] label should be one of {', '.join(self.data['sims'].group_keys())}")
+                if single:    
+                    return np.array(self.data[f'sims/{key}/parameter_combination_0'], dtype=np.int32) 
+                else:
+                    return self.data[f'sims/{key}'].arrays()
+            else:
+                sys.exit(f"[X] Specify label. Should be one of {', '.join(self.data['sims'].group_keys())}")
 
     def gridsearch_np(self, bsfs=None, grids=None):
         '''returns 2d array of likelihoods of shape (windows, grids)'''
