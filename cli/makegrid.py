@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gimble makegrid (-z <FILE> | -o <STR>) -m <FILE> -c <FILE> [-f] [-t <STR>] [-h|--help]
+"""usage: gimble makegrid (-z <FILE> | -o <STR>) -m <FILE> -c <FILE> [-f] [--inner_pool <INT> --outer_pool <INT>] [-h|--help]
                                             
     Options:
         -h --help                                show this
@@ -11,7 +11,8 @@
         -m, --model_file <FILE>                  Model file
         -c, --config_file <FILE>                 Config file with model parameters
         -f, --overwrite                          Overwrite grid in GimbleStore
-        -t, --threads <STR>                      Threads [default: 1,1]
+        --inner_pool INT                         Number of processes used to optimize a single data point [default: 1] 
+        --outer_pool INT                         Number of data points processed in parallel [default: 1]
         
 """
 from timeit import default_timer as timer
@@ -28,7 +29,9 @@ class MakeGridParameterObj(lib.gimble.ParameterObj):
         self.prefix = self._get_prefix(args["--outprefix"])
         self.config_file = self._get_path(args['--config_file'])
         self.model_file = self._get_path(args['--model_file'])
-        self.threads, self.gridThreads = [self._get_int(t) for t in args["--threads"].split(',')]
+        #self.threads, self.gridThreads = [self._get_int(t) for t in args["--threads"].split(',')]
+        self.threads = self._get_int(args['--inner_pool']) #number of workers for a single set of equations to be solved
+        self.gridThreads = self._get_int(args['--outer_pool']) #number of workers for independent processes
         self.overwrite = args['--overwrite']
         self.config = None
         self._parse_config(self.config_file)
