@@ -524,7 +524,8 @@ def cut_blocks(interval_starts, interval_ends, block_length, block_span, block_g
     return block_sites[block_span_valid_mask]
 
 def bsfs_to_2d(bsfs):
-    """Converts 4D/5D bsfs to 2D array with (window-idx) counts, mutuples. 
+    """Converts 4D bsfs to 2D array with counts, mutuples.
+       Converts 5D bsfs to 2D array with window_idx, counts, mutuples.
 
     Parameters 
     ----------
@@ -541,7 +542,10 @@ def bsfs_to_2d(bsfs):
         return np.concatenate([bsfs[non_zero_idxs].reshape(non_zero_idxs[0].shape[0], 1), np.array(non_zero_idxs).T], axis=1)
     elif bsfs.ndim == 5: # windows
         non_zero_idxs_array = np.array(non_zero_idxs).T
-        return np.concatenate([non_zero_idxs_array[:,0].reshape(non_zero_idxs[0].shape[0], 1), bsfs[non_zero_idxs].reshape(non_zero_idxs[0].shape[0], 1), non_zero_idxs_array[:,1:]], axis=1)
+        first = non_zero_idxs_array[:,0].reshape(non_zero_idxs[0].shape[0], 1)
+        second = bsfs[non_zero_idxs].reshape(non_zero_idxs[0].shape[0], 1)
+        third = non_zero_idxs_array[:,1:]
+        return np.concatenate([first, second, third], axis=1)
     else:
         raise ValueError('bsfs_to_2d: bsfs.ndim must be 4 (blocks) or 5 (windows)')
 
@@ -1049,9 +1053,16 @@ class Store(object):
         print("[#] Preflight...")
         self._preflight_simulate(parameterObj)
         print("[+] Checks passed.")
+        #determine name of sims/group
+        if not parameterObj.label:
+            run_count = self._return_group_last_integer('sims')
+            parameterObj.label = f"run_{run_count}"
+        self.data.require_group(f'sims/{parameterObj.label}')
         if parameterObj.sim_grid:
             parameterObj.parameter_combinations = self._get_sim_grid(parameterObj)
         lib.simulate.run_sim(parameterObj, self)
+        #print(self._get_sims_report(width=100, label=parameterObj.label).__repr__().encode('utf-8'))
+        print(self._get_sims_report(width=100, label=parameterObj.label))
         self.log_stage(parameterObj)
 
     def query(self, parameterObj):
@@ -1982,6 +1993,18 @@ class Store(object):
             # for i, row in enumerate(rows):
             #     branch = 'F' if (i + 1) == len(rows) else 'P'
             #     reportObj.add_line(prefix="[+]", branch=branch, fill="", left=row, right='')
+        return reportObj
+
+    def _get_sims_report(self, width, label):
+        meta_sims = self._get_meta('sims')
+        reportObj = ReportObj(width=width)
+        reportObj.add_line(prefix="[+]", left='[', center='Sims', right=']', fill='=')
+        column_just = 14
+        if self.has_stage('simulate'):
+            for name, array in self.get_bsfs(data_type='simulate', label=label):#returns an iterator over parametercombination names and arrays
+                bsfs_X = bsfs_to_2d(np.array(array))
+                fgv_blocks_X = np.sum(bsfs_X[(bsfs_X[:,4]>0) & (bsfs_X[:,5]>0)][:,0]) / np.sum(bsfs_X[:,1]) if np.any(bsfs_X) else "N/A"
+                reportObj.add_line(prefix="[+]", branch='T', left=f'four-gamete-violation {name}', right="".join([format_percentage(c, precision=2).rjust(column_just) for c in [fgv_blocks_X,]]))
         return reportObj
 
     def _count_groups(self, name):
