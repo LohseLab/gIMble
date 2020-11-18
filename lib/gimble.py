@@ -1511,10 +1511,15 @@ class Store(object):
         lncls_global, lncls_windows = self._get_lncls(unique_hash)
         #lncls global should be based on w_bsfs !
         global_winning_fixed_param_idx = np.argmax(lncls_global)
-        global_winning_fixed_param_value = grid_meta_dict[str(global_winning_fixed_param_idx)][parameterObj.fixed_param_grid]
+        if parameterObj.fixed_param_grid:
+            global_winning_fixed_param_value = grid_meta_dict[str(global_winning_fixed_param_idx)][parameterObj.fixed_param_grid]
+        else:
+            global_winning_fixed_param_value = None
         #get optimal parametercombo given background for fixed parameter
-        local_winning_fixed_param_idx = self.get_slice_grid_meta_idxs(lncls=lncls_windows, grid_meta_dict=grid_meta_dict, fixed_parameter=parameterObj.fixed_param_grid, parameter_value=global_winning_fixed_param_value)
-        
+        if parameterObj.fixed_param_grid:
+            local_winning_fixed_param_idx = self.get_slice_grid_meta_idxs(lncls=lncls_windows, grid_meta_dict=grid_meta_dict, fixed_parameter=parameterObj.fixed_param_grid, parameter_value=global_winning_fixed_param_value)
+        else:
+            local_winning_fixed_param_idx = self.get_slice_grid_meta_idxs(lncls=lncls_windows)
         if isinstance(parameterObj.recombination_map, pd.DataFrame):
             assert(parameterObj.recombination_map.shape[0]==len(local_winning_fixed_param_idx)), "Index recmap and windows not matching. Should have been caught."
             grid_to_sim, window_df = self._get_sim_grid_with_rec_map(parameterObj, local_winning_fixed_param_idx, grid_meta_dict)
@@ -1523,10 +1528,10 @@ class Store(object):
 
         param_df = pd.DataFrame(grid_to_sim)
         param_df.drop(labels=['mu'], inplace=True, axis=1)
-        param_df.to_csv('simulated_grid.tsv', sep='\t')
-        print("[+] Wrote simulated_grid.tsv containing all simulated parameter combinations.")
-        window_df.to_csv('windows_sims_param_idx.tsv', sep='\t')
-        print("[+] Wrote windows_sims_param_idx.tsv containing all windowwise info.")
+        param_df.to_csv(f'simulated_grid_{parameterObj.label}.tsv', sep='\t')
+        print(f"[+] Wrote simulated_grid_{parameterObj.label}.tsv containing all simulated parameter combinations.")
+        window_df.to_csv(f'windows_sims_param_idx_{parameterObj.label}.tsv', sep='\t')
+        print(f"[+] Wrote windows_sims_param_idx_{parameterObj.label}.tsv containing all windowwise info.")
         return grid_to_sim
 
     def _get_sim_grid_with_rec_map(self, parameterObj, local_winning_fixed_param_idx, grid_meta_dict):
