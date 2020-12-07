@@ -330,10 +330,11 @@ def get_n50_from_lengths(lengths):
     n50_idx = np.where(cum_sum == cum_sum_2)
     return length_sorted[int(n50_idx[0][0])]
 
-def pop_metrics_from_bsfs(bsfs, mutypes=4, block_length=None, window_size=None):
+def pop_metrics_from_bsfs(bsfs, block_length=None, window_size=None):
+    '''only works for mutypes=4'''
     if not bsfs.ndim == 2:
         bsfs = bsfs_to_2d(bsfs)
-    mutype_array = np.vstack([np.bincount(bsfs[:, 0], weights=bsfs[:, 1] * bsfs[:, (2 + m_idx)]) for m_idx in range(mutypes)]).T
+    mutype_array = np.vstack([np.bincount(bsfs[:, 0], weights=bsfs[:, 1] * bsfs[:, (2 + m_idx)]) for m_idx in range(4)]).T 
     heterozygosity_A = (mutype_array[:,1] + mutype_array[:,2]) / (block_length * window_size)
     heterozygosity_B = (mutype_array[:,0] + mutype_array[:,2]) / (block_length * window_size)
     d_xy = ((mutype_array[:,1] + mutype_array[:,0] + mutype_array[:,2]) / 2.0 + mutype_array[:,3]) / (block_length * window_size)
@@ -1150,8 +1151,7 @@ class Store(object):
         index = np.arange(meta_windows['count'],  dtype=np.int64)
         return (sequences, starts, ends, index)
 
-
-    def _write_gridsearch_bed(self, parameterObj=None, lncls=None, best_idx=None, grid_meta_dict=None, pop_metrics=None):
+    def _write_gridsearch_bed(self, parameterObj=None, lncls=None, best_idx=None, grid_meta_dict=None):
         if parameterObj is None or lncls is None or grid_meta_dict is None:
             raise ValueError('_write_gridsearch_bed: needs parameterObj and lncls and grid_meta_dict')
         grids = []
@@ -1160,22 +1160,28 @@ class Store(object):
         grid_params = np.array(grids, dtype=np.float64)
         best_params = grid_params[np.argmax(lncls, axis=1), :]
         best_likelihoods = np.max(lncls, axis=1)
-        meta_seqs = self._get_meta('seqs')
-        meta_windows = self._get_meta('windows')
-        sequences, starts, ends, index = self._get_window_bed_columns() 
         delta_lncls = best_likelihoods - lncls[:, best_idx]
+        sequences, starts, ends, index = self._get_window_bed_columns() 
         params_header = list(grid_dict.keys())
+        meta_blocks = self._get_meta('blocks')
+        meta_windows = self._get_meta('windows')
+        bsfs_windows_full = self.get_bsfs(
+                data_type='windows', 
+                population_by_letter=parameterObj.config['population_by_letter'], 
+                sample_sets='X')
+        popgen_metrics = pop_metrics_from_bsfs(bsfs_windows_full, block_length=meta_blocks['length'], window_size=meta_windows['size'])
         popgen_header = ['heterozygosity_A', 'heterozygosity_B', 'd_xy', 'f_st']
         columns = ['sequence', 'start', 'end', 'index', 'lnCL', 'delta_lnCl'] + params_header + popgen_header
         dtypes = {'start': 'int64', 'end': 'int64', 'index': 'int64', 'lnCL': 'float64', 'delta_lnCl': 'float64'}
         for param in params_header + popgen_header:
             dtypes[param] = 'float64'
         '''dtypes := "object", "int64", "float64", "bool", "datetime64", "timedelta", "category"'''
-        int_bed = np.vstack([starts, ends, index, best_likelihoods, delta_lncls, best_params.T, pop_metrics]).T
-        header = ["# %s" % parameterObj._VERSION]
-        header += ["# %s" % "\t".join(columns)]
+        int_bed = np.vstack([starts, ends, index, best_likelihoods, delta_lncls, best_params.T, popgen_metrics]).T
         out_f = '%s.%s.gridsearch.bestfit.bed' % (self.prefix, parameterObj.data_type)
         print("[+] Sum of lnCL for winning parameters = %s" % np.sum(best_likelihoods))
+        # write header
+        header = ["# %s" % parameterObj._VERSION]
+        header += ["# %s" % "\t".join(columns)]
         with open(out_f, 'w') as out_fh:
             out_fh.write("\n".join(header) + "\n")
         bed_df = pd.DataFrame(data=int_bed, columns=columns[1:]).astype(dtype=dtypes)
@@ -1214,46 +1220,29 @@ class Store(object):
         return np.argmax(lncls, axis=1) 
         
     def gridsearch(self, parameterObj):
-        '''
-        Assumptions:
-            - this works only for windows ('-w') for now... logic for '-b' has to be decided upon
-        '''
+        '''grids.shape = (gridpoints, m1_max+1, m2_max+1, m3_max+1, m4_max+1)'''
         print("[#] Gridsearching ...")
+        # get grid
         unique_hash, params = parameterObj._get_unique_hash(return_dict=True)
-        # make unique hash based on params that matter for grid
         grids, grid_meta_dict = self._get_grid(unique_hash)
-        # save grid_meta_dict by unique hash
-        # gridsearch windows
-        if parameterObj.data_type == 'windows':    
+        if parameterObj.data_type == 'windows':
             print('[+] Getting wbSFSs ...')
+            # # gridsearch [windows]
             bsfs_windows_clipped = self.get_bsfs(
                 data_type='windows', 
                 population_by_letter=parameterObj.config['population_by_letter'], 
                 sample_sets='X', 
                 kmax_by_mutype=parameterObj.config['k_max'])
-            # gridsearch windows_sum
-            print('[+] Summing wbSFSs ...')
+            lncls_windows = self.gridsearch_np(bsfs=bsfs_windows_clipped, grids=grids)
+            self._set_lncls(unique_hash, lncls_windows, lncls_type='windows', overwrite=parameterObj.overwrite)
+            # gridsearch [global]
             bsfs_windows_clipped_summed = sum_wbsfs(bsfs_windows_clipped)
             lncls_global = self.gridsearch_np(bsfs=bsfs_windows_clipped_summed, grids=grids)
             self._set_lncls(unique_hash, lncls_global, lncls_type='global', overwrite=parameterObj.overwrite)
             best_idx = np.argmax(lncls_global, axis=0)
             print('[+] Best grid point (based on bSFS within windows): %s' % lncls_global[best_idx])
             print('[+] \t %s' % "; ".join(["%s = %s" % (k, v) for k, v in grid_meta_dict[str(best_idx)].items()]))
-            lncls_windows = self.gridsearch_np(bsfs=bsfs_windows_clipped, grids=grids)
-            self._set_lncls(unique_hash, lncls_windows, lncls_type='windows', overwrite=parameterObj.overwrite)
-            # pop metrics
-            meta_seqs = self._get_meta('seqs')
-            meta_blocks = self._get_meta('blocks')
-            meta_windows = self._get_meta('windows')
-            bsfs_windows_full = self.get_bsfs(
-                data_type='windows', 
-                population_by_letter=parameterObj.config['population_by_letter'], 
-                sample_sets='X')
-            pop_metrics = pop_metrics_from_bsfs(bsfs_windows_full, mutypes=meta_seqs['mutypes_count'], block_length=meta_blocks['length'], window_size=meta_windows['size'])
-            self._write_gridsearch_bed(parameterObj=parameterObj, lncls=lncls_windows, best_idx=best_idx, grid_meta_dict=grid_meta_dict, pop_metrics=pop_metrics)
-            #g, w = self._get_lncls(unique_hash)        
-            #print('global_lncls', g.shape)
-            #print('windows_lncls', w.shape)
+            self._write_gridsearch_bed(parameterObj=parameterObj, lncls=lncls_windows, best_idx=best_idx, grid_meta_dict=grid_meta_dict)
         elif parameterObj.data_type == 'simulate':
             self._gridsearch_sims(parameterObj, grids, grid_meta_dict)
         elif parameterObj.data_type == 'blocks':
@@ -1426,6 +1415,9 @@ class Store(object):
         return False
 
     def _get_grid(self, unique_hash):
+        '''
+        grid.shape = (gridpoints, m1_max+1, m2_max+1, m3_max+1, m4_max+1) 
+        '''
         if f'grids/{unique_hash}' in self.data:
             grid_meta = self.data[f'grids/{unique_hash}'].attrs.asdict()
             grid = np.array(self.data[f'grids/{unique_hash}'], dtype=np.float64)
@@ -1712,9 +1704,6 @@ class Store(object):
             raise ValueError('gridsearch: needs grid and data')
         grids_log = np.zeros(grids.shape)
         np.log(grids, where=grids>0, out=grids_log)
-        #print('data.shape', data.shape)
-        #print('grids_log.shape', grids_log.shape)
-        #print('data[:, None]', data[:, None] * grids_log)
         if bsfs.ndim == 4:
             return np.squeeze(np.apply_over_axes(np.sum, (bsfs * grids_log), axes=[-4,-3,-2,-1]))
         return np.squeeze(np.apply_over_axes(np.sum, (bsfs[:, None] * grids_log), axes=[-4,-3,-2,-1]))
@@ -2157,60 +2146,6 @@ class Store(object):
         counts_inter = self.data[counts_inter_key]
         self.plot_bsfs_pcp('%s.bsfs_pcp.png' % self.prefix, mutypes_inter, counts_inter)
 
-    def _write_gridsearch_bed(self, parameterObj=None, lncls=None, best_idx=None, grid_meta_dict=None, pop_metrics=None):
-        '''[OUTPUT function]'''
-        if parameterObj is None or lncls is None or grid_meta_dict is None:
-            raise ValueError('_write_gridsearch_bed: needs parameterObj and lncls and grid_meta_dict')
-        grids = []
-        for grid_idx, grid_dict in grid_meta_dict.items():
-            grids.append(list(grid_dict.values()))
-        grid_params = np.array(grids, dtype=np.float64)
-        best_params = grid_params[np.argmax(lncls, axis=1), :]
-        best_likelihoods = np.max(lncls, axis=1)
-        meta_seqs = self._get_meta('seqs')
-        meta_windows = self._get_meta('windows')
-        MAX_SEQNAME_LENGTH = max([len(seq_name) for seq_name in meta_seqs['seq_names']])
-        sequences = np.zeros(meta_windows['count'], dtype='<U%s' % MAX_SEQNAME_LENGTH)
-        starts = np.zeros(meta_windows['count'], dtype=np.int64)
-        ends = np.zeros(meta_windows['count'], dtype=np.int64)
-        index = np.arange(meta_windows['count'],  dtype=np.int64)
-        offset = 0
-        for seq_name in tqdm(meta_seqs['seq_names'], total=len(meta_seqs['seq_names']), desc="[%] Preparing output...", ncols=100, unit_scale=True): 
-            start_key = 'windows/%s/starts' % (seq_name)
-            end_key = 'windows/%s/ends' % (seq_name)
-            if start_key in self.data:
-                start_array = np.array(self.data[start_key])
-                window_count = start_array.shape[0]
-                starts[offset:offset+window_count] = start_array
-                ends[offset:offset+window_count] = np.array(self.data[end_key])
-                sequences[offset:offset+window_count] = np.full_like(window_count, seq_name, dtype='<U%s' % MAX_SEQNAME_LENGTH)
-                offset += window_count
-        delta_lncls = best_likelihoods - lncls[:, best_idx]
-
-        params_header = list(grid_dict.keys())
-        popgen_header = ['heterozygosity_A', 'heterozygosity_B', 'd_xy', 'f_st']
-        columns = ['sequence', 'start', 'end', 'index', 'lnCL', 'delta_lnCl'] + params_header + popgen_header
-        dtypes = {'start': 'int64', 'end': 'int64', 'index': 'int64', 'lnCL': 'float64', 'delta_lnCl': 'float64'}
-        for param in params_header + popgen_header:
-            dtypes[param] = 'float64'
-        '''dtypes := "object", "int64", "float64", "bool", "datetime64", "timedelta", "category"'''
-        int_bed = np.vstack([starts, ends, index, best_likelihoods, delta_lncls, best_params.T, pop_metrics]).T
-        header = ["# %s" % parameterObj._VERSION]
-        header += ["# %s" % "\t".join(columns)]
-        out_f = '%s.%s.gridsearch.bestfit.bed' % (self.prefix, parameterObj.data_type)
-
-        print("[+] Sum of lnCL for winning parameters = %s" % np.sum(best_likelihoods))
-        with open(out_f, 'w') as out_fh:
-            out_fh.write("\n".join(header) + "\n")
-        # bed
-        #print(dtypes)
-        bed_df = pd.DataFrame(data=int_bed, columns=columns[1:]).astype(dtype=dtypes)
-        bed_df['sequence'] = sequences
-        # MUST be mode='a' otherwise header gets wiped ...
-        bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=columns)
-        #print(bed_df)
-        return out_f
-
     def _write_window_bed(self, parameterObj):
         '''[OUTPUT function]'''
         meta_seqs = self._get_meta('seqs')
@@ -2237,7 +2172,7 @@ class Store(object):
         dtypes = {'start': 'int64', 'end': 'int64', 'index': 'int64', 
                 'heterozygosity_A': 'float64', 'heterozygosity_B': 'float64', 'd_xy': 'float64', 'f_st': 'float64'}
         bsfs_windows_full = self.get_bsfs(data_type='windows', sample_sets='X')
-        pop_metrics = pop_metrics_from_bsfs(bsfs_windows_full, mutypes=meta_seqs['mutypes_count'], block_length=meta_blocks['length'], window_size=meta_windows['size'])
+        pop_metrics = pop_metrics_from_bsfs(bsfs_windows_full, block_length=meta_blocks['length'], window_size=meta_windows['size'])
         int_bed = np.vstack([starts, ends, index, pop_metrics]).T
         header = ["# %s" % parameterObj._VERSION]
         header += ["# %s" % "\t".join(columns)]  
