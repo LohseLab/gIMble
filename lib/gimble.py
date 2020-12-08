@@ -1215,14 +1215,20 @@ class Store(object):
         return np.argmax(lncls, axis=1) 
         
     def gridsearch(self, parameterObj):
-        '''grids.shape = (gridpoints, m1_max+1, m2_max+1, m3_max+1, m4_max+1)'''
+        '''grids.shape = (gridpoints, m1_max+1, m2_max+1, m3_max+1, m4_max+1)
+
+        [To Do] 
+        - DRL: let's refactor this once simulate-gridsearch is integrated into this function
+            - each data_type should declare lncls and best_idx, these are then used at the end of the function to print 
+        - DRL: ask Konrad whether bSFS or sum-wbSFS should be used in block-gridsearch 
+        '''
         print("[#] Gridsearching ...")
         # get grid
         unique_hash, params = parameterObj._get_unique_hash(return_dict=True)
         grids, grid_meta_dict = self._get_grid(unique_hash)
         if parameterObj.data_type == 'windows':
+            # [windows]
             print('[+] Getting wbSFSs ...')
-            # # gridsearch [windows]
             bsfs_windows_clipped = self.get_bsfs(
                 data_type='windows', 
                 population_by_letter=parameterObj.config['population_by_letter'], 
@@ -1241,7 +1247,19 @@ class Store(object):
         elif parameterObj.data_type == 'simulate':
             self._gridsearch_sims(parameterObj, grids, grid_meta_dict)
         elif parameterObj.data_type == 'blocks':
-            sys.exit("Gridsearch on blocks has not been implemented yet. Stay tuned.")
+            # [blocks]
+            print('[+] Getting bSFSs ...')
+            bsfs_clipped = self.get_bsfs(
+                data_type='blocks', 
+                population_by_letter=parameterObj.config['population_by_letter'], 
+                sample_sets='X', 
+                kmax_by_mutype=parameterObj.config['k_max'])
+            lncls_blocks = self.gridsearch_np(bsfs=bsfs_clipped, grids=grids)
+            self._set_lncls(unique_hash, lncls_blocks, lncls_type='blocks', overwrite=parameterObj.overwrite)
+            best_idx = np.argmax(lncls_blocks, axis=0)
+            print('[+] Best grid point (based on bSFS): %s' % lncls_blocks[best_idx])
+            print('[+] \t %s' % "; ".join(["%s = %s" % (k, v) for k, v in grid_meta_dict[str(best_idx)].items()]))
+            print('[+] Warning: gridsearch on bSFS is still experimental!')
         else:
             raise ValueError("Datatype other than windows, blocks or simulate was specified using gridsearch. Should have been caught earlier.")
 
