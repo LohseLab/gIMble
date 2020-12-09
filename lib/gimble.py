@@ -1079,6 +1079,11 @@ class Store(object):
                 self._write_window_bed(parameterObj)
             else:
                 raise ValueError("'data_type' must be must be 'blocks' or 'windows'")
+        elif parameterObj.data_format == 'simplebed':
+            if parameterObj.data_type == 'windows':
+                self._write_window_bed(parameterObj, simple=True)
+            else:
+                raise ValueError("'data_type' must be must be 'blocks' or 'windows'")
         elif parameterObj.data_format == 'bsfs':
             self.dump_bsfs(data_type=parameterObj.data_type, sample_sets='X', kmax_by_mutype=parameterObj.kmax_by_mutype)
         elif parameterObj.data_format == 'lncls':
@@ -2260,7 +2265,7 @@ class Store(object):
         counts_inter = self.data[counts_inter_key]
         self.plot_bsfs_pcp('%s.bsfs_pcp.png' % self.prefix, mutypes_inter, counts_inter)
 
-    def _write_window_bed(self, parameterObj):
+    def _write_window_bed(self, parameterObj, simple=False):
         '''[OUTPUT function]'''
         meta_seqs = self._get_meta('seqs')
         meta_windows = self._get_meta('windows')
@@ -2282,15 +2287,22 @@ class Store(object):
                 ends[offset:offset+window_count] = np.array(self.data[end_key])
                 sequences[offset:offset+window_count] = np.full_like(window_count, seq_name, dtype='<U%s' % MAX_SEQNAME_LENGTH)
                 offset += window_count
-        columns = ['sequence', 'start', 'end', 'index', 'heterozygosity_A', 'heterozygosity_B', 'd_xy', 'f_st']
-        dtypes = {'start': 'int64', 'end': 'int64', 'index': 'int64', 
+        if simple:
+            columns = ['sequence', 'start', 'end', 'index']
+            dtypes = {'start': 'int64', 'end': 'int64', 'index': 'int64'}
+            int_bed = np.vstack([starts, ends, index]).T
+            out_f = '%s.windows.bed' % self.prefix
+        else:
+            columns = ['sequence', 'start', 'end', 'index', 'heterozygosity_A', 'heterozygosity_B', 'd_xy', 'f_st']
+            dtypes = {'start': 'int64', 'end': 'int64', 'index': 'int64', 
                 'heterozygosity_A': 'float64', 'heterozygosity_B': 'float64', 'd_xy': 'float64', 'f_st': 'float64'}
-        bsfs_windows_full = self.get_bsfs(data_type='windows', sample_sets='X')
-        pop_metrics = pop_metrics_from_bsfs(bsfs_windows_full, block_length=meta_blocks['length'], window_size=meta_windows['size'])
-        int_bed = np.vstack([starts, ends, index, pop_metrics]).T
+            bsfs_windows_full = self.get_bsfs(data_type='windows', sample_sets='X')
+            pop_metrics = pop_metrics_from_bsfs(bsfs_windows_full, block_length=meta_blocks['length'], window_size=meta_windows['size'])
+            int_bed = np.vstack([starts, ends, index, pop_metrics]).T
+            out_f = '%s.windows.popgen.bed' % self.prefix
         header = ["# %s" % parameterObj._VERSION]
         header += ["# %s" % "\t".join(columns)]  
-        out_f = '%s.windows.bed' % self.prefix
+        
         with open(out_f, 'w') as out_fh:
             out_fh.write("\n".join(header) + "\n")
         # bed

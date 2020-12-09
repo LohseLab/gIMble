@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gimble query                  -z FILE [-b -w -s] [--bed] [-c FILE --lncls] [--bsfs --kmax STR] 
+"""usage: gimble query                  -z FILE [-b -w -s] [--bed|--simplebed] [-c FILE --lncls] [--bsfs --kmax STR] 
                                             [-h|--help]
                                             
     Options:
@@ -11,7 +11,8 @@
         -w, --windows                               Query data for windows
         -s, --windows_sum                           Query data for sum of windows
         -c, --config_file FILE                      INI Config file
-        --bed                                       Writes BED variation/multiallelic/missing to BED (for -b, -w)
+        --bed                                       Writes BED with variation/multiallelic/missing (for -b, -w)
+        --simplebed                                 Writes only BED coordinates (for -w)
         --bsfs                                      Writes 2D bSFS for data (for -b, -s)
         --lncls                                     Write grid and lnCls based on an INI file (requires)
         --kmax STR                                  k-max for mutypes, e.g. [2, 2, 2, 2]
@@ -52,12 +53,12 @@ class QueryParameterObj(lib.gimble.ParameterObj):
             if self.data_format == 'bsfs' or self.data_format == 'bed':
                 return True
         if self.data_type == 'windows':
-            if self.data_format == 'bed' or self.data_format == 'lncls':
+            if self.data_format == 'bed' or self.data_format == 'lncls' or self.data_format == 'simplebed':
                 return True
         if self.data_type == 'windows_sum':
             if self.data_format == 'bsfs' or self.data_format == 'lncls':
                 return True
-        sys.exit("[X] Data type %r and data format %r are incompatible" % (self.data_type, self.data_format))
+        sys.exit("[X] Data type %r and data format %r are not supported" % (self.data_type, self.data_format))
 
     def _get_data_type(self, args):
         if args['--blocks']:
@@ -72,12 +73,14 @@ class QueryParameterObj(lib.gimble.ParameterObj):
     def _get_data_format(self, args):
         if args['--bed']:
             return 'bed'
+        elif args['--simplebed']:
+            return 'simplebed'
         elif args['--bsfs']:
             return 'bsfs'
         elif args['--lncls']:
             return 'lncls'
         else:
-            raise ValueError('unknwon data_format')
+            raise ValueError('unknown data_format')
 
     def _get_kmax(self, kmax_string):
         mutypes = ['m_1', 'm_2', 'm_3', 'm_4']
