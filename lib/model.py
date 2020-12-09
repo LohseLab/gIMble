@@ -32,14 +32,11 @@ AGGREGATE_BY_LINEAGE = {
 }
 
 def lineage_to_mutype(lineage):
-    #print('lineage', lineage)
     mutype = AGGREGATE_BY_LINEAGE.get("".join([char for char in lineage if not char.isdigit()]), None)
-    #print('mutype', mutype)
     return mutype
 '''
 [ToDo]
 - incorportate szudzik_pairing for 'lineage' columns ... only way to make it work! 
-- column names of events have to be changed!!!
 
 Needs debugging output as in:
 
@@ -280,7 +277,7 @@ class StateGraph(object):
             'random_seed' : 19,
             'precision': 25,
         }
-        A,B=parameterObj.pop_ids
+        A,B = parameterObj.pop_ids
         sample_size_A = parameterObj.samples_by_pop_id[A]
         sample_size_B = parameterObj.samples_by_pop_id[B]
         # populations
