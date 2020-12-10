@@ -36,7 +36,7 @@ from timeit import default_timer as timer
 
 def main(gimble_dir):
     try:
-        __version__ = '0.6.0'
+        __version__ = '0.6.1'
         version = "gimble v%s" % __version__
         start_time = timer()
         args = docopt(__doc__, version=version, options_first=True)
