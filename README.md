@@ -1,6 +1,8 @@
 gIMble
 =========
 
+[![DOI](https://zenodo.org/badge/176883840.svg)](https://zenodo.org/badge/latestdoi/176883840)
+
 Dependencies (via [conda](https://conda.io/miniconda.html))
 -------
 
