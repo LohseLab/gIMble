@@ -597,7 +597,7 @@ class EquationSystemObj(object):
     def optimize_parameters(self, data, parameterObj, trackHistory=True, verbose=False):
 
         fixedParams = self._optimize_get_fixed_params(parameterObj)
-        boundaryNames = self._optimize_get_boundary_names(parameterObj, fixedParams)
+        boundaryNames = self._optimize_get_boundary_names(parameterObj, fixedParams, data)
         starting_points, parameter_combinations_lowest, parameter_combinations_highest = self._optimize_get_boundaries(parameterObj, boundaryNames)
         trackHistoryPath = [[] for _ in range(parameterObj.numPoints)]
         #specify the objective function to be optimized
@@ -636,7 +636,7 @@ class EquationSystemObj(object):
         result = self._optimize_reshape_output(allResults, trackHistoryPath, boundaryNames, exitcodeDict, trackHistory, verbose)
         return result
 
-    def _optimize_get_boundary_names(self, parameterObj, fixedParams):
+    def _optimize_get_boundary_names(self, parameterObj, fixedParams, data):
         toBeSynced_pops = [f'Ne_{pop}' for pop in parameterObj.toBeSynced] if parameterObj.toBeSynced!=None else []
         boundaryNames = [k for k in parameterObj.config['parameters'].keys() if not (k=='mu' or k in parameterObj.fixed_params or k in toBeSynced_pops)]
         if len(boundaryNames) == 0:
