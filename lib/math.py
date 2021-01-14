@@ -215,7 +215,7 @@ def objective_function(paramsToOptimize, grad, paramNames, fixedParams, equation
     start_time = timer()
     all_rates = {k:v for k,v in zip(paramNames, paramsToOptimize)}
     all_rates = {**all_rates, **fixedParams}
-    all_rates = equationSystemObj._scale_parameter_combination(all_rates, equationSystemObj.reference_pop, equationSystemObj.block_length, 'optimize')
+    all_rates = equationSystemObj._scale_parameter_combination(all_rates, equationSystemObj.reference_pop, equationSystemObj.block_length, 'optimize', fixedParams['mu'])
     rates = equationSystemObj._get_base_rate_by_variable(all_rates)
     split_time = equationSystemObj._get_split_time(all_rates)
     iteration_number=-1
@@ -421,15 +421,17 @@ class EquationSystemObj(object):
             print(self.fixed_params)
         """
         if parameterObj._MODULE=='makegrid':
-            result = [self._scale_parameter_combination(combo, self.reference_pop, self.block_length, parameterObj._MODULE) for combo in parameterObj.parameter_combinations]
+            #now dict of lists
+            parameter_combinations = lib.gimble.DOL_to_LOD(parameterObj.parameter_combinations)
+            result = [self._scale_parameter_combination(combo, self.reference_pop, self.block_length, parameterObj._MODULE, parameterObj.config['mu']['mu']) for combo in parameter_combinations]
 
         return result
 
-    def _scale_parameter_combination(self, combo, reference_pop, block_length, module):
+    def _scale_parameter_combination(self, combo, reference_pop, block_length, module, mu):
         rdict = {}
         if module in ['makegrid', 'inference','optimize']:
             Ne_ref = sage.all.Rational(combo[f"Ne_{reference_pop}"])
-            rdict['theta'] = 4*sage.all.Rational(Ne_ref*combo['mu'])*block_length
+            rdict['theta'] = 4*sage.all.Rational(Ne_ref*mu)*block_length
             if 'Ne_A' in combo:
                 rdict['C_A']=Ne_ref/sage.all.Rational(combo['Ne_A'])
             if 'Ne_B' in combo:
@@ -447,35 +449,10 @@ class EquationSystemObj(object):
         else:
             ValueError("equationObj._scale_parameter_combination not implemented for this module.")
 
-    def _scale_min_max_parameter_combination(self, min_combo, max_combo, reference_pop, block_length, parameterObj):
-        #currently not used: can be deleted
-        rdict = {}
-        if parameterObj._MODULE == 'optimize':
-            Ne_ref = [sage.all.Rational(min_combo[f"Ne_{reference_pop}"]),sage.all.Rational(max_combo[f"Ne_{reference_pop}"])]
-            
-            rdict['theta'] = [4*sage.all.Rational(ref*combo['mu'])*block_length for combo, ref in zip([min_combo, max_combo],Ne_ref)]
-            rdict['C_A']=[ref/sage.all.Rational(combo['Ne_A']) for combo, ref in zip([max_combo, min_combo], Ne_ref)]
-            rdict['C_B'] = [ref/sage.all.Rational(combo['Ne_B']) for combo, ref in zip([max_combo, min_combo], Ne_ref)]
-            if 'Ne_A_B' in min_combo:
-                rdict['C_A_B'] = [ref/sage.all.Rational(combo['Ne_A_B']) for combo, ref in zip([max_combo, min_combo], Ne_ref)]
-            if 'T' in min_combo:
-                rdict['T'] = [sage.all.Rational(combo['T'])/(2*ref) for combo, ref in zip([min_combo, max_combo], Ne_ref[::-1])]
-            mig_dir = [key for key in min_combo.keys() if key.startswith("me_")]
-            if mig_dir:
-                mig_dir = mig_dir[0]
-                mig_pop = mig_dir.lstrip("me_")
-                rdict[f'M_{mig_pop}'] = [4*ref*sage.all.Rational(combo[mig_dir]) for combo, ref in zip([min_combo, max_combo], Ne_ref)]
-            rdict[f'C_{reference_pop}'] = [sage.all.Rational(1) for _ in range(2)]
-            #split rdict in two:
-            return [{k:min(v) for k,v in rdict.items()},{k:max(v) for k,v in rdict.items()}]    
-        else:
-            ValueError(f"Not _scale_min_max_parameter_combination() not implemented for {parameterObj._MODULE}")
-
-
     def _unscale_all_parameter_combinations(self):
         pass
 
-    def _unscale_parameter_combination(self, combo, reference_pop, block_length):
+    def _unscale_parameter_combination(self, combo, reference_pop, block_length, my):
         rdict = {}
         if parameterObj._MODULE in ['optimize']:
             #check if parameter needs to be scaled, e.g. not if already provided.
@@ -596,7 +573,7 @@ class EquationSystemObj(object):
         
     def optimize_parameters(self, data, parameterObj, trackHistory=True, verbose=False):
 
-        fixedParams = self._optimize_get_fixed_params(parameterObj)
+        fixedParams = parameterObj._get_fixed_params(as_dict=True)
         boundaryNames = self._optimize_get_boundary_names(parameterObj, fixedParams, data)
         starting_points, parameter_combinations_lowest, parameter_combinations_highest = self._optimize_get_boundaries(parameterObj, boundaryNames)
         trackHistoryPath = [[] for _ in range(parameterObj.numPoints)]
@@ -638,11 +615,11 @@ class EquationSystemObj(object):
 
     def _optimize_get_boundary_names(self, parameterObj, fixedParams, data):
         toBeSynced_pops = [f'Ne_{pop}' for pop in parameterObj.toBeSynced] if parameterObj.toBeSynced!=None else []
-        boundaryNames = [k for k in parameterObj.config['parameters'].keys() if not (k=='mu' or k in parameterObj.fixed_params or k in toBeSynced_pops)]
+        boundaryNames = [k for k in parameterObj.config['parameters'].keys() if not (k=='mu' or k in fixedParams or k in toBeSynced_pops)]
         if len(boundaryNames) == 0:
             print("[-] No boundaries specified.")
             #scale all parameters
-            scaled_params = self._scale_parameter_combination(fixedParams, self.reference_pop, self.block_length, parameterObj._MODULE)
+            scaled_params = self._scale_parameter_combination(fixedParams, self.reference_pop, self.block_length, parameterObj._MODULE, parameterObj.config['mu']['mu'])
             rate_by_variable = self._get_base_rate_by_variable(scaled_params)
             split_time = self._get_split_time(scaled_params)
             args = rate_by_variable, split_time, parameterObj.threads, True 
@@ -652,17 +629,10 @@ class EquationSystemObj(object):
             sys.exit()
         return boundaryNames
     
-    def _optimize_get_fixed_params(self, parameterObj):
-        # not actually using self, should be standalone function...
-        fixed_params = parameterObj.fixed_params[:] #synced pops already removed from fixed_params
-        fixedParams = {k:parameterObj.parameter_combinations[0][k] for k in fixed_params}
-        fixedParams['mu'] = parameterObj.config['mu']['mu']
-        return fixedParams
-    
     def _optimize_get_boundaries(self, parameterObj, boundary_names):
         # not actually using self, should be standalone function...
-        parameter_combinations_lowest = np.array([parameterObj.parameter_combinations[0][k] for k in boundary_names])
-        parameter_combinations_highest = np.array([parameterObj.parameter_combinations[1][k] for k in boundary_names])
+        parameter_combinations_lowest = np.array([parameterObj.parameter_combinations[k][0] for k in boundary_names])
+        parameter_combinations_highest = np.array([parameterObj.parameter_combinations[k][1] for k in boundary_names])
         #start from midpoint
         pmid = np.mean(np.vstack((parameter_combinations_lowest, parameter_combinations_highest)), axis=0)
         if parameterObj.numPoints > 1:
@@ -785,7 +755,7 @@ class EquationSystemObj(object):
             # equation_batch has all except rates and split_time 
             equationObj = EquationObj(
                                 matrix_idx, 
-                                marginal_idx, 
+                                marginal_idx,
                                 equation_by_mutation_tuple[equation_idx].substitute(mutation_rates))
             equationObjs.append(equationObj)
         replaceMutypesDict = {sage.all.SR.var(mutype):sage.all.SR.var('theta') for mutype in self.mutypes}

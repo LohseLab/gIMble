@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gIMble simulate                   [-z <DIR>] [-o <DIR> | -b <INT>] -c <FILE> [-r <INT>] [-t <INT>] [-h|--help] [-i <STR>] [(-g [--fixed <STR>])]
+"""usage: gIMble simulate                   [-z <DIR> | -o <DIR>] [-b <INT>] -c <FILE> [-r <INT>] [-t <INT>] [-h|--help] [-i <STR>] [(-g [--fixed <STR>])]
                                             
     Options:
         -h --help                                   show this
@@ -89,7 +89,8 @@ class SimulateParameterObj(lib.gimble.ParameterObj):
             if not self.sim_grid:
                 print("[-] A recombination map can only be used with the flag --sim_grid.")
                 print(f"[-] Simulate will continue using r={rec}") 
-                self.config["parameters"]["recombination"] = [rec,]    
+                self.config["parameters"]["recombination"] = [rec,]
+                return [rec,]    
             else:
                 rbins = self.config["simulations"]["number_bins"]
                 cutoff = self.config["simulations"]["cutoff"]
@@ -97,10 +98,10 @@ class SimulateParameterObj(lib.gimble.ParameterObj):
                 rbins = 10 if rbins=='' else rbins
                 scale = 'lin' if scale=='' else scale
                 cutoff = 90 if cutoff=='' else cutoff
-                self.config["parameters"]["recombination"] = [None,]
                 self.recombination_map = self._parse_recombination_map(rmap_path, cutoff, rbins, scale)
         else:
             self.config["parameters"]["recombination"] = [rec,]
+            return [rec,]
 
     def _parse_recombination_map(self, path, cutoff, bins, scale):
         #load bedfile

@@ -14,7 +14,7 @@ import pandas as pd
 from functools import partial
 import collections
 
-def run_sim(parameterObj, gimbleStore):
+def run_sim(sim_configs, parameterObj, gimbleStore):
     threads = parameterObj.threads
     global_info = parameterObj.config["simulations"]
     ploidy = global_info["ploidy"]
@@ -30,7 +30,6 @@ def run_sim(parameterObj, gimbleStore):
             blocks//=chunks
             replicates*=chunks
     k_max = parameterObj.config['k_max']
-    sim_configs = parameterObj.parameter_combinations
     global_info['sample_pop_ids'] = parameterObj.config['populations']['sample_pop_ids']
     A,B = global_info['sample_pop_ids']
     global_info['reference_pop'] = parameterObj.config['populations']['reference_pop']

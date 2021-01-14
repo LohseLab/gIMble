@@ -174,6 +174,20 @@ def calculate_bsfs_marginality(bsfs_2d, kmax_by_mutype=None):
         return format_percentage(0.0)
     return format_percentage(np.sum(bsfs_2d[np.any((np.array(list(kmax_by_mutype.values())) - bsfs_2d[:,1:]) < 0, axis=1), 0]) / np.sum(bsfs_2d[:,0]))
 
+def DOL_to_LOD(DOL):
+    """
+    converts dict of lists to list of dicts
+    """
+    reshape_DOL = list(zip(*DOL.values()))
+    return [{k:v for k,v in zip(DOL.keys(),sublist)} for sublist in reshape_DOL]  
+
+def LOD_to_DOL(LOD):
+    """
+    converts list of dicts to dict of lists
+    """
+    reshape_LOD = list(zip(*(d.values() for d in LOD)))
+    return {k:np.array(v,dtype=np.float64) for k,v in zip(LOD[0].keys(),reshape_LOD)}
+
 class ReportObj(object):
     '''Report class for making reports'''
 
@@ -593,6 +607,7 @@ def get_hash_from_dict(d):
     raise ValueError('must be a dict')
 
 def grid_meta_dict_to_value_arrays_by_parameter(grid_meta_dict):
+    #see function lib.gimble.LOD_to_DOL() -> should be redundant
     _values_by_parameter = collections.defaultdict(list)
     for grid_idx, grid_dict in grid_meta_dict.items():
         for key, value in grid_dict.items():
@@ -613,7 +628,7 @@ class CustomNormalizer(cerberus.Validator):
             return float(value)
         except:
             values = value.strip('()[]').split(",")
-            if len(values) == 2 or len(values) == 3:
+            if len(values) == 2:
                 try:
                     return [float(v) for v in values]
                 except ValueError:
@@ -710,20 +725,10 @@ class ParameterObj(object):
             self._get_cmd()
             ))
 
-    def _cast_to_repeated_list(self, x, repeat=1):
-        '''DRL: not using self, should be separate function'''
-        if isinstance(x, list):
-            return x
-        elif isinstance(x, str):
-            return [x]*repeat
-        try:
-            return list(x)*repeat
-        except TypeError:
-            return [x]*repeat
-
-    def _dict_product(self):
-        if len(self.config["parameters"])>0:
-            return [dict(zip(self.config["parameters"], x)) for x in itertools.product(*self.config["parameters"].values())]
+    def _dict_product(self, parameter_dict):
+        cartesian_product = itertools.product(*parameter_dict.values())
+        rearranged_product = list(zip(*cartesian_product))
+        return {k:np.array(v,dtype=np.float64) for k,v in zip(parameter_dict.keys(), rearranged_product)}
 
     def _dict_zip(self, pdict):
         '''DRL: if this is only used once, no need for being separate function'''
@@ -775,8 +780,18 @@ class ParameterObj(object):
             self._MODULE, 
             "".join(["--%s " % " ".join((k, str(v))) for k,v in self.__dict__.items() if not k.startswith("_")]))
 
-    def _get_fixed_params(self):
-        return [param for param,value in self.config['parameters'].items() if isinstance(value,float) or isinstance(value,int)]
+    def _get_fixed_params(self, subgroup=None, as_dict=False):
+        if not as_dict:
+            fixed_params =  [param for param,value in self.config['parameters'].items() if isinstance(value,float) or isinstance(value,int)]
+            if subgroup:
+                fixed_params = [param for param in fixed_params if param.startswith(subgroup)]
+            return fixed_params
+        else:
+            fixedParams = {k:next(iter(v)) for k, v in self.parameter_combinations.items() if len(set(v))==1}
+            fixedParams['mu'] = self.config['mu']['mu']
+            if subgroup:
+                fixedParams = {k:v for k,v in fixedParams.items() if k.startswith(subgroup)}
+            return fixedParams
 
     def _get_path(self, infile, path=False):
         if infile is None:
@@ -800,10 +815,11 @@ class ParameterObj(object):
             sys.exit("[X] Path does not exist: %r" % str(parent_path))
         return str(path)
 
-    def _get_pops_to_sync(self, config=None):
+    def _get_pops_to_sync(self, config=None, valid_sync_pops=None):
         reference, to_be_synced = None, None
         if config:
             syncing = config['populations']['sync_pop_sizes']
+            reference_pop = config['populations']['reference_pop']
         else:
             syncing =  self.config['populations']['sync_pop_sizes']
         if syncing:
@@ -811,6 +827,19 @@ class ParameterObj(object):
                 syncing = syncing.split(',')
                 reference = syncing[0]
                 to_be_synced = syncing[1:]
+                if self.config['populations']['reference_pop'] in to_be_synced:
+                    sys.exit(f"[X] Set reference pop to {reference}.")
+                reference_size = config['parameters'][f'Ne_{reference}']
+                tBS_sizes = [config['parameters'][f'Ne_{pop}'] for pop in to_be_synced]
+                reference_size = [s for s in tBS_sizes if s!=None and s!=reference_size and s!='']
+                if len(reference_size)>0:
+                    sys.exit(f"[X] Syncing pop sizes: set no value or the same value for Ne_{', Ne_'.join(to_be_synced)} as for Ne_{reference}")         
+                if self._MODULE == 'optimize':
+                    fixed_Nes = self._get_fixed_params(subgroup='Ne')
+                    if len(fixed_Nes)>0:
+                        if not f"Ne_{reference_pop}" in fixed_Nes:
+                            sys.exit("[X] No. No. No. It would make much more sense to set a population with a fixed size as reference.")
+
         return (reference, to_be_synced)
 
     def _get_unique_hash_from_dict(self, d):
@@ -838,68 +867,55 @@ class ParameterObj(object):
         if return_dict:
             return (hashlib.md5(str(to_hash).encode()).hexdigest(), to_hash)
         return hashlib.md5(str(to_hash).encode()).hexdigest()
-        
-    def _remove_pop_from_dict(self, toRemove):
-        if toRemove:
-            for pop in toRemove:
-                del self.config['parameters'][f'Ne_{pop}']
 
-    def _sync_pop_sizes(self, reference, toBeSynced):
-        if toBeSynced and reference:
-            for pop in toBeSynced:
-                for paramCombo in self.parameter_combinations:
-                    paramCombo[f'Ne_{pop}'] = paramCombo[f'Ne_{reference}']
-
-    def _sync_pop_sizes_optimize(self, reference, toBeSynced):
-        # @GB is this needed?
-        if toBeSynced and reference:
-            for pop in toBeSynced:
-                self.config['parameters'][f'Ne_{pop}']=self.config['parameters'][f'Ne_{reference}']
-
-    #def _verify_parent(self, infile):
-    #    # @GB is this needed?
-    #    if infile is None:
-    #        return None
-    #    path = pathlib.Path(infile).resolve()
-    #    parent = path.parent
-    #    if not parent.exists():
-    #        sys.exit("[X] Parent directory not found: %r" % str(infile))
-    #    return str(path)        
-
-    def _expand_params(self):
-        '''
-        this is a function that returns nothing, should be refactored...
-        '''
+    def _expand_params(self, remove=None):
         if len(self.config['parameters'])>0:
+            parameter_combinations = collections.defaultdict(list)
+            for key in remove:
+                del self.config['parameters'][f'Ne_{key}']
             for key, value in self.config['parameters'].items():
-                if isinstance(value, float) or isinstance(value, int):
-                    self.config['parameters'][key] = [value,]
+                if key.lstrip("Ne_") in remove:
+                    raise ValueError('population should have been removed upon calling _expand_params()')
+                elif isinstance(value, float) or isinstance(value, int):
+                    parameter_combinations[key]=np.array([value,], dtype=np.float64)
                 elif key=='recombination':
                     pass
                 else:
                     if len(value) == 4:
                         if self._MODULE == 'optimize':
-                            sys.exit(f"[X] {self._MODULE} requires a single point or boundary.")
+                            sys.exit(f"[X] {self._MODULE} requires a single point or boundary for all parameters.")
                         minv, maxv, n, scale = value
-                        if scale.startswith('lin'):
-                            sim_range = self._expand_params_lin(minv, maxv, n)
-                        elif scale.startswith('log'):
-                            sim_range = self._expand_params_log(minv, maxv, n)
-                        else:
-                            raise ValueError
-                        self.config['parameters'][key] = sim_range
-                    elif len(value) <4:
-                        self.config['parameters'][key] = np.unique(value)
+                        sim_range = self._expand_params_scale(scale, minv, maxv, n)
+                        parameter_combinations[key] = sim_range
+                    elif len(value) <= 2:
+                        parameter_combinations[key] = np.unique(value)
                     else:
                         raise ValueError("Uncaught error in config file configuration.")
+            return parameter_combinations
+        else:
+            raise ValueError("config parameters does not contain any parameters.")
 
-    def _expand_params_lin(self, minv, maxv, n):
-        '''should be refactored into _expand_params'''
-        return np.linspace(minv, maxv, num=n, endpoint=True, dtype=np.float64)
+    def _expand_params_scale(self, scale, minv, maxv, n):
+        if scale.startswith('lin'):
+            return np.linspace(minv, maxv, num=n, endpoint=True, dtype=np.float64)
+        elif scale.startswith('log'):
+            return np.logspace(minv, maxv, num=n, endpoint=True, dtype=np.float64)
+        else:
+            sys.exit("scale in config parameters should either be lin or log")
 
-    def _expand_params_log(self, minv, maxv, n):
-        '''should be refactored into _expand_params'''
-        return np.logspace(minv, maxv, num=n, endpoint=True, dtype=np.float64)
+    def _make_parameter_combinations(self, sync_reference=None, sync_target=None):
+        parameter_combinations = self._expand_params(remove=sync_target)
+        if self._MODULE == 'optimize':
+            return parameter_combinations
+        if self._MODULE == 'simulate':
+            rec = self._set_recombination_rate()
+            if rec != None:
+                parameter_combinations['recombination'] = rec
+        parameter_combinations =  self._dict_product(parameter_combinations)
+        if sync_reference and sync_target:
+            for pop in sync_target:
+                parameter_combinations[f'Ne_{pop}'] = parameter_combinations[f'Ne_{sync_reference}']
+        return parameter_combinations
 
     def _parse_config(self, config_file):
         '''validates types in INI config, returns dict with keys, values as sections/params/etc
@@ -910,6 +926,7 @@ class ParameterObj(object):
             (population_ids = A, B, A_B)
 
         '''
+        #validating config
         if config_file is None:
             return None
         raw_config = configparser.ConfigParser(inline_comment_prefixes='#', allow_no_value=True)
@@ -926,68 +943,20 @@ class ParameterObj(object):
         schema = get_config_schema(self._MODULE)
         sync_pops = config["populations"]["sync_pop_sizes"].strip(" ")
         valid_sync_pops = [population.strip(" ") for population in possible_values_dict["populations"]["# possible values sync_pop_sizes"].split("|")]
-        self.toBeSynced, self.reference = None, None
-        if sync_pops and sync_pops in valid_sync_pops:
-            #check whether values are equal  
-            self.reference, self.toBeSynced = self._get_pops_to_sync(config)
-            reference_size = config['parameters'][f'Ne_{self.reference}']
-            tBS_sizes = [config['parameters'][f'Ne_{pop}'] for pop in self.toBeSynced]
-            reference_size = [s for s in tBS_sizes if s!=None and s!=reference_size and s!='']
-            if len(reference_size)>0:
-                sys.exit(f"[X] Syncing pop sizes: set same value for Ne_{', Ne_'.join(self.toBeSynced)} as for Ne_{self.reference}")
-            for tBS in self.toBeSynced:
-                config['parameters'][f'Ne_{tBS}'] = config['parameters'][f'Ne_{self.reference}']
-        # DRL: scaling (should be it's own function)
+        
         validator = CustomNormalizer(schema, valid_pop_ids=valid_pop_ids, valid_sync_pops=valid_sync_pops)
         validator.validate(config)
         if not validator.validate(config):
             validator_error_string = get_validator_error_string(validator.errors)
             sys.exit("[X] INI Config file format error(s) ...\n%s" % validator_error_string)
         self.config = validator.normalized(config)
-        # there is probably a better way for setting config['population_by_letter'] ...
-        self.config['population_by_letter'] = {'A' : config['populations']['A'], 'B' : config['populations']['B']}
+
         self.config['populations']['sample_pop_ids'] = sample_pop_ids
-        #print("[+] Config file validated.")
-        #print('self.config', self.config)
-        if self._MODULE in set(['makegrid', 'inference', 'simulate', 'gridsearch', 'query']):
-            self.config['mu']['blocklength'] = self._get_blocks_length()
-            self.config['parameters']['mu'] = self.config['mu']['mu']
-            self._expand_params()
-            #self.reference, self.toBeSynced = self._get_pops_to_sync()
-            self._remove_pop_from_dict(self.toBeSynced)
-            if self._MODULE=='simulate':
-                self._set_recombination_rate()
-            self.parameter_combinations = self._dict_product()
-            if self.toBeSynced:
-                self._sync_pop_sizes(self.reference, self.toBeSynced)
-        elif self._MODULE == 'optimize':
-            #TO BE CHECKED: which bits are we still using
-            #determine parameters that are fixed:
-            self.fixed_params = self._get_fixed_params()
-            #self.config['mu']['blockslength'] = self._get_blocks_length(self.zstore)
-            #self.config['parameters']['mu'] = self.config['mu']['mu']
-            reference_pop=self.config['populations']['reference_pop']
-            #syncing pop sizes
-            #self.reference, self.toBeSynced = self._get_pops_to_sync()
-            if self.toBeSynced:
-                if reference_pop in self.toBeSynced:
-                    sys.exit(f"[X] Set reference pop to {self.reference}.")
-            toBeSynced_pops = [f'Ne_{s}' for s in self.toBeSynced] if self.toBeSynced!=None else []
-            self.fixed_params = [pop for pop in self.fixed_params if pop not in toBeSynced_pops]
-            #verify if any Ne fixed, whether one of those Ne is self.reference
-            fixed_Nes = [p for p in self.fixed_params if p.startswith('Ne')]
-            if len(fixed_Nes)>0:
-                if not f"Ne_{reference_pop}" in fixed_Nes:
-                    sys.exit("[X] No. No. No. It would make much more sense to set a population with a fixed size as reference.")
-            #self._sync_pop_sizes_optimize(self.reference, self.toBeSynced)
-            self.parameter_combinations = self._return_boundaries()
-        else:
-            sys.exit("[X] gimble.py_processing_config: Not implemented yet.")
-
-    def _return_boundaries(self, length_boundary_set=3):
-        parameter_combinations = {k:self._cast_to_repeated_list(v, length_boundary_set)[:length_boundary_set] for k,v in self.config['parameters'].items()}    
-        return self._dict_zip(parameter_combinations)
-
+        self.config['population_by_letter'] = {pop:config['populations'][pop] for pop in sample_pop_ids}
+        self.config['mu']['blocklength'] = self._get_blocks_length()
+        self.reference, self.toBeSynced = self._get_pops_to_sync(config, valid_sync_pops)
+        self.parameter_combinations = self._make_parameter_combinations(sync_reference=self.reference, sync_target=self.toBeSynced)
+        
 class Store(object):
     def __init__(self, prefix=None, path=None, create=False, overwrite=False):
         self.prefix = prefix if not prefix is None else str(pathlib.Path(path).resolve().stem)
@@ -1060,10 +1029,14 @@ class Store(object):
             parameterObj.label = f"run_{run_count}"
         self.data.require_group(f'sims/{parameterObj.label}')
         if parameterObj.sim_grid:
-            parameterObj.parameter_combinations = self._get_sim_grid(parameterObj)
-        lib.simulate.run_sim(parameterObj, self)
-        #print(self._get_sims_report(width=100, label=parameterObj.label).__repr__().encode('utf-8'))
-        print(self._get_sims_report(width=100, label=parameterObj.label))
+            sim_configs = self._get_sim_grid(parameterObj)
+        else:
+            sim_configs = lib.gimble.DOL_to_LOD(parameterObj.parameter_combinations)
+        lib.simulate.run_sim(sim_configs, parameterObj, self)
+        try:
+            print(self._get_sims_report(width=100, label=parameterObj.label))   
+        except UnicodeEncodeError:
+            print(self._get_sims_report(width=100, label=parameterObj.label).__repr__().encode('utf-8')) #temp fix for my environment
         self.log_stage(parameterObj)
 
     def query(self, parameterObj):
@@ -1095,9 +1068,14 @@ class Store(object):
         unique_hash = parameterObj._get_unique_hash()
         grids, grid_meta_dict = self._get_grid(unique_hash)
         lncls_global, lncls_windows = self._get_lncls(unique_hash)
-        values_by_parameter = grid_meta_dict_to_value_arrays_by_parameter(grid_meta_dict)
+        if isinstance(grid_meta_dict, list):
+            values_by_parameter = LOD_to_DOL(grid_meta_dict)
+            #values_by_parameter = grid_meta_dict_to_value_arrays_by_parameter(grid_meta_dict)
+        else:
+            values_by_parameter = grid_meta_dict #once everything works, values_by_parameter should be simply renamed
         sequences, starts, ends, index = self._get_window_bed_columns()
         parameter_names = [name for name in values_by_parameter.keys() if name != 'mu']
+        grid_meta_dict.pop('mu', None) #remove mu from grid_meta_dict
         column_headers = ['sequence', 'start', 'end', 'index', 'lnCL'] + parameter_names + ['fixed']
         dtypes = {'start': 'int64', 'end': 'int64', 'index': 'int64', 'lnCL': 'float64'}
         for param in parameter_names:
@@ -1109,14 +1087,16 @@ class Store(object):
             fixed = np.full_like(lncls_windows.shape[0], parameter, dtype='<U%s' % MAX_PARAM_LENGTH)
             for grid_meta_idxs in self.get_slice_grid_meta_idxs(grid_meta_dict=grid_meta_dict, lncls=lncls_windows, fixed_parameter=parameter, parameter_value=None):
                 best_likelihoods = lncls_windows[np.arange(lncls_windows.shape[0]), grid_meta_idxs]
-                meta_dicts = list(np.vectorize(grid_meta_dict.__getitem__)(grid_meta_idxs.astype(str)))
-                columns = []
-                for param in parameter_names:
-                    column = []
-                    for meta_dict in meta_dicts:
-                        column.append(meta_dict[param])
-                    columns.append(column)
-                best_params = np.vstack(columns).T
+                best_params = np.array(list(zip(*grid_meta_dict.values())))[grid_meta_idxs]    
+                #line above replaces code until best_params = 
+                #meta_dicts = list(np.vectorize(grid_meta_dict.__getitem__)(grid_meta_idxs.astype(str)))
+                #columns = []
+                #for param in parameter_names:
+                #    column = []
+                #    for meta_dict in meta_dicts:
+                #        column.append(meta_dict[param])
+                #    columns.append(column)
+                #best_params = np.vstack(columns).T
                 int_bed = np.vstack([starts, ends, index, best_likelihoods, best_params.T]).T
                 header = ["# %s" % parameterObj._VERSION]
                 header += ["# %s" % "\t".join(column_headers)]
@@ -1154,15 +1134,17 @@ class Store(object):
     def _write_gridsearch_bed(self, parameterObj=None, lncls=None, best_idx=None, grid_meta_dict=None):
         if parameterObj is None or lncls is None or grid_meta_dict is None:
             raise ValueError('_write_gridsearch_bed: needs parameterObj and lncls and grid_meta_dict')
-        grids = []
-        for grid_idx, grid_dict in grid_meta_dict.items():
-            grids.append(list(grid_dict.values()))
-        grid_params = np.array(grids, dtype=np.float64)
+        #grids = []
+        grids = DOL_to_LOD(grid_meta_dict)
+        #for grid_idx, grid_dict in grid_meta_dict.items():
+        #    grids.append(list(grid_dict.values()))
+        grid_params = np.array([list(subdict.values()) for subdict in grids] ,dtype=np.float64)
         best_params = grid_params[np.argmax(lncls, axis=1), :]
         best_likelihoods = np.max(lncls, axis=1)
         delta_lncls = best_likelihoods - lncls[:, best_idx]
         sequences, starts, ends, index = self._get_window_bed_columns() 
-        params_header = list(grid_dict.keys())
+        params_header = list(next(iter(grids)).keys())
+        #params_header = list(grid_dict.keys())
         meta_blocks = self._get_meta('blocks')
         meta_windows = self._get_meta('windows')
         bsfs_windows_full = self.get_bsfs(
@@ -1197,7 +1179,11 @@ class Store(object):
         fixed_parameter=str, parameter_value=float  => 1d-array of idxs with shape (windows,) 
         '''
         if fixed_parameter: 
-            values_by_parameter = grid_meta_dict_to_value_arrays_by_parameter(grid_meta_dict)
+            if isinstance(grid_meta_dict, list):
+                values_by_parameter = LOD_to_DOL(grid_meta_dict)
+                #values_by_parameter = grid_meta_dict_to_value_arrays_by_parameter(grid_meta_dict)
+            else:
+                values_by_parameter = {k:np.array(v, dtype=np.float64) for k,v in grid_meta_dict.items()}
             if not fixed_parameter in values_by_parameter:
                 raise ValueError("%r is not part of this model" % fixed_parameter)
             fixed_parameter_values = np.array(values_by_parameter[fixed_parameter])
@@ -1247,7 +1233,10 @@ class Store(object):
             self._set_lncls(unique_hash, lncls_global, lncls_type='global', overwrite=parameterObj.overwrite)
             best_idx = np.argmax(lncls_global, axis=0)
             print('[+] Best grid point (based on bSFS within windows): %s' % lncls_global[best_idx])
-            print('[+] \t %s' % "; ".join(["%s = %s" % (k, v) for k, v in grid_meta_dict[str(best_idx)].items()]))
+            #extract single best paramcombo
+            best_value = [v[best_idx] for v in grid_meta_dict.values()]
+            print('[+] \t %s' % "; ".join(["%s = %s" % (k, v) for k, v in zip(grid_meta_dict.keys(), best_value)]))
+            #print('[+] \t %s' % "; ".join(["%s = %s" % (k, v) for k, v in grid_meta_dict[str(best_idx)].items()]))
             self._write_gridsearch_bed(parameterObj=parameterObj, lncls=lncls_windows, best_idx=best_idx, grid_meta_dict=grid_meta_dict)
         elif parameterObj.data_type == 'simulate':
             self._gridsearch_sims(parameterObj, grids, grid_meta_dict)
@@ -1262,26 +1251,30 @@ class Store(object):
             lncls_blocks = self.gridsearch_np(bsfs=bsfs_clipped, grids=grids)
             self._set_lncls(unique_hash, lncls_blocks, lncls_type='blocks', overwrite=parameterObj.overwrite)
             best_idx = np.argmax(lncls_blocks, axis=0)
+            best_value = [v[best_idx] for v in grid_meta_dict.values()]
             print('[+] Best grid point (based on bSFS): %s' % lncls_blocks[best_idx])
-            print('[+] \t %s' % "; ".join(["%s = %s" % (k, v) for k, v in grid_meta_dict[str(best_idx)].items()]))
+            print('[+] \t %s' % "; ".join(["%s = %s" % (k, v) for k, v in zip(grid_meta_dict.keys(), best_value)]))
+            #print('[+] \t %s' % "; ".join(["%s = %s" % (k, v) for k, v in grid_meta_dict[str(best_idx)].items()]))
             print('[+] Warning: gridsearch on bSFS is still experimental!')
         else:
             raise ValueError("Datatype other than windows, blocks or simulate was specified using gridsearch. Should have been caught earlier.")
 
     def _gridsearch_sims(self, parameterObj, grids, grid_meta_dict):
         #check parameters that were fixed initially:
-        all_dicts = [grid_meta_dict[str(i)] for i in range(len(grid_meta_dict))] #this can be omitted once parameterObj.parameter_combinations is
-        #in the shape {Ne_A:[v1, v2, v3, v4, ...], Ne_B:[v1', v2' , ...], ...}
-        keys = list(all_dicts[0].keys())
-        key_all_values_dict = {}
-        for key in keys:
-            key_all_values_dict[key] = np.array([d[key] for d in all_dicts], dtype=np.float64)
-        gridded_params = sorted([key for key, items in key_all_values_dict.items() if len(set(items))>1])
+        #all_dicts = [grid_meta_dict[str(i)] for i in range(len(grid_meta_dict))] 
+        ##this can be omitted once parameterObj.parameter_combinations is
+        ##in the shape {Ne_A:[v1, v2, v3, v4, ...], Ne_B:[v1', v2' , ...], ...}
+        #keys = list(all_dicts[0].keys())
+        #key_all_values_dict = {}
+        #for key in keys:
+        #    key_all_values_dict[key] = np.array([d[key] for d in all_dicts], dtype=np.float64)
+        gridded_params = sorted([key for key, items in grid_meta_dict.items() if len(set(items))>1])
 
         if 'fixed_param_grid' in self.data[f'sims/{parameterObj.label}'].attrs:
             fixed_param_grid = self.data[f'sims/{parameterObj.label}'].attrs['fixed_param_grid']
             fixed_param_grid_value = self.data[f'sims/{parameterObj.label}/parameter_combination_0'].attrs[fixed_param_grid]
-            unique_values_fixed_param = np.unique(key_all_values_dict[fixed_param_grid])
+            unique_values_fixed_param = np.unique(grid_meta_dict[fixed_param_grid])
+            #unique_values_fixed_param = np.unique(key_all_values_dict[fixed_param_grid])            
             fixed_param_grid_value_idx = np.where(unique_values_fixed_param==fixed_param_grid_value)[0][0]
         else:
             fixed_param_grid = None
@@ -1296,7 +1289,7 @@ class Store(object):
             ) #iterator over each parameter combination that was sim'ed
         num_param_combos = self.data[f'sims/{parameterObj.label}'].__len__()
         for name, data in tqdm(param_combo_iterator, desc='Processing all parameter combinations', total=num_param_combos,  ncols=100):
-            df, df_fixed_param = self._gridsearch_sims_single(data, grids, fixed_param_grid, gridded_params, key_all_values_dict, grid_meta_dict, parameterObj.label, name, fixed_param_grid_value_idx)
+            df, df_fixed_param = self._gridsearch_sims_single(data, grids, fixed_param_grid, gridded_params, grid_meta_dict, parameterObj.label, name, fixed_param_grid_value_idx)
         
         print(f"[+] Output written to {os.getcwd()}")    
         if fixed_param_grid:
@@ -1304,7 +1297,7 @@ class Store(object):
             print('\t'.join(f'{fixed_param_grid}_{i}' if i !=fixed_param_grid_value_idx else f'{fixed_param_grid}_background' for i in range(len(unique_values_fixed_param))))
             print('\t'.join("{:.3e}".format(value) for value in unique_values_fixed_param))
 
-    def _gridsearch_sims_single(self, data, grids, fixed_param_grid, gridded_params, grid_meta_dict, grid_meta_dict_original, label, name, fixed_param_grid_value_idx):
+    def _gridsearch_sims_single(self, data, grids, fixed_param_grid, gridded_params, grid_meta_dict, label, name, fixed_param_grid_value_idx):
         assert np.product(data.shape[1:])==np.product(grids.shape[1:]), "Dimensions of sim bSFS and grid bSFS do not correspond. k_max does not correspond but not caught."
         data = np.reshape(data, (data.shape[0],-1)) #data shape: replicates * bSFS
         grids = np.reshape(grids, (grids.shape[0],-1)) #grids shape: num_grid_points * bSFS
@@ -1325,7 +1318,7 @@ class Store(object):
             assert fixed_param_grid in gridded_params, "fixed param for bootstrap not in gridded_params list! Report this issue."
             columns = [] #shape = num_values_fixed_param * replicates
             #values are not sorted!
-            for fixed_param_value_idxs in self.get_slice_grid_meta_idxs(grid_meta_dict=grid_meta_dict_original, lncls=lncls, fixed_parameter=fixed_param_grid):
+            for fixed_param_value_idxs in self.get_slice_grid_meta_idxs(grid_meta_dict=grid_meta_dict, lncls=lncls, fixed_parameter=fixed_param_grid):
                 best_likelihoods = lncls[np.arange(lncls.shape[0]), fixed_param_value_idxs]
                 columns.append(best_likelihoods)
             #results in column are sorted from smallest to largest param value
@@ -1433,7 +1426,8 @@ class Store(object):
         if set_by_user and parameterObj.ftol_rel>0:
             print(f"Relative tolerance on lnCL: {parameterObj.ftol_rel}")
         else:
-            print(f"Relative tolerance on lnCL set by data resampling: {parameterObj.ftol_rel}")
+            pass
+            #print(f"Relative tolerance on lnCL set by data resampling: {parameterObj.ftol_rel}")
         if parameterObj.xtol_rel>0:
             print(f"Relative tolerance on norm of parameter vector: {parameterObj.ftol_rel}")
         
@@ -1491,7 +1485,8 @@ class Store(object):
         unique_hash = parameterObj._get_unique_hash()
         if self._has_grid(unique_hash) and not parameterObj.overwrite:
             sys.exit("[X] Grid for this config file already exists.")
-        print("[+] Generated %s grid points combinations." % len(parameterObj.parameter_combinations))
+        number_grid_points = len(parameterObj.parameter_combinations[next(iter(parameterObj.parameter_combinations))])
+        print("[+] Generated %s grid points combinations." % number_grid_points)
         equationSystem = lib.math.EquationSystemObj(parameterObj)
         #build the equations
         equationSystem.initiate_model(parameterObj=parameterObj)
@@ -1500,7 +1495,9 @@ class Store(object):
 
     def _set_grid(self, unique_hash, ETPs, grid_labels, overwrite=False):
         dataset = self.data['grids'].create_dataset(unique_hash, data=ETPs, overwrite=overwrite)
-        dataset.attrs.put({idx:combo for idx, combo in enumerate(grid_labels)})
+        #dataset.attrs.put({idx:combo for idx, combo in enumerate(grid_labels)})
+        grid_labels = {k:list(v) for k,v in grid_labels.items()}
+        dataset.attrs.put(grid_labels) #using dict of list to save parameters
 
     def _has_grid(self, unique_hash):
         if f'grids/{unique_hash}' in self.data:
@@ -1527,7 +1524,8 @@ class Store(object):
         #lncls global should be based on w_bsfs !
         global_winning_fixed_param_idx = np.argmax(lncls_global)
         if parameterObj.fixed_param_grid:
-            global_winning_fixed_param_value = grid_meta_dict[str(global_winning_fixed_param_idx)][parameterObj.fixed_param_grid]
+            global_winning_fixed_param_value = grid_meta_dict[parameterObj.fixed_param_grid][global_winning_fixed_param_idx]
+            #global_winning_fixed_param_value = grid_meta_dict[str(global_winning_fixed_param_idx)][parameterObj.fixed_param_grid]
         else:
             global_winning_fixed_param_value = None
         #get optimal parametercombo given background for fixed parameter
@@ -1542,7 +1540,7 @@ class Store(object):
             grid_to_sim, window_df = self._get_sim_grid_fixed_rec(parameterObj, local_winning_fixed_param_idx, grid_meta_dict)
 
         param_df = pd.DataFrame(grid_to_sim)
-        param_df.drop(labels=['mu'], inplace=True, axis=1)
+        param_df.drop(labels=['mu'], inplace=True, axis=1, errors='ignore')
         param_df.to_csv(f'simulated_grid_{parameterObj.label}.tsv', sep='\t')
         print(f"[+] Wrote simulated_grid_{parameterObj.label}.tsv containing all simulated parameter combinations.")
         window_df.to_csv(f'windows_sims_param_idx_{parameterObj.label}.tsv', sep='\t')
@@ -1557,7 +1555,8 @@ class Store(object):
         parameterObj.recombination_map['param_with_rec_idx'] = param_combo_idxs
         grid_to_sim = []
         for r, idx in unique:
-            param_dict = copy.deepcopy(grid_meta_dict[str(int(idx))])
+            #param_dict = copy.deepcopy(grid_meta_dict[str(int(idx))])
+            param_dict = {k:v for k,v in zip(grid_meta_dict.keys(),list(zip(*grid_meta_dict.values()))[int(idx)])}
             param_dict['recombination'] = r
             grid_to_sim.append(param_dict)
         window_df = parameterObj.recombination_map[['sequence', 'start', 'end', 'param_with_rec_idx']]
@@ -1570,7 +1569,8 @@ class Store(object):
         old_to_new_idx = {} #dict to translate old idx to new in grid_to_sim
         for new_idx, old_idx in enumerate(param_combo_idxs):
             old_to_new_idx[old_idx] = new_idx
-            param_dict = copy.deepcopy(grid_meta_dict[str(int(old_idx))])
+            #param_dict = copy.deepcopy(grid_meta_dict[str(int(old_idx))])
+            param_dict = {k:v for k,v in zip(grid_meta_dict.keys(),list(zip(*grid_meta_dict.values()))[int(old_idx)])}
             param_dict['recombination'] = rec_rate
             grid_to_sim.append(param_dict)
         window_df = self._get_window_coordinates()
