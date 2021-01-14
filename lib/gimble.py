@@ -1033,8 +1033,10 @@ class Store(object):
         else:
             sim_configs = lib.gimble.DOL_to_LOD(parameterObj.parameter_combinations)
         lib.simulate.run_sim(sim_configs, parameterObj, self)
-        print(self._get_sims_report(width=100, label=parameterObj.label).__repr__().encode('utf-8')) #temp fix for my environment
-        #print(self._get_sims_report(width=100, label=parameterObj.label))
+        try:
+            print(self._get_sims_report(width=100, label=parameterObj.label))   
+        except UnicodeEncodeError:
+            print(self._get_sims_report(width=100, label=parameterObj.label).__repr__().encode('utf-8')) #temp fix for my environment
         self.log_stage(parameterObj)
 
     def query(self, parameterObj):
