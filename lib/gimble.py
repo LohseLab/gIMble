@@ -871,12 +871,11 @@ class ParameterObj(object):
     def _expand_params(self, remove=None):
         if len(self.config['parameters'])>0:
             parameter_combinations = collections.defaultdict(list)
-            for key in remove:
-                del self.config['parameters'][f'Ne_{key}']
+            if remove:
+                for key in remove:
+                    del self.config['parameters'][f'Ne_{key}']
             for key, value in self.config['parameters'].items():
-                if key.lstrip("Ne_") in remove:
-                    raise ValueError('population should have been removed upon calling _expand_params()')
-                elif isinstance(value, float) or isinstance(value, int):
+                if isinstance(value, float) or isinstance(value, int):
                     parameter_combinations[key]=np.array([value,], dtype=np.float64)
                 elif key=='recombination':
                     pass
@@ -956,7 +955,7 @@ class ParameterObj(object):
         self.config['mu']['blocklength'] = self._get_blocks_length()
         self.reference, self.toBeSynced = self._get_pops_to_sync(config, valid_sync_pops)
         self.parameter_combinations = self._make_parameter_combinations(sync_reference=self.reference, sync_target=self.toBeSynced)
-        
+
 class Store(object):
     def __init__(self, prefix=None, path=None, create=False, overwrite=False):
         self.prefix = prefix if not prefix is None else str(pathlib.Path(path).resolve().stem)
