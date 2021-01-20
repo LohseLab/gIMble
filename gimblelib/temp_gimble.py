@@ -1,6 +1,5 @@
 import itertools
 from tqdm import tqdm
-from lib.functions import plot_mutuple_barchart
 import allel
 import numpy as np
 import pandas as pd
@@ -14,45 +13,33 @@ import sys
 import warnings
 import pathlib
 import configparser
-import matplotlib.pyplot as plt
-from matplotlib.path import Path
-import matplotlib.patches as patches
-import numpy as np
 import cerberus
-import lib.simulate
-#import dask
 import hashlib 
-from timeit import default_timer as timer
 import fractions
 import copy
-import lib.math
 import tabulate
-# np.set_printoptions(threshold=sys.maxsize)
 
+import gimble.simulate
+import gimble.genotypes
+import gimble.math
+
+#import dask
+#from timeit import default_timer as timer
+# np.set_printoptions(threshold=sys.maxsize)
 
 '''
 [Rules for better living]
-
 - gimbleStore.data.attrs (meta): ZARR JSON encoder does not like numpy/pandas dtypes, have to be converted to python dtypes
-
 - Coordinate systems:
     {GIMBLE}                    : 0-based       | {GIMBLE}  
     -----------------------------------------------------------
     {GENOME_FILE} : LENGTH      : 0-based   =>  | [0, l)
     {BED_FILE}    : START:END   : 0-based   =>  | [START, END)
     {VCF_FILE}    : POS         : 1-based   =>  | [POS-1)
-'''
 
-'''
 [To Do]
-- generalise prefligth-checks for relevant modules
-
-
-[FASTA parsing]
-- https://pypi.org/project/pyfasta/
-
-    
-[QC plots]
+- FASTA parsing w/ https://pypi.org/project/pyfasta/
+- QC plots
     - variants 
         - plot barcharts of HOMREF/HOMALT/HET/MISS/MULTI as proportion of total records
     - intervals
@@ -160,33 +147,19 @@ META_TEMPLATE_BY_STAGE = {
             }
         }
 
-def get_validator_error_string(validator_errors):
-    out = []
-    for section, errors in validator_errors.items():
-        out.append("Section %s ..." % section)
-        for error_dict in errors:
-            for parameter, values in error_dict.items():
-                out.append("[X] %s \t: %s ..." % (parameter, " ".join(values)))
-    return "\n".join(out)
+# def get_validator_error_string(validator_errors):
+#     out = []
+#     for section, errors in validator_errors.items():
+#         out.append("Section %s ..." % section)
+#         for error_dict in errors:
+#             for parameter, values in error_dict.items():
+#                 out.append("[X] %s \t: %s ..." % (parameter, " ".join(values)))
+#     return "\n".join(out)
 
 def calculate_bsfs_marginality(bsfs_2d, kmax_by_mutype=None):
     if not kmax_by_mutype:
         return format_percentage(0.0)
     return format_percentage(np.sum(bsfs_2d[np.any((np.array(list(kmax_by_mutype.values())) - bsfs_2d[:,1:]) < 0, axis=1), 0]) / np.sum(bsfs_2d[:,0]))
-
-def DOL_to_LOD(DOL):
-    """
-    converts dict of lists to list of dicts
-    """
-    reshape_DOL = list(zip(*DOL.values()))
-    return [{k:v for k,v in zip(DOL.keys(),sublist)} for sublist in reshape_DOL]  
-
-def LOD_to_DOL(LOD):
-    """
-    converts list of dicts to dict of lists
-    """
-    reshape_LOD = list(zip(*(d.values() for d in LOD)))
-    return {k:np.array(v,dtype=np.float64) for k,v in zip(LOD[0].keys(),reshape_LOD)}
 
 class ReportObj(object):
     '''Report class for making reports'''
@@ -231,62 +204,62 @@ class ReportObj(object):
     def __repr__(self):
         return "\n".join(self.out)
     
-def get_config_schema(module):
-    schema = {
-        'gimble': {
-            'type': 'dict',
-            'schema': {
-                'version': {'required': True, 'empty':False, 'type': 'string'},
-                'precision': {'required': True, 'empty':False, 'type': 'integer', 'coerce': int},
-                'random_seed': {'required': True, 'empty':False, 'type': 'integer', 'coerce': int}}},
-        'populations': {
-            'required': True, 'type': 'dict', 
-            'schema': {
-                'A': {'required':True, 'empty':True, 'type':'string'},
-                'B': {'required':True, 'empty':True, 'type':'string'},
-                'reference_pop': {'required':True, 'empty':False, 'isPop':True},
-                'sync_pop_sizes': {'required':False, 'empty':True, 'isPopSync':True},
-                }},
-        'k_max': {
-            'type': 'dict', 
-            'valuesrules': {'required': True, 'empty':False, 'type': 'integer', 'min': 1, 'coerce':int}},
-        'mu': {
-            'type':'dict', 
-            'schema':{
-                'mu': {'required': False, 'empty':True, 'type': 'float', 'coerce':float},
-                'blocklength': {'required': False, 'empty':True,'notNoneInt':True, 'coerce':'int_or_empty'}
-                }},
-        'parameters': {
-            'type': 'dict', 'required':True, 'empty':False, 
-            'valuesrules': {'coerce':'float_or_list', 'notNone':True}
-        },
-        'simulations':{
-            'required':False, 'empty':True}
-        }
-    if module == 'simulate':
-        schema['simulations'] = {
-        'type': 'dict',
-        'required':True,
-        'schema': {
-            'ploidy': {'required':True,'empty':False, 'required':True, 'type':'integer', 'min':1, 'coerce':int},
-            'blocks': {'required':True, 'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
-            'chunks': {'required':True, 'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
-            'replicates': {'required':True,'empty': False, 'type': 'integer', 'min':1, 'coerce':int},
-            'sample_size_A': {'required':True,'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
-            'sample_size_B': {'required':True,'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
-            'recombination_rate': {'empty': True, 'notNoneFloat':True, 'coerce':'float_or_empty', 'min':0.0},
-            'recombination_map': {'empty': True, 'type': 'string', 'isPath':True, 'dependencies':['number_bins', 'cutoff', 'scale']},
-            'number_bins': {'empty': True, 'notNoneInt': True, 'coerce':'int_or_empty', 'min':1},
-            'cutoff': {'empty': True, 'notNoneFloat': True, 'coerce':'float_or_empty', 'min':0},
-            'scale': {'empty':True, 'type':'string', 'allowed':['lin', 'log']}
-        }}
-        schema['mu'] = {
-            'type':'dict', 
-            'schema':{
-                'mu': {'required': True, 'empty':False, 'type': 'float', 'coerce':float},
-                'blocklength': {'required': False, 'empty':True, 'min':1, 'type': 'integer', 'coerce':int}
-                }}
-    return schema
+# def get_config_schema(module):
+#     schema = {
+#         'gimble': {
+#             'type': 'dict',
+#             'schema': {
+#                 'version': {'required': True, 'empty':False, 'type': 'string'},
+#                 'precision': {'required': True, 'empty':False, 'type': 'integer', 'coerce': int},
+#                 'random_seed': {'required': True, 'empty':False, 'type': 'integer', 'coerce': int}}},
+#         'populations': {
+#             'required': True, 'type': 'dict', 
+#             'schema': {
+#                 'A': {'required':True, 'empty':True, 'type':'string'},
+#                 'B': {'required':True, 'empty':True, 'type':'string'},
+#                 'reference_pop': {'required':True, 'empty':False, 'isPop':True},
+#                 'sync_pop_sizes': {'required':False, 'empty':True, 'isPopSync':True},
+#                 }},
+#         'k_max': {
+#             'type': 'dict', 
+#             'valuesrules': {'required': True, 'empty':False, 'type': 'integer', 'min': 1, 'coerce':int}},
+#         'mu': {
+#             'type':'dict', 
+#             'schema':{
+#                 'mu': {'required': False, 'empty':True, 'type': 'float', 'coerce':float},
+#                 'blocklength': {'required': False, 'empty':True,'notNoneInt':True, 'coerce':'int_or_empty'}
+#                 }},
+#         'parameters': {
+#             'type': 'dict', 'required':True, 'empty':False, 
+#             'valuesrules': {'coerce':'float_or_list', 'notNone':True}
+#         },
+#         'simulations':{
+#             'required':False, 'empty':True}
+#         }
+#     if module == 'simulate':
+#         schema['simulations'] = {
+#         'type': 'dict',
+#         'required':True,
+#         'schema': {
+#             'ploidy': {'required':True,'empty':False, 'required':True, 'type':'integer', 'min':1, 'coerce':int},
+#             'blocks': {'required':True, 'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+#             'chunks': {'required':True, 'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+#             'replicates': {'required':True,'empty': False, 'type': 'integer', 'min':1, 'coerce':int},
+#             'sample_size_A': {'required':True,'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+#             'sample_size_B': {'required':True,'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+#             'recombination_rate': {'empty': True, 'notNoneFloat':True, 'coerce':'float_or_empty', 'min':0.0},
+#             'recombination_map': {'empty': True, 'type': 'string', 'isPath':True, 'dependencies':['number_bins', 'cutoff', 'scale']},
+#             'number_bins': {'empty': True, 'notNoneInt': True, 'coerce':'int_or_empty', 'min':1},
+#             'cutoff': {'empty': True, 'notNoneFloat': True, 'coerce':'float_or_empty', 'min':0},
+#             'scale': {'empty':True, 'type':'string', 'allowed':['lin', 'log']}
+#         }}
+#         schema['mu'] = {
+#             'type':'dict', 
+#             'schema':{
+#                 'mu': {'required': True, 'empty':False, 'type': 'float', 'coerce':float},
+#                 'blocklength': {'required': False, 'empty':True, 'min':1, 'type': 'integer', 'coerce':int}
+#                 }}
+#     return schema
 
 def recursive_get_size(path):
     """Gets size in bytes of the given path, recursing into directories."""
@@ -363,49 +336,34 @@ def check_unique_pos(pos_array):
     duplicates = unique_pos[counts_pos > 1]
     if duplicates.any():
         print("\n[-] %s VCF records with non-unique positions found. Rescuing records by shifting position... (abort if this is not desired)" % (len(duplicates)))
-        pos_array = fix_pos_array(pos_array)
+        pos_array = gimble.genotypes.fix_pos_array(pos_array)
     return pos_array
 
-def fix_pos_array(pos_array):
-    '''
-    De-duplicates array by shifting values forward until there aren't any collisions
-    '''
-    # get boolean array for first and subsequent duplicates (True) (required sorted) 
-    idxs = np.insert((np.diff(pos_array)==0).astype(np.bool), 0, False)
-    if np.any(idxs): 
-        # if there are duplicates, get new values by incrementing by one
-        new_values = pos_array[idxs]+1
-        # get non-duplicate values
-        uniq_values = pos_array[~idxs]
-        # insert new_values in non-duplicated values (required sorted)
-        new_idxs = np.searchsorted(uniq_values, new_values)
-        # recursive call
-        return fix_pos_array(np.sort(np.insert(uniq_values, new_idxs, new_values)))
-    # if there are no duplicated values
-    return pos_array
+# def fix_pos_array(pos_array):
+#     '''
+#     De-duplicates array by shifting values forward until there aren't any collisions
+#     '''
+#     # get boolean array for first and subsequent duplicates (True) (required sorted) 
+#     idxs = np.insert((np.diff(pos_array)==0).astype(np.bool), 0, False)
+#     if np.any(idxs): 
+#         # if there are duplicates, get new values by incrementing by one
+#         new_values = pos_array[idxs]+1
+#         # get non-duplicate values
+#         uniq_values = pos_array[~idxs]
+#         # insert new_values in non-duplicated values (required sorted)
+#         new_idxs = np.searchsorted(uniq_values, new_values)
+#         # recursive call
+#         return fix_pos_array(np.sort(np.insert(uniq_values, new_idxs, new_values)))
+#     # if there are no duplicated values
+#     return pos_array
 
-def szudzik_pairing(folded_minor_allele_counts):
-    # adapted from: https://drhagen.com/blog/superior-pairing-function/
-    return np.where(
-            (folded_minor_allele_counts[:,0] >= folded_minor_allele_counts[:,1]),
-            np.square(folded_minor_allele_counts[:,0]) + folded_minor_allele_counts[:,0] + folded_minor_allele_counts[:,1],
-            folded_minor_allele_counts[:,0] + np.square(folded_minor_allele_counts[:,1])
-            )
-    #if isinstance(folded_minor_allele_counts, np.ndarray):
-    #    # assumes folded_minor_allele_counts is array with shape (n,2)
-    #    return np.where(
-    #        (folded_minor_allele_counts[:,0] >= folded_minor_allele_counts[:,1]),
-    #        np.square(folded_minor_allele_counts[:,0]) + folded_minor_allele_counts[:,0] + folded_minor_allele_counts[:,1],
-    #        folded_minor_allele_counts[:,0] + np.square(folded_minor_allele_counts[:,1])
-    #        )
-    #elif isinstance(folded_minor_allele_counts, tuple):
-    #    # assumes folded_minor_allele_counts is tuple of size 2
-    #    a, b = folded_minor_allele_counts
-    #    if a >= b:
-    #        return (a**2) + a + b 
-    #    return a + (b**2)
-    #else:
-    #    pass
+# def szudzik_pairing(folded_minor_allele_counts):
+#     # adapted from: https://drhagen.com/blog/superior-pairing-function/
+#     return np.where(
+#             (folded_minor_allele_counts[:,0] >= folded_minor_allele_counts[:,1]),
+#             np.square(folded_minor_allele_counts[:,0]) + folded_minor_allele_counts[:,0] + folded_minor_allele_counts[:,1],
+#             folded_minor_allele_counts[:,0] + np.square(folded_minor_allele_counts[:,1])
+#             )
 
 def get_coverage_counts(coverages, idxs, num_blocks):
     # not used at the moment
@@ -415,81 +373,64 @@ def get_coverage_counts(coverages, idxs, num_blocks):
     # remove columns/sample_sets that only contain zeroes and normalise
     return blocks_per_sample_set[:, ~(blocks_per_sample_set == 0).all(0)] / (num_blocks / len(idxs)) / num_blocks 
 
-def block_sites_to_variation_arrays(block_sites, cols=np.array([1,2,3]), max_type_count=7):
-    temp_sites = block_sites + (max_type_count * np.arange(block_sites.shape[0], dtype=np.int64).reshape(block_sites.shape[0], 1))
-    multiallelic, missing, monomorphic, variation = np.hsplit(np.bincount(temp_sites.ravel(), minlength=(block_sites.shape[0] * max_type_count)).reshape(-1, max_type_count), cols)
-    return (multiallelic, missing, monomorphic, variation)
-    # return np.hsplit(np.bincount(temp_sites.ravel(), minlength=(block_sites.shape[0] * max_type_count)).reshape(-1, max_type_count), cols)
+# def block_sites_to_variation_arrays(block_sites, cols=np.array([1,2,3]), max_type_count=7):
+#     temp_sites = block_sites + (max_type_count * np.arange(block_sites.shape[0], dtype=np.int64).reshape(block_sites.shape[0], 1))
+#     multiallelic, missing, monomorphic, variation = np.hsplit(np.bincount(temp_sites.ravel(), minlength=(block_sites.shape[0] * max_type_count)).reshape(-1, max_type_count), cols)
+#     return (multiallelic, missing, monomorphic, variation)
+#     # return np.hsplit(np.bincount(temp_sites.ravel(), minlength=(block_sites.shape[0] * max_type_count)).reshape(-1, max_type_count), cols)
 
-# def calculate_popgen_from_array(mutype_array, sites):
-#     # print('# Mutypes: 0=MULTI, 1=MISS, 2=MONO, 3=HetB, 4=HetA, 5=HetAB, 6=Fixed')
-#     pi_1 = float("%.8f" % np.divide(np.sum(mutype_array[:, 1]) + np.sum(mutype_array[:, 2]), sites)) # average heterozygosity
-#     pi_2 = float("%.8f" % np.divide(np.sum(mutype_array[:, 0]) + np.sum(mutype_array[:, 2]), sites)) # average heterozygosity
-#     d_xy = float("%.8f" % np.divide(np.divide(np.sum(mutype_array[:, 0]) + np.sum(mutype_array[:, 1]) + np.sum(mutype_array[:, 2]), 2.0) + np.sum(mutype_array[:, 3]), sites))
-#     mean_pi = (pi_1 + pi_2) / 2.0
-#     total_pi = (d_xy + mean_pi) / 2.0 # special case of pairwise Fst
-#     f_st = np.nan
-#     if (total_pi):
-#         f_st = float("%.8f" % ((total_pi - mean_pi) / total_pi)) # special case of pairwise Fst
-#     fgv = len(mutype_array[(mutype_array[:, 2] > 0) & (mutype_array[:, 3] > 0)])
-#     return (pi_1, pi_2, d_xy, f_st, fgv)
+# def genotype_to_mutype_array(sa_genotype_array, idx_block_sites_in_pos, block_sites, debug=True):
+#     np_genotype_array = np.array(sa_genotype_array)
+#     #print('np_genotype_array', np_genotype_array.shape, np_genotype_array)
+#     np_allele_count_array = np.ma.masked_equal(sa_genotype_array.count_alleles(), 0, copy=True) 
+#     #print('np_allele_count_array', np_allele_count_array.shape, np_allele_count_array)
+#     #print('np.any(np_allele_count_array)', np.any(np_allele_count_array))
+#     allele_map = np.ones((np_allele_count_array.shape), dtype=np.int64) * np.arange(np_allele_count_array.shape[-1], dtype=np.int64)
+#     #print('allele_map', allele_map.shape, allele_map)
+#     #print('np.any(allele_map)', np.any(allele_map))
+#     if np.any(np_allele_count_array) and np.any(allele_map):
+#         idx_max_global_allele_count = np.nanargmax(np_allele_count_array, axis=1)
+#         idx_min_global_allele_count = np.nanargmin(np_allele_count_array, axis=1)
+#         has_major_allele = (idx_max_global_allele_count != idx_min_global_allele_count)
+#         idx_min_prime_allele = np.amin(np_genotype_array[:,0], axis=1)
+#         idx_min_global_allele = np.amin(np.amin(np_genotype_array, axis=1), axis=1)
+#         idx_max_global_allele = np.amax(np.amax(np_genotype_array, axis=1), axis=1)
+#         idx_major_allele = np.where(
+#             has_major_allele, 
+#             idx_max_global_allele_count, 
+#             idx_min_prime_allele)
+#         idx_minor_allele = np.where(
+#             has_major_allele, 
+#             idx_min_global_allele_count, 
+#             np.where((
+#                 idx_min_global_allele == idx_min_prime_allele),
+#                 np.max((idx_min_global_allele, idx_max_global_allele), axis=0), 
+#                 np.min((idx_min_global_allele, idx_max_global_allele), axis=0)))
+#         # for each genotype (np.arange(allele_map.shape[0])), set minor allele to 1 (1st do minor, so that overwritten if monomorphic)
+#         allele_map[np.arange(allele_map.shape[0]), idx_minor_allele] = 1 
+#         # for each genotype (np.arange(allele_map.shape[0])), set major allele to 0
+#         allele_map[np.arange(allele_map.shape[0]), idx_major_allele] = 0
+#     folded_minor_allele_counts = sa_genotype_array.map_alleles(allele_map).to_n_alt(fill=-1)
+#     #print(folded_minor_allele_counts)
+#     folded_minor_allele_counts[np.any(sa_genotype_array.is_missing(), axis=1)] = np.ones(2) * -1        # -1, -1 for missing => -1
+#     folded_minor_allele_counts[(np_allele_count_array.count(axis=1) > 2)] = np.ones(2) * (-1, -2)       # -1, -2 for multiallelic => -2
 
-def genotype_to_mutype_array(sa_genotype_array, idx_block_sites_in_pos, block_sites, debug=True):
-    '''
-    - possible errors:
-        - if whole sequence has only missing GTs in genotypes for a sample set, then np_allele_count_array will be empty ... (should never happen)
-    '''
-    np_genotype_array = np.array(sa_genotype_array)
-    #print('np_genotype_array', np_genotype_array.shape, np_genotype_array)
-    np_allele_count_array = np.ma.masked_equal(sa_genotype_array.count_alleles(), 0, copy=True) 
-    #print('np_allele_count_array', np_allele_count_array.shape, np_allele_count_array)
-    #print('np.any(np_allele_count_array)', np.any(np_allele_count_array))
-    allele_map = np.ones((np_allele_count_array.shape), dtype=np.int64) * np.arange(np_allele_count_array.shape[-1], dtype=np.int64)
-    #print('allele_map', allele_map.shape, allele_map)
-    #print('np.any(allele_map)', np.any(allele_map))
-    if np.any(np_allele_count_array) and np.any(allele_map):
-        idx_max_global_allele_count = np.nanargmax(np_allele_count_array, axis=1)
-        idx_min_global_allele_count = np.nanargmin(np_allele_count_array, axis=1)
-        has_major_allele = (idx_max_global_allele_count != idx_min_global_allele_count)
-        idx_min_prime_allele = np.amin(np_genotype_array[:,0], axis=1)
-        idx_min_global_allele = np.amin(np.amin(np_genotype_array, axis=1), axis=1)
-        idx_max_global_allele = np.amax(np.amax(np_genotype_array, axis=1), axis=1)
-        idx_major_allele = np.where(
-            has_major_allele, 
-            idx_max_global_allele_count, 
-            idx_min_prime_allele)
-        idx_minor_allele = np.where(
-            has_major_allele, 
-            idx_min_global_allele_count, 
-            np.where((
-                idx_min_global_allele == idx_min_prime_allele),
-                np.max((idx_min_global_allele, idx_max_global_allele), axis=0), 
-                np.min((idx_min_global_allele, idx_max_global_allele), axis=0)))
-        # for each genotype (np.arange(allele_map.shape[0])), set minor allele to 1 (1st do minor, so that overwritten if monomorphic)
-        allele_map[np.arange(allele_map.shape[0]), idx_minor_allele] = 1 
-        # for each genotype (np.arange(allele_map.shape[0])), set major allele to 0
-        allele_map[np.arange(allele_map.shape[0]), idx_major_allele] = 0
-    folded_minor_allele_counts = sa_genotype_array.map_alleles(allele_map).to_n_alt(fill=-1)
-    #print(folded_minor_allele_counts)
-    folded_minor_allele_counts[np.any(sa_genotype_array.is_missing(), axis=1)] = np.ones(2) * -1        # -1, -1 for missing => -1
-    folded_minor_allele_counts[(np_allele_count_array.count(axis=1) > 2)] = np.ones(2) * (-1, -2)       # -1, -2 for multiallelic => -2
-
-    block_sites[idx_block_sites_in_pos] = szudzik_pairing(folded_minor_allele_counts) + 2               # add 2 so that not negative for bincount
-    block_sites[~idx_block_sites_in_pos] = 2                                                            # monomorphic = 2 (0 = multiallelic, 1 = missing)
-    if debug == True:
-        print("# block_sites as mutype array", block_sites)
-    if debug == True:
-        block_sites_pos = block_sites.flatten()
-        pos_df = pd.DataFrame(block_sites_pos[idx_block_sites_in_pos.flatten()], dtype='int64', columns=['pos'])
-        genotypes_df = pd.DataFrame(np_genotype_array.reshape(np_genotype_array.shape[0], 4), dtype='i4', columns=['a1', 'a2', 'b1', 'b2'])        
-        block_sites_df = pos_df.join(genotypes_df)
-        folded_minor_allele_count_df = pd.DataFrame(folded_minor_allele_counts, dtype='int8', columns=['fmAC_a', 'fmAC_b'])
-        block_sites_df = block_sites_df.join(folded_minor_allele_count_df)
-        variants = pd.DataFrame(block_sites[idx_block_sites_in_pos], dtype='int', columns=['SVar'])
-        block_sites_df = block_sites_df.join(variants)
-        print('# Mutypes: 0=MULTI, 1=MISS, 2=MONO, 3=HetB, 4=HetA, 5=HetAB, 6=Fixed')
-        print(block_sites_df)
-    return block_sites
+#     block_sites[idx_block_sites_in_pos] = szudzik_pairing(folded_minor_allele_counts) + 2               # add 2 so that not negative for bincount
+#     block_sites[~idx_block_sites_in_pos] = 2                                                            # monomorphic = 2 (0 = multiallelic, 1 = missing)
+#     if debug == True:
+#         print("# block_sites as mutype array", block_sites)
+#     if debug == True:
+#         block_sites_pos = block_sites.flatten()
+#         pos_df = pd.DataFrame(block_sites_pos[idx_block_sites_in_pos.flatten()], dtype='int64', columns=['pos'])
+#         genotypes_df = pd.DataFrame(np_genotype_array.reshape(np_genotype_array.shape[0], 4), dtype='i4', columns=['a1', 'a2', 'b1', 'b2'])        
+#         block_sites_df = pos_df.join(genotypes_df)
+#         folded_minor_allele_count_df = pd.DataFrame(folded_minor_allele_counts, dtype='int8', columns=['fmAC_a', 'fmAC_b'])
+#         block_sites_df = block_sites_df.join(folded_minor_allele_count_df)
+#         variants = pd.DataFrame(block_sites[idx_block_sites_in_pos], dtype='int', columns=['SVar'])
+#         block_sites_df = block_sites_df.join(variants)
+#         print('# Mutypes: 0=MULTI, 1=MISS, 2=MONO, 3=HetB, 4=HetA, 5=HetAB, 6=Fixed')
+#         print(block_sites_df)
+#     return block_sites
 
 def _harmonic(a, b):
     if b-a == 1:
@@ -607,7 +548,6 @@ def get_hash_from_dict(d):
     raise ValueError('must be a dict')
 
 def grid_meta_dict_to_value_arrays_by_parameter(grid_meta_dict):
-    #see function lib.gimble.LOD_to_DOL() -> should be redundant
     _values_by_parameter = collections.defaultdict(list)
     for grid_idx, grid_dict in grid_meta_dict.items():
         for key, value in grid_dict.items():
@@ -617,341 +557,382 @@ def grid_meta_dict_to_value_arrays_by_parameter(grid_meta_dict):
         values_by_parameter[key] = np.array(values)
     return values_by_parameter
 
-class CustomNormalizer(cerberus.Validator):
-    def __init__(self, *args, **kwargs):
-        super(CustomNormalizer, self).__init__(*args, **kwargs)
-        self.valid_pop_ids = kwargs['valid_pop_ids']
-        self.valid_sync_pops = kwargs['valid_sync_pops']
+# class CustomNormalizer(cerberus.Validator):
+#     def __init__(self, *args, **kwargs):
+#         super(CustomNormalizer, self).__init__(*args, **kwargs)
+#         self.valid_pop_ids = kwargs['valid_pop_ids']
+#         self.valid_sync_pops = kwargs['valid_sync_pops']
         
-    def _normalize_coerce_float_or_list(self, value):
-        try:
-            return float(value)
-        except:
-            values = value.strip('()[]').split(",")
-            if len(values) == 2:
-                try:
-                    return [float(v) for v in values]
-                except ValueError:
-                    return None
-            elif len(values) == 4:
-                valid_scales = set(['lin', 'log'])
-                if not values[-1].strip(' ') in valid_scales:
-                    return None
-                try:
-                    return [float(v) for v in values[:-2]] + [int(values[-2]), values[-1].strip(' ')]
-                except ValueError:
-                    return None
-            else:
-                return None
+#     def _normalize_coerce_float_or_list(self, value):
+#         try:
+#             return float(value)
+#         except:
+#             values = value.strip('()[]').split(",")
+#             if len(values) == 2 or len(values) == 3:
+#                 try:
+#                     return [float(v) for v in values]
+#                 except ValueError:
+#                     return None
+#             elif len(values) == 4:
+#                 valid_scales = set(['lin', 'log'])
+#                 if not values[-1].strip(' ') in valid_scales:
+#                     return None
+#                 try:
+#                     return [float(v) for v in values[:-2]] + [int(values[-2]), values[-1].strip(' ')]
+#                 except ValueError:
+#                     return None
+#             else:
+#                 return None
 
-    def _normalize_coerce_float_or_empty(self, value):
-        try:
-            return float(value)
-        except:
-            if value.strip(' ') =='':
-                return ''
-            else:
-                return None
+#     def _normalize_coerce_float_or_empty(self, value):
+#         try:
+#             return float(value)
+#         except:
+#             if value.strip(' ') =='':
+#                 return ''
+#             else:
+#                 return None
 
-    def _normalize_coerce_int_or_empty(self, value):
-        try:
-            return int(value)
-        except:
-            if value.strip(' ')=='':
-                return ''
-            else:
-                return None
+#     def _normalize_coerce_int_or_empty(self, value):
+#         try:
+#             return int(value)
+#         except:
+#             if value.strip(' ')=='':
+#                 return ''
+#             else:
+#                 return None
 
-    def _validate_notNoneInt(self, notNoneNumeric, field, value):
-        """
-        {'type':'boolean'}
-        """
-        if value == None and notNoneNumeric:
-            self._error(field, "Must be an int value or empty")
+#     def _validate_notNoneInt(self, notNoneNumeric, field, value):
+#         """
+#         {'type':'boolean'}
+#         """
+#         if value == None and notNoneNumeric:
+#             self._error(field, "Must be an int value or empty")
     
-    def _validate_notNoneFloat(self, notNoneNumeric, field, value):
-        """
-        {'type':'boolean'}
-        """
-        if value == None and notNoneNumeric:
-            self._error(field, "Must be a float or empty")
+#     def _validate_notNoneFloat(self, notNoneNumeric, field, value):
+#         """
+#         {'type':'boolean'}
+#         """
+#         if value == None and notNoneNumeric:
+#             self._error(field, "Must be a float or empty")
 
-    def _validate_notNone(self, notNone, field, value):
-        """
-        {'type':'boolean'}
-        """
-        if not value and notNone:
-            self._error(field, "Must be FLOAT, or (MIN, MAX), or (MIN, MAX, STEPS, LIN|LOG).")
+#     def _validate_notNone(self, notNone, field, value):
+#         """
+#         {'type':'boolean'}
+#         """
+#         if not value and notNone:
+#             self._error(field, "Must be FLOAT, or (MIN, MAX), or (MIN, MAX, STEPS, LIN|LOG).")
 
-    def _validate_isPop(self, isPop, field, value):
-        """
-        {'type':'boolean'}
-        """
-        if value.strip(" ") not in self.valid_pop_ids:
-            self._error(field, "Must be either A, B or A_B")
+#     def _validate_isPop(self, isPop, field, value):
+#         """
+#         {'type':'boolean'}
+#         """
+#         if value.strip(" ") not in self.valid_pop_ids:
+#             self._error(field, "Must be either A, B or A_B")
 
-    def _validate_isPopSync(self, isPopSync, field, value):
-        """
-        {'type':'boolean'}
-        """
-        if value.strip(" ") !='':
-            if value.strip(" ") not in self.valid_sync_pops:
-                self._error(field, "Must be either A,A_B, A,B or A_B,B")
+#     def _validate_isPopSync(self, isPopSync, field, value):
+#         """
+#         {'type':'boolean'}
+#         """
+#         if value.strip(" ") !='':
+#             if value.strip(" ") not in self.valid_sync_pops:
+#                 self._error(field, "Must be either A,A_B, A,B or A_B,B")
 
-    def _validate_isPath(self, isPath, field, value):
-        """
-        {'type':'boolean'}
-        """
-        if value.strip(" ") != '' and not os.path.isfile(value):
-            self._error(field, 'Must be a valid path to the recombination map.')
+#     def _validate_isPath(self, isPath, field, value):
+#         """
+#         {'type':'boolean'}
+#         """
+#         if value.strip(" ") != '' and not os.path.isfile(value):
+#             self._error(field, 'Must be a valid path to the recombination map.')
 
 #def get_unique_hash(parameterObj, purpose='makegrid'):
 #    if purpose == 'makegrid':
 #        print(parameterObj)
 
-class ParameterObj(object):
-    '''Superclass ParameterObj'''
-    def __init__(self, params):
-        self._PATH = params['path']
-        self._VERSION = params['version']
-        self._MODULE = params['module']
-        self._CWD = params['cwd']
-        self.config = None
+# class ParameterObj(object):
+#     '''Superclass ParameterObj'''
+#     def __init__(self, params):
+#         self._PATH = params['path']
+#         self._VERSION = params['version']
+#         self._MODULE = params['module']
+#         self._CWD = params['cwd']
+#         self.config = None
 
-    def __repr__(self):
-        return("[+] VER := %s\n[+] CWD := %s\n[+] CMD := %s\n" % (
-            self._VERSION, 
-            self._CWD, 
-            self._get_cmd()
-            ))
+#     def __repr__(self):
+#         return("[+] VER := %s\n[+] CWD := %s\n[+] CMD := %s\n" % (
+#             self._VERSION, 
+#             self._CWD, 
+#             self._get_cmd()
+#             ))
 
-    def _dict_product(self, parameter_dict):
-        cartesian_product = itertools.product(*parameter_dict.values())
-        rearranged_product = list(zip(*cartesian_product))
-        return {k:np.array(v,dtype=np.float64) for k,v in zip(parameter_dict.keys(), rearranged_product)}
+#     def _cast_to_repeated_list(self, x, repeat=1):
+#         '''DRL: not using self, should be separate function'''
+#         if isinstance(x, list):
+#             return x
+#         elif isinstance(x, str):
+#             return [x]*repeat
+#         try:
+#             return list(x)*repeat
+#         except TypeError:
+#             return [x]*repeat
 
-    def _dict_zip(self, pdict):
-        '''DRL: if this is only used once, no need for being separate function'''
-        return [dict(zip(pdict, x)) for x in zip(*pdict.values())]
+#     def _dict_product(self):
+#         if len(self.config["parameters"])>0:
+#             return [dict(zip(self.config["parameters"], x)) for x in itertools.product(*self.config["parameters"].values())]
 
-    def _get_blocks_length(self):
-        blocks_length_zarr = None
-        blocks_length_ini = self._get_int(self.config['mu']['blocklength'], ret_none=True)
-        if self.zstore:
-            gimbleStore = lib.gimble.Store(path=self.zstore, create=False, overwrite=False)
-            meta_blocks = gimbleStore._get_meta('blocks')
-            if isinstance(meta_blocks, dict):
-                blocks_length_zarr = meta_blocks.get('length', None)
-        if blocks_length_zarr and blocks_length_ini:
-            if blocks_length_zarr != blocks_length_ini:
-                print("[-] Block length in INI and gimbleStore differ. Using block length from INI : %s b" % blocks_length_ini)
-                return blocks_length_ini
-            return blocks_length_zarr
-        if blocks_length_zarr:
-            return blocks_length_zarr
-        if blocks_length_ini:
-            return blocks_length_ini
-        else:
-            sys.exit("[X] Blocklength needs to be specified in ini file.")
+#     def _dict_zip(self, pdict):
+#         '''DRL: if this is only used once, no need for being separate function'''
+#         return [dict(zip(pdict, x)) for x in zip(*pdict.values())]
 
-    def _get_int(self, string, ret_none=False):
-        try:
-            return int(string)
-        except TypeError:
-            if not ret_none:
-                sys.exit("[X] %r can't be converted to interger." % string)
-            return None
-        except ValueError:
-            if not ret_none:
-                sys.exit("[X] %r can't be converted to interger." % string)
-            return None
+#     def _get_blocks_length(self):
+#         blocks_length_zarr = None
+#         blocks_length_ini = self._get_int(self.config['mu']['blocklength'], ret_none=True)
+#         if self.zstore:
+#             gimbleStore = lib.gimble.Store(path=self.zstore, create=False, overwrite=False)
+#             meta_blocks = gimbleStore._get_meta('blocks')
+#             if isinstance(meta_blocks, dict):
+#                 blocks_length_zarr = meta_blocks.get('length', None)
+#         if blocks_length_zarr and blocks_length_ini:
+#             if blocks_length_zarr != blocks_length_ini:
+#                 print("[-] Block length in INI and gimbleStore differ. Using block length from INI : %s b" % blocks_length_ini)
+#                 return blocks_length_ini
+#             return blocks_length_zarr
+#         if blocks_length_zarr:
+#             return blocks_length_zarr
+#         if blocks_length_ini:
+#             return blocks_length_ini
+#         else:
+#             sys.exit("[X] Blocklength needs to be specified in ini file.")
 
-    def _get_float(self, string, ret_none=False):
-        try:
-            return float(string)
-        except TypeError:
-            if not ret_none:
-                sys.exit("[X] %r can't be converted to float." % string)
-            return None
+#     def _get_int(self, string, ret_none=False):
+#         try:
+#             return int(string)
+#         except TypeError:
+#             if not ret_none:
+#                 sys.exit("[X] %r can't be converted to interger." % string)
+#             return None
+#         except ValueError:
+#             if not ret_none:
+#                 sys.exit("[X] %r can't be converted to interger." % string)
+#             return None
 
-    def _get_cmd(self):
-        return "%s/gimble %s %s" % (
-            self._PATH, 
-            self._MODULE, 
-            "".join(["--%s " % " ".join((k, str(v))) for k,v in self.__dict__.items() if not k.startswith("_")]))
+#     def _get_float(self, string, ret_none=False):
+#         try:
+#             return float(string)
+#         except TypeError:
+#             if not ret_none:
+#                 sys.exit("[X] %r can't be converted to float." % string)
+#             return None
 
-    def _get_fixed_params(self, subgroup=None, as_dict=False):
-        if not as_dict:
-            fixed_params =  [param for param,value in self.config['parameters'].items() if isinstance(value,float) or isinstance(value,int)]
-            if subgroup:
-                fixed_params = [param for param in fixed_params if param.startswith(subgroup)]
-            return fixed_params
-        else:
-            fixedParams = {k:next(iter(v)) for k, v in self.parameter_combinations.items() if len(set(v))==1}
-            fixedParams['mu'] = self.config['mu']['mu']
-            if subgroup:
-                fixedParams = {k:v for k,v in fixedParams.items() if k.startswith(subgroup)}
-            return fixedParams
+#     def _get_cmd(self):
+#         return "%s/gimble %s %s" % (
+#             self._PATH, 
+#             self._MODULE, 
+#             "".join(["--%s " % " ".join((k, str(v))) for k,v in self.__dict__.items() if not k.startswith("_")]))
 
-    def _get_path(self, infile, path=False):
-        if infile is None:
-            return None
-        _path = pathlib.Path(infile).resolve()
-        if not _path.exists():
-            sys.exit("[X] File not found: %r" % str(infile))
-        if path:
-            return _path
-        return str(_path)
+#     def _get_fixed_params(self):
+#         return [param for param,value in self.config['parameters'].items() if isinstance(value,float) or isinstance(value,int)]
 
-    def _get_prefix(self, prefix):
-        if prefix is None:
-            return None
-        path = pathlib.Path(prefix).resolve()
-        new_path = pathlib.Path(prefix+'.z').resolve()
-        if new_path.exists():
-            sys.exit("[X] zstore already exists. Specify using -z or provide new prefix.")
-        parent_path = pathlib.Path(prefix).resolve().parent
-        if not parent_path.exists():
-            sys.exit("[X] Path does not exist: %r" % str(parent_path))
-        return str(path)
+#     def _get_path(self, infile, path=False):
+#         if infile is None:
+#             return None
+#         _path = pathlib.Path(infile).resolve()
+#         if not _path.exists():
+#             sys.exit("[X] File not found: %r" % str(infile))
+#         if path:
+#             return _path
+#         return str(_path)
 
-    def _get_pops_to_sync(self, config=None, valid_sync_pops=None):
-        reference, to_be_synced = None, None
-        if config:
-            syncing = config['populations']['sync_pop_sizes']
-            reference_pop = config['populations']['reference_pop']
-        else:
-            syncing =  self.config['populations']['sync_pop_sizes']
-        if syncing:
-            if len(syncing)>0:
-                syncing = syncing.split(',')
-                reference = syncing[0]
-                to_be_synced = syncing[1:]
-                if self.config['populations']['reference_pop'] in to_be_synced:
-                    sys.exit(f"[X] Set reference pop to {reference}.")
-                reference_size = config['parameters'][f'Ne_{reference}']
-                tBS_sizes = [config['parameters'][f'Ne_{pop}'] for pop in to_be_synced]
-                reference_size = [s for s in tBS_sizes if s!=None and s!=reference_size and s!='']
-                if len(reference_size)>0:
-                    sys.exit(f"[X] Syncing pop sizes: set no value or the same value for Ne_{', Ne_'.join(to_be_synced)} as for Ne_{reference}")         
-                if self._MODULE == 'optimize':
-                    fixed_Nes = self._get_fixed_params(subgroup='Ne')
-                    if len(fixed_Nes)>0:
-                        if not f"Ne_{reference_pop}" in fixed_Nes:
-                            sys.exit("[X] No. No. No. It would make much more sense to set a population with a fixed size as reference.")
+#     def _get_prefix(self, prefix):
+#         if prefix is None:
+#             return None
+#         path = pathlib.Path(prefix).resolve()
+#         new_path = pathlib.Path(prefix+'.z').resolve()
+#         if new_path.exists():
+#             sys.exit("[X] zstore already exists. Specify using -z or provide new prefix.")
+#         parent_path = pathlib.Path(prefix).resolve().parent
+#         if not parent_path.exists():
+#             sys.exit("[X] Path does not exist: %r" % str(parent_path))
+#         return str(path)
 
-        return (reference, to_be_synced)
+#     def _get_pops_to_sync(self, config=None):
+#         reference, to_be_synced = None, None
+#         if config:
+#             syncing = config['populations']['sync_pop_sizes']
+#         else:
+#             syncing =  self.config['populations']['sync_pop_sizes']
+#         if syncing:
+#             if len(syncing)>0:
+#                 syncing = syncing.split(',')
+#                 reference = syncing[0]
+#                 to_be_synced = syncing[1:]
+#         return (reference, to_be_synced)
 
-    def _get_unique_hash_from_dict(self, d):
-        '''active'''
-        return hashlib.md5(str(d).encode()).hexdigest()
+#     def _get_unique_hash_from_dict(self, d):
+#         '''active'''
+#         return hashlib.md5(str(d).encode()).hexdigest()
 
-    def _get_unique_hash(self, return_dict=False, module=None):
-        '''passive'''
-        module = module if module else self._MODULE
-        to_hash = copy.deepcopy(self.config)
-        if module in set(['makegrid','gridsearch', 'query']):
-            del to_hash['simulations']
-            if 'kmax_by_mutype' in to_hash:
-                del to_hash['--kmax_by_mutype']
-            if 'recombination' in to_hash['parameters']:
-                del to_hash['parameters']['recombination']
-        elif module == 'simulate':
-            pass
-        else:
-            ValueError("Not implemented yet.")
-        del to_hash['population_by_letter']
-        for pop_name in ['A', 'B']:
-            del to_hash['populations'][pop_name]
-        del to_hash['gimble']
-        if return_dict:
-            return (hashlib.md5(str(to_hash).encode()).hexdigest(), to_hash)
-        return hashlib.md5(str(to_hash).encode()).hexdigest()
-
-    def _expand_params(self, remove=None):
-        if len(self.config['parameters'])>0:
-            parameter_combinations = collections.defaultdict(list)
-            for key in remove:
-                del self.config['parameters'][f'Ne_{key}']
-            for key, value in self.config['parameters'].items():
-                if key.lstrip("Ne_") in remove:
-                    raise ValueError('population should have been removed upon calling _expand_params()')
-                elif isinstance(value, float) or isinstance(value, int):
-                    parameter_combinations[key]=np.array([value,], dtype=np.float64)
-                elif key=='recombination':
-                    pass
-                else:
-                    if len(value) == 4:
-                        if self._MODULE == 'optimize':
-                            sys.exit(f"[X] {self._MODULE} requires a single point or boundary for all parameters.")
-                        minv, maxv, n, scale = value
-                        sim_range = self._expand_params_scale(scale, minv, maxv, n)
-                        parameter_combinations[key] = sim_range
-                    elif len(value) <= 2:
-                        parameter_combinations[key] = np.unique(value)
-                    else:
-                        raise ValueError("Uncaught error in config file configuration.")
-            return parameter_combinations
-        else:
-            raise ValueError("config parameters does not contain any parameters.")
-
-    def _expand_params_scale(self, scale, minv, maxv, n):
-        if scale.startswith('lin'):
-            return np.linspace(minv, maxv, num=n, endpoint=True, dtype=np.float64)
-        elif scale.startswith('log'):
-            return np.logspace(minv, maxv, num=n, endpoint=True, dtype=np.float64)
-        else:
-            sys.exit("scale in config parameters should either be lin or log")
-
-    def _make_parameter_combinations(self, sync_reference=None, sync_target=None):
-        parameter_combinations = self._expand_params(remove=sync_target)
-        if self._MODULE == 'optimize':
-            return parameter_combinations
-        if self._MODULE == 'simulate':
-            rec = self._set_recombination_rate()
-            if rec != None:
-                parameter_combinations['recombination'] = rec
-        parameter_combinations =  self._dict_product(parameter_combinations)
-        if sync_reference and sync_target:
-            for pop in sync_target:
-                parameter_combinations[f'Ne_{pop}'] = parameter_combinations[f'Ne_{sync_reference}']
-        return parameter_combinations
-
-    def _parse_config(self, config_file):
-        '''validates types in INI config, returns dict with keys, values as sections/params/etc
-        - does not deal with missing/incompatible values (should be dealt with in ParameterObj subclasses)
-            https://docs.python-cerberus.org/en/stable/usage.html
-
-        '''
-        #validating config
-   
-        raw_config = configparser.ConfigParser(inline_comment_prefixes='#', allow_no_value=True)
-        raw_config.optionxform=str # otherwise keys are lowercase
-        raw_config.read(config_file)
-        config = {s: dict(raw_config.items(s)) for s in raw_config.sections()}
-        possible_values_config = configparser.ConfigParser(allow_no_value=True, strict=False, comment_prefixes=None)
-        possible_values_config.optionxform=str # otherwise keys are lowercase
-        possible_values_config.read(config_file)
-        possible_values_dict = {s: dict(possible_values_config.items(s)) for s in possible_values_config.sections()}
-        # possible_values_dict is only needed for valid_pop_ids and valid_sync_pops
-        valid_pop_ids = [population.strip(" ") for population in possible_values_dict["populations"]["# possible values reference_pop"].split("|")]
-        sample_pop_ids = [population for population in valid_pop_ids if "_" not in population]
-        schema = get_config_schema(self._MODULE)
-        valid_sync_pops = [population.strip(" ") for population in possible_values_dict["populations"]["# possible values sync_pop_sizes"].split("|")]
+#     def _get_unique_hash(self, return_dict=False, module=None):
+#         '''passive'''
+#         module = module if module else self._MODULE
+#         to_hash = copy.deepcopy(self.config)
+#         if module in set(['makegrid','gridsearch', 'query']):
+#             del to_hash['simulations']
+#             if 'kmax_by_mutype' in to_hash:
+#                 del to_hash['--kmax_by_mutype']
+#             if 'recombination' in to_hash['parameters']:
+#                 del to_hash['parameters']['recombination']
+#         elif module == 'simulate':
+#             pass
+#         else:
+#             ValueError("Not implemented yet.")
+#         del to_hash['population_by_letter']
+#         for pop_name in ['A', 'B']:
+#             del to_hash['populations'][pop_name]
+#         del to_hash['gimble']
+#         if return_dict:
+#             return (hashlib.md5(str(to_hash).encode()).hexdigest(), to_hash)
+#         return hashlib.md5(str(to_hash).encode()).hexdigest()
         
-        validator = CustomNormalizer(schema, valid_pop_ids=valid_pop_ids, valid_sync_pops=valid_sync_pops)
-        validator.validate(config)
-        if not validator.validate(config):
-            validator_error_string = get_validator_error_string(validator.errors)
-            sys.exit("[X] INI Config file format error(s) ...\n%s" % validator_error_string)
-        self.config = validator.normalized(config)
+#     def _remove_pop_from_dict(self, toRemove):
+#         if toRemove:
+#             for pop in toRemove:
+#                 del self.config['parameters'][f'Ne_{pop}']
 
-        self.config['populations']['sample_pop_ids'] = sample_pop_ids
-        self.config['population_by_letter'] = {pop:config['populations'][pop] for pop in sample_pop_ids}
-        self.config['mu']['blocklength'] = self._get_blocks_length()
-        self.reference, self.toBeSynced = self._get_pops_to_sync(config, valid_sync_pops)
-        self.parameter_combinations = self._make_parameter_combinations(sync_reference=self.reference, sync_target=self.toBeSynced)
-        
+#     def _sync_pop_sizes(self, reference, toBeSynced):
+#         if toBeSynced and reference:
+#             for pop in toBeSynced:
+#                 for paramCombo in self.parameter_combinations:
+#                     paramCombo[f'Ne_{pop}'] = paramCombo[f'Ne_{reference}']
+
+#     def _sync_pop_sizes_optimize(self, reference, toBeSynced):
+#         # @GB is this needed?
+#         if toBeSynced and reference:
+#             for pop in toBeSynced:
+#                 self.config['parameters'][f'Ne_{pop}']=self.config['parameters'][f'Ne_{reference}']   
+
+#     def _expand_params(self):
+#         '''
+#         this is a function that returns nothing, should be refactored...
+#         '''
+#         if len(self.config['parameters'])>0:
+#             for key, value in self.config['parameters'].items():
+#                 if isinstance(value, float) or isinstance(value, int):
+#                     self.config['parameters'][key] = [value,]
+#                 elif key=='recombination':
+#                     pass
+#                 else:
+#                     if len(value) == 4:
+#                         if self._MODULE == 'optimize':
+#                             sys.exit(f"[X] {self._MODULE} requires a single point or boundary.")
+#                         minv, maxv, n, scale = value
+#                         if scale.startswith('lin'):
+#                             sim_range = self._expand_params_lin(minv, maxv, n)
+#                         elif scale.startswith('log'):
+#                             sim_range = self._expand_params_log(minv, maxv, n)
+#                         else:
+#                             raise ValueError
+#                         self.config['parameters'][key] = sim_range
+#                     elif len(value) <4:
+#                         self.config['parameters'][key] = np.unique(value)
+#                     else:
+#                         raise ValueError("Uncaught error in config file configuration.")
+
+#     def _expand_params_lin(self, minv, maxv, n):
+#         '''should be refactored into _expand_params'''
+#         return np.linspace(minv, maxv, num=n, endpoint=True, dtype=np.float64)
+
+#     def _expand_params_log(self, minv, maxv, n):
+#         '''should be refactored into _expand_params'''
+#         return np.logspace(minv, maxv, num=n, endpoint=True, dtype=np.float64)
+
+#     def _parse_config(self, config_file):
+#         '''validates types in INI config, returns dict with keys, values as sections/params/etc
+#         - does not deal with missing/incompatible values (should be dealt with in ParameterObj subclasses)
+#             https://docs.python-cerberus.org/en/stable/usage.html
+
+#         DRL: could the whole 'possible_values' stuff be removed by adding population_ids as field to the INI filed coming from model?
+#             (population_ids = A, B, A_B)
+
+#         '''
+#         if config_file is None:
+#             return None
+#         raw_config = configparser.ConfigParser(inline_comment_prefixes='#', allow_no_value=True)
+#         raw_config.optionxform=str # otherwise keys are lowercase
+#         raw_config.read(config_file)
+#         config = {s: dict(raw_config.items(s)) for s in raw_config.sections()}
+#         possible_values_config = configparser.ConfigParser(allow_no_value=True, strict=False, comment_prefixes=None)
+#         possible_values_config.optionxform=str # otherwise keys are lowercase
+#         possible_values_config.read(config_file)
+#         possible_values_dict = {s: dict(possible_values_config.items(s)) for s in possible_values_config.sections()}
+#         # possible_values_dict is only needed for valid_pop_ids and valid_sync_pops
+#         valid_pop_ids = [population.strip(" ") for population in possible_values_dict["populations"]["# possible values reference_pop"].split("|")]
+#         sample_pop_ids = [population for population in valid_pop_ids if "_" not in population]
+#         schema = get_config_schema(self._MODULE)
+#         sync_pops = config["populations"]["sync_pop_sizes"].strip(" ")
+#         valid_sync_pops = [population.strip(" ") for population in possible_values_dict["populations"]["# possible values sync_pop_sizes"].split("|")]
+#         self.toBeSynced, self.reference = None, None
+#         if sync_pops and sync_pops in valid_sync_pops:
+#             #check whether values are equal  
+#             self.reference, self.toBeSynced = self._get_pops_to_sync(config)
+#             reference_size = config['parameters'][f'Ne_{self.reference}']
+#             tBS_sizes = [config['parameters'][f'Ne_{pop}'] for pop in self.toBeSynced]
+#             reference_size = [s for s in tBS_sizes if s!=None and s!=reference_size and s!='']
+#             if len(reference_size)>0:
+#                 sys.exit(f"[X] Syncing pop sizes: set same value for Ne_{', Ne_'.join(self.toBeSynced)} as for Ne_{self.reference}")
+#             for tBS in self.toBeSynced:
+#                 config['parameters'][f'Ne_{tBS}'] = config['parameters'][f'Ne_{self.reference}']
+#         # DRL: scaling (should be it's own function)
+#         validator = CustomNormalizer(schema, valid_pop_ids=valid_pop_ids, valid_sync_pops=valid_sync_pops)
+#         validator.validate(config)
+#         if not validator.validate(config):
+#             validator_error_string = get_validator_error_string(validator.errors)
+#             sys.exit("[X] INI Config file format error(s) ...\n%s" % validator_error_string)
+#         self.config = validator.normalized(config)
+#         # there is probably a better way for setting config['population_by_letter'] ...
+#         self.config['population_by_letter'] = {'A' : config['populations']['A'], 'B' : config['populations']['B']}
+#         self.config['populations']['sample_pop_ids'] = sample_pop_ids
+#         #print("[+] Config file validated.")
+#         #print('self.config', self.config)
+#         if self._MODULE in set(['makegrid', 'inference', 'simulate', 'gridsearch', 'query']):
+#             self.config['mu']['blocklength'] = self._get_blocks_length()
+#             self.config['parameters']['mu'] = self.config['mu']['mu']
+#             self._expand_params()
+#             #self.reference, self.toBeSynced = self._get_pops_to_sync()
+#             self._remove_pop_from_dict(self.toBeSynced)
+#             if self._MODULE=='simulate':
+#                 self._set_recombination_rate()
+#             self.parameter_combinations = self._dict_product()
+#             if self.toBeSynced:
+#                 self._sync_pop_sizes(self.reference, self.toBeSynced)
+#         elif self._MODULE == 'optimize':
+#             #TO BE CHECKED: which bits are we still using
+#             #determine parameters that are fixed:
+#             self.fixed_params = self._get_fixed_params()
+#             #self.config['mu']['blockslength'] = self._get_blocks_length(self.zstore)
+#             #self.config['parameters']['mu'] = self.config['mu']['mu']
+#             reference_pop=self.config['populations']['reference_pop']
+#             #syncing pop sizes
+#             #self.reference, self.toBeSynced = self._get_pops_to_sync()
+#             if self.toBeSynced:
+#                 if reference_pop in self.toBeSynced:
+#                     sys.exit(f"[X] Set reference pop to {self.reference}.")
+#             toBeSynced_pops = [f'Ne_{s}' for s in self.toBeSynced] if self.toBeSynced!=None else []
+#             self.fixed_params = [pop for pop in self.fixed_params if pop not in toBeSynced_pops]
+#             #verify if any Ne fixed, whether one of those Ne is self.reference
+#             fixed_Nes = [p for p in self.fixed_params if p.startswith('Ne')]
+#             if len(fixed_Nes)>0:
+#                 if not f"Ne_{reference_pop}" in fixed_Nes:
+#                     sys.exit("[X] No. No. No. It would make much more sense to set a population with a fixed size as reference.")
+#             #self._sync_pop_sizes_optimize(self.reference, self.toBeSynced)
+#             self.parameter_combinations = self._return_boundaries()
+#         else:
+#             sys.exit("[X] gimble.py_processing_config: Not implemented yet.")
+
+#     def _return_boundaries(self, length_boundary_set=3):
+#         parameter_combinations = {k:self._cast_to_repeated_list(v, length_boundary_set)[:length_boundary_set] for k,v in self.config['parameters'].items()}    
+#         return self._dict_zip(parameter_combinations)
+
 class Store(object):
     def __init__(self, prefix=None, path=None, create=False, overwrite=False):
         self.prefix = prefix if not prefix is None else str(pathlib.Path(path).resolve().stem)
@@ -1024,14 +1005,10 @@ class Store(object):
             parameterObj.label = f"run_{run_count}"
         self.data.require_group(f'sims/{parameterObj.label}')
         if parameterObj.sim_grid:
-            sim_configs = self._get_sim_grid(parameterObj)
-        else:
-            sim_configs = lib.gimble.DOL_to_LOD(parameterObj.parameter_combinations)
-        lib.simulate.run_sim(sim_configs, parameterObj, self)
-        try:
-            print(self._get_sims_report(width=100, label=parameterObj.label))   
-        except UnicodeEncodeError:
-            print(self._get_sims_report(width=100, label=parameterObj.label).__repr__().encode('utf-8')) #temp fix for my environment
+            parameterObj.parameter_combinations = self._get_sim_grid(parameterObj)
+        gimble.simulate.run_sim(parameterObj, self)
+        #print(self._get_sims_report(width=100, label=parameterObj.label).__repr__().encode('utf-8'))
+        print(self._get_sims_report(width=100, label=parameterObj.label))
         self.log_stage(parameterObj)
 
     def query(self, parameterObj):
@@ -1063,14 +1040,9 @@ class Store(object):
         unique_hash = parameterObj._get_unique_hash()
         grids, grid_meta_dict = self._get_grid(unique_hash)
         lncls_global, lncls_windows = self._get_lncls(unique_hash)
-        if isinstance(grid_meta_dict, list):
-            values_by_parameter = LOD_to_DOL(grid_meta_dict)
-            #values_by_parameter = grid_meta_dict_to_value_arrays_by_parameter(grid_meta_dict)
-        else:
-            values_by_parameter = grid_meta_dict #once everything works, values_by_parameter should be simply renamed
+        values_by_parameter = grid_meta_dict_to_value_arrays_by_parameter(grid_meta_dict)
         sequences, starts, ends, index = self._get_window_bed_columns()
         parameter_names = [name for name in values_by_parameter.keys() if name != 'mu']
-        grid_meta_dict.pop('mu', None) #remove mu from grid_meta_dict
         column_headers = ['sequence', 'start', 'end', 'index', 'lnCL'] + parameter_names + ['fixed']
         dtypes = {'start': 'int64', 'end': 'int64', 'index': 'int64', 'lnCL': 'float64'}
         for param in parameter_names:
@@ -1082,16 +1054,14 @@ class Store(object):
             fixed = np.full_like(lncls_windows.shape[0], parameter, dtype='<U%s' % MAX_PARAM_LENGTH)
             for grid_meta_idxs in self.get_slice_grid_meta_idxs(grid_meta_dict=grid_meta_dict, lncls=lncls_windows, fixed_parameter=parameter, parameter_value=None):
                 best_likelihoods = lncls_windows[np.arange(lncls_windows.shape[0]), grid_meta_idxs]
-                best_params = np.array(list(zip(*grid_meta_dict.values())))[grid_meta_idxs]    
-                #line above replaces code until best_params = 
-                #meta_dicts = list(np.vectorize(grid_meta_dict.__getitem__)(grid_meta_idxs.astype(str)))
-                #columns = []
-                #for param in parameter_names:
-                #    column = []
-                #    for meta_dict in meta_dicts:
-                #        column.append(meta_dict[param])
-                #    columns.append(column)
-                #best_params = np.vstack(columns).T
+                meta_dicts = list(np.vectorize(grid_meta_dict.__getitem__)(grid_meta_idxs.astype(str)))
+                columns = []
+                for param in parameter_names:
+                    column = []
+                    for meta_dict in meta_dicts:
+                        column.append(meta_dict[param])
+                    columns.append(column)
+                best_params = np.vstack(columns).T
                 int_bed = np.vstack([starts, ends, index, best_likelihoods, best_params.T]).T
                 header = ["# %s" % parameterObj._VERSION]
                 header += ["# %s" % "\t".join(column_headers)]
@@ -1129,17 +1099,15 @@ class Store(object):
     def _write_gridsearch_bed(self, parameterObj=None, lncls=None, best_idx=None, grid_meta_dict=None):
         if parameterObj is None or lncls is None or grid_meta_dict is None:
             raise ValueError('_write_gridsearch_bed: needs parameterObj and lncls and grid_meta_dict')
-        #grids = []
-        grids = DOL_to_LOD(grid_meta_dict)
-        #for grid_idx, grid_dict in grid_meta_dict.items():
-        #    grids.append(list(grid_dict.values()))
-        grid_params = np.array([list(subdict.values()) for subdict in grids] ,dtype=np.float64)
+        grids = []
+        for grid_idx, grid_dict in grid_meta_dict.items():
+            grids.append(list(grid_dict.values()))
+        grid_params = np.array(grids, dtype=np.float64)
         best_params = grid_params[np.argmax(lncls, axis=1), :]
         best_likelihoods = np.max(lncls, axis=1)
         delta_lncls = best_likelihoods - lncls[:, best_idx]
         sequences, starts, ends, index = self._get_window_bed_columns() 
-        params_header = list(next(iter(grids)).keys())
-        #params_header = list(grid_dict.keys())
+        params_header = list(grid_dict.keys())
         meta_blocks = self._get_meta('blocks')
         meta_windows = self._get_meta('windows')
         bsfs_windows_full = self.get_bsfs(
@@ -1174,11 +1142,7 @@ class Store(object):
         fixed_parameter=str, parameter_value=float  => 1d-array of idxs with shape (windows,) 
         '''
         if fixed_parameter: 
-            if isinstance(grid_meta_dict, list):
-                values_by_parameter = LOD_to_DOL(grid_meta_dict)
-                #values_by_parameter = grid_meta_dict_to_value_arrays_by_parameter(grid_meta_dict)
-            else:
-                values_by_parameter = {k:np.array(v, dtype=np.float64) for k,v in grid_meta_dict.items()}
+            values_by_parameter = grid_meta_dict_to_value_arrays_by_parameter(grid_meta_dict)
             if not fixed_parameter in values_by_parameter:
                 raise ValueError("%r is not part of this model" % fixed_parameter)
             fixed_parameter_values = np.array(values_by_parameter[fixed_parameter])
@@ -1228,10 +1192,7 @@ class Store(object):
             self._set_lncls(unique_hash, lncls_global, lncls_type='global', overwrite=parameterObj.overwrite)
             best_idx = np.argmax(lncls_global, axis=0)
             print('[+] Best grid point (based on bSFS within windows): %s' % lncls_global[best_idx])
-            #extract single best paramcombo
-            best_value = [v[best_idx] for v in grid_meta_dict.values()]
-            print('[+] \t %s' % "; ".join(["%s = %s" % (k, v) for k, v in zip(grid_meta_dict.keys(), best_value)]))
-            #print('[+] \t %s' % "; ".join(["%s = %s" % (k, v) for k, v in grid_meta_dict[str(best_idx)].items()]))
+            print('[+] \t %s' % "; ".join(["%s = %s" % (k, v) for k, v in grid_meta_dict[str(best_idx)].items()]))
             self._write_gridsearch_bed(parameterObj=parameterObj, lncls=lncls_windows, best_idx=best_idx, grid_meta_dict=grid_meta_dict)
         elif parameterObj.data_type == 'simulate':
             self._gridsearch_sims(parameterObj, grids, grid_meta_dict)
@@ -1246,30 +1207,26 @@ class Store(object):
             lncls_blocks = self.gridsearch_np(bsfs=bsfs_clipped, grids=grids)
             self._set_lncls(unique_hash, lncls_blocks, lncls_type='blocks', overwrite=parameterObj.overwrite)
             best_idx = np.argmax(lncls_blocks, axis=0)
-            best_value = [v[best_idx] for v in grid_meta_dict.values()]
             print('[+] Best grid point (based on bSFS): %s' % lncls_blocks[best_idx])
-            print('[+] \t %s' % "; ".join(["%s = %s" % (k, v) for k, v in zip(grid_meta_dict.keys(), best_value)]))
-            #print('[+] \t %s' % "; ".join(["%s = %s" % (k, v) for k, v in grid_meta_dict[str(best_idx)].items()]))
+            print('[+] \t %s' % "; ".join(["%s = %s" % (k, v) for k, v in grid_meta_dict[str(best_idx)].items()]))
             print('[+] Warning: gridsearch on bSFS is still experimental!')
         else:
             raise ValueError("Datatype other than windows, blocks or simulate was specified using gridsearch. Should have been caught earlier.")
 
     def _gridsearch_sims(self, parameterObj, grids, grid_meta_dict):
         #check parameters that were fixed initially:
-        #all_dicts = [grid_meta_dict[str(i)] for i in range(len(grid_meta_dict))] 
-        ##this can be omitted once parameterObj.parameter_combinations is
-        ##in the shape {Ne_A:[v1, v2, v3, v4, ...], Ne_B:[v1', v2' , ...], ...}
-        #keys = list(all_dicts[0].keys())
-        #key_all_values_dict = {}
-        #for key in keys:
-        #    key_all_values_dict[key] = np.array([d[key] for d in all_dicts], dtype=np.float64)
-        gridded_params = sorted([key for key, items in grid_meta_dict.items() if len(set(items))>1])
+        all_dicts = [grid_meta_dict[str(i)] for i in range(len(grid_meta_dict))] #this can be omitted once parameterObj.parameter_combinations is
+        #in the shape {Ne_A:[v1, v2, v3, v4, ...], Ne_B:[v1', v2' , ...], ...}
+        keys = list(all_dicts[0].keys())
+        key_all_values_dict = {}
+        for key in keys:
+            key_all_values_dict[key] = np.array([d[key] for d in all_dicts], dtype=np.float64)
+        gridded_params = sorted([key for key, items in key_all_values_dict.items() if len(set(items))>1])
 
         if 'fixed_param_grid' in self.data[f'sims/{parameterObj.label}'].attrs:
             fixed_param_grid = self.data[f'sims/{parameterObj.label}'].attrs['fixed_param_grid']
             fixed_param_grid_value = self.data[f'sims/{parameterObj.label}/parameter_combination_0'].attrs[fixed_param_grid]
-            unique_values_fixed_param = np.unique(grid_meta_dict[fixed_param_grid])
-            #unique_values_fixed_param = np.unique(key_all_values_dict[fixed_param_grid])            
+            unique_values_fixed_param = np.unique(key_all_values_dict[fixed_param_grid])
             fixed_param_grid_value_idx = np.where(unique_values_fixed_param==fixed_param_grid_value)[0][0]
         else:
             fixed_param_grid = None
@@ -1284,7 +1241,7 @@ class Store(object):
             ) #iterator over each parameter combination that was sim'ed
         num_param_combos = self.data[f'sims/{parameterObj.label}'].__len__()
         for name, data in tqdm(param_combo_iterator, desc='Processing all parameter combinations', total=num_param_combos,  ncols=100):
-            df, df_fixed_param = self._gridsearch_sims_single(data, grids, fixed_param_grid, gridded_params, grid_meta_dict, parameterObj.label, name, fixed_param_grid_value_idx)
+            df, df_fixed_param = self._gridsearch_sims_single(data, grids, fixed_param_grid, gridded_params, key_all_values_dict, grid_meta_dict, parameterObj.label, name, fixed_param_grid_value_idx)
         
         print(f"[+] Output written to {os.getcwd()}")    
         if fixed_param_grid:
@@ -1292,7 +1249,7 @@ class Store(object):
             print('\t'.join(f'{fixed_param_grid}_{i}' if i !=fixed_param_grid_value_idx else f'{fixed_param_grid}_background' for i in range(len(unique_values_fixed_param))))
             print('\t'.join("{:.3e}".format(value) for value in unique_values_fixed_param))
 
-    def _gridsearch_sims_single(self, data, grids, fixed_param_grid, gridded_params, grid_meta_dict, label, name, fixed_param_grid_value_idx):
+    def _gridsearch_sims_single(self, data, grids, fixed_param_grid, gridded_params, grid_meta_dict, grid_meta_dict_original, label, name, fixed_param_grid_value_idx):
         assert np.product(data.shape[1:])==np.product(grids.shape[1:]), "Dimensions of sim bSFS and grid bSFS do not correspond. k_max does not correspond but not caught."
         data = np.reshape(data, (data.shape[0],-1)) #data shape: replicates * bSFS
         grids = np.reshape(grids, (grids.shape[0],-1)) #grids shape: num_grid_points * bSFS
@@ -1313,7 +1270,7 @@ class Store(object):
             assert fixed_param_grid in gridded_params, "fixed param for bootstrap not in gridded_params list! Report this issue."
             columns = [] #shape = num_values_fixed_param * replicates
             #values are not sorted!
-            for fixed_param_value_idxs in self.get_slice_grid_meta_idxs(grid_meta_dict=grid_meta_dict, lncls=lncls, fixed_parameter=fixed_param_grid):
+            for fixed_param_value_idxs in self.get_slice_grid_meta_idxs(grid_meta_dict=grid_meta_dict_original, lncls=lncls, fixed_parameter=fixed_param_grid):
                 best_likelihoods = lncls[np.arange(lncls.shape[0]), fixed_param_value_idxs]
                 columns.append(best_likelihoods)
             #results in column are sorted from smallest to largest param value
@@ -1326,7 +1283,7 @@ class Store(object):
         '''lncls_type := 'global' or 'windows'
         '''
         key = "%s/%s" % (unique_hash, lncls_type)
-        dataset = self.data['lncls'].create_dataset(key, data=lncls, overwrite=overwrite)
+        self.data['lncls'].create_dataset(key, data=lncls, overwrite=overwrite)
 
     def _has_lncls(self, unique_hash, legacy=False):
         path = "lncls/%s" % unique_hash if not legacy else "lncls/global/%s" % unique_hash
@@ -1367,7 +1324,7 @@ class Store(object):
         #resample blocks and determine for each parameter ftol_abs
         self._set_stopping_criteria(data, parameterObj, label)
         # load math.EquationSystemObj
-        equationSystem = lib.math.EquationSystemObj(parameterObj)
+        equationSystem = gimble.math.EquationSystemObj(parameterObj)
         # initiate model equations
         equationSystem.initiate_model(parameterObj)
         #this is for a single dataset
@@ -1390,12 +1347,18 @@ class Store(object):
                 all_results[param_combo] = result
                 self._optimize_to_csv(result, label, param_combo)
         else:
-            results = equationSystem.optimize_parameters(
-                data, 
-                parameterObj,
-                trackHistory=True,
-                verbose=True
-                )
+            #results = equationSystem.optimize_parameters(
+            #    data, 
+            #    parameterObj,
+            #    trackHistory=True,
+            #    verbose=True
+            #    )
+            equationSystem.optimize_parameters(
+               data, 
+               parameterObj,
+               trackHistory=True,
+               verbose=True
+               )
 
     def _optimize_to_csv(self, results, label, param_combo):
         df = pd.DataFrame(results[1:])
@@ -1421,8 +1384,7 @@ class Store(object):
         if set_by_user and parameterObj.ftol_rel>0:
             print(f"Relative tolerance on lnCL: {parameterObj.ftol_rel}")
         else:
-            pass
-            #print(f"Relative tolerance on lnCL set by data resampling: {parameterObj.ftol_rel}")
+            print(f"Relative tolerance on lnCL set by data resampling: {parameterObj.ftol_rel}")
         if parameterObj.xtol_rel>0:
             print(f"Relative tolerance on norm of parameter vector: {parameterObj.ftol_rel}")
         
@@ -1444,7 +1406,7 @@ class Store(object):
             #no need to resample, we have enough replicates
             #we treat the total dataset as approximating the truth
             #and turn those into ETPs
-            lnCLs_resample = [lib.math.calculate_composite_likelihood(ETPs, replicate) for replicate in all_data]
+            lnCLs_resample = [gimble.math.calculate_composite_likelihood(ETPs, replicate) for replicate in all_data]
             replicates = len(lnCLs_resample)
             resample_size = replicates
         else:
@@ -1453,11 +1415,11 @@ class Store(object):
             kmax_by_mutype=list(parameterObj.config['k_max'].values())
             resample_bsfs=self._resample_bsfs(data, resample_size, replicates, kmax_by_mutype)
             #get lnCL for each resampled dataset
-            lnCLs_resample = [lib.math.calculate_composite_likelihood(ETPs, resample) for resample in resample_bsfs]
+            lnCLs_resample = [gimble.math.calculate_composite_likelihood(ETPs, resample) for resample in resample_bsfs]
             #determine sd of outcome
         sd_mini = np.std(lnCLs_resample, ddof=1)
         sd = sd_mini * np.sqrt((resample_size-1)/(total_num_blocks-1))
-        lnCL_all_data = lib.math.calculate_composite_likelihood(ETPs, data)
+        lnCL_all_data = gimble.math.calculate_composite_likelihood(ETPs, data)
         return (sd, lnCL_all_data)
 
     def _resample_bsfs(self, data, resample_size, replicates, kmax_by_mutype):
@@ -1480,9 +1442,8 @@ class Store(object):
         unique_hash = parameterObj._get_unique_hash()
         if self._has_grid(unique_hash) and not parameterObj.overwrite:
             sys.exit("[X] Grid for this config file already exists.")
-        number_grid_points = len(parameterObj.parameter_combinations[next(iter(parameterObj.parameter_combinations))])
-        print("[+] Generated %s grid points combinations." % number_grid_points)
-        equationSystem = lib.math.EquationSystemObj(parameterObj)
+        print("[+] Generated %s grid points combinations." % len(parameterObj.parameter_combinations))
+        equationSystem = gimble.math.EquationSystemObj(parameterObj)
         #build the equations
         equationSystem.initiate_model(parameterObj=parameterObj)
         equationSystem.ETPs = equationSystem.calculate_all_ETPs(threads=parameterObj.threads, gridThreads=parameterObj.gridThreads, verbose=False)
@@ -1490,9 +1451,7 @@ class Store(object):
 
     def _set_grid(self, unique_hash, ETPs, grid_labels, overwrite=False):
         dataset = self.data['grids'].create_dataset(unique_hash, data=ETPs, overwrite=overwrite)
-        #dataset.attrs.put({idx:combo for idx, combo in enumerate(grid_labels)})
-        grid_labels = {k:list(v) for k,v in grid_labels.items()}
-        dataset.attrs.put(grid_labels) #using dict of list to save parameters
+        dataset.attrs.put({idx:combo for idx, combo in enumerate(grid_labels)})
 
     def _has_grid(self, unique_hash):
         if f'grids/{unique_hash}' in self.data:
@@ -1519,8 +1478,7 @@ class Store(object):
         #lncls global should be based on w_bsfs !
         global_winning_fixed_param_idx = np.argmax(lncls_global)
         if parameterObj.fixed_param_grid:
-            global_winning_fixed_param_value = grid_meta_dict[parameterObj.fixed_param_grid][global_winning_fixed_param_idx]
-            #global_winning_fixed_param_value = grid_meta_dict[str(global_winning_fixed_param_idx)][parameterObj.fixed_param_grid]
+            global_winning_fixed_param_value = grid_meta_dict[str(global_winning_fixed_param_idx)][parameterObj.fixed_param_grid]
         else:
             global_winning_fixed_param_value = None
         #get optimal parametercombo given background for fixed parameter
@@ -1535,7 +1493,7 @@ class Store(object):
             grid_to_sim, window_df = self._get_sim_grid_fixed_rec(parameterObj, local_winning_fixed_param_idx, grid_meta_dict)
 
         param_df = pd.DataFrame(grid_to_sim)
-        param_df.drop(labels=['mu'], inplace=True, axis=1, errors='ignore')
+        param_df.drop(labels=['mu'], inplace=True, axis=1)
         param_df.to_csv(f'simulated_grid_{parameterObj.label}.tsv', sep='\t')
         print(f"[+] Wrote simulated_grid_{parameterObj.label}.tsv containing all simulated parameter combinations.")
         window_df.to_csv(f'windows_sims_param_idx_{parameterObj.label}.tsv', sep='\t')
@@ -1550,8 +1508,7 @@ class Store(object):
         parameterObj.recombination_map['param_with_rec_idx'] = param_combo_idxs
         grid_to_sim = []
         for r, idx in unique:
-            #param_dict = copy.deepcopy(grid_meta_dict[str(int(idx))])
-            param_dict = {k:v for k,v in zip(grid_meta_dict.keys(),list(zip(*grid_meta_dict.values()))[int(idx)])}
+            param_dict = copy.deepcopy(grid_meta_dict[str(int(idx))])
             param_dict['recombination'] = r
             grid_to_sim.append(param_dict)
         window_df = parameterObj.recombination_map[['sequence', 'start', 'end', 'param_with_rec_idx']]
@@ -1564,8 +1521,7 @@ class Store(object):
         old_to_new_idx = {} #dict to translate old idx to new in grid_to_sim
         for new_idx, old_idx in enumerate(param_combo_idxs):
             old_to_new_idx[old_idx] = new_idx
-            #param_dict = copy.deepcopy(grid_meta_dict[str(int(old_idx))])
-            param_dict = {k:v for k,v in zip(grid_meta_dict.keys(),list(zip(*grid_meta_dict.values()))[int(old_idx)])}
+            param_dict = copy.deepcopy(grid_meta_dict[str(int(old_idx))])
             param_dict['recombination'] = rec_rate
             grid_to_sim.append(param_dict)
         window_df = self._get_window_coordinates()
@@ -1993,7 +1949,7 @@ class Store(object):
         lncls_path = 'lncls/global' if legacy else 'lncls/'
         for grid_id in self.data[lncls_path]:
             
-            shape = self.data["%s/%s" % (lncls_path, grid_id)].shape
+            # shape = self.data["%s/%s" % (lncls_path, grid_id)].shape
             reportObj.add_line(prefix="[+]", branch='S', fill=".", left=grid_id, right='NA')
 
             # grid_dict = self.data[grid_path].attrs.asdict()
@@ -2008,7 +1964,6 @@ class Store(object):
         return reportObj
 
     def _get_sims_report(self, width, label):
-        meta_sims = self._get_meta('sims')
         reportObj = ReportObj(width=width)
         reportObj.add_line(prefix="[+]", left='[', center='Sims', right=']', fill='=')
         column_just = 14
@@ -2065,7 +2020,7 @@ class Store(object):
     #        return name in list(self.data[subgroup].group_keys())
 
     def _return_group_last_integer(self, name):
-        '''needed? yes, lib.simulate.py'''
+        '''needed? yes, gimble.simulate.py'''
         try:
             all_groups = [int([namestring for namestring in groupnames.split('_')][-1]) for groupnames in list(self.data[name]) if groupnames.startswith('run')]
         except KeyError:
@@ -2230,7 +2185,7 @@ class Store(object):
     def dump_bsfs(self, data_type=None, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None):
         meta_seqs = self._get_meta('seqs')
         header = ['count'] + [x + 1 for x in range(meta_seqs['mutypes_count'])]
-        bsfs_type = '%s-bSFS' % ('b' if data_type == 'blocks' else 's')
+        bsfs_type = '%sSFS' % ('b' if data_type == 'blocks' else 'sw')
         print("[#] Getting %s ..." % bsfs_type)
         bsfs_2d = bsfs_to_2d(
             self.get_bsfs(
@@ -2402,110 +2357,6 @@ class Store(object):
             if not self._has_grid(unique_hash):
                 sys.exit("[X] Provided config file does not correspond to an existing grid.")
 
-    #def dump_windows(self, parameterObj):
-    #    window_info_rows = []
-    #    window_mutuple_tally = []
-    #    for sequence_id in tqdm(self.data.attrs['sequence_ids'], total=len(self.data.attrs['sequence_ids']), desc="[%] Generating output ", ncols=100):
-    #        variations = self.data["%s/windows/variation" % sequence_id]
-    #        #print(self.data["%s/windows/starts" % sequence_id][:])
-    #        #print(self.data["%s/windows/pos_mean" % sequence_id][:])
-    #        #print(self.data["%s/windows/pos_median" % sequence_id][:])
-    #        window_ids = np.array(["_".join([sequence_id, _start, _end]) for (_start, _end) in zip(
-    #            np.array(self.data["%s/windows/starts" % sequence_id]).astype(str), 
-    #            np.array(self.data["%s/windows/ends" % sequence_id]).astype(str))])
-    #        #window_ids = self.data["%s/windows/window_id" % sequence_id]
-    #        midpoint_means = self.data["%s/windows/pos_mean" % sequence_id]
-    #        midpoint_medians = self.data["%s/windows/pos_median" % sequence_id]
-    #        for window_id, variation, midpoint_mean, midpoint_median in zip(window_ids, variations, midpoint_means, midpoint_medians):
-    #            pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation, (self.data.attrs['block_length'] * variation.shape[0]))
-    #            window_info_rows.append([window_id, sequence_id, midpoint_mean, midpoint_median, pi_1, pi_2, d_xy, f_st, fgv/variation.shape[0]])
-    #            # mutuple barchart
-    #            mutypes, counts = np.unique(variation, return_counts=True, axis=0)
-    #            tally = np.concatenate([counts[:, np.newaxis], mutypes], axis =-1)
-    #            windows = np.array([window_id] * tally.shape[0])
-    #            window_mutuple_tally.append(np.concatenate([windows[:, np.newaxis], tally], axis =-1))
-    #    window_bsfs_cols = ['window_id', 'count'] + [x+1 for x in range(self.data.attrs['mutypes_count'])]
-    #    window_bsfs_df = pd.DataFrame(np.vstack(window_mutuple_tally), columns=window_bsfs_cols)
-    #    print("[+] Made %s windows" % window_bsfs_df['window_id'].nunique()) 
-    #    window_bsfs_f = "%s.window_bsfs.tsv" % self.prefix
-    #    window_bsfs_df.to_csv(window_bsfs_f, sep='\t', index=False)
-    #    print("[>] Created: %r" % str(window_bsfs_f))
-    #
-    #    window_info_cols = ['window_id', 'sequence_id', 'midpoint_mean', 'midpoint_median', 'pi_%s' % self.data.attrs['pop_ids'][0], 'pi_%s' % self.data.attrs['pop_ids'][1], 'd_xy', 'f_st', 'fgv']
-    #    window_info_df = pd.DataFrame(window_info_rows, columns=window_info_cols)
-    #    window_info_f = "%s.window_info.tsv" % self.prefix
-    #    window_info_df.to_csv(window_info_f, sep='\t', index=False)
-    #    print("[>] Created: %r" % str(window_info_f))        
-    #    self.plot_fst_genome_scan(window_info_df)
-    #    self.plot_pi_genome_scan(window_info_df)
-    #    #     plot_pi_scatter(window_df, '%s.pi_scatter.png' % parameterObj.dataset)
-    
-    #def plot_pi_genome_scan(self, window_df):
-    #    offset_by_sequence_id = {}
-    #    offset = 0
-    #    x_boundaries = []
-    #    for sequence_id, sequence_length in zip(self.data.attrs['sequence_ids'], self.data.attrs['sequence_length']):
-    #        offset_by_sequence_id[sequence_id] = offset
-    #        x_boundaries.append(offset)
-    #        offset += sequence_length
-    #    x_boundaries.append(offset)
-    #    #print([(sequenceObj.id, sequenceObj.length) for sequenceObj in sequenceObjs])
-    #    #print(x_boundaries)
-    #    fig = plt.figure(figsize=(18,4), dpi=200, frameon=True)
-    #    #connecting dots
-    #    ax = fig.add_subplot(111)  
-    #    window_df['rel_pos'] = window_df['midpoint_median'] + window_df['sequence_id'].map(offset_by_sequence_id)
-    #    window_df.sort_values(['rel_pos'], inplace=True)
-    #    #print(window_df)
-    #    pi_A_key = list(window_df.columns)[4]
-    #    pi_B_key = list(window_df.columns)[5]
-    #    ax.plot(window_df['rel_pos'], window_df[pi_A_key], color='orange', alpha=0.8, linestyle='-', linewidth=1, label=pi_A_key.replace('pi_', ''))
-    #    ax.plot(window_df['rel_pos'], window_df[pi_B_key], color='dodgerblue', alpha=0.8, linestyle='-', linewidth=1, label=pi_B_key.replace('pi_', ''))
-    #    y_lim = (min(window_df[pi_A_key].min(), window_df[pi_B_key].min()), max(window_df[pi_A_key].max(), window_df[pi_B_key].max()))
-    #    ax.vlines(x_boundaries, y_lim[0], y_lim[1], colors=['lightgrey'], linestyles='dashed', linewidth=1)
-    #    ax.set_ylim(y_lim)
-    #    ax.spines['right'].set_visible(False)
-    #    ax.spines['top'].set_visible(False)
-    #    ax.legend(numpoints=1)
-    #    plt.ylabel('Pi')
-    #    plt.xlabel("Genome coordinate")
-    #    out_f = '%s.pi_genome_scan.png' % self.prefix
-    #    plt.tight_layout()
-    #    fig.savefig(out_f, format="png")
-    #    print("[>] Created: %r" % str(out_f))
-    #    plt.close(fig)
-    #
-    #def plot_fst_genome_scan(self, window_df):
-    #    offset_by_sequence_id = {}
-    #    offset = 0
-    #    x_boundaries = []
-    #    for sequence_id, sequence_length in zip(self.data.attrs['sequence_ids'], self.data.attrs['sequence_length']):
-    #        offset_by_sequence_id[sequence_id] = offset
-    #        x_boundaries.append(offset)
-    #        offset += sequence_length
-    #    x_boundaries.append(offset)
-    #    fig = plt.figure(figsize=(18,4), dpi=200, frameon=True)
-    #    #connecting dots
-    #    ax = fig.add_subplot(111)  
-    #    y_lim = (0.0, 1.0)
-    #    window_df['rel_pos'] = window_df['midpoint_median'] + window_df['sequence_id'].map(offset_by_sequence_id)
-    #    window_df.sort_values(['rel_pos'], inplace=True)
-    #    ax.plot(window_df['rel_pos'], window_df['f_st'], color='lightgrey', alpha=0.8, linestyle='-', linewidth=1)
-    #    scatter = ax.scatter(window_df['rel_pos'], window_df['f_st'], c=window_df['d_xy'], alpha=1.0, cmap='PiYG_r', edgecolors='white', marker='o', s=40, linewidth=0.2)
-    #    cbar = fig.colorbar(scatter, ax=ax)
-    #    cbar.ax.set_title('D_xy')
-    #    ax.vlines(x_boundaries, 0.0, 1.0, colors=['lightgrey'], linestyles='dashed', linewidth=1)
-    #    ax.set_ylim(y_lim)
-    #    ax.spines['right'].set_visible(False)
-    #    ax.spines['top'].set_visible(False)
-    #    plt.ylabel('F_st')
-    #    plt.xlabel("Genome coordinate")
-    #    ax.autoscale_view(tight=None, scalex=True, scaley=True)
-    #    out_f = '%s.fst_genome_scan.png' % self.prefix
-    #    fig.savefig(out_f, format="png")
-    #    plt.close(fig)
-    #    print("[>] Created: %r" % str(out_f))
-
     def _make_windows(self, parameterObj, sample_sets='X'):
         meta_seqs = self._get_meta('seqs')
         meta_windows = self._get_meta('windows')
@@ -2537,38 +2388,6 @@ class Store(object):
                 self.data.create_dataset("windows/%s/pos_mean" % seq_name, data=window_pos_mean, overwrite=True)
                 self.data.create_dataset("windows/%s/pos_median" % seq_name, data=window_pos_median, overwrite=True)
                 meta_windows['count'] += window_variation.shape[0]
-
-        #window_info_rows = []
-        #window_mutuple_tally = []
-        ## window bsfs
-        #for seq_name in tqdm(meta['seq_names'], total=len(meta['seq_names']), desc="[%] Generating output ", ncols=100):
-        #    variations = self.data["seqs/%s/windows/variation" % seq_name]
-        #    print('variations', variations.shape, variations.info, variations.hexdigest())
-        #    for window_id, variation, midpoint_mean, midpoint_median in zip(window_ids, variations, midpoint_means, midpoint_medians):
-        #        pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation, (meta['blocks_length'] * variation.shape[0]))
-        #        blocks = variation.shape[0]
-        #        window_info_rows.append([window_id, seq_name, midpoint_mean, midpoint_median, pi_1, pi_2, d_xy, f_st, fgv, blocks])
-        #        # bsfs for each window
-        #        mutuple, counts = np.unique(variation, return_counts=True, axis=0)
-        #        tally = np.concatenate([counts[:, np.newaxis], mutuple], axis =-1)
-        #        windows = np.array([window_id] * tally.shape[0])
-        #        window_mutuple_tally.append(np.concatenate([windows[:, np.newaxis], tally], axis =-1))
-        #window_bsfs_cols = ['window_id', 'count'] + [x+1 for x in range(meta['mutypes_count'])]
-        #print(window_bsfs_cols)
-        #print(window_mutuple_tally)
-        #window_bsfs_df = pd.DataFrame(np.vstack(window_mutuple_tally), columns=window_bsfs_cols)
-        #print("[+] Made %s windows" % window_bsfs_df['window_id'].nunique()) 
-        #window_bsfs_f = "%s.window_bsfs.tsv" % self.prefix
-        #window_bsfs_df.to_csv(window_bsfs_f, sep='\t', index=False)
-        #print("[>] Created: %r" % str(window_bsfs_f))
-        #window_info_cols = ['window_id', 'seq_name', 'midpoint_mean', 'midpoint_median', 'pi_%s' % meta['population_ids'][0], 'pi_%s' % meta['population_ids'][1], 'd_xy', 'f_st', 'f']
-        #window_info_df = pd.DataFrame(window_info_rows, columns=window_info_cols)
-        #window_info_f = "%s.window_info.tsv" % self.prefix
-        #window_info_df.to_csv(window_info_f, sep='\t', index=False)
-        #print("[>] Created: %r" % str(window_info_f))
-        #self.plot_fst_genome_scan(window_info_df)
-        #self.plot_pi_genome_scan(window_info_df)
-        ##     plot_pi_scatter(window_df, '%s.pi_scatter.png' % parameterObj.dataset)
 
     def _get_interval_coordinates_for_sample_set(self, seq_name='', sample_set=[]):
         meta_seqs = self._get_meta('seqs')
@@ -2639,381 +2458,3 @@ class Store(object):
         meta_blocks['count_by_sample_set_idx'] = dict(blocks_by_sample_set_idx) # keys are strings
         meta_blocks['count_raw_by_sample_set_idx'] = dict(blocks_raw_by_sample_set_idx) # keys are strings
         meta_blocks['count'] = sum([count for count in blocks_by_sample_set_idx.values()])
-    #def _make_blocks_threaded(self, parameterObj, debug=False, threads=2):
-    #    '''there might be some speed improvement here ... has to be finished...'''
-    #    meta = self.data['seqs'].attrs
-    #    meta['blocks_length'] = parameterObj.block_length
-    #    meta['blocks_span'] = parameterObj.block_span
-    #    meta['blocks_gap_run'] = parameterObj.block_gap_run
-    #    meta['blocks_max_missing'] = parameterObj.block_max_missing
-    #    meta['blocks_max_multiallelic'] = parameterObj.block_max_multiallelic
-    #    blocks_raw_by_sample_set_idx = collections.Counter()   # all possible blocks
-    #    blocks_by_sample_set_idx = collections.Counter()       # all valid blocks => only these get saved to store
-    #    params = [(seqs, str(sample_seq_idx)) for seqs, sample_seq_idx in itertools.product(meta['seq_names'], range(0, len(meta['sample_sets'])))]
-    #    print(params)
-    #    results = []
-    #    with poolcontext(processes=threads) as pool:
-    #        with tqdm(total=len(params), desc="[%] ", ncols=100, unit_scale=True) as pbar:
-    #            for blockObjs in pool.imap_unordered(block_algorithm, params):
-    #                results.append(blockObjs)
-    #                pbar.update()
-#
-    #    with tqdm(total=(len(meta['seq_names']) * len(meta['sample_sets'])), desc="[%] Building blocks ", ncols=100, unit_scale=True) as pbar:        
-    #        for seq_name in meta['seq_names']:        
-    #            pos_key = "seqs/%s/variants/pos" % (seq_name)
-    #            gt_key = "seqs/%s/variants/matrix" % (seq_name)
-    #            for sample_set_idx, (sample_set, sample_set_cartesian) in enumerate(zip(meta['sample_sets'], meta['sample_sets_inter'])):
-    #                params.append(seq_name, sample_set_idx, pos_key, gt_key)
-    #                pbar.update(1)
-    #    meta['blocks_by_sample_set_idx'] = dict(blocks_by_sample_set_idx) # keys are strings
-    #    meta['blocks_raw_by_sample_set_idx'] = dict(blocks_raw_by_sample_set_idx) # keys are strings
-
-    #def plot_bsfs_pcp(self, sample_set='X'):
-    #    '''plots a bsfs pcp for a given sample_set. 
-    #    '''
-    #    # https://stackoverflow.com/questions/8230638/parallel-coordinates-plot-in-matplotlib
-    #    # http://www.shengdongzhao.com/publication/tracing-tuples-across-dimensions-a-comparison-of-scatterplots-and-parallel-coordinate-plots/
-    #    #meta = self.data['seqs'].attrs
-    #    bsfs = bsfs_to_2d(self._get_block_bsfs(sample_sets='X'))
-    #    print(bsfs)
-    #    freq = bsfs[:,0] / np.sum(bsfs[:,0])
-    #    meta = self.data['seqs'].attrs
-    #    x = ['m_1', 'm_2', 'm_3', 'm_4']
-    #    bins = np.linspace(0, 1, 9)
-    #    freq = bins[np.digitize(freq, bins)]
-    #    data = bsfs[:,1:] 
-    #    cmap = plt.get_cmap("Greys")
-    #    print('data', data.shape, data)
-    #    print('freq', freq.shape, freq)
-    #    fig, axes = plt.subplots(1, 3, sharey=False, figsize=(15,5))
-    #    axes[0].plot(x,data.T, c=cmap(freq))
-    #    axes[1].plot(x,data.T, c=cmap(freq))
-    #    axes[2].plot(x,data.T, c=cmap(freq))
-    #    plt.subplots_adjust(wspace=0)
-    #    #     min_max_range[mutype] = [np.min(, df[col].max(), np.ptp(df[col])]
-    #    #         df[col] = np.true_divide(df[col] - df[col].min(), np.ptp(df[col]))
-    #    # ynames = ['m_%s' for idx in range(1, meta['mutypes_count'] + 1)]
-    #    # import pandas as pd
-    #    # from pandas.tools.plotting import parallel_coordinates
-    #    # ax = pd.tools.plotting.parallel_coordinates(mutypes)
-#
-    #    # #ax.plot(window_df['rel_pos'], window_df[pi_A_key], color='orange', alpha=0.8, linestyle='-', linewidth=1, label=pi_A_key.replace('pi_', ''))
-    #    # #ax.plot(window_df['rel_pos'], window_df[pi_B_key], color='dodgerblue', alpha=0.8, linestyle='-', linewidth=1, label=pi_B_key.replace('pi_', ''))
-    #    # #y_lim = (min(window_df[pi_A_key].min(), window_df[pi_B_key].min()), max(window_df[pi_A_key].max(), window_df[pi_B_key].max()))
-    #    # #ax.vlines(x_boundaries, y_lim[0], y_lim[1], colors=['lightgrey'], linestyles='dashed', linewidth=1)
-    #    # #ax.set_ylim(y_lim)
-    #    # #ax.spines['right'].set_visible(False)
-    #    # #ax.spines['top'].set_visible(False)
-    #    # #ax.legend(numpoints=1)
-    #    # #plt.ylabel('Pi')
-    #    # #plt.xlabel("Genome coordinate")
-    #    out_f = '%s.pcp.png' % self.prefix
-    #    plt.savefig(out_f, format="png")
-        #print("[>] Created: %r" % str(out_f))
-        #plt.close(fig)
-
-        #fig, host = plt.subplots()
-        #
-        ## create some dummy data
-        #ynames = ['P1', 'P2', 'P3', 'P4', 'P5']
-        #N1, N2, N3 = 10, 5, 8
-        #N = N1 + N2 + N3
-        #category = np.concatenate([np.full(N1, 1), np.full(N2, 2), np.full(N3, 3)])
-        #y1 = np.random.uniform(0, 10, N) + 7 * category
-        #y2 = np.sin(np.random.uniform(0, np.pi, N)) ** category
-        #y3 = np.random.binomial(300, 1 - category / 10, N)
-        #y4 = np.random.binomial(200, (category / 6) ** 1/3, N)
-        #y5 = np.random.uniform(0, 800, N)
-        #
-        ## organize the data
-        #ys = np.dstack([y1, y2, y3, y4, y5])[0]
-        #ymins = ys.min(axis=0)
-        #ymaxs = ys.max(axis=0)
-        #dys = ymaxs - ymins
-        #ymins -= dys * 0.05  # add 5% padding below and above
-        #ymaxs += dys * 0.05
-        #dys = ymaxs - ymins
-        #
-        ## transform all data to be compatible with the main axis
-        #zs = np.zeros_like(ys)
-        #zs[:, 0] = ys[:, 0]
-        #zs[:, 1:] = (ys[:, 1:] - ymins[1:]) / dys[1:] * dys[0] + ymins[0]
-        #
-        #
-        #axes = [host] + [host.twinx() for i in range(ys.shape[1] - 1)]
-        #for i, ax in enumerate(axes):
-        #    ax.set_ylim(ymins[i], ymaxs[i])
-        #    ax.spines['top'].set_visible(False)
-        #    ax.spines['bottom'].set_visible(False)
-        #    if ax != host:
-        #        ax.spines['left'].set_visible(False)
-        #        ax.yaxis.set_ticks_position('right')
-        #        ax.spines["right"].set_position(("axes", i / (ys.shape[1] - 1)))
-        #
-        #host.set_xlim(0, ys.shape[1] - 1)
-        #host.set_xticks(range(ys.shape[1]))
-        #host.set_xticklabels(ynames, fontsize=14)
-        #host.tick_params(axis='x', which='major', pad=7)
-        #host.spines['right'].set_visible(False)
-        #host.xaxis.tick_top()
-        #host.set_title('Parallel Coordinates Plot', fontsize=18)
-        #
-        #colors = plt.cm.tab10.colors
-        #for j in range(N):
-        #    # to just draw straight lines between the axes:
-        #    # host.plot(range(ys.shape[1]), zs[j,:], c=colors[(category[j] - 1) % len(colors) ])
-        #
-        #    # create bezier curves
-        #    # for each axis, there will a control vertex at the point itself, one at 1/3rd towards the previous and one
-        #    #   at one third towards the next axis; the first and last axis have one less control vertex
-        #    # x-coordinate of the control vertices: at each integer (for the axes) and two inbetween
-        #    # y-coordinate: repeat every point three times, except the first and last only twice
-        #    verts = list(zip([x for x in np.linspace(0, len(ys) - 1, len(ys) * 3 - 2, endpoint=True)],
-        #                     np.repeat(zs[j, :], 3)[1:-1]))
-        #    # for x,y in verts: host.plot(x, y, 'go') # to show the control points of the beziers
-        #    codes = [Path.MOVETO] + [Path.CURVE4 for _ in range(len(verts) - 1)]
-        #    path = Path(verts, codes)
-        #    patch = patches.PathPatch(path, facecolor='none', lw=1, edgecolor=colors[category[j] - 1])
-        #    host.add_patch(patch)
-        #plt.tight_layout()
-        #plt.show()
-
-    
-#     def plot_pi_genome_scan(self, window_df):
-#         offset_by_sequence_id = {}
-#         offset = 0
-#         x_boundaries = []
-#         for sequence_id, sequence_length in zip(self.data.attrs['sequence_ids'], self.data.attrs['sequence_length']):
-#             offset_by_sequence_id[sequence_id] = offset
-#             x_boundaries.append(offset)
-#             offset += sequence_length
-#         x_boundaries.append(offset)
-#         #print([(sequenceObj.id, sequenceObj.length) for sequenceObj in sequenceObjs])
-#         #print(x_boundaries)
-#         fig = plt.figure(figsize=(18,4), dpi=200, frameon=True)
-#         #connecting dots
-#         ax = fig.add_subplot(111)  
-#         window_df['rel_pos'] = window_df['midpoint_median'] + window_df['sequence_id'].map(offset_by_sequence_id)
-#         window_df.sort_values(['rel_pos'], inplace=True)
-#         #print(window_df)
-#         pi_A_key = list(window_df.columns)[4]
-#         pi_B_key = list(window_df.columns)[5]
-#         ax.plot(window_df['rel_pos'], window_df[pi_A_key], color='orange', alpha=0.8, linestyle='-', linewidth=1, label=pi_A_key.replace('pi_', ''))
-#         ax.plot(window_df['rel_pos'], window_df[pi_B_key], color='dodgerblue', alpha=0.8, linestyle='-', linewidth=1, label=pi_B_key.replace('pi_', ''))
-#         y_lim = (min(window_df[pi_A_key].min(), window_df[pi_B_key].min()), max(window_df[pi_A_key].max(), window_df[pi_B_key].max()))
-#         ax.vlines(x_boundaries, y_lim[0], y_lim[1], colors=['lightgrey'], linestyles='dashed', linewidth=1)
-#         ax.set_ylim(y_lim)
-#         ax.spines['right'].set_visible(False)
-#         ax.spines['top'].set_visible(False)
-#         ax.legend(numpoints=1)
-#         plt.ylabel('Pi')
-#         plt.xlabel("Genome coordinate")
-#         out_f = '%s.pi_genome_scan.png' % self.prefix
-#         plt.tight_layout()
-#         fig.savefig(out_f, format="png")
-#         print("[>] Created: %r" % str(out_f))
-#         plt.close(fig)
-
-#     def plot_fst_genome_scan(self, window_df):
-#         offset_by_sequence_id = {}
-#         offset = 0
-#         x_boundaries = []
-#         for sequence_id, sequence_length in zip(self.data.attrs['sequence_ids'], self.data.attrs['sequence_length']):
-#             offset_by_sequence_id[sequence_id] = offset
-#             x_boundaries.append(offset)
-#             offset += sequence_length
-#         x_boundaries.append(offset)
-#         fig = plt.figure(figsize=(18,4), dpi=200, frameon=True)
-#         #connecting dots
-#         ax = fig.add_subplot(111)  
-#         y_lim = (0.0, 1.0)
-#         window_df['rel_pos'] = window_df['midpoint_median'] + window_df['sequence_id'].map(offset_by_sequence_id)
-#         window_df.sort_values(['rel_pos'], inplace=True)
-#         ax.plot(window_df['rel_pos'], window_df['f_st'], color='lightgrey', alpha=0.8, linestyle='-', linewidth=1)
-#         scatter = ax.scatter(window_df['rel_pos'], window_df['f_st'], c=window_df['d_xy'], alpha=1.0, cmap='PiYG_r', edgecolors='white', marker='o', s=40, linewidth=0.2)
-#         cbar = fig.colorbar(scatter, ax=ax)
-#         cbar.ax.set_title('D_xy')
-#         ax.vlines(x_boundaries, 0.0, 1.0, colors=['lightgrey'], linestyles='dashed', linewidth=1)
-#         ax.set_ylim(y_lim)
-#         ax.spines['right'].set_visible(False)
-#         ax.spines['top'].set_visible(False)
-#         plt.ylabel('F_st')
-#         plt.xlabel("Genome coordinate")
-#         ax.autoscale_view(tight=None, scalex=True, scaley=True)
-#         out_f = '%s.fst_genome_scan.png' % self.prefix
-#         fig.savefig(out_f, format="png")
-#         plt.close(fig)
-#         print("[>] Created: %r" % str(out_f))
-
-    #def dump_blocks(self, parameterObj, cartesian_only=True):
-    #    meta = self.data['seqs'].attrs
-    #    sample_set_idxs = [idx for (idx, is_cartesian) in enumerate(meta['sample_sets_inter']) if is_cartesian] if cartesian_only else range(len(meta['sample_sets']))
-    #    variation_global = []
-    #    with tqdm(total=(len(meta['seq_names']) * len(sample_set_idxs)), desc="[%] Writing bSFSs ", ncols=100, unit_scale=True) as pbar: 
-    #        for seq_name in meta['seq_names']: 
-    #            for sample_set_idx in sample_set_idxs:
-    #                variation_key = 'seqs/%s/blocks/%s/variation' % (seq_name, sample_set_idx)
-    #                variation_global.append(np.array(self.data[variation_key]))#[valid]
-    #                pbar.update()
-    #    variation_global_array = np.concatenate(variation_global, axis=0)
-    #    # popgen
-    #    variation_global = []
-        #metrics_rows = []
-        # is order (pi_1, pi_2, d_xy, f_st, fgv) correct?
-        # for sample_set_idx in data_by_key_by_sample_set_idx:
-        #     sample_set_ids = self.data.attrs['sample_sets'][sample_set_idx]
-        #     #print(data_by_key_by_sample_set_idx)
-        #     block_sites = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['block_sites'], axis=0))
-        #     interval_sites = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['interval_sites'], axis=0))
-        #     block_sites_valid = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['block_sites_valid'], axis=0))
-        #     variation_array = np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['variation'], axis=0)
-        #     missing_count = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['missing'], axis=0))
-        #     multiallelic_count = np.sum(np.concatenate(data_by_key_by_sample_set_idx[sample_set_idx]['multiallelic'], axis=0))
-        #     hetB_count, hetA_count, hetAB_count, fixed_count = np.sum(variation_array, axis=0)
-        #     #pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation_array, (self.data.attrs['block_length'] * variation_array.shape[0]))    
-        #     pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation_array, block_sites_valid)    
-        #     metrics_rows.append([
-        #         sample_set_ids[0], 
-        #         sample_set_ids[1],     
-        #         block_sites,
-        #         interval_sites,
-        #         block_sites_valid,
-        #         np.divide(block_sites_valid, self.data.attrs['block_length']),
-        #         fgv,
-        #         missing_count,
-        #         multiallelic_count,
-        #         hetA_count, 
-        #         hetB_count, 
-        #         hetAB_count, 
-        #         fixed_count,
-        #         pi_1, 
-        #         pi_2, 
-        #         d_xy, 
-        #         f_st
-        #         ])
-        # # output metrics 
-        # header = [
-        #     self.data.attrs['pop_ids'][0], 
-        #     self.data.attrs['pop_ids'][1], 
-        #     'block_sites', 
-        #     'interval_sites', 
-        #     'block_sites_valid', 
-        #     'blocks', 
-        #     'fgv', 
-        #     'missing', 
-        #     'multiallelic', 
-        #     'hetA', 
-        #     'hetB', 
-        #     'hetAB', 
-        #     'fixed', 
-        #     'piA', 
-        #     'piB', 
-        #     'dxy', 
-        #     'fst'
-        #     ]
-        # pd.DataFrame(data=metrics_rows, columns=header, dtype='int64').to_hdf("%s.block_stats.h5" % self.prefix, 'bsfs', format='table')
-
-        #pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation_global_array, (self.data.attrs['block_length'] * variation_global_array.shape[0]))
-        #print("[+] Pi_%s = %s; Pi_%s = %s; D_xy = %s; F_st = %s; FGVs = %s / %s blocks (%s)" % (self.data.attrs['pop_ids'][0], pi_1, self.data.attrs['pop_ids'][1], pi_2, d_xy, f_st, fgv, variation_global_array.shape[0], format_percentage(fgv / variation_global_array.shape[0]))) 
-
-
-#    def test_dask(self, grids=None, data=None):
-#        if grids is None or data is None:
-#            raise ValueError('gridsearch: needs grid and data') 
-#        from dask.distributed import LocalCluster, Client
-#        cluster= LocalCluster(
-#            n_workers=8, 
-#            threads_per_worker=1,
-#            dashboard_address='localhost:8787', 
-#            interface='lo0', 
-#            **{'local_directory': 'dasktemp', 'memory_limit': '2G'})
-#        client = Client(cluster)
-#        array = dask.array.ones((100000,100000), chunks=(10000,10000))
-#        a = client.submit(dask.array.mean, array).result()
-#        return a.compute()
-        
-#   def gridsearch(self, grids=None, data=None):
-#       '''returns 2d array of likelihoods of shape (windows, grids)'''
-#       if grids is None or data is None:
-#           raise ValueError('gridsearch: needs grid and data') 
-#       from dask.distributed import Client, LocalCluster
-#       cluster= LocalCluster(
-#           n_workers=8, 
-#           threads_per_worker=1,
-#           dashboard_address='localhost:8787', 
-#           interface='lo0', 
-#           **{'local_directory': 'dasktemp', 'memory_limit': '3G'})
-#       client = Client(cluster)
-#       data_array = dask.array.from_array(data, chunks=(10000, *data.shape[1:]))
-#       print('# data_array', type(data_array))
-#       grid_array = dask.array.from_array(grids, chunks=(1, *grids.shape[1:]))
-#       print('# grid_array', type(grid_array))
-#       grids_masked = dask.array.ma.masked_array(grids, grids==0, fill_value=np.nan)
-#       grids_log_temp = client.submit(dask.array.log, grids_masked).result()
-
-#       print('# grids_log_temp', type(grids_log_temp))
-#       grids_log = client.submit(dask.array.nan_to_num, grids_log_temp).result().compute()
-#       print('grids_log', type(grids_log))
-#       print('done')
-#       # print('data', type(data))
-#       # print('grids', type(grids))
-#       # data = dask.array.from_array(data, chunks=(500, *data.shape[1:]))
-#       # # print('data', type(data), data.chunks)
-#       # grids = dask.array.from_array(grids, chunks=(10, *grids.shape[1:]))
-#       # # print('grids', type(grids), grids.chunks)
-#       # #np.log(grids, where=grids>0, out=grids_log)
-#       # grids[grids==0] = np.nan
-#       # 
-#       # grids_log = client.submit(dask.array.log, grids).result().compute()
-#       # print('grids_log', type(grids_log))
-#       # grids_log[grids_log==np.nan] = 0
-#       # data_scattered = client.scatter(data[:, None])
-#       # grids_log_scattered = client.scatter(grids_log)
-#       # m_res = client.submit(dask.array.multiply, data_scattered, grids_log_scattered)
-#       # #m_res.rechunk({0:100, 1: 4, 2: 4, 3: 4, 4: 4})
-#       # #res_scattered = client.scatter(m_res)
-#       # #r_res = client.submit(dask.array.apply_over_axes, dask.array.sum, res_scattered, axes=[2,3,4,5])
-#       # x_res = client.submit(dask.array.apply_over_axes, dask.array.sum, m_res, axes=[2,3,4,5])
-#       # #m1_res.rechunk(100000)
-#       # #r_res_scattered = client.scatter(r_res)
-#       # y_res = client.submit(dask.array.squeeze, x_res)
-#       # y_res.result().compute()
-#       # #res.visualize()
-#       # print('y_res', type(y_res))
-#       # return y_res
-#       #return a
-#       return True
-
-    #def _process_config(self):
-#
-    #    if self._MODULE in ['makegrid', 'inference', 'simulate', 'gridsearch']:
-    #        self.config['mu']['blockslength'] = self._get_blocks_length(self.zstore)
-    #        self.config['parameters']['mu'] = self.config['mu']['mu']
-    #        self._expand_params()
-    #        self.reference, self.toBeSynced = self._get_pops_to_sync()
-    #        self._remove_pop_from_dict(self.toBeSynced)
-    #        self.parameter_combinations = self._dict_product()
-    #        self._sync_pop_sizes(self.reference, self.toBeSynced)
-    #    elif self._MODULE in ['optimize', 'optimize']:
-    #        #TO BE CHECKED: which bits are we still using
-    #        #determine parameters that are fixed:
-    #        self.fixed_params = self._get_fixed_params()
-    #        #self.config['mu']['blockslength'] = self._get_blocks_length(self.zstore)
-    #        #self.config['parameters']['mu'] = self.config['mu']['mu']
-    #        reference_pop=self.config['populations']['reference_pop']
-    #        #syncing pop sizes
-    #        self.reference, self.toBeSynced = self._get_pops_to_sync()
-    #        if self.toBeSynced:
-    #            if reference_pop in self.toBeSynced:
-    #                sys.exit(f"[X] Set reference pop to {self.reference}.")
-    #        toBeSynced_pops = [f'Ne_{s}' for s in self.toBeSynced] if self.toBeSynced!=None else []
-    #        self.fixed_params = [pop for pop in self.fixed_params if pop not in toBeSynced_pops]
-    #        #verify if any Ne fixed, whether one of those Ne is self.reference
-    #        fixed_Nes = [p for p in self.fixed_params if p.startswith('Ne')]
-    #        if len(fixed_Nes)>0:
-    #            if not f"Ne_{reference_pop}" in fixed_Nes:
-    #                sys.exit("[X] No. No. No. It would make much more sense to set a population with a fixed size as reference.")
-    #        #self._sync_pop_sizes_optimize(self.reference, self.toBeSynced)
-    #        self.parameter_combinations = self._return_boundaries()
-    #    else:
-    #        sys.exit("[X] gimble.py_processing_config: Not implemented yet.")
