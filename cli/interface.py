@@ -36,7 +36,7 @@ from timeit import default_timer as timer
 
 def main(gimble_dir):
     try:
-        __version__ = '0.6.1'
+        __version__ = '0.7.1'
         version = "gimble v%s" % __version__
         start_time = timer()
         args = docopt(__doc__, version=version, options_first=True)
@@ -73,6 +73,9 @@ def main(gimble_dir):
         elif args['<module>'] == 'model':
             import cli.model as model
             model.main(params)
+        elif args['<module>'] == 'makemodel':
+            import gimblelib.cli_makemodel as cli_makemodel
+            cli_makemodel.main(params)
         elif args['<module>'] == 'info':
             import cli.info as info
             info.main(params)

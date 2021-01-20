@@ -1,5 +1,0 @@
-path_idx	node_id	LCA	label	event	count	C_A	C_B	m_1	m_2	m_4
-0	1	3	A=[a1,a1];B=[b1,b1]	C_A	1	1	1	2	2	0
-0	3	3	A=[a1+a1];B=[b1,b1]	C_B	1	0	1	2	0	1
-1	2	3	A=[a1,a1];B=[b1,b1]	C_B	1	1	1	2	2	0
-1	3	3	A=[a1,a1];B=[b1+b1]	C_A	1	1	0	0	2	1
