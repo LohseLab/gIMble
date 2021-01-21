@@ -871,12 +871,11 @@ class ParameterObj(object):
     def _expand_params(self, remove=None):
         if len(self.config['parameters'])>0:
             parameter_combinations = collections.defaultdict(list)
-            for key in remove:
-                del self.config['parameters'][f'Ne_{key}']
+            if remove is not None:
+                for key in remove:
+                    del self.config['parameters'][f'Ne_{key}']
             for key, value in self.config['parameters'].items():
-                if key.lstrip("Ne_") in remove:
-                    raise ValueError('population should have been removed upon calling _expand_params()')
-                elif isinstance(value, float) or isinstance(value, int):
+                if isinstance(value, float) or isinstance(value, int):
                     parameter_combinations[key]=np.array([value,], dtype=np.float64)
                 elif key=='recombination':
                     pass
@@ -1027,7 +1026,7 @@ class Store(object):
             sim_configs = self._get_sim_grid(parameterObj)
         else:
             sim_configs = lib.gimble.DOL_to_LOD(parameterObj.parameter_combinations)
-        lib.simulate.run_sim(sim_configs, parameterObj, self)
+        lib.simulate.simulate_parameterObj(sim_configs, parameterObj, self)
         try:
             print(self._get_sims_report(width=100, label=parameterObj.label))   
         except UnicodeEncodeError:
