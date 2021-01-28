@@ -15,6 +15,21 @@ from functools import partial
 import collections
 
 def run_sims(sim_configs, global_info, all_interpop_comparisons, chunks=1, threads=1, store=None):
+	"""
+	Arguments:
+		sim_configs {list} -- [containing dicts with keys: Ne_x, me_x_x, T, recombination]
+		global_info {dict} -- [keys: mu, ploidy, sample_pop_ids, sample_pop_sizes, blocklength,
+									blocks, k_max, chunks, replicates, reference_pop]
+		all_interpop_comparisons {list} -- 
+	
+	Keyword Arguments:
+		chunks {int} -- [number of chunks in which sequence is being split up prior to simulating] (default: {1})
+		threads {int} -- [number of cores used to parallelize over replicates] (default: {1})
+		store {[object]} -- [zarr store] (default: {None})
+	
+	Returns:
+		[type] -- [description]
+	"""
 	msprime_configs = (make_sim_configs(config, global_info) for config in sim_configs)
 	all_results=[]
 	for idx, (single_config, zarr_attrs) in enumerate(tqdm(zip(msprime_configs, sim_configs),desc='Overall simulation progress',ncols=100, unit_scale=True, total=len(sim_configs))):
@@ -48,14 +63,14 @@ def simulate_parameterObj(sim_configs, parameterObj, gimbleStore):
 	run_sims(sim_configs, global_info, all_interpop_comparisons, global_info["chunks"], parameterObj.threads, gimbleStore.data[f'sims/{group_name}'])
 
 def compile_global_info(parameterObj):
-	#global_info_list =['mu', 'ploidy', 'sample_size_A', 'sample_size_B', 'blocklength', 
+	#global_info_list =['mu', 'ploidy', 'sample_pop_ids', 'sample_pop_sizes', 'blocklength', 
 	#                      'blocks','k_max', 'chunks', 'replicates']
 	global_info = parameterObj.config['simulations'].copy()    
 	global_info['mu'] = parameterObj.config['mu']['mu']
 	global_info['blocklength'] = parameterObj.config['mu']['blocklength']
-	global_info['k_max'] = parameterObj.config['k_max']
-	global_info['sample_pop_ids'] = parameterObj.config['populations']['sample_pop_ids']
-	global_info['sample_pop_sizes'] = [global_info[f'sample_size_{pop_id}'] for pop_id in sorted(global_info['sample_pop_ids'])]
+	global_info['k_max'] = list(parameterObj.config['k_max'].values())
+	global_info['sample_pop_ids'] = sorted(parameterObj.config['populations']['sample_pop_ids'])
+	global_info['sample_pop_sizes'] = [global_info[f'sample_size_{pop_id}'] for pop_id in global_info['sample_pop_ids']]
 	global_info['reference_pop'] = parameterObj.config['populations']['reference_pop']
 	#check if number of chunks is valid
 	if global_info['chunks']>1:
@@ -101,9 +116,8 @@ def run_sim_serial(config, global_info, seeds, all_interpop_comparisons, idx):
 			
 def make_sim_configs(params, global_info):
 	A, B = global_info["sample_pop_ids"]
-	sample_size_A = global_info[f"sample_size_{A}"]
-	sample_size_B = global_info[f"sample_size_{B}"]
-	num_samples = sample_size_A + sample_size_B
+	sample_size_A, sample_size_B = global_info['sample_pop_sizes']
+	num_samples = sum(global_info['sample_pop_sizes'])
 	C_A = params[f"Ne_{A}"]
 	C_B = params[f"Ne_{B}"]
 	if f"Ne_{A}_{B}" in params:
@@ -243,7 +257,7 @@ def run_ind_sim(
 	#result = np.hstack(result).reshape(num_comparisons*blocks, len(k_max))
 	#apply get_bsfs to this
 	# count mutuples (clipping at k_max, if supplied)
-	max_k = np.array(list(k_max.values())) + 1 if k_max else None
+	max_k = np.array(k_max) + 1 if k_max else None
 	mutuples, counts = np.unique(np.clip(result, 0, max_k), return_counts=True, axis=0)
 	# define out based on max values for each column
 	out = np.zeros(tuple(max_k + 1), np.int64)

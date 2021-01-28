@@ -299,24 +299,35 @@ class EquationObj(object):
         return '[+] EquationObj : %s\n%s' % (self.matrix_idx, self.equation)
 
 class EquationSystemObj(object):
-    def __init__(self, parameterObj):
+    def __init__(self, model_file, reference_pop, k_max_by_mutype, block_length, mu, seed=None, module=None, threads=1):
         #parameters
-        self.threads = parameterObj.threads
-        self.k_max_by_mutype = parameterObj.config['k_max']
-        self.seed = np.random.seed(parameterObj.config['gimble']['random_seed'])
+        self.model_file = model_file
+        self.reference_pop = reference_pop
+        self.threads = threads
+        self.k_max_by_mutype = k_max_by_mutype
+        
+        self.block_length = sage.all.Rational(block_length)
+        self.mu = mu
+        np.random.seed(seed)
         self.mutypes = sorted(self.k_max_by_mutype.keys())
+        #old init steps
+        #self.threads = parameterObj.threads
+        #self.k_max_by_mutype = parameterObj.config['k_max']
+        #self.seed = np.random.seed(parameterObj.config['gimble']['random_seed'])
+        #check whether this produces the desired result for example for 
+        #self.mutypes = sorted(self.k_max_by_mutype.keys())
         #needed to generate the equationObjs
-        self.model_file = parameterObj.model_file
+        #self.model_file = parameterObj.model_file
+        
         self.events = []
         self.event_tuples_by_idx = self._get_event_tuples_by_idx()
         self.dummy_variable = self._get_dummy_variable() 
         self.equation_batch_by_idx = collections.defaultdict(list)
-        
         self.ETPs=None
-        
-        self.scaled_parameter_combinations = self._scale_all_parameter_combinations(parameterObj)
-        self.rate_by_variable = [self._get_base_rate_by_variable(params) for params in self.scaled_parameter_combinations] 
-        self.split_times = [self._get_split_time(params) for params in self.scaled_parameter_combinations]
+
+        #self.scaled_parameter_combinations = self._scale_all_parameter_combinations(parameterObj)
+        #self.rate_by_variable = [self._get_base_rate_by_variable(params) for params in self.scaled_parameter_combinations] 
+        #self.split_times = [self._get_split_time(params) for params in self.scaled_parameter_combinations]
         
     def check_ETPs(self):
         probabilities_df = pd.read_csv(self.probcheck_file, sep=",", names=['A', 'B', 'C', 'D', 'probability'],  dtype={'A': int, 'B': int, 'C': int, 'D': int, 'probability': float}, float_precision='round_trip')
@@ -328,10 +339,7 @@ class EquationSystemObj(object):
         print("[=] ==================================================")
         print("[+] Parsed parameters ...")
         print("[+] K_max := %s" % self.k_max_by_mutype)
-        #print("[+] User-provided rates := %s" % self.user_rate_by_event)
-        #print("[+] Event rates := %s" % self.rate_by_variable)
-        #print("[+] Mutation rates := %s" % self.rate_by_mutation)
-        print("[+] Split time (T) := %s" % self.split_times)
+        #print("[+] Split time (T) := %s" % self.split_times) #self.split_times no longer attribute
         print("[+] Dummy variable := %s" % self.dummy_variable)
 
     def _get_rate_by_variable(self, prefix=None):
@@ -392,8 +400,9 @@ class EquationSystemObj(object):
         return base_rate_by_variable
 
     def _scale_all_parameter_combinations(self, parameterObj):
-        self.reference_pop = parameterObj.config['populations']['reference_pop']
-        self.block_length = sage.all.Rational(parameterObj.config['mu']['blocklength'])
+        """function redundant """
+        #self.reference_pop = parameterObj.config['populations']['reference_pop']
+        #self.block_length = sage.all.Rational(parameterObj.config['mu']['blocklength'])
         result = []
         """
         if parameterObj._MODULE == 'optimize':
@@ -429,7 +438,7 @@ class EquationSystemObj(object):
 
     def _scale_parameter_combination(self, combo, reference_pop, block_length, module, mu):
         rdict = {}
-        if module in ['makegrid', 'inference','optimize']:
+        if module in ['makegrid', 'inference','optimize', None]:
             Ne_ref = sage.all.Rational(combo[f"Ne_{reference_pop}"])
             rdict['theta'] = 4*sage.all.Rational(Ne_ref*mu)*block_length
             if 'Ne_A' in combo:
@@ -452,7 +461,7 @@ class EquationSystemObj(object):
     def _unscale_all_parameter_combinations(self):
         pass
 
-    def _unscale_parameter_combination(self, combo, reference_pop, block_length, my):
+    def _unscale_parameter_combination(self, combo, reference_pop, block_length, mu):
         rdict = {}
         if parameterObj._MODULE in ['optimize']:
             #check if parameter needs to be scaled, e.g. not if already provided.
@@ -467,10 +476,10 @@ class EquationSystemObj(object):
         else:
             sys.exit("[X] math.EquationSystemObj._unscale_parameter_combination not implemented for this module.")
 
-    def initiate_model(self, parameterObj=None, check_monomorphic=True):
+    def initiate_model(self, sync_ref=None, sync_targets=None, check_monomorphic=True):
         print("[=] ==================================================")
         print("[+] Initiating model ...")
-        self.equationObjs = self._get_equationObjs(sync_ref=parameterObj.reference, sync_targets=parameterObj.toBeSynced)
+        self.equationObjs = self._get_equationObjs(sync_ref=sync_ref, sync_targets=sync_targets)
         #this is an essential model check: however, processing of ini file needs to be unified first
         #currently mu is missing from parameter_combinations in case of optimize for example.
         #for equationObj in self.equationObjs:
@@ -493,17 +502,20 @@ class EquationSystemObj(object):
         #             for tBS in parameterObj.toBeSynced:
         #                 equationObj.equation = equationObj.equation.subs(sage.all.SR.symbol(f'C_{tBS}')==sage.all.SR.symbol(f'C_{parameterObj.reference}'))
         
-    def calculate_all_ETPs(self, threads=1, gridThreads=1, verbose=False):
+    def calculate_all_ETPs(self, parameter_combinations, module=None, threads=1, gridThreads=1, verbose=False):
         #verboseprint = print if verbose else lambda *a, **k: None
-        
+        parameter_combinations = lib.gimble.DOL_to_LOD(parameter_combinations)
+        scaled_parameter_combinations = [self._scale_parameter_combination(combo, self.reference_pop, self.block_length, module, self.mu) for combo in parameter_combinations]
+        rate_by_variable = [self._get_base_rate_by_variable(params) for params in scaled_parameter_combinations] 
+        split_times = [self._get_split_time(params) for params in scaled_parameter_combinations]
         ETPs = []
-        desc = f'[%] Calculating likelihood for {len(self.rate_by_variable)} gridpoints'
+        desc = f'[%] Calculating likelihood for {len(rate_by_variable)} gridpoints'
         if gridThreads <= 1:
-            for rates, split_time in tqdm(zip(self.rate_by_variable, self.split_times),total=len(self.rate_by_variable), desc=desc, ncols=100):
+            for rates, split_time in tqdm(zip(rate_by_variable, split_times),total=len(rate_by_variable), desc=desc, ncols=100):
                 arg = (rates, split_time, threads, verbose)
                 ETPs.append(self.calculate_ETPs(arg))
         else:
-            args = [(rates, split_time, threads, False) for rates, split_time in zip(self.rate_by_variable, self.split_times)]
+            args = [(rates, split_time, threads, False) for rates, split_time in zip(rate_by_variable, split_times)]
             with concurrent.futures.ProcessPoolExecutor(max_workers=gridThreads) as outer_pool:
                 with tqdm(total=len(args), desc=desc, ncols=100) as pbar:
                     for ETP in outer_pool.map(self.calculate_ETPs, args):
@@ -636,7 +648,7 @@ class EquationSystemObj(object):
         #start from midpoint
         pmid = np.mean(np.vstack((parameter_combinations_lowest, parameter_combinations_highest)), axis=0)
         if parameterObj.numPoints > 1:
-            np.random.seed(self.seed)
+            #np.random.seed(self.seed)
             starting_points = np.random.uniform(low=parameter_combinations_lowest, high=parameter_combinations_highest, size=(parameterObj.numPoints-1, len(boundary_names)))
             starting_points = np.vstack((pmid,starting_points))
         else:

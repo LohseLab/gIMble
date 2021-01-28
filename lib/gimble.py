@@ -1366,9 +1366,18 @@ class Store(object):
         #resample blocks and determine for each parameter ftol_abs
         self._set_stopping_criteria(data, parameterObj, label)
         # load math.EquationSystemObj
-        equationSystem = lib.math.EquationSystemObj(parameterObj)
+        equationSystem = lib.math.EquationSystemObj(
+            parameterObj.model_file, 
+            parameterObj.config['populations']['reference_pop'],
+            parameterrObj.config['k_max'],
+            parameterObj.config['mu']['blocklength'],
+            parameterObj.config['mu']['mu'],
+            seed=parameterObj.config['gimble']['random_seed'],
+            module="optimize",
+            threads=parameterObj.threads
+            )
         # initiate model equations
-        equationSystem.initiate_model(parameterObj)
+        equationSystem.initiate_model(sync_ref=parameterObj.reference, sync_targets=parameterObj.toBeSynced)
         #this is for a single dataset
         
         '''
@@ -1481,10 +1490,19 @@ class Store(object):
             sys.exit("[X] Grid for this config file already exists.")
         number_grid_points = len(parameterObj.parameter_combinations[next(iter(parameterObj.parameter_combinations))])
         print("[+] Generated %s grid points combinations." % number_grid_points)
-        equationSystem = lib.math.EquationSystemObj(parameterObj)
+        equationSystem = lib.math.EquationSystemObj(
+            parameterObj.model_file, 
+            parameterObj.config['populations']['reference_pop'],
+            parameterrObj.config['k_max'],
+            parameterObj.config['mu']['blocklength'],
+            parameterObj.config['mu']['mu'],
+            seed=parameterObj.config['gimble']['random_seed'],
+            module="makegrid",
+            threads=parameterObj.threads
+            )
         #build the equations
-        equationSystem.initiate_model(parameterObj=parameterObj)
-        equationSystem.ETPs = equationSystem.calculate_all_ETPs(threads=parameterObj.threads, gridThreads=parameterObj.gridThreads, verbose=False)
+        equationSystem.initiate_model(sync_ref=parameterObj.reference, sync_targets=parameterObj.toBeSynced)
+        equationSystem.ETPs = equationSystem.calculate_all_ETPs(parameterObj.parameter_combinations, module=parameterObj._MODULE, threads=parameterObj.threads, gridThreads=parameterObj.gridThreads, verbose=False)
         self._set_grid(unique_hash, equationSystem.ETPs, parameterObj.parameter_combinations, overwrite=parameterObj.overwrite)
 
     def _set_grid(self, unique_hash, ETPs, grid_labels, overwrite=False):
