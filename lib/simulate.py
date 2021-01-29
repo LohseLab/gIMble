@@ -68,7 +68,7 @@ def compile_global_info(parameterObj):
 	global_info = parameterObj.config['simulations'].copy()    
 	global_info['mu'] = parameterObj.config['mu']['mu']
 	global_info['blocklength'] = parameterObj.config['mu']['blocklength']
-	global_info['k_max'] = list(parameterObj.config['k_max'].values())
+	global_info['k_max'] = parameterObj.config['k_max']
 	global_info['sample_pop_ids'] = sorted(parameterObj.config['populations']['sample_pop_ids'])
 	global_info['sample_pop_sizes'] = [global_info[f'sample_size_{pop_id}'] for pop_id in global_info['sample_pop_ids']]
 	global_info['reference_pop'] = parameterObj.config['populations']['reference_pop']
@@ -257,7 +257,7 @@ def run_ind_sim(
 	#result = np.hstack(result).reshape(num_comparisons*blocks, len(k_max))
 	#apply get_bsfs to this
 	# count mutuples (clipping at k_max, if supplied)
-	max_k = np.array(k_max) + 1 if k_max else None
+	max_k = np.array(list(k_max.values())) + 1 if k_max else None
 	mutuples, counts = np.unique(np.clip(result, 0, max_k), return_counts=True, axis=0)
 	# define out based on max values for each column
 	out = np.zeros(tuple(max_k + 1), np.int64)

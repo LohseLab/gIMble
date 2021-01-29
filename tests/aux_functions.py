@@ -16,7 +16,7 @@ def chisquare(observed, expected, p_th=0.05):
 def bonferroni(p_threshold, pvals):
 	assert min(pvals) > p_threshold / len(pvals)
 
-def scatter_xy(observed, expected, min_value):
+def scatter_xy(observed, expected, min_value, name):
 	obs = np.reshape(observed, -1)
 	exp = np.reshape(expected, -1)
 	not_zeros = exp > 0
@@ -28,10 +28,13 @@ def scatter_xy(observed, expected, min_value):
 	log_exp=np.log(subs_exp)
 	fig, ax = plt.subplots(figsize=(10,10))
 	ax.scatter(x=-log_exp, y=-log_obs)
-	ax.plot([0,10],[0,10])
-	ax.set_xlim((0,5))
-	ax.set_ylim((0,5));
+	plt.axhline(y=min_value, color='g', linestyle='dashed')
+	plt.axvline(x=min_value, color='g', linestyle='dashed')
+	ax.plot([0,min_value+5],[0,min_value+5])
+	ax.set_xlim((0,min_value+1))
+	ax.set_ylim((0,min_value+1));
 	ax.set_xlabel('lnP_gimble')
 	ax.set_ylabel('lnP_sims')
-	ax.figure.savefig(f'tests/output/scatter.png', dpi=300)
+	ax.set_title(name)
+	ax.figure.savefig(f'tests/output/scatter_{name}.png', dpi=300)
 	plt.clf()
