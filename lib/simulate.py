@@ -154,7 +154,7 @@ def make_sim_configs(params, global_info):
 	
 	# demographic events: specify in the order they occur backwards in time
 	demographic_events = []
-	if params["T"]:
+	if params.get("T", None):
 		demographic_events = [
 			msprime.MassMigration(
 				time=params["T"], source=0, destination=2, proportion=1.0
