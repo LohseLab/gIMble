@@ -14,7 +14,7 @@ import pandas as pd
 from functools import partial
 import collections
 
-def run_sims(sim_configs, global_info, all_interpop_comparisons, chunks=1, threads=1, store=None):
+def run_sims(sim_configs, global_info, all_interpop_comparisons, chunks=1, threads=1, store=None, disable_tqdm=False):
 	"""
 	Arguments:
 		sim_configs {list} -- [containing dicts with keys: Ne_x, me_x_x, T, recombination]
@@ -32,12 +32,12 @@ def run_sims(sim_configs, global_info, all_interpop_comparisons, chunks=1, threa
 	"""
 	msprime_configs = (make_sim_configs(config, global_info) for config in sim_configs)
 	all_results=[]
-	for idx, (single_config, zarr_attrs) in enumerate(tqdm(zip(msprime_configs, sim_configs),desc='Overall simulation progress',ncols=100, unit_scale=True, total=len(sim_configs))):
+	for idx, (single_config, zarr_attrs) in enumerate(tqdm(zip(msprime_configs, sim_configs),desc='Overall simulation progress',ncols=100, unit_scale=True, total=len(sim_configs), disable=disable_tqdm)):
 		seeds = np.random.randint(1, 2 ** 32, global_info["replicates"])
 		if threads > 1:
-			result_list = run_sim_parallel(single_config, global_info, seeds, all_interpop_comparisons, idx, threads)
+			result_list = run_sim_parallel(single_config, global_info, seeds, all_interpop_comparisons, idx, threads, disable_tqdm)
 		else:
-			result_list = run_sim_serial(single_config, global_info, seeds, all_interpop_comparisons, idx)
+			result_list = run_sim_serial(single_config, global_info, seeds, all_interpop_comparisons, idx, disable_tqdm)
 		result_list = _combine_chunks(result_list, chunks)
 		if store is not None:
 			name = f"parameter_combination_{idx}"
@@ -82,7 +82,7 @@ def compile_global_info(parameterObj):
 			global_info['replicates']*=global_info['chunks']
 	return global_info
 
-def run_sim_parallel(config, global_info, seeds, all_interpop_comparisons, idx, threads):
+def run_sim_parallel(config, global_info, seeds, all_interpop_comparisons, idx, threads, disable_tqdm):
 
 	with multiprocessing.Pool(processes=threads) as pool:
 		run_sims_specified = partial(
@@ -95,12 +95,12 @@ def run_sim_parallel(config, global_info, seeds, all_interpop_comparisons, idx, 
 		k_max=global_info["k_max"]
 	)
 	
-		result_list = list(tqdm(pool.imap(run_sims_specified, seeds),desc=f'running parameter combination {idx}',ncols=100, unit_scale=True, total=len(seeds)))
+		result_list = list(tqdm(pool.imap(run_sims_specified, seeds),desc=f'running parameter combination {idx}',ncols=100, unit_scale=True, total=len(seeds),disable=disable_tqdm))
 	return result_list
 	   
-def run_sim_serial(config, global_info, seeds, all_interpop_comparisons, idx):
+def run_sim_serial(config, global_info, seeds, all_interpop_comparisons, idx, disable_tqdm):
 	result_list = []
-	for seed in tqdm(seeds,desc=f'running parameter combination {idx}',ncols=100, unit_scale=True):
+	for seed in tqdm(seeds,desc=f'running parameter combination {idx}',ncols=100, unit_scale=True, disable=disable_tqdm):
 		result_list.append(
 			run_ind_sim(
 				seed=seed,
