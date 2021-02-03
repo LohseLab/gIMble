@@ -14,15 +14,30 @@ import pandas as pd
 from functools import partial
 import collections
 
-def run_sims(sim_configs, global_info, all_interpop_comparisons, chunks=1, threads=1, store=None):
+def run_sims(sim_configs, global_info, all_interpop_comparisons, chunks=1, threads=1, store=None, disable_tqdm=False):
+	"""
+	Arguments:
+		sim_configs {list} -- [containing dicts with keys: Ne_x, me_x_x, T, recombination]
+		global_info {dict} -- [keys: mu, ploidy, sample_pop_ids, sample_pop_sizes, blocklength,
+									blocks, k_max, chunks, replicates, reference_pop]
+		all_interpop_comparisons {list} -- 
+	
+	Keyword Arguments:
+		chunks {int} -- [number of chunks in which sequence is being split up prior to simulating] (default: {1})
+		threads {int} -- [number of cores used to parallelize over replicates] (default: {1})
+		store {[object]} -- [zarr store] (default: {None})
+	
+	Returns:
+		[type] -- [description]
+	"""
 	msprime_configs = (make_sim_configs(config, global_info) for config in sim_configs)
 	all_results=[]
-	for idx, (single_config, zarr_attrs) in enumerate(tqdm(zip(msprime_configs, sim_configs),desc='Overall simulation progress',ncols=100, unit_scale=True, total=len(sim_configs))):
+	for idx, (single_config, zarr_attrs) in enumerate(tqdm(zip(msprime_configs, sim_configs),desc='Overall simulation progress',ncols=100, unit_scale=True, total=len(sim_configs), disable=disable_tqdm)):
 		seeds = np.random.randint(1, 2 ** 32, global_info["replicates"])
 		if threads > 1:
-			result_list = run_sim_parallel(single_config, global_info, seeds, all_interpop_comparisons, idx, threads)
+			result_list = run_sim_parallel(single_config, global_info, seeds, all_interpop_comparisons, idx, threads, disable_tqdm)
 		else:
-			result_list = run_sim_serial(single_config, global_info, seeds, all_interpop_comparisons, idx)
+			result_list = run_sim_serial(single_config, global_info, seeds, all_interpop_comparisons, idx, disable_tqdm)
 		result_list = _combine_chunks(result_list, chunks)
 		if store is not None:
 			name = f"parameter_combination_{idx}"
@@ -48,14 +63,14 @@ def simulate_parameterObj(sim_configs, parameterObj, gimbleStore):
 	run_sims(sim_configs, global_info, all_interpop_comparisons, global_info["chunks"], parameterObj.threads, gimbleStore.data[f'sims/{group_name}'])
 
 def compile_global_info(parameterObj):
-	#global_info_list =['mu', 'ploidy', 'sample_size_A', 'sample_size_B', 'blocklength', 
+	#global_info_list =['mu', 'ploidy', 'sample_pop_ids', 'sample_pop_sizes', 'blocklength', 
 	#                      'blocks','k_max', 'chunks', 'replicates']
 	global_info = parameterObj.config['simulations'].copy()    
 	global_info['mu'] = parameterObj.config['mu']['mu']
 	global_info['blocklength'] = parameterObj.config['mu']['blocklength']
 	global_info['k_max'] = parameterObj.config['k_max']
-	global_info['sample_pop_ids'] = parameterObj.config['populations']['sample_pop_ids']
-	global_info['sample_pop_sizes'] = [global_info[f'sample_size_{pop_id}'] for pop_id in sorted(global_info['sample_pop_ids'])]
+	global_info['sample_pop_ids'] = sorted(parameterObj.config['populations']['sample_pop_ids'])
+	global_info['sample_pop_sizes'] = [global_info[f'sample_size_{pop_id}'] for pop_id in global_info['sample_pop_ids']]
 	global_info['reference_pop'] = parameterObj.config['populations']['reference_pop']
 	#check if number of chunks is valid
 	if global_info['chunks']>1:
@@ -67,7 +82,7 @@ def compile_global_info(parameterObj):
 			global_info['replicates']*=global_info['chunks']
 	return global_info
 
-def run_sim_parallel(config, global_info, seeds, all_interpop_comparisons, idx, threads):
+def run_sim_parallel(config, global_info, seeds, all_interpop_comparisons, idx, threads, disable_tqdm):
 
 	with multiprocessing.Pool(processes=threads) as pool:
 		run_sims_specified = partial(
@@ -80,12 +95,12 @@ def run_sim_parallel(config, global_info, seeds, all_interpop_comparisons, idx, 
 		k_max=global_info["k_max"]
 	)
 	
-		result_list = list(tqdm(pool.imap(run_sims_specified, seeds),desc=f'running parameter combination {idx}',ncols=100, unit_scale=True, total=len(seeds)))
+		result_list = list(tqdm(pool.imap(run_sims_specified, seeds),desc=f'running parameter combination {idx}',ncols=100, unit_scale=True, total=len(seeds),disable=disable_tqdm))
 	return result_list
 	   
-def run_sim_serial(config, global_info, seeds, all_interpop_comparisons, idx):
+def run_sim_serial(config, global_info, seeds, all_interpop_comparisons, idx, disable_tqdm):
 	result_list = []
-	for seed in tqdm(seeds,desc=f'running parameter combination {idx}',ncols=100, unit_scale=True):
+	for seed in tqdm(seeds,desc=f'running parameter combination {idx}',ncols=100, unit_scale=True, disable=disable_tqdm):
 		result_list.append(
 			run_ind_sim(
 				seed=seed,
@@ -101,9 +116,8 @@ def run_sim_serial(config, global_info, seeds, all_interpop_comparisons, idx):
 			
 def make_sim_configs(params, global_info):
 	A, B = global_info["sample_pop_ids"]
-	sample_size_A = global_info[f"sample_size_{A}"]
-	sample_size_B = global_info[f"sample_size_{B}"]
-	num_samples = sample_size_A + sample_size_B
+	sample_size_A, sample_size_B = global_info['sample_pop_sizes']
+	num_samples = sum(global_info['sample_pop_sizes'])
 	C_A = params[f"Ne_{A}"]
 	C_B = params[f"Ne_{B}"]
 	if f"Ne_{A}_{B}" in params:
@@ -140,7 +154,7 @@ def make_sim_configs(params, global_info):
 	
 	# demographic events: specify in the order they occur backwards in time
 	demographic_events = []
-	if params["T"]:
+	if params.get("T", None):
 		demographic_events = [
 			msprime.MassMigration(
 				time=params["T"], source=0, destination=2, proportion=1.0
