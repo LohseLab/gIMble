@@ -132,7 +132,8 @@ class Test_n_blocks_chunks:
 			freqs_basic_ETPs = basic_counts/basic_total_reps
 			freqs_test_ETPs = test_counts/test_total_reps
 			assert basic_counts.shape == test_counts.shape
-			af.scatter_loglog(freqs_test_ETPs, freqs_basic_ETPs, -np.log(1/basic_total_reps), f'{name}_rep{idx}', 'n_1', 'n_4')
+			if plot:
+				af.scatter_loglog(freqs_test_ETPs, freqs_basic_ETPs, -np.log(1/basic_total_reps), f'{name}_rep{idx}', 'n_1', 'n_4')
 			if correction:
 				af.chisquare_contingency(np.round(test_counts/(test_total_reps/basic_total_reps)), basic_counts)
 			else:
