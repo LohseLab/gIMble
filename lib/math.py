@@ -1,5 +1,5 @@
 import itertools
-import sys
+import sys, os
 import sage.all
 import sage.parallel.multiprocessing_sage
 import pandas as pd
@@ -16,10 +16,10 @@ from functools import partial
 from functools import partialmethod
 import nlopt
 import concurrent.futures
-import logging
+#import logging
 import datetime
 from timeit import default_timer as timer
-logging.basicConfig(filename='log_file.txt', level=logging.DEBUG)
+#logging.basicConfig(filename='log_file.txt', level=logging.DEBUG)
 #sage.all.numerical_approx(value, digits=1)
 
 '''
@@ -194,13 +194,6 @@ def calculate_inverse_laplace(params):
         with ('log_ilt.txt', 'w') as file:
             print(equationObj.result, file=file)
             sys.exit("Inverse laplace transform undefined (using maxima)")
-    ## i commented this out since i don't know whether that actually works ...
-    # except Exception:
-    #     with ('log_equation.txt', 'w') as file:
-    #         print(equation, file=file)
-    #     logging.exception('Inverse laplace error')
-    #     raise
-    #casting sage.expression to real number with arbitrary precision
     equationObj.result = sage.all.RealField(precision)(equationObj.result)
     return equationObj
 
@@ -213,9 +206,11 @@ def objective_function(paramsToOptimize, grad, paramNames, fixedParams, equation
     if grad.size:
         raise ValueError('no optimization with derivatives implemented')
     start_time = timer()
-    all_rates = {k:v for k,v in zip(paramNames, paramsToOptimize)}
-    all_rates = {**all_rates, **fixedParams}
-    all_rates = equationSystemObj._scale_parameter_combination(all_rates, equationSystemObj.reference_pop, equationSystemObj.block_length, 'optimize', fixedParams['mu'])
+    all_rates_unscaled = {k:v for k,v in zip(paramNames, paramsToOptimize)}
+    all_rates_unscaled = {**all_rates_unscaled, **fixedParams}
+    #scaling to coalescent time scale (theta=4*Ne*mu)
+    all_rates = equationSystemObj._scale_parameter_combination(all_rates_unscaled, equationSystemObj.reference_pop, equationSystemObj.block_length, 'optimize', fixedParams['mu'])
+    #rates are no longer in standard scaling aka theta=2*Ne*mu rather than 4*Ne*mu
     rates = equationSystemObj._get_base_rate_by_variable(all_rates)
     split_time = equationSystemObj._get_split_time(all_rates)
     iteration_number=-1
@@ -260,6 +255,23 @@ def run_single_optimize(p0, lower, upper, specified_objective_function, maxeval,
     rdict['exitcode'] = opt.last_optimize_result()
     
     return rdict
+
+def _init_optimize_log(boundary_names, file_name, directory, meta=None):
+    if not directory:
+        directory=os.getcwd()
+    header = boundary_names+["lnCL", 'iterLabel', 'exitcode']
+    with open(os.path.join(directory, file_name), 'w') as logfile:
+        if meta:
+            print(meta, file=logfile)
+        print('\t'.join(header), file=logfile)
+
+def _optimize_log(single_run, identifier, file_name, directory=None):
+    if not directory:
+        directory=os.getcwd()
+    single_run_string=list(single_run['optimum'])+[single_run['lnCL'], identifier, single_run['exitcode']]
+    single_run_string = [str(value) for value in single_run_string]
+    with open(os.path.join(directory, file_name), 'a') as logfile:
+        print('\t'.join(single_run_string), file=logfile)
 
 def fp_map(f, *args):
     #used with pool.map(fp_map, function_list, arg_list1, arg_list2,...)
@@ -583,7 +595,7 @@ class EquationSystemObj(object):
 
         return ETPs
         
-    def optimize_parameters(self, data, parameterObj, trackHistory=True, verbose=False):
+    def optimize_parameters(self, data, parameterObj, trackHistory=True, verbose=False, label='', param_combo_name=''):
 
         fixedParams = parameterObj._get_fixed_params(as_dict=True)
         boundaryNames = self._optimize_get_boundary_names(parameterObj, fixedParams, data)
@@ -599,18 +611,25 @@ class EquationSystemObj(object):
         if verbose:
             print(startdesc)
             #print('iteration \t'+'\t'.join(str(name) for name in boundaryNames)+'\t lnCL')
+        #make log file for simulation replicates:
+        _init_optimize_log(boundaryNames, f'optimize_log_{label}_{param_combo_name}.tsv', parameterObj._CWD, meta=parameterObj._get_cmd())
         
         #parallelize over starting points or data points
         allResults=[] 
         if parameterObj.gridThreads <= 1:
-            for startPos, specified_objective_function in tqdm(zip(itertools.cycle(starting_points), specified_objective_function_list), desc="progress", total=len(specified_objective_function_list),disable=verbose):
-                allResults.append(run_single_optimize(startPos, parameter_combinations_lowest, parameter_combinations_highest, specified_objective_function, parameterObj.max_eval, parameterObj.xtol_rel, parameterObj.ftol_rel))
+            for idx, (startPos, specified_objective_function) in enumerate(tqdm(zip(itertools.cycle(starting_points), specified_objective_function_list), desc="progress", total=len(specified_objective_function_list),disable=verbose)):
+                single_run_result = run_single_optimize(startPos, parameter_combinations_lowest, parameter_combinations_highest, specified_objective_function, parameterObj.max_eval, parameterObj.xtol_rel, parameterObj.ftol_rel) 
+                allResults.append(single_run_result)
+                _optimize_log(single_run_result, idx, f'optimize_log_{label}_{param_combo_name}.tsv', parameterObj._CWD)
+                #allResults.append(run_single_optimize(startPos, parameter_combinations_lowest, parameter_combinations_highest, specified_objective_function, parameterObj.max_eval, parameterObj.xtol_rel, parameterObj.ftol_rel))
             
         else:
             #single_runs need to be specified before passing them to the pool
             specified_run_list = self._optimize_specify_run_list_(parameterObj, specified_objective_function_list, starting_points, parameter_combinations_lowest, parameter_combinations_highest)
             with concurrent.futures.ProcessPoolExecutor(max_workers=parameterObj.gridThreads) as outer_pool:
-                for single_run in tqdm(outer_pool.map(fp_map, specified_run_list), desc="progress", total=len(specified_run_list), disable=verbose):
+                for idx, single_run in enumerate(tqdm(outer_pool.map(fp_map, specified_run_list), desc="progress", total=len(specified_run_list), disable=verbose)):
+                    #_optimize_log(single_run, identifier, file_name, directory)
+                    _optimize_log(single_run, idx, f'optimize_log_{label}_{param_combo_name}.tsv', parameterObj._CWD)
                     allResults.append(single_run)
 
         #process results found in allResults (final step including exit code), and trackHistoryPath (all steps) 

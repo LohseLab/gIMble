@@ -1349,7 +1349,7 @@ class Store(object):
     def optimize(self, parameterObj):
         if not self.has_stage(parameterObj.data_type):
             sys.exit("[X] gimbleStore has no %r." % parameterObj.data_type)
-        label = parameterObj.label if hasattr(parameterObj, 'label') else None
+        label = parameterObj.label if hasattr(parameterObj, 'label') else parameterObj._get_unique_hash()
         
         if parameterObj.numPoints>1: #numPoints can only be used with blocks
             if parameterObj.data_type != 'blocks':
@@ -1369,7 +1369,7 @@ class Store(object):
         equationSystem = lib.math.EquationSystemObj(
             parameterObj.model_file, 
             parameterObj.config['populations']['reference_pop'],
-            parameterrObj.config['k_max'],
+            parameterObj.config['k_max'],
             parameterObj.config['mu']['blocklength'],
             parameterObj.config['mu']['mu'],
             seed=parameterObj.config['gimble']['random_seed'],
@@ -1394,7 +1394,7 @@ class Store(object):
             all_results={}
             for param_combo, replicates in data:
                 print(f"Optimising replicates {param_combo}")
-                result = equationSystem.optimize_parameters(replicates, parameterObj, trackHistory=False, verbose=False)
+                result = equationSystem.optimize_parameters(replicates, parameterObj, trackHistory=False, verbose=False, label=label, param_combo_name=param_combo)
                 all_results[param_combo] = result
                 self._optimize_to_csv(result, label, param_combo)
         else:
@@ -1402,7 +1402,8 @@ class Store(object):
                 data, 
                 parameterObj,
                 trackHistory=True,
-                verbose=True
+                verbose=True,
+                label=f"{parameterObj.data_type}_{parameterObj._get_unique_hash()}"
                 )
 
     def _optimize_to_csv(self, results, label, param_combo):
@@ -1410,7 +1411,7 @@ class Store(object):
         df.columns=results[0]
         df = df.sort_values(by='iterLabel')
         df.set_index('iterLabel', inplace=True)
-        df.to_csv(f'{label}_{param_combo}.csv')
+        #df.to_csv(f'{label}_{param_combo}.csv') #already in log
         #print(f"[] Optimize output saved to {os.getcwd()}")
         self._optimize_describe_df(df, label, param_combo)
 
