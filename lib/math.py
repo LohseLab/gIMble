@@ -265,13 +265,10 @@ def _init_optimize_log(boundary_names, file_name, directory, meta=None):
             print(meta, file=logfile)
         print('\t'.join(header), file=logfile)
 
-def _optimize_log(single_run, identifier, file_name, directory=None):
-    if not directory:
-        directory=os.getcwd()
+def _optimize_log(single_run, identifier, log_file):
     single_run_string=list(single_run['optimum'])+[single_run['lnCL'], identifier, single_run['exitcode']]
     single_run_string = [str(value) for value in single_run_string]
-    with open(os.path.join(directory, file_name), 'a') as logfile:
-        print('\t'.join(single_run_string), file=logfile)
+    print('\t'.join(single_run_string), file=log_file)
 
 def fp_map(f, *args):
     #used with pool.map(fp_map, function_list, arg_list1, arg_list2,...)
@@ -617,20 +614,22 @@ class EquationSystemObj(object):
         #parallelize over starting points or data points
         allResults=[] 
         if parameterObj.gridThreads <= 1:
-            for idx, (startPos, specified_objective_function) in enumerate(tqdm(zip(itertools.cycle(starting_points), specified_objective_function_list), desc="progress", total=len(specified_objective_function_list),disable=verbose)):
-                single_run_result = run_single_optimize(startPos, parameter_combinations_lowest, parameter_combinations_highest, specified_objective_function, parameterObj.max_eval, parameterObj.xtol_rel, parameterObj.ftol_rel) 
-                allResults.append(single_run_result)
-                _optimize_log(single_run_result, idx, f'optimize_log_{label}_{param_combo_name}.tsv', parameterObj._CWD)
-                #allResults.append(run_single_optimize(startPos, parameter_combinations_lowest, parameter_combinations_highest, specified_objective_function, parameterObj.max_eval, parameterObj.xtol_rel, parameterObj.ftol_rel))
+            with open(os.path.join(parameterObj._CWD, f'optimize_log_{label}_{param_combo_name}.tsv'), 'a') as log_file:
+                for idx, (startPos, specified_objective_function) in enumerate(tqdm(zip(itertools.cycle(starting_points), specified_objective_function_list), desc="progress", total=len(specified_objective_function_list),disable=verbose)):
+                    single_run_result = run_single_optimize(startPos, parameter_combinations_lowest, parameter_combinations_highest, specified_objective_function, parameterObj.max_eval, parameterObj.xtol_rel, parameterObj.ftol_rel) 
+                    allResults.append(single_run_result)
+                    _optimize_log(single_run_result, idx, log_file)
+                    #allResults.append(run_single_optimize(startPos, parameter_combinations_lowest, parameter_combinations_highest, specified_objective_function, parameterObj.max_eval, parameterObj.xtol_rel, parameterObj.ftol_rel))
             
         else:
             #single_runs need to be specified before passing them to the pool
             specified_run_list = self._optimize_specify_run_list_(parameterObj, specified_objective_function_list, starting_points, parameter_combinations_lowest, parameter_combinations_highest)
-            with concurrent.futures.ProcessPoolExecutor(max_workers=parameterObj.gridThreads) as outer_pool:
-                for idx, single_run in enumerate(tqdm(outer_pool.map(fp_map, specified_run_list), desc="progress", total=len(specified_run_list), disable=verbose)):
-                    #_optimize_log(single_run, identifier, file_name, directory)
-                    _optimize_log(single_run, idx, f'optimize_log_{label}_{param_combo_name}.tsv', parameterObj._CWD)
-                    allResults.append(single_run)
+            with open(os.path.join(parameterObj._CWD, f'optimize_log_{label}_{param_combo_name}.tsv'), 'a') as log_file:
+                with concurrent.futures.ProcessPoolExecutor(max_workers=parameterObj.gridThreads) as outer_pool:
+                    for idx, single_run in enumerate(tqdm(outer_pool.map(fp_map, specified_run_list), desc="progress", total=len(specified_run_list), disable=verbose)):
+                        #_optimize_log(single_run, identifier, file_name, directory)
+                        _optimize_log(single_run, idx, log_file)
+                        allResults.append(single_run)
 
         #process results found in allResults (final step including exit code), and trackHistoryPath (all steps) 
         exitcodeDict = {
