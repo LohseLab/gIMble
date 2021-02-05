@@ -4,6 +4,7 @@ import lib.math
 import lib.gimble
 import lib.simulate
 import tests.aux_functions as af
+import itertools
 
 #ini files translated to the necessary parameters to test ETPs
 all_configs = {
@@ -65,14 +66,15 @@ class Test_ETPs:
 				)
 			equationSob.initiate_model(
 				sync_ref=None, 
-				sync_targets=None
+				sync_targets=None,
+				disable_tqdm=True
 				)
 			#parameter_combinations: DOL
 			parameter_combinations = lib.gimble.LOD_to_DOL(sim_configs)
 			equationSob.ETPs = equationSob.calculate_all_ETPs(
 				parameter_combinations, 
 				threads=2, 
-				gridThreads=2
+				gridThreads=1
 				)
 	
 			return equationSob.ETPs
@@ -138,3 +140,68 @@ class Test_n_blocks_chunks:
 				af.chisquare_contingency(np.round(test_counts/(test_total_reps/basic_total_reps)), basic_counts)
 			else:
 				af.chisquare_contingency(test_counts, basic_counts)
+
+@pytest.mark.optimize
+class Test_optimize:
+	model_to_test = 'MIG_BA'
+
+	@pytest.fixture(scope='class')
+	def get_equationSystemObj(self):
+		equationSob = lib.math.EquationSystemObj(
+				model_file=all_configs[Test_optimize.model_to_test]['global_info']['model_file'], 
+				reference_pop=all_configs[Test_optimize.model_to_test]['global_info']['reference_pop'], 
+				k_max_by_mutype=all_configs[Test_optimize.model_to_test]['global_info']['k_max'], 
+				block_length=all_configs[Test_optimize.model_to_test]['global_info']['blocklength'], 
+				mu=all_configs[Test_optimize.model_to_test]['global_info']['mu']
+				)
+		equationSob.initiate_model(
+				sync_ref=None, 
+				sync_targets=None,
+				disable_tqdm=True
+				)		
+		yield equationSob
+
+	@pytest.fixture(scope='class')
+	def gimble_ETPs(self, get_equationSystemObj):
+		parameter_combinations = lib.gimble.LOD_to_DOL(all_configs[Test_optimize.model_to_test]['sim_configs'])
+		get_equationSystemObj.ETPs = get_equationSystemObj.calculate_all_ETPs(
+			parameter_combinations, 
+			threads=2, 
+			gridThreads=1
+			)
+		return get_equationSystemObj.ETPs
+
+	def optimize_parameters(self, parameter_combinations, numPoints, equationSystemObj, ETPs, truth=None):
+		"""
+		method is stripped down version of lib.math.optimize_parameters: 
+		ideally same function, but dependency of parameterObj and printing logfiles --> can it be avoided?
+		"""
+		max_eval, xtol_rel, ftol_rel = 10, -1, 0.1
+		threads=1
+		verbose=False
+		#fixedParams list of parameters that are fixed including ,mu
+		fixedParams = {k:v for k,v in all_configs[Test_optimize.model_to_test]['sim_configs'][0].items() if k not in parameter_combinations.keys()}
+		fixedParams['mu'] = all_configs[Test_optimize.model_to_test]['global_info']['mu'] 
+		#boundaryNames: list of parameters that are not fixed
+		boundaryNames = list(parameter_combinations.keys())
+		starting_points, parameter_combinations_lowest, parameter_combinations_highest = equationSystemObj._optimize_get_boundaries(parameter_combinations, boundaryNames, numPoints)
+		if truth is not None:
+			starting_points = truth
+		trackHistoryPath = [[] for _ in range(numPoints)]
+		#specify the objective function to be optimized
+		specified_objective_function_list = equationSystemObj._optimize_specify_objective_function('simulate', trackHistoryPath, ETPs, boundaryNames,fixedParams, verbose, threads)
+		allResults=[]
+		for startPos, specified_objective_function in zip(itertools.cycle(starting_points), specified_objective_function_list):
+			single_run_result = lib.math.run_single_optimize(startPos, parameter_combinations_lowest, parameter_combinations_highest, specified_objective_function, max_eval, xtol_rel, ftol_rel) 
+			allResults.append(single_run_result)
+		return allResults                    
+
+	def test_known_truth(self, get_equationSystemObj, gimble_ETPs):
+		known_truth = np.array([6e5, 7e-7])
+		parameter_combinations = {'Ne_B':[3e5, 9e5], 'me_B_A':[7e-8,7e-6]}
+		numPoints=1
+		#gimble_ETPs is data
+		optimized_results = self.optimize_parameters(parameter_combinations, numPoints, get_equationSystemObj, gimble_ETPs, truth=[known_truth,])
+		print(optimized_results)
+		compare_truth_optimize = known_truth-optimized_results[0]['optimum']
+		assert np.all(np.isclose(compare_truth_optimize, np.zeros((len(parameter_combinations))), atol=1e-3))

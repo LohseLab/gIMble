@@ -241,7 +241,7 @@ def objective_function(paramsToOptimize, grad, paramNames, fixedParams, equation
 def run_single_optimize(p0, lower, upper, specified_objective_function, maxeval, xtol_rel, ftol_rel):
 
     #nlopt.LN_NELDERMEAD, nlopt.LN_SBPLX
-    opt = nlopt.opt(nlopt.LN_SBPLX, len(p0))
+    opt = nlopt.opt(nlopt.LN_NELDERMEAD, len(p0))
     opt.set_lower_bounds(lower)
     opt.set_upper_bounds(upper)
     opt.set_max_objective(specified_objective_function)
@@ -485,10 +485,10 @@ class EquationSystemObj(object):
         else:
             sys.exit("[X] math.EquationSystemObj._unscale_parameter_combination not implemented for this module.")
 
-    def initiate_model(self, sync_ref=None, sync_targets=None, check_monomorphic=True):
+    def initiate_model(self, sync_ref=None, sync_targets=None, check_monomorphic=True, disable_tqdm=False):
         print("[=] ==================================================")
         print("[+] Initiating model ...")
-        self.equationObjs = self._get_equationObjs(sync_ref=sync_ref, sync_targets=sync_targets)
+        self.equationObjs = self._get_equationObjs(sync_ref=sync_ref, sync_targets=sync_targets, disable_tqdm=disable_tqdm)
         #this is an essential model check: however, processing of ini file needs to be unified first
         #currently mu is missing from parameter_combinations in case of optimize for example.
         #for equationObj in self.equationObjs:
@@ -596,10 +596,10 @@ class EquationSystemObj(object):
 
         fixedParams = parameterObj._get_fixed_params(as_dict=True)
         boundaryNames = self._optimize_get_boundary_names(parameterObj, fixedParams, data)
-        starting_points, parameter_combinations_lowest, parameter_combinations_highest = self._optimize_get_boundaries(parameterObj, boundaryNames)
+        starting_points, parameter_combinations_lowest, parameter_combinations_highest = self._optimize_get_boundaries(parameterObj.parameter_combinations, boundaryNames, parameterObj.numPoints)
         trackHistoryPath = [[] for _ in range(parameterObj.numPoints)]
         #specify the objective function to be optimized
-        specified_objective_function_list = self._optimize_specify_objective_function(parameterObj, trackHistoryPath, data, boundaryNames,fixedParams, verbose)
+        specified_objective_function_list = self._optimize_specify_objective_function(parameterObj.data_type, trackHistoryPath, data, boundaryNames,fixedParams, verbose, parameterObj.threads)
         
         #print to screen
         startdesc = "[+] Optimization starting for specified point."
@@ -659,42 +659,42 @@ class EquationSystemObj(object):
             sys.exit()
         return boundaryNames
     
-    def _optimize_get_boundaries(self, parameterObj, boundary_names):
+    def _optimize_get_boundaries(self, parameter_combinations, boundary_names, numPoints):
         # not actually using self, should be standalone function...
-        parameter_combinations_lowest = np.array([parameterObj.parameter_combinations[k][0] for k in boundary_names])
-        parameter_combinations_highest = np.array([parameterObj.parameter_combinations[k][1] for k in boundary_names])
+        parameter_combinations_lowest = np.array([parameter_combinations[k][0] for k in boundary_names])
+        parameter_combinations_highest = np.array([parameter_combinations[k][1] for k in boundary_names])
         #start from midpoint
         pmid = np.mean(np.vstack((parameter_combinations_lowest, parameter_combinations_highest)), axis=0)
-        if parameterObj.numPoints > 1:
+        if numPoints > 1:
             #np.random.seed(self.seed)
-            starting_points = np.random.uniform(low=parameter_combinations_lowest, high=parameter_combinations_highest, size=(parameterObj.numPoints-1, len(boundary_names)))
+            starting_points = np.random.uniform(low=parameter_combinations_lowest, high=parameter_combinations_highest, size=(numPoints-1, len(boundary_names)))
             starting_points = np.vstack((pmid,starting_points))
         else:
             starting_points = [pmid,]
     
         return (starting_points, parameter_combinations_lowest, parameter_combinations_highest)
     
-    def _optimize_specify_objective_function(self, parameterObj, trackHistoryPath, data, boundary_names, fixedParams, verbose):
+    def _optimize_specify_objective_function(self, data_type, trackHistoryPath, data, boundary_names, fixedParams, verbose, threads=1):
         # not actually using self, should be standalone function...
-        if parameterObj.data_type=='simulate':
+        if data_type=='simulate':
             specified_objective_function_list = [partial(
                     objective_function,
                     paramNames=boundary_names,
                     fixedParams=fixedParams,
                     equationSystemObj=self,
                     data=bsfs,
-                    threads=parameterObj.threads,
+                    threads=threads,
                     verbose=verbose,
                     path=None) for bsfs in data]
     
-        elif parameterObj.data_type=='blocks':
+        elif data_type=='blocks':
             specified_objective_function_list = [partial(
                         objective_function,
                         paramNames=boundary_names,
                         fixedParams=fixedParams,
                         equationSystemObj=self,
                         data=data,
-                        threads=parameterObj.threads,
+                        threads=threads,
                         verbose=verbose,
                         path=sublist) for sublist in trackHistoryPath]
         else:
@@ -732,12 +732,12 @@ class EquationSystemObj(object):
 
         return result
     
-    def _get_equationObjs(self, sync_ref=None, sync_targets=None):
+    def _get_equationObjs(self, sync_ref=None, sync_targets=None, disable_tqdm=False):
         '''
         fix multithreading
         '''
         constructors = []
-        for constructor_id, event_tuples in tqdm(self.event_tuples_by_idx.items(), total=len(self.event_tuples_by_idx), desc="[%] Building equations", ncols=100):
+        for constructor_id, event_tuples in tqdm(self.event_tuples_by_idx.items(), total=len(self.event_tuples_by_idx), desc="[%] Building equations", ncols=100, disable=disable_tqdm):
             constructor = Constructor(constructor_id)
             for idx, event_tuple in enumerate(event_tuples):
                 event, count, demography_counter, mutation_counter = event_tuple
@@ -756,12 +756,12 @@ class EquationSystemObj(object):
             )
         equation_by_mutation_tuple = {}
         if self.threads <= 1:
-            for parameter_batch in tqdm(parameter_batches, desc="[%] Placing mutations", ncols=100):
+            for parameter_batch in tqdm(parameter_batches, desc="[%] Placing mutations", ncols=100, disable=disable_tqdm):
                 mutation_tuple, equations = place_mutations(parameter_batch)
                 equation_by_mutation_tuple[mutation_tuple] = equations
         else:
             with poolcontext(processes=self.threads) as pool:
-                with tqdm(parameter_batches, desc="[%] Placing mutations", ncols=100) as pbar:
+                with tqdm(parameter_batches, desc="[%] Placing mutations", ncols=100, disable=disable_tqdm) as pbar:
                     for result_batch in pool.imap_unordered(place_mutations, parameter_batches):
                         mutation_tuple, equations = result_batch
                         equation_by_mutation_tuple[mutation_tuple] = equations
@@ -770,7 +770,7 @@ class EquationSystemObj(object):
         # marginal tuples
         equationObjs = []
         mutation_profiles_offset_1 = get_mutation_profiles(self.k_max_by_mutype, offset=1, by_mutype=True)
-        for mutation_profile in tqdm(mutation_profiles_offset_1, desc="[%] Accounting for marginal probabilities", ncols=100):
+        for mutation_profile in tqdm(mutation_profiles_offset_1, desc="[%] Accounting for marginal probabilities", ncols=100, disable=disable_tqdm):
             matrix_idx = tuple(mutation_profile.values())
             equation_idx = matrix_idx
             marginal_idx = None 
