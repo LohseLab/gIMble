@@ -42,8 +42,8 @@ def run_sims(sim_configs, global_info, all_interpop_comparisons, chunks=1, threa
 		if store is not None:
 			name = f"parameter_combination_{idx}"
 			store.create_dataset(name, data=result_list, overwrite=True)
-			store.attrs.put(zarr_attrs)
-			store.attrs['seeds']=tuple([int(s) for s in seeds])
+			store[name].attrs.put(zarr_attrs)
+			store[name].attrs['seeds']=tuple([int(s) for s in seeds])
 		else:
 			all_results.append(result_list)
 	return np.array(all_results, dtype=np.int64) #check do we need int64?
@@ -55,8 +55,9 @@ def simulate_parameterObj(sim_configs, parameterObj, gimbleStore):
 	if parameterObj.label:
 		group_name=parameterObj.label
 	else:
-		run_count = gimbleStore._return_group_last_integer('sims')
-		group_name = f"run_{run_count}"
+		raise ValueError('sims group_name should have been assigned in parameterObj.simulate()')
+		#run_count = gimbleStore._return_group_last_integer('sims')
+		#group_name = f"run_{run_count}"
 	gimbleStore.data.require_group(f'sims/{group_name}')
 	gimbleStore.data[f'sims/{group_name}'].attrs.put(global_info)
 	gimbleStore.data[f'sims/{group_name}'].attrs['fixed_param_grid'] = parameterObj.fixed_param_grid
@@ -232,7 +233,7 @@ def run_ind_sim(
 	# generate all comparisons
 	num_comparisons = len(comparisons)
 	#result = np.zeros((num_comparisons, blocks, blocklength), dtype="int8")
-	result = np.zeros((num_comparisons, blocks, len(k_max)), dtype="int64") #get number of mutypes
+	result = np.zeros((num_comparisons, blocks, len(k_max)), dtype=np.int64) #get number of mutypes
 	for idx, pair in enumerate(comparisons):
 		block_sites = np.arange(total_length).reshape(blocks, blocklength)
 		# slice genotype array
