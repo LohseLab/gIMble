@@ -171,8 +171,8 @@ def calculate_inverse_laplace(params):
     - test for errors due to unsolve equations due to wrong model? 
     - or is there a way to sort out model-coherenece as pre-flight check? 
     '''
-    precision = 165 #the number of bits used to represent the mantissa of a floating-point number.
-    equationObj, rates, split_time, dummy_variable = params
+    #precision = 165 #the number of bits used to represent the mantissa of a floating-point number.
+    equationObj, rates, split_time, dummy_variable, precision = params
     #print(equationObj, rates, split_time, dummy_variable)
     equation = (equationObj.equation).substitute(rates)
     # GB: for testing purposes only: this needs to be done elsewhere!
@@ -308,7 +308,7 @@ class EquationObj(object):
         return '[+] EquationObj : %s\n%s' % (self.matrix_idx, self.equation)
 
 class EquationSystemObj(object):
-    def __init__(self, model_file, reference_pop, k_max_by_mutype, block_length, mu, seed=None, module=None, threads=1):
+    def __init__(self, model_file, reference_pop, k_max_by_mutype, block_length, mu, seed=None, module=None, threads=1, precision=165):
         #parameters
         self.model_file = model_file
         self.reference_pop = reference_pop
@@ -333,6 +333,7 @@ class EquationSystemObj(object):
         self.dummy_variable = self._get_dummy_variable() 
         self.equation_batch_by_idx = collections.defaultdict(list)
         self.ETPs=None
+        self.precision = precision
 
         #self.scaled_parameter_combinations = self._scale_all_parameter_combinations(parameterObj)
         #self.rate_by_variable = [self._get_base_rate_by_variable(params) for params in self.scaled_parameter_combinations] 
@@ -540,7 +541,7 @@ class EquationSystemObj(object):
         #print(f'rates sage vars: {rates}')
         parameter_batches = []
         for equationObj in self.equationObjs:
-            parameter_batches.append((equationObj, rates, split_time, self.dummy_variable))
+            parameter_batches.append((equationObj, rates, split_time, self.dummy_variable, self.precision))
         desc = "[%] Solving equations"
         equationObj_by_matrix_idx = {}
         

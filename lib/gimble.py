@@ -1517,6 +1517,7 @@ class Store(object):
         #resample blocks and determine for each parameter ftol_abs
         self._set_stopping_criteria(data, parameterObj, label)
         # load math.EquationSystemObj
+        precision = parameterObj.config['gimble']['precision'] if parameterObj.config['gimble']['precision']>165 else 165
         equationSystem = lib.math.EquationSystemObj(
             parameterObj.model_file, 
             parameterObj.config['populations']['reference_pop'],
@@ -1525,7 +1526,8 @@ class Store(object):
             parameterObj.config['mu']['mu'],
             seed=parameterObj.config['gimble']['random_seed'],
             module="optimize",
-            threads=parameterObj.threads
+            threads=parameterObj.threads,
+            precision=precision
             )
         # initiate model equations
         equationSystem.initiate_model(sync_ref=parameterObj.reference, sync_targets=parameterObj.toBeSynced)
@@ -1642,6 +1644,7 @@ class Store(object):
             sys.exit("[X] Grid for this config file already exists.")
         number_grid_points = len(parameterObj.parameter_combinations[next(iter(parameterObj.parameter_combinations))])
         print("[+] Generated %s grid points combinations." % number_grid_points)
+        precision = parameterObj.config['gimble']['precision'] if parameterObj.config['gimble']['precision']>165 else 165
         equationSystem = lib.math.EquationSystemObj(
             parameterObj.model_file, 
             parameterObj.config['populations']['reference_pop'],
@@ -1650,7 +1653,8 @@ class Store(object):
             parameterObj.config['mu']['mu'],
             seed=parameterObj.config['gimble']['random_seed'],
             module="makegrid",
-            threads=parameterObj.threads
+            threads=parameterObj.threads,
+            precision=precision
             )
         #build the equations
         equationSystem.initiate_model(sync_ref=parameterObj.reference, sync_targets=parameterObj.toBeSynced)
