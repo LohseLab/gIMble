@@ -275,7 +275,7 @@ class StateGraph(object):
         config['gimble'] = {
             'version': parameterObj._VERSION,
             'random_seed' : 19,
-            'precision': 25,
+            'precision': 165,
         }
         A,B = parameterObj.pop_ids
         sample_size_A = parameterObj.samples_by_pop_id[A]
