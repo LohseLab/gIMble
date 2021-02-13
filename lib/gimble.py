@@ -715,7 +715,6 @@ def _get_sim_grid_fixed_rec(rec_rate, local_winning_fixed_param_idx, grid_meta_d
 
 def _gridsearch_sims_single(data, grids, fixed_param_grid, gridded_params, grid_meta_dict, label, name, fixed_param_grid_value_idx, output_df=True):
     """
-    -> transfered as function, should be redundant
     data=sim_bsfs, grids=lncls for each grid point, fixed_param_grid=fixed parameter, gridded_params=dict of parameters that are gridded,
     grid_meta_dict = , fixed_param_grid_value_idx=index of background value of fixed param
     determines optimal parameter combination (for each of theparameters that determine an axis along the grid)
@@ -753,6 +752,16 @@ def _gridsearch_sims_single(data, grids, fixed_param_grid, gridded_params, grid_
         if output_df:
             df_fixed_param.to_csv(f'{label}_{name}_lnCL_dist.csv')
     return (df, df_fixed_param)
+
+def gridsearch_np(bsfs=None, grids=None):
+    '''returns 2d array of likelihoods of shape (windows, grids)'''
+    if grids is None or bsfs is None:
+        raise ValueError('gridsearch: needs grid and data')
+    grids_log = np.zeros(grids.shape)
+    np.log(grids, where=grids>0, out=grids_log)
+    if bsfs.ndim == 4:
+        return np.squeeze(np.apply_over_axes(np.sum, (bsfs * grids_log), axes=[-4,-3,-2,-1]))
+    return np.squeeze(np.apply_over_axes(np.sum, (bsfs[:, None] * grids_log), axes=[-4,-3,-2,-1]))
 
 #new section of functions
 
@@ -1359,11 +1368,11 @@ class Store(object):
                 population_by_letter=parameterObj.config['population_by_letter'], 
                 sample_sets='X', 
                 kmax_by_mutype=parameterObj.config['k_max'])
-            lncls_windows = self.gridsearch_np(bsfs=bsfs_windows_clipped, grids=grids)
+            lncls_windows = gridsearch_np(bsfs=bsfs_windows_clipped, grids=grids)
             self._set_lncls(unique_hash, lncls_windows, lncls_type='windows', overwrite=parameterObj.overwrite)
             # gridsearch [global]
             bsfs_windows_clipped_summed = sum_wbsfs(bsfs_windows_clipped)
-            lncls_global = self.gridsearch_np(bsfs=bsfs_windows_clipped_summed, grids=grids)
+            lncls_global = gridsearch_np(bsfs=bsfs_windows_clipped_summed, grids=grids)
             self._set_lncls(unique_hash, lncls_global, lncls_type='global', overwrite=parameterObj.overwrite)
             best_idx = np.argmax(lncls_global, axis=0)
             print('[+] Best grid point (based on bSFS within windows): %s' % lncls_global[best_idx])
@@ -1382,7 +1391,7 @@ class Store(object):
                 population_by_letter=parameterObj.config['population_by_letter'], 
                 sample_sets='X', 
                 kmax_by_mutype=parameterObj.config['k_max'])
-            lncls_blocks = self.gridsearch_np(bsfs=bsfs_clipped, grids=grids)
+            lncls_blocks = gridsearch_np(bsfs=bsfs_clipped, grids=grids)
             self._set_lncls(unique_hash, lncls_blocks, lncls_type='blocks', overwrite=parameterObj.overwrite)
             best_idx = np.argmax(lncls_blocks, axis=0)
             best_value = [v[best_idx] for v in grid_meta_dict.values()]
@@ -1994,7 +2003,9 @@ class Store(object):
                 sys.exit(f"[X] Specify label. Should be one of {', '.join(self.data['sims'].group_keys())}")
 
     def gridsearch_np(self, bsfs=None, grids=None):
-        '''returns 2d array of likelihoods of shape (windows, grids)'''
+        '''returns 2d array of likelihoods of shape (windows, grids)
+    old function->redundant
+        '''
         if grids is None or bsfs is None:
             raise ValueError('gridsearch: needs grid and data')
         grids_log = np.zeros(grids.shape)

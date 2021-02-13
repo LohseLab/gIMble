@@ -7,32 +7,80 @@ import itertools
 
 @pytest.mark.gridsearch
 class Test_gridsearch:
-	"""
-	test1: 
-	* generate ETPs: simulate or exp
-	* populate other matrices with similar values (shuffle)
-	* build grid from those arrays
-	* generate data from those ETPs -> multiple windows
-	* return best gridpoint
+	def test_gridsearch_sims(self):
+		num_replicates, num_gridpoints = 5, 10
+		pos_max = tuple(i for i in range(num_replicates))
+		fixed_param_grid, fixed_param_grid_value = 'm_e', 1
+		gridded_params = ['Ne_A', 'Ne_B', 'm_e']
+		grid_meta_dict = {
+			'Ne_A':np.array(list(pos_max)+[100]*5), 
+			'Ne_B':np.array(list(pos_max)+[100]*5), 
+			'm_e':np.array([1]*(num_gridpoints//2)+[10]*(num_gridpoints//2))
+			}
+		unique_values_fixed_param = np.unique(grid_meta_dict[fixed_param_grid])
+		fixed_param_grid_value_idx = np.where(unique_values_fixed_param==fixed_param_grid_value)[0][0]
+		bsfs_replicates = np.random.randint(low=0, high=1000, size=(num_replicates, 4,4,4,4), dtype=np.int16)
+		num_bsfs_entries = np.sum(bsfs_replicates, axis=(1,2,3,4))
+		etps = bsfs_replicates/num_bsfs_entries[:,None,None,None,None]
+		grid = np.zeros((num_gridpoints,4,4,4,4),dtype=np.float64)
+		grid[pos_max,:] = etps
+		etps_flat = etps[0].reshape(-1)
+		for i in range(num_replicates,num_gridpoints):
+			new_entry = np.random.permutation(etps_flat)
+			while np.all(new_entry == etps_flat):
+				new_entry = np.random.permutation(etps_flat)
+			grid[i] = new_entry.reshape((4,4,4,4))
+		df, df_fixed_param = lib.gimble._gridsearch_sims_single(
+					bsfs_replicates, 
+					grid, 
+					fixed_param_grid, 
+					gridded_params,
+					grid_meta_dict, 
+					label=None,
+					name=None, 
+					fixed_param_grid_value_idx=0, 
+					output_df=False
+					)
+		assert df['m_e'].nunique()==1
+		assert np.all(df['Ne_A'].to_numpy()==pos_max)
+		assert np.all(df['Ne_B'].to_numpy()==pos_max)
+		assert df_fixed_param.shape == (num_replicates, np.unique(grid_meta_dict['m_e']).size) 
 
-	gridsearch can involve: blocks, windows, simulate
-	* get_bsfs
-	* gridsearch_np
-	* find local/global winning parameter
+	def test_gridsearch_blocks(self):
+		num_gridpoints = 10
+		pos_max = 0
+		bsfs = np.random.randint(low=0, high=1000, size=(4,4,4,4), dtype=np.int16)
+		num_bsfs_entries = np.sum(bsfs)
+		etps = bsfs/num_bsfs_entries
+		grid = np.zeros((num_gridpoints,4,4,4,4),dtype=np.float64)
+		grid[pos_max] = etps
+		etps_flat = etps.reshape(-1)
+		for i in range(1,num_gridpoints):
+			new_entry = np.random.permutation(etps_flat)
+			while np.all(new_entry == etps_flat):
+				new_entry = np.random.permutation(etps_flat)
+			grid[i] = new_entry.reshape((4,4,4,4))
+		result = lib.gimble.gridsearch_np(bsfs=bsfs, grids=grid)
+		assert result.shape==(num_gridpoints,)
+		assert np.argmax(result)==pos_max
 
-	sims:
-	*what happens to fixed parameter?
-	*gridsearch sims_single: for single parameter
-		* multiplies replicates with bSFS -> result replicates*num_grid_points
-		* optimal index for each replicate
-		* if fixed_param_grid is specified: returns df with distribution of lncls
-			for each value of the fixed parameter
-
-	test2: test simulate fixed grid
-
-	"""
-	def test_gridsearch(self):
-		pass
+	def test_gridsearch_windows(self):
+		num_windows, num_gridpoints = 3, 10
+		pos_max = tuple(i for i in range(num_windows))
+		bsfs = np.random.randint(low=0, high=1000, size=(num_windows,4,4,4,4), dtype=np.int16)
+		num_bsfs_entries = np.sum(bsfs, axis=(1,2,3,4))
+		etps = bsfs/num_bsfs_entries[:,None,None,None,None]
+		grid = np.zeros((num_gridpoints,4,4,4,4),dtype=np.float64)
+		grid[pos_max,:] = etps
+		etps_flat = etps[0].reshape(-1)
+		for i in range(num_windows,num_gridpoints):
+			new_entry = np.random.permutation(etps_flat)
+			while np.all(new_entry == etps_flat):
+				new_entry = np.random.permutation(etps_flat)
+			grid[i] = new_entry.reshape((4,4,4,4))
+		result = lib.gimble.gridsearch_np(bsfs=bsfs, grids=grid)
+		assert result.shape==(num_windows,num_gridpoints)
+		assert np.all(np.argmax(result, axis=1)==pos_max)
 
 @pytest.mark.simgrid
 class Test_simgrid:
