@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gimble optimize                  [-z FILE] -c FILE -m FILE (-b [-n INT]|-w| --simID <STR>) [--track] 
+"""
+usage: gimble optimize                  [-z FILE] -c FILE -m FILE (-b [-n INT]|-w| --simID <STR>) [--track] 
                                             [-x FLOAT -i INT] [-f FLOAT] [-p] [--inner_pool <INT> --outer_pool <INT>]
                                             [-h|--help]
                                             
