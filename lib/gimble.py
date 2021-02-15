@@ -27,6 +27,7 @@ import fractions
 import copy
 import lib.math
 import tabulate
+import warnings
 # np.set_printoptions(threshold=sys.maxsize)
 
 
@@ -407,89 +408,6 @@ def szudzik_pairing(folded_minor_allele_counts):
     #else:
     #    pass
 
-def get_coverage_counts(coverages, idxs, num_blocks):
-    # not used at the moment
-    num_sample_sets = idxs[-1] + 1 # this is correct, don't worry about it ...
-    temp = coverages + (num_sample_sets * np.arange(coverages.shape[0]))[:, None]
-    blocks_per_sample_set = np.bincount(temp.ravel(), minlength=(num_sample_sets * coverages.shape[0])).reshape(-1, num_sample_sets)
-    # remove columns/sample_sets that only contain zeroes and normalise
-    return blocks_per_sample_set[:, ~(blocks_per_sample_set == 0).all(0)] / (num_blocks / len(idxs)) / num_blocks 
-
-def block_sites_to_variation_arrays(block_sites, cols=np.array([1,2,3]), max_type_count=7):
-    temp_sites = block_sites + (max_type_count * np.arange(block_sites.shape[0], dtype=np.int64).reshape(block_sites.shape[0], 1))
-    multiallelic, missing, monomorphic, variation = np.hsplit(np.bincount(temp_sites.ravel(), minlength=(block_sites.shape[0] * max_type_count)).reshape(-1, max_type_count), cols)
-    return (multiallelic, missing, monomorphic, variation)
-    # return np.hsplit(np.bincount(temp_sites.ravel(), minlength=(block_sites.shape[0] * max_type_count)).reshape(-1, max_type_count), cols)
-
-# def calculate_popgen_from_array(mutype_array, sites):
-#     # print('# Mutypes: 0=MULTI, 1=MISS, 2=MONO, 3=HetB, 4=HetA, 5=HetAB, 6=Fixed')
-#     pi_1 = float("%.8f" % np.divide(np.sum(mutype_array[:, 1]) + np.sum(mutype_array[:, 2]), sites)) # average heterozygosity
-#     pi_2 = float("%.8f" % np.divide(np.sum(mutype_array[:, 0]) + np.sum(mutype_array[:, 2]), sites)) # average heterozygosity
-#     d_xy = float("%.8f" % np.divide(np.divide(np.sum(mutype_array[:, 0]) + np.sum(mutype_array[:, 1]) + np.sum(mutype_array[:, 2]), 2.0) + np.sum(mutype_array[:, 3]), sites))
-#     mean_pi = (pi_1 + pi_2) / 2.0
-#     total_pi = (d_xy + mean_pi) / 2.0 # special case of pairwise Fst
-#     f_st = np.nan
-#     if (total_pi):
-#         f_st = float("%.8f" % ((total_pi - mean_pi) / total_pi)) # special case of pairwise Fst
-#     fgv = len(mutype_array[(mutype_array[:, 2] > 0) & (mutype_array[:, 3] > 0)])
-#     return (pi_1, pi_2, d_xy, f_st, fgv)
-
-def genotype_to_mutype_array(sa_genotype_array, idx_block_sites_in_pos, block_sites, debug=True):
-    '''
-    - possible errors:
-        - if whole sequence has only missing GTs in genotypes for a sample set, then np_allele_count_array will be empty ... (should never happen)
-    '''
-    np_genotype_array = np.array(sa_genotype_array)
-    #print('np_genotype_array', np_genotype_array.shape, np_genotype_array)
-    np_allele_count_array = np.ma.masked_equal(sa_genotype_array.count_alleles(), 0, copy=True) 
-    #print('np_allele_count_array', np_allele_count_array.shape, np_allele_count_array)
-    #print('np.any(np_allele_count_array)', np.any(np_allele_count_array))
-    allele_map = np.ones((np_allele_count_array.shape), dtype=np.int64) * np.arange(np_allele_count_array.shape[-1], dtype=np.int64)
-    #print('allele_map', allele_map.shape, allele_map)
-    #print('np.any(allele_map)', np.any(allele_map))
-    if np.any(np_allele_count_array) and np.any(allele_map):
-        idx_max_global_allele_count = np.nanargmax(np_allele_count_array, axis=1)
-        idx_min_global_allele_count = np.nanargmin(np_allele_count_array, axis=1)
-        has_major_allele = (idx_max_global_allele_count != idx_min_global_allele_count)
-        idx_min_prime_allele = np.amin(np_genotype_array[:,0], axis=1)
-        idx_min_global_allele = np.amin(np.amin(np_genotype_array, axis=1), axis=1)
-        idx_max_global_allele = np.amax(np.amax(np_genotype_array, axis=1), axis=1)
-        idx_major_allele = np.where(
-            has_major_allele, 
-            idx_max_global_allele_count, 
-            idx_min_prime_allele)
-        idx_minor_allele = np.where(
-            has_major_allele, 
-            idx_min_global_allele_count, 
-            np.where((
-                idx_min_global_allele == idx_min_prime_allele),
-                np.max((idx_min_global_allele, idx_max_global_allele), axis=0), 
-                np.min((idx_min_global_allele, idx_max_global_allele), axis=0)))
-        # for each genotype (np.arange(allele_map.shape[0])), set minor allele to 1 (1st do minor, so that overwritten if monomorphic)
-        allele_map[np.arange(allele_map.shape[0]), idx_minor_allele] = 1 
-        # for each genotype (np.arange(allele_map.shape[0])), set major allele to 0
-        allele_map[np.arange(allele_map.shape[0]), idx_major_allele] = 0
-    folded_minor_allele_counts = sa_genotype_array.map_alleles(allele_map).to_n_alt(fill=-1)
-    #print(folded_minor_allele_counts)
-    folded_minor_allele_counts[np.any(sa_genotype_array.is_missing(), axis=1)] = np.ones(2) * -1        # -1, -1 for missing => -1
-    folded_minor_allele_counts[(np_allele_count_array.count(axis=1) > 2)] = np.ones(2) * (-1, -2)       # -1, -2 for multiallelic => -2
-
-    block_sites[idx_block_sites_in_pos] = szudzik_pairing(folded_minor_allele_counts) + 2               # add 2 so that not negative for bincount
-    block_sites[~idx_block_sites_in_pos] = 2                                                            # monomorphic = 2 (0 = multiallelic, 1 = missing)
-    if debug == True:
-        print("# block_sites as mutype array", block_sites)
-    if debug == True:
-        block_sites_pos = block_sites.flatten()
-        pos_df = pd.DataFrame(block_sites_pos[idx_block_sites_in_pos.flatten()], dtype='int64', columns=['pos'])
-        genotypes_df = pd.DataFrame(np_genotype_array.reshape(np_genotype_array.shape[0], 4), dtype='i4', columns=['a1', 'a2', 'b1', 'b2'])        
-        block_sites_df = pos_df.join(genotypes_df)
-        folded_minor_allele_count_df = pd.DataFrame(folded_minor_allele_counts, dtype='int8', columns=['fmAC_a', 'fmAC_b'])
-        block_sites_df = block_sites_df.join(folded_minor_allele_count_df)
-        variants = pd.DataFrame(block_sites[idx_block_sites_in_pos], dtype='int', columns=['SVar'])
-        block_sites_df = block_sites_df.join(variants)
-        print('# Mutypes: 0=MULTI, 1=MISS, 2=MONO, 3=HetB, 4=HetA, 5=HetAB, 6=Fixed')
-        print(block_sites_df)
-    return block_sites
 
 def _harmonic(a, b):
     if b-a == 1:
@@ -500,18 +418,6 @@ def _harmonic(a, b):
 def harmonic(n):
     '''https://fredrik-j.blogspot.com/2009/02/how-not-to-compute-harmonic-numbers.html'''
     return _harmonic(1,n+1)
-
-def create_ranges(aranges):
-    # does the transformation form 0-based (BED) to 1-based (VCF) coordinate system 
-    # https://stackoverflow.com/a/47126435
-    l = (aranges[:, 1] - aranges[:, 0])
-    clens = l.cumsum()
-    if np.any(clens):
-        ids = np.ones(clens[-1], dtype=np.int64)
-        ids[0] = aranges[0, 0]
-        ids[clens[:-1]] = aranges[1:, 0] - aranges[:-1, 1] + 1
-        return ids.cumsum()
-    return None
 
 def cut_windows(mutype_array, idxs, start_array, end_array, num_blocks=10, num_steps=3):
     coordinate_sorted_idx = np.argsort(end_array)
@@ -527,16 +433,206 @@ def cut_windows(mutype_array, idxs, start_array, end_array, num_blocks=10, num_s
     window_pos_median = np.median(window_midpoints, axis=1).T
     return window_mutypes, window_starts, window_ends, window_pos_mean, window_pos_median
 
-def cut_blocks(interval_starts, interval_ends, block_length, block_span, block_gap_run):
-    sites = create_ranges(np.array((interval_starts, interval_ends), dtype=np.int64).T)
-    if sites is None: 
+def get_coverage_counts(coverages, idxs, num_blocks):
+    # not used at the moment
+    num_sample_sets = idxs[-1] + 1 # this is correct, don't worry about it ...
+    temp = coverages + (num_sample_sets * np.arange(coverages.shape[0]))[:, None]
+    blocks_per_sample_set = np.bincount(temp.ravel(), minlength=(num_sample_sets * coverages.shape[0])).reshape(-1, num_sample_sets)
+    # remove columns/sample_sets that only contain zeroes and normalise
+    return blocks_per_sample_set[:, ~(blocks_per_sample_set == 0).all(0)] / (num_blocks / len(idxs)) / num_blocks 
+
+def block_sites_to_variation_arrays(block_sites, cols=np.array([1,2,3]), max_type_count=7):
+    temp_sites = block_sites + (max_type_count * np.arange(block_sites.shape[0], dtype=np.int64).reshape(block_sites.shape[0], 1))
+    multiallelic, missing, monomorphic, variation = np.hsplit(np.bincount(temp_sites.ravel(), minlength=(block_sites.shape[0] * max_type_count)).reshape(-1, max_type_count), cols)
+    return (multiallelic, missing, monomorphic, variation)
+    # return np.hsplit(np.bincount(temp_sites.ravel(), minlength=(block_sites.shape[0] * max_type_count)).reshape(-1, max_type_count), cols)
+
+def gt2fmac(genotype_array):
+    '''turns scikit-allel/numpy-array (n,s,p) of genotypes into folded-minor-allel-count-np-array (n,s)
+    [To Do] multiallelics have to be done differently if we use non-(n,2,2)-GTs ... '''
+    np_genotype_array = np.array(genotype_array)
+    sa_genotype_array = allel.GenotypeArray(genotype_array)
+    n_samples = sa_genotype_array.n_samples
+    n_variants = sa_genotype_array.n_variants
+    np_allele_count_array = np.ma.masked_equal(sa_genotype_array.count_alleles(), 0, copy=True)
+    missing_genotypes = sa_genotype_array.is_missing()
+    if np.all(missing_genotypes):
+        folded_minor_allele_counts = np.ones((n_variants, n_samples),dtype=np.int8) * -1 # -1, -1 for missing => -1
+    else:
+        idx_max_global_allele_count = np.nanargmax(np_allele_count_array, axis=1)
+        idx_min_global_allele_count = np.nanargmin(np_allele_count_array, axis=1)
+        has_major_allele = (idx_max_global_allele_count != idx_min_global_allele_count)
+        idx_min_prime_allele = np.amin(np_genotype_array[:,0], axis=1)
+        idx_min_global_allele = np.amin(np.amin(np_genotype_array, axis=1), axis=1)
+        idx_max_global_allele = np.amax(np.amax(np_genotype_array, axis=1), axis=1)
+        idx_major_allele = np.where(has_major_allele, idx_max_global_allele_count, idx_min_prime_allele)
+        idx_minor_allele = np.where(has_major_allele, idx_min_global_allele_count, np.where((
+            idx_min_global_allele == idx_min_prime_allele),
+            np.max((idx_min_global_allele, idx_max_global_allele), axis=0), 
+            np.min((idx_min_global_allele, idx_max_global_allele), axis=0)))
+        allele_map = np.ones((np_allele_count_array.shape), dtype=np.int64) * np.arange(np_allele_count_array.shape[-1], dtype=np.int8) # changed to np.int8
+        # for each genotype (np.arange(allele_map.shape[0])), set minor allele to 1 (1st do minor, so that overwritten if monomorphic)
+        allele_map[np.arange(allele_map.shape[0]), idx_minor_allele] = 1 
+        # for each genotype (np.arange(allele_map.shape[0])), set major allele to 0
+        allele_map[np.arange(allele_map.shape[0]), idx_major_allele] = 0
+        folded_minor_allele_counts = sa_genotype_array.map_alleles(allele_map).to_n_alt(fill=-1)
+        folded_minor_allele_counts[np.any(missing_genotypes, axis=1)] = np.ones(n_samples) * -1 # -1, -1 for missing => -1
+        # multiallelics take precedence over missing
+        folded_minor_allele_counts[(np_allele_count_array.count(axis=1) > 2)] = np.ones(2) * (-1, -2) # -1, -2 for multiallelic => -2
+    return folded_minor_allele_counts
+
+def intervals_to_sites(intervals):
+    '''starts = np.array([0, 5, 8, 11, 15])
+       ends   = np.array([2, 8, 9, 13, 18])
+    clens : array([2, 5, 6, 8, 11])
+    _sites: array([1, 1, 1, 1, 1, 1,  1, 1, 1, 1, 1])
+    _sites: array([0, 1, 1, 1, 1, 1,  1, 1, 1, 1, 1])
+    _sites: array([1, 1, 4, 1, 1, 1,  3, 1, 3, 1, 1])
+    sites : array([0, 1, 5, 6, 7, 8, 11,12,15,16,17])'''
+    starts, ends = intervals
+    if starts is None or ends is None:
+        return None 
+    clens = np.cumsum(ends - starts) 
+    if np.any(clens):
+        sites = np.ones(clens[-1], dtype=np.int64)
+        sites[0] = starts[0]
+        sites[clens[:-1]] = starts[1:] - ends[:-1] + 1
+        sites = sites.cumsum()
+        return sites
+    return None
+
+def sites_to_blocks(sites, block_length, block_span, debug=False):
+    if sites is None or not block_length or not block_span:
         return None
+    max_gap = (block_span - block_length - 1)
     block_sites = np.concatenate([
         x[:block_length * (x.shape[0] // block_length)].reshape(-1, block_length) 
-            for x in np.split(sites, np.where(np.diff(sites) > block_gap_run)[0] + 1)
-        ]) 
-    block_span_valid_mask = (((block_sites[:, -1] - block_sites[:, 0]) + 1) <= block_span)
-    return block_sites[block_span_valid_mask]
+            for x in np.split(sites, np.where(np.diff(sites) > max_gap)[0] + 1)]) 
+    #block_sites_valid_mask = (((block_sites[:, -1] - block_sites[:, 0]) + 1) <= block_span)
+    block_sites_valid_mask = (((block_sites[:, -1] - block_sites[:, 0])) <= block_span)
+    if debug:
+        success = (block_sites[block_sites_valid_mask].shape[0] * block_length)/sites.shape[0] if np.count_nonzero(block_sites[block_sites_valid_mask]) else 0
+        print(block_sites[block_sites_valid_mask])
+        print('[+] sites=%s : blocks=%s success=%.2f%%' % (sites.shape[0], block_sites[block_sites_valid_mask].shape[0], success))
+    if np.any(block_sites_valid_mask):
+        return block_sites[block_sites_valid_mask]
+    return None
+
+def subset_gt_matrix(meta_seqs, sample_set, indices, gt_matrix):
+    sample_set_vcf_idxs = [meta_seqs['variants_idx_by_sample'][sample] for sample in sample_set]
+    return gt_matrix.subset(indices, sample_set_vcf_idxs)
+
+def blocks_to_arrays(blocks, gts, pos):
+    starts = np.array(blocks[:, 0], dtype=np.int64)
+    ends = np.array(blocks[:, -1] + 1, dtype=np.int64) # BED: end+1
+    pos_in_block_sites = np.isin(pos, blocks, assume_unique=True)
+    if np.any(pos_in_block_sites): # if variants in blocks
+        folded_minor_allele_counts = gt2fmac(gts)
+        block_sites_in_pos = np.isin(blocks, pos, assume_unique=True)
+        blocks[block_sites_in_pos] = szudzik_pairing(folded_minor_allele_counts) + 2 # add 2 so that not negative for bincount
+        blocks[~block_sites_in_pos] = 2 # monomorphic = 2 (0 = multiallelic, 1 = missing)
+        temp_sites = blocks + (7 * np.arange(blocks.shape[0], dtype=np.int64).reshape(blocks.shape[0], 1))
+        multiallelic, missing, monomorphic, variation = np.hsplit(
+            np.bincount(temp_sites.ravel(), minlength=(blocks.shape[0] * 7)).reshape(-1, 7), np.array([1,2,3]))
+    else:
+        multiallelic = np.zeroes((blocks.shape[0], 1))
+        missing = np.zeroes((blocks.shape[0], 1))
+        monomorphic = np.full((blocks.shape[0], 4), meta_blocks['length'], dtype=int)
+        variation = np.zeroes((blocks.shape[0], 1))
+    return (starts, ends, multiallelic, missing, monomorphic, variation)
+
+########################################
+
+### OLD CODE 
+
+# old
+#def genotype_to_mutype_array(sa_genotype_array, idx_block_sites_in_pos, block_sites, debug=True):
+#    # DEPRECATED
+#    warnings.warn("lib.gimble.genotype_to_mutype_array() is deprecated. Use gt2fmac() ...", DeprecationWarning)
+#    '''
+#    - possible errors:
+#        - if whole sequence has only missing GTs in genotypes for a sample set, then np_allele_count_array will be empty ... (should never happen)
+#    '''
+#    np_genotype_array = np.array(sa_genotype_array)
+#    #print('np_genotype_array', np_genotype_array.shape, np_genotype_array)
+#    np_allele_count_array = np.ma.masked_equal(sa_genotype_array.count_alleles(), 0, copy=True) 
+#    #print('np_allele_count_array', np_allele_count_array.shape, np_allele_count_array)
+#    #print('np.any(np_allele_count_array)', np.any(np_allele_count_array))
+#    allele_map = np.ones((np_allele_count_array.shape), dtype=np.int64) * np.arange(np_allele_count_array.shape[-1], dtype=np.int64)
+#    #print('allele_map', allele_map.shape, allele_map)
+#    #print('np.any(allele_map)', np.any(allele_map))
+#    if np.any(np_allele_count_array) and np.any(allele_map):
+#        idx_max_global_allele_count = np.nanargmax(np_allele_count_array, axis=1)
+#        idx_min_global_allele_count = np.nanargmin(np_allele_count_array, axis=1)
+#        has_major_allele = (idx_max_global_allele_count != idx_min_global_allele_count)
+#        idx_min_prime_allele = np.amin(np_genotype_array[:,0], axis=1)
+#        idx_min_global_allele = np.amin(np.amin(np_genotype_array, axis=1), axis=1)
+#        idx_max_global_allele = np.amax(np.amax(np_genotype_array, axis=1), axis=1)
+#        idx_major_allele = np.where(
+#            has_major_allele, 
+#            idx_max_global_allele_count, 
+#            idx_min_prime_allele)
+#        idx_minor_allele = np.where(
+#            has_major_allele, 
+#            idx_min_global_allele_count, 
+#            np.where((
+#                idx_min_global_allele == idx_min_prime_allele),
+#                np.max((idx_min_global_allele, idx_max_global_allele), axis=0), 
+#                np.min((idx_min_global_allele, idx_max_global_allele), axis=0)))
+#        # for each genotype (np.arange(allele_map.shape[0])), set minor allele to 1 (1st do minor, so that overwritten if monomorphic)
+#        allele_map[np.arange(allele_map.shape[0]), idx_minor_allele] = 1 
+#        # for each genotype (np.arange(allele_map.shape[0])), set major allele to 0
+#        allele_map[np.arange(allele_map.shape[0]), idx_major_allele] = 0
+#    folded_minor_allele_counts = sa_genotype_array.map_alleles(allele_map).to_n_alt(fill=-1)
+#    #print(folded_minor_allele_counts)
+#    folded_minor_allele_counts[np.any(sa_genotype_array.is_missing(), axis=1)] = np.ones(2) * -1        # -1, -1 for missing => -1
+#    folded_minor_allele_counts[(np_allele_count_array.count(axis=1) > 2)] = np.ones(2) * (-1, -2)       # -1, -2 for multiallelic => -2
+#    block_sites[idx_block_sites_in_pos] = szudzik_pairing(folded_minor_allele_counts) + 2               # add 2 so that not negative for bincount
+#    block_sites[~idx_block_sites_in_pos] = 2                                                            # monomorphic = 2 (0 = multiallelic, 1 = missing)
+#    if debug == True:
+#        print("# block_sites as mutype array", block_sites)
+#    if debug == True:
+#        block_sites_pos = block_sites.flatten()
+#        pos_df = pd.DataFrame(block_sites_pos[idx_block_sites_in_pos.flatten()], dtype='int64', columns=['pos'])
+#        genotypes_df = pd.DataFrame(np_genotype_array.reshape(np_genotype_array.shape[0], 4), dtype='i4', columns=['a1', 'a2', 'b1', 'b2'])        
+#        block_sites_df = pos_df.join(genotypes_df)
+#        folded_minor_allele_count_df = pd.DataFrame(folded_minor_allele_counts, dtype='int8', columns=['fmAC_a', 'fmAC_b'])
+#        block_sites_df = block_sites_df.join(folded_minor_allele_count_df)
+#        variants = pd.DataFrame(block_sites[idx_block_sites_in_pos], dtype='int', columns=['SVar'])
+#        block_sites_df = block_sites_df.join(variants)
+#        print('# Mutypes: 0=MULTI, 1=MISS, 2=MONO, 3=HetB, 4=HetA, 5=HetAB, 6=Fixed')
+#        print(block_sites_df)
+#    return block_sites
+
+# old
+#def cut_blocks(interval_starts, interval_ends, block_length, block_span, block_gap_run):
+#    #print("\n")
+#    #print('interval_starts', type(interval_starts), interval_starts.shape, interval_starts)
+#    #print('interval_ends', type(interval_ends), interval_ends.shape, interval_ends)
+#    sites = create_ranges(np.array((interval_starts, interval_ends), dtype=np.int64).T)
+#    if sites is None: 
+#        return None
+#    block_sites = np.concatenate([
+#        x[:block_length * (x.shape[0] // block_length)].reshape(-1, block_length) 
+#            for x in np.split(sites, np.where(np.diff(sites) > block_gap_run)[0] + 1)
+#        ]) 
+#    block_span_valid_mask = (((block_sites[:, -1] - block_sites[:, 0]) + 1) <= block_span)
+#    return block_sites[block_span_valid_mask]
+
+# old
+#def create_ranges(aranges):
+#    # does the transformation form 0-based (BED) to 1-based (VCF) coordinate system 
+#    # https://stackoverflow.com/a/47126435
+#    l = (aranges[:, 1] - aranges[:, 0])
+#    clens = l.cumsum()
+#    if np.any(clens):
+#        ids = np.ones(clens[-1], dtype=np.int64)
+#        ids[0] = aranges[0, 0]
+#        ids[clens[:-1]] = aranges[1:, 0] - aranges[:-1, 1] + 1
+#        return ids.cumsum()
+#    return None
+
+##################################################################
 
 def bsfs_to_2d(bsfs):
     """Converts 4D bsfs to 2D array with counts, mutuples.
@@ -995,12 +1091,15 @@ class Store(object):
         self._set_intervals(parameterObj)
         self.log_stage(parameterObj)
 
-    def blocks(self, parameterObj):
+    def blocks(self, parameterObj, flag='old'):
         print("[#] Preflight...")
         self._preflight_blocks(parameterObj)
         print("[#] Making blocks...")
-        #self._make_blocks_threaded(parameterObj)
-        self._make_blocks(parameterObj)
+        self._make_blocks(
+            parameterObj.block_length, 
+            parameterObj.block_span, 
+            parameterObj.block_max_missing, 
+            parameterObj.block_max_multiallelic)
         #self.plot_bsfs_pcp(sample_set='X')
         #self._calculate_block_pop_gen_metrics()
         #self._plot_blocks(parameterObj)
@@ -2420,110 +2519,6 @@ class Store(object):
             if not self._has_grid(unique_hash):
                 sys.exit("[X] Provided config file does not correspond to an existing grid.")
 
-    #def dump_windows(self, parameterObj):
-    #    window_info_rows = []
-    #    window_mutuple_tally = []
-    #    for sequence_id in tqdm(self.data.attrs['sequence_ids'], total=len(self.data.attrs['sequence_ids']), desc="[%] Generating output ", ncols=100):
-    #        variations = self.data["%s/windows/variation" % sequence_id]
-    #        #print(self.data["%s/windows/starts" % sequence_id][:])
-    #        #print(self.data["%s/windows/pos_mean" % sequence_id][:])
-    #        #print(self.data["%s/windows/pos_median" % sequence_id][:])
-    #        window_ids = np.array(["_".join([sequence_id, _start, _end]) for (_start, _end) in zip(
-    #            np.array(self.data["%s/windows/starts" % sequence_id]).astype(str), 
-    #            np.array(self.data["%s/windows/ends" % sequence_id]).astype(str))])
-    #        #window_ids = self.data["%s/windows/window_id" % sequence_id]
-    #        midpoint_means = self.data["%s/windows/pos_mean" % sequence_id]
-    #        midpoint_medians = self.data["%s/windows/pos_median" % sequence_id]
-    #        for window_id, variation, midpoint_mean, midpoint_median in zip(window_ids, variations, midpoint_means, midpoint_medians):
-    #            pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation, (self.data.attrs['block_length'] * variation.shape[0]))
-    #            window_info_rows.append([window_id, sequence_id, midpoint_mean, midpoint_median, pi_1, pi_2, d_xy, f_st, fgv/variation.shape[0]])
-    #            # mutuple barchart
-    #            mutypes, counts = np.unique(variation, return_counts=True, axis=0)
-    #            tally = np.concatenate([counts[:, np.newaxis], mutypes], axis =-1)
-    #            windows = np.array([window_id] * tally.shape[0])
-    #            window_mutuple_tally.append(np.concatenate([windows[:, np.newaxis], tally], axis =-1))
-    #    window_bsfs_cols = ['window_id', 'count'] + [x+1 for x in range(self.data.attrs['mutypes_count'])]
-    #    window_bsfs_df = pd.DataFrame(np.vstack(window_mutuple_tally), columns=window_bsfs_cols)
-    #    print("[+] Made %s windows" % window_bsfs_df['window_id'].nunique()) 
-    #    window_bsfs_f = "%s.window_bsfs.tsv" % self.prefix
-    #    window_bsfs_df.to_csv(window_bsfs_f, sep='\t', index=False)
-    #    print("[>] Created: %r" % str(window_bsfs_f))
-    #
-    #    window_info_cols = ['window_id', 'sequence_id', 'midpoint_mean', 'midpoint_median', 'pi_%s' % self.data.attrs['pop_ids'][0], 'pi_%s' % self.data.attrs['pop_ids'][1], 'd_xy', 'f_st', 'fgv']
-    #    window_info_df = pd.DataFrame(window_info_rows, columns=window_info_cols)
-    #    window_info_f = "%s.window_info.tsv" % self.prefix
-    #    window_info_df.to_csv(window_info_f, sep='\t', index=False)
-    #    print("[>] Created: %r" % str(window_info_f))        
-    #    self.plot_fst_genome_scan(window_info_df)
-    #    self.plot_pi_genome_scan(window_info_df)
-    #    #     plot_pi_scatter(window_df, '%s.pi_scatter.png' % parameterObj.dataset)
-    
-    #def plot_pi_genome_scan(self, window_df):
-    #    offset_by_sequence_id = {}
-    #    offset = 0
-    #    x_boundaries = []
-    #    for sequence_id, sequence_length in zip(self.data.attrs['sequence_ids'], self.data.attrs['sequence_length']):
-    #        offset_by_sequence_id[sequence_id] = offset
-    #        x_boundaries.append(offset)
-    #        offset += sequence_length
-    #    x_boundaries.append(offset)
-    #    #print([(sequenceObj.id, sequenceObj.length) for sequenceObj in sequenceObjs])
-    #    #print(x_boundaries)
-    #    fig = plt.figure(figsize=(18,4), dpi=200, frameon=True)
-    #    #connecting dots
-    #    ax = fig.add_subplot(111)  
-    #    window_df['rel_pos'] = window_df['midpoint_median'] + window_df['sequence_id'].map(offset_by_sequence_id)
-    #    window_df.sort_values(['rel_pos'], inplace=True)
-    #    #print(window_df)
-    #    pi_A_key = list(window_df.columns)[4]
-    #    pi_B_key = list(window_df.columns)[5]
-    #    ax.plot(window_df['rel_pos'], window_df[pi_A_key], color='orange', alpha=0.8, linestyle='-', linewidth=1, label=pi_A_key.replace('pi_', ''))
-    #    ax.plot(window_df['rel_pos'], window_df[pi_B_key], color='dodgerblue', alpha=0.8, linestyle='-', linewidth=1, label=pi_B_key.replace('pi_', ''))
-    #    y_lim = (min(window_df[pi_A_key].min(), window_df[pi_B_key].min()), max(window_df[pi_A_key].max(), window_df[pi_B_key].max()))
-    #    ax.vlines(x_boundaries, y_lim[0], y_lim[1], colors=['lightgrey'], linestyles='dashed', linewidth=1)
-    #    ax.set_ylim(y_lim)
-    #    ax.spines['right'].set_visible(False)
-    #    ax.spines['top'].set_visible(False)
-    #    ax.legend(numpoints=1)
-    #    plt.ylabel('Pi')
-    #    plt.xlabel("Genome coordinate")
-    #    out_f = '%s.pi_genome_scan.png' % self.prefix
-    #    plt.tight_layout()
-    #    fig.savefig(out_f, format="png")
-    #    print("[>] Created: %r" % str(out_f))
-    #    plt.close(fig)
-    #
-    #def plot_fst_genome_scan(self, window_df):
-    #    offset_by_sequence_id = {}
-    #    offset = 0
-    #    x_boundaries = []
-    #    for sequence_id, sequence_length in zip(self.data.attrs['sequence_ids'], self.data.attrs['sequence_length']):
-    #        offset_by_sequence_id[sequence_id] = offset
-    #        x_boundaries.append(offset)
-    #        offset += sequence_length
-    #    x_boundaries.append(offset)
-    #    fig = plt.figure(figsize=(18,4), dpi=200, frameon=True)
-    #    #connecting dots
-    #    ax = fig.add_subplot(111)  
-    #    y_lim = (0.0, 1.0)
-    #    window_df['rel_pos'] = window_df['midpoint_median'] + window_df['sequence_id'].map(offset_by_sequence_id)
-    #    window_df.sort_values(['rel_pos'], inplace=True)
-    #    ax.plot(window_df['rel_pos'], window_df['f_st'], color='lightgrey', alpha=0.8, linestyle='-', linewidth=1)
-    #    scatter = ax.scatter(window_df['rel_pos'], window_df['f_st'], c=window_df['d_xy'], alpha=1.0, cmap='PiYG_r', edgecolors='white', marker='o', s=40, linewidth=0.2)
-    #    cbar = fig.colorbar(scatter, ax=ax)
-    #    cbar.ax.set_title('D_xy')
-    #    ax.vlines(x_boundaries, 0.0, 1.0, colors=['lightgrey'], linestyles='dashed', linewidth=1)
-    #    ax.set_ylim(y_lim)
-    #    ax.spines['right'].set_visible(False)
-    #    ax.spines['top'].set_visible(False)
-    #    plt.ylabel('F_st')
-    #    plt.xlabel("Genome coordinate")
-    #    ax.autoscale_view(tight=None, scalex=True, scaley=True)
-    #    out_f = '%s.fst_genome_scan.png' % self.prefix
-    #    fig.savefig(out_f, format="png")
-    #    plt.close(fig)
-    #    print("[>] Created: %r" % str(out_f))
-
     def _make_windows(self, parameterObj, sample_sets='X'):
         meta_seqs = self._get_meta('seqs')
         meta_windows = self._get_meta('windows')
@@ -2555,6 +2550,175 @@ class Store(object):
                 self.data.create_dataset("windows/%s/pos_mean" % seq_name, data=window_pos_mean, overwrite=True)
                 self.data.create_dataset("windows/%s/pos_median" % seq_name, data=window_pos_median, overwrite=True)
                 meta_windows['count'] += window_variation.shape[0]
+
+    def _get_interval_coordinates_for_sample_set(self, seq_name='', sample_set=[]):
+        meta_seqs = self._get_meta('seqs')
+        sample_set_key = np.array([meta_seqs['intervals_idx_by_sample'][sample] for sample in sample_set]) # order should not matter...
+        matrix_key = 'seqs/%s/intervals/matrix' % seq_name
+        start_key = 'seqs/%s/intervals/starts' % seq_name
+        end_key = 'seqs/%s/intervals/ends' % seq_name
+        if matrix_key in self.data:
+            mask = np.all(np.array(self.data[matrix_key])[:,sample_set_key], axis=1)
+            return (np.array(self.data[start_key])[mask], np.array(self.data[end_key])[mask])
+        return (None, None)
+
+    def _get_variants_for_sequence(self, seq_name):
+        pos_key = "seqs/%s/variants/pos" % (seq_name)
+        gt_key = "seqs/%s/variants/matrix" % (seq_name)
+        pos = np.array(self.data[pos_key], dtype=np.int64) if pos_key in self.data else None
+        gt_matrix = allel.GenotypeArray(self.data[gt_key].view(read_only=True)) if gt_key in self.data else None
+        return (pos, gt_matrix)
+
+
+    def _make_blocks(self, block_length, block_span, block_max_missing, block_max_multiallelic):
+        meta_seqs = self._get_meta('seqs')
+        blocks_raw_by_sample_set_idx = collections.Counter()   # all possible blocks
+        blocks_by_sample_set_idx = collections.Counter()       # all valid blocks => only these get saved to store
+        with tqdm(total=(len(meta_seqs['seq_names']) * len(meta_seqs['sample_sets'])), desc="[%] Building blocks ", ncols=100, unit_scale=True) as pbar:        
+            for seq_name in meta_seqs['seq_names']:
+                pos, gt_matrix = self._get_variants_for_sequence(seq_name)
+                for sample_set_idx, sample_set in enumerate(meta_seqs['sample_sets']):
+                    # get BED starts/ends from store
+                    intervals = self._get_interval_coordinates_for_sample_set(seq_name=seq_name, sample_set=sample_set)
+                    # turn BED starts/ends into sites-array
+                    sites = intervals_to_sites(intervals)
+                    # turn sites-array into 2D np.array with block sites (or None)
+                    blocks = sites_to_blocks(sites, block_length, block_span)  
+                    if blocks is not None:
+                        # subset gts of sample_set from gt_matrix
+                        gts = subset_gt_matrix(meta_seqs, sample_set, np.isin(pos, blocks, assume_unique=True), gt_matrix)
+                        # get block arrays
+                        starts, ends, multiallelic, missing, monomorphic, variation = blocks_to_arrays(blocks, gts, pos)
+                        # save block arrays
+                        blocks_raw, blocks_valid = self._save_blocks(seq_name, sample_set_idx, starts, ends, multiallelic, missing, monomorphic, variation, block_max_missing, block_max_multiallelic)
+                        # record counts
+                        blocks_raw_by_sample_set_idx[sample_set_idx] += blocks_raw
+                        blocks_by_sample_set_idx[sample_set_idx] += blocks_valid
+                    pbar.update(1)
+        # save blocks meta
+        self._save_blocks_meta(block_length, block_span, block_max_missing, block_max_multiallelic, blocks_raw_by_sample_set_idx, blocks_by_sample_set_idx)
+
+    def _save_blocks(self, seq_name, sample_set_idx, starts, ends, multiallelic, missing, monomorphic, variation, block_max_missing, block_max_multiallelic):
+        valid = (np.less_equal(missing, block_max_missing) & np.less_equal(multiallelic, block_max_multiallelic)).flatten()
+        blocks_starts_key = 'blocks/%s/%s/starts' % (seq_name, sample_set_idx)
+        self.data.create_dataset(blocks_starts_key, data=starts[valid], overwrite=True)
+        blocks_ends_key = 'blocks/%s/%s/ends' % (seq_name, sample_set_idx)
+        self.data.create_dataset(blocks_ends_key, data=ends[valid], overwrite=True)
+        blocks_variation_key = 'blocks/%s/%s/variation' % (seq_name, sample_set_idx)
+        self.data.create_dataset(blocks_variation_key, data=variation[valid], overwrite=True)
+        blocks_missing_key = 'blocks/%s/%s/missing' % (seq_name, sample_set_idx)
+        self.data.create_dataset(blocks_missing_key, data=missing[valid], overwrite=True)
+        blocks_multiallelic_key = 'blocks/%s/%s/multiallelic' % (seq_name, sample_set_idx)
+        self.data.create_dataset(blocks_multiallelic_key, data=multiallelic[valid], overwrite=True)
+        return (valid.shape[0], valid[valid==True].shape[0])
+
+    def _save_blocks_meta(self, block_length, block_span, block_max_missing, block_max_multiallelic, blocks_raw_by_sample_set_idx, blocks_by_sample_set_idx):
+        meta_blocks = self._get_meta('blocks')
+        meta_blocks['length'] = block_length
+        meta_blocks['span'] = block_span
+        meta_blocks['max_missing'] = block_max_missing
+        meta_blocks['max_multiallelic'] = block_max_multiallelic
+        meta_blocks['count_by_sample_set_idx'] = dict(blocks_by_sample_set_idx) # keys are strings
+        meta_blocks['count_raw_by_sample_set_idx'] = dict(blocks_raw_by_sample_set_idx) # keys are strings
+        meta_blocks['count'] = sum([count for count in blocks_by_sample_set_idx.values()])
+
+    # old
+    #def _make_blocks(self, parameterObj, debug=False):
+    #    meta_seqs = self._get_meta('seqs')
+    #    meta_blocks = self._get_meta('blocks')
+    #    meta_blocks['length'] = parameterObj.block_length
+    #    meta_blocks['span'] = parameterObj.block_span
+    #    meta_blocks['gap_run'] = parameterObj.block_gap_run
+    #    meta_blocks['max_missing'] = parameterObj.block_max_missing
+    #    meta_blocks['max_multiallelic'] = parameterObj.block_max_multiallelic
+    #    blocks_raw_by_sample_set_idx = collections.Counter()   # all possible blocks
+    #    blocks_by_sample_set_idx = collections.Counter()       # all valid blocks => only these get saved to store
+    #    with tqdm(total=(len(meta_seqs['seq_names']) * len(meta_seqs['sample_sets'])), desc="[%] Building blocks ", ncols=100, unit_scale=True) as pbar:        
+    #        for seq_name in meta_seqs['seq_names']:
+    #            pos_key = "seqs/%s/variants/pos" % (seq_name)
+    #            gt_key = "seqs/%s/variants/matrix" % (seq_name)
+    #            pos = np.array(self.data[pos_key], dtype=np.int64) if pos_key in self.data else None
+    #            sa_genotype_array = allel.GenotypeArray(self.data[gt_key].view(read_only=True)) if gt_key in self.data else None
+    #            for sample_set_idx, sample_set in enumerate(meta_seqs['sample_sets']):
+    #                start_end = self._get_interval_coordinates_for_sample_set(seq_name=seq_name, sample_set=sample_set)
+    #                if not start_end is None:
+    #                    # Cut sample-set specific blocks based on intervals and block-algoritm parameters
+    #                    starts, ends = start_end
+    #                    #print("\n")
+    #                    #print(sample_set)
+    #                    #print(starts)
+    #                    #print(ends)
+    #                    block_sites = cut_blocks(starts, ends, meta_blocks['length'], meta_blocks['span'], meta_blocks['gap_run'])
+    #                    if not block_sites is None and np.any(block_sites):
+    #                        # Allocate starts/ends before overwriting position ints
+    #                        block_starts = np.array(block_sites[:, 0], dtype=np.int64)
+    #                        block_ends = np.array(block_sites[:, -1] + 1, dtype=np.int64)
+    #                        # variants take longer than blocking
+    #                        if np.any(pos) or pos is not None:
+    #                            ##print('pos', pos.shape, pos)
+    #                            idx_pos_in_block_sites = np.isin(pos, block_sites, assume_unique=True)
+    #                            #print('idx_pos_in_block_sites', idx_pos_in_block_sites)
+    #                            if np.any(idx_pos_in_block_sites):
+    #                                sample_set_vcf_idxs = [meta_seqs['variants_idx_by_sample'][sample] for sample in sample_set]
+    #                                idx_block_sites_in_pos = np.isin(block_sites, pos, assume_unique=True) 
+    #                                sa_sample_set_genotype_array = sa_genotype_array.subset(idx_pos_in_block_sites, sample_set_vcf_idxs)
+    #                                block_sites = genotype_to_mutype_array(sa_sample_set_genotype_array, idx_block_sites_in_pos, block_sites, debug)
+    #                            else:
+    #                                block_sites[:] = 2 # if no variants, set all to invariant    
+    #                        else:
+    #                            block_sites[:] = 2 # if no variants, set all to invariant
+    #                        multiallelic, missing, monomorphic, variation = block_sites_to_variation_arrays(block_sites)
+    #                        valid = (np.less_equal(missing, meta_blocks['max_missing']) & np.less_equal(multiallelic, meta_blocks['max_multiallelic'])).flatten()
+    #                        blocks_raw_by_sample_set_idx[sample_set_idx] += valid.shape[0]
+    #                        blocks_by_sample_set_idx[sample_set_idx] += valid[valid==True].shape[0]
+    #                        blocks_starts_key = 'blocks/%s/%s/starts' % (seq_name, sample_set_idx)
+    #                        self.data.create_dataset(blocks_starts_key, data=block_starts[valid], overwrite=True)
+    #                        blocks_ends_key = 'blocks/%s/%s/ends' % (seq_name, sample_set_idx)
+    #                        self.data.create_dataset(blocks_ends_key, data=block_ends[valid], overwrite=True)
+    #                        blocks_variation_key = 'blocks/%s/%s/variation' % (seq_name, sample_set_idx)
+    #                        self.data.create_dataset(blocks_variation_key, data=variation[valid], overwrite=True)
+    #                        blocks_missing_key = 'blocks/%s/%s/missing' % (seq_name, sample_set_idx)
+    #                        self.data.create_dataset(blocks_missing_key, data=missing[valid], overwrite=True)
+    #                        blocks_multiallelic_key = 'blocks/%s/%s/multiallelic' % (seq_name, sample_set_idx)
+    #                        self.data.create_dataset(blocks_multiallelic_key, data=multiallelic[valid], overwrite=True)
+    #                pbar.update(1)
+    #    meta_blocks['count_by_sample_set_idx'] = dict(blocks_by_sample_set_idx) # keys are strings
+    #    meta_blocks['count_raw_by_sample_set_idx'] = dict(blocks_raw_by_sample_set_idx) # keys are strings
+    #    meta_blocks['count'] = sum([count for count in blocks_by_sample_set_idx.values()])
+    
+#### old code below
+
+    # def _make_windows(self, parameterObj, sample_sets='X'):
+    #     meta_seqs = self._get_meta('seqs')
+    #     meta_windows = self._get_meta('windows')
+    #     meta_windows['size'] = parameterObj.window_size
+    #     meta_windows['step'] = parameterObj.window_step
+    #     meta_windows['count'] = 0
+    #     sample_set_idxs = self._get_sample_set_idxs(query=sample_sets)
+    #     with tqdm(meta_seqs['seq_names'], total=(len(meta_seqs['seq_names']) * len(sample_set_idxs)), desc="[%] Constructing windows ", ncols=100, unit_scale=True) as pbar: 
+    #         for seq_name in meta_seqs['seq_names']:
+    #             variation, starts, ends = [], [], []
+    #             for sample_set_idx in sample_set_idxs:
+    #                 variation_key = 'blocks/%s/%s/variation' % (seq_name, sample_set_idx)
+    #                 if variation_key in self.data:
+    #                     variation.append(np.array(self.data[variation_key]))
+    #                     start_key = 'blocks/%s/%s/starts' % (seq_name, sample_set_idx)
+    #                     starts.append(np.array(self.data[start_key]))
+    #                     end_key = 'blocks/%s/%s/ends' % (seq_name, sample_set_idx)
+    #                     ends.append(np.array(self.data[end_key]))
+    #                 pbar.update()
+    #             variation_array = np.concatenate(variation, axis=0)
+    #             start_array = np.concatenate(starts, axis=0)
+    #             end_array = np.concatenate(ends, axis=0)
+    #             # window_variation : shape = (windows, blocklength, 4)
+    #             window_variation, window_starts, window_ends, window_pos_mean, window_pos_median = cut_windows(variation_array, sample_set_idxs, start_array, end_array, num_blocks=parameterObj.window_size, num_steps=parameterObj.window_step)
+    #             #b, counts = np.unique(variation, return_counts=True, axis=0)
+    #             self.data.create_dataset("windows/%s/variation" % seq_name, data=window_variation, overwrite=True)
+    #             self.data.create_dataset("windows/%s/starts" % seq_name, data=window_starts, overwrite=True)
+    #             self.data.create_dataset("windows/%s/ends" % seq_name, data=window_ends, overwrite=True)
+    #             self.data.create_dataset("windows/%s/pos_mean" % seq_name, data=window_pos_mean, overwrite=True)
+    #             self.data.create_dataset("windows/%s/pos_median" % seq_name, data=window_pos_median, overwrite=True)
+    #             meta_windows['count'] += window_variation.shape[0]
 
         #window_info_rows = []
         #window_mutuple_tally = []
@@ -2588,75 +2752,7 @@ class Store(object):
         #self.plot_pi_genome_scan(window_info_df)
         ##     plot_pi_scatter(window_df, '%s.pi_scatter.png' % parameterObj.dataset)
 
-    def _get_interval_coordinates_for_sample_set(self, seq_name='', sample_set=[]):
-        meta_seqs = self._get_meta('seqs')
-        sample_set_key = np.array([meta_seqs['intervals_idx_by_sample'][sample] for sample in sample_set]) # order should not matter...
-        matrix_key = 'seqs/%s/intervals/matrix' % seq_name
-        start_key = 'seqs/%s/intervals/starts' % seq_name
-        end_key = 'seqs/%s/intervals/ends' % seq_name
-        if matrix_key in self.data:
-            mask = np.all(np.array(self.data[matrix_key])[:,sample_set_key], axis=1)
-            return (np.array(self.data[start_key])[mask], np.array(self.data[end_key])[mask])
-        return None
 
-    def _make_blocks(self, parameterObj, debug=False):
-        meta_seqs = self._get_meta('seqs')
-        meta_blocks = self._get_meta('blocks')
-        meta_blocks['length'] = parameterObj.block_length
-        meta_blocks['span'] = parameterObj.block_span
-        meta_blocks['gap_run'] = parameterObj.block_gap_run
-        meta_blocks['max_missing'] = parameterObj.block_max_missing
-        meta_blocks['max_multiallelic'] = parameterObj.block_max_multiallelic
-        blocks_raw_by_sample_set_idx = collections.Counter()   # all possible blocks
-        blocks_by_sample_set_idx = collections.Counter()       # all valid blocks => only these get saved to store
-        with tqdm(total=(len(meta_seqs['seq_names']) * len(meta_seqs['sample_sets'])), desc="[%] Building blocks ", ncols=100, unit_scale=True) as pbar:        
-            for seq_name in meta_seqs['seq_names']:
-                pos_key = "seqs/%s/variants/pos" % (seq_name)
-                gt_key = "seqs/%s/variants/matrix" % (seq_name)
-                pos = np.array(self.data[pos_key], dtype=np.int64) if pos_key in self.data else None
-                sa_genotype_array = allel.GenotypeArray(self.data[gt_key].view(read_only=True)) if gt_key in self.data else None
-                for sample_set_idx, sample_set in enumerate(meta_seqs['sample_sets']):
-                    start_end = self._get_interval_coordinates_for_sample_set(seq_name=seq_name, sample_set=sample_set)
-                    if not start_end is None:
-                        # Cut sample-set specific blocks based on intervals and block-algoritm parameters
-                        starts, ends = start_end
-                        block_sites = cut_blocks(starts, ends, meta_blocks['length'], meta_blocks['span'], meta_blocks['gap_run'])
-                        if not block_sites is None and np.any(block_sites):
-                            # Allocate starts/ends before overwriting position ints
-                            block_starts = np.array(block_sites[:, 0], dtype=np.int64)
-                            block_ends = np.array(block_sites[:, -1] + 1, dtype=np.int64)
-                            # variants take longer than blocking
-                            if np.any(pos) or pos is not None:
-                                ##print('pos', pos.shape, pos)
-                                idx_pos_in_block_sites = np.isin(pos, block_sites, assume_unique=True)
-                                #print('idx_pos_in_block_sites', idx_pos_in_block_sites)
-                                if np.any(idx_pos_in_block_sites):
-                                    sample_set_vcf_idxs = [meta_seqs['variants_idx_by_sample'][sample] for sample in sample_set]
-                                    idx_block_sites_in_pos = np.isin(block_sites, pos, assume_unique=True) 
-                                    sa_sample_set_genotype_array = sa_genotype_array.subset(idx_pos_in_block_sites, sample_set_vcf_idxs)
-                                    block_sites = genotype_to_mutype_array(sa_sample_set_genotype_array, idx_block_sites_in_pos, block_sites, debug)
-                                else:
-                                    block_sites[:] = 2 # if no variants, set all to invariant    
-                            else:
-                                block_sites[:] = 2 # if no variants, set all to invariant
-                            multiallelic, missing, monomorphic, variation = block_sites_to_variation_arrays(block_sites)
-                            valid = (np.less_equal(missing, meta_blocks['max_missing']) & np.less_equal(multiallelic, meta_blocks['max_multiallelic'])).flatten()
-                            blocks_raw_by_sample_set_idx[sample_set_idx] += valid.shape[0]
-                            blocks_by_sample_set_idx[sample_set_idx] += valid[valid==True].shape[0]
-                            blocks_starts_key = 'blocks/%s/%s/starts' % (seq_name, sample_set_idx)
-                            self.data.create_dataset(blocks_starts_key, data=block_starts[valid], overwrite=True)
-                            blocks_ends_key = 'blocks/%s/%s/ends' % (seq_name, sample_set_idx)
-                            self.data.create_dataset(blocks_ends_key, data=block_ends[valid], overwrite=True)
-                            blocks_variation_key = 'blocks/%s/%s/variation' % (seq_name, sample_set_idx)
-                            self.data.create_dataset(blocks_variation_key, data=variation[valid], overwrite=True)
-                            blocks_missing_key = 'blocks/%s/%s/missing' % (seq_name, sample_set_idx)
-                            self.data.create_dataset(blocks_missing_key, data=missing[valid], overwrite=True)
-                            blocks_multiallelic_key = 'blocks/%s/%s/multiallelic' % (seq_name, sample_set_idx)
-                            self.data.create_dataset(blocks_multiallelic_key, data=multiallelic[valid], overwrite=True)
-                    pbar.update(1)
-        meta_blocks['count_by_sample_set_idx'] = dict(blocks_by_sample_set_idx) # keys are strings
-        meta_blocks['count_raw_by_sample_set_idx'] = dict(blocks_raw_by_sample_set_idx) # keys are strings
-        meta_blocks['count'] = sum([count for count in blocks_by_sample_set_idx.values()])
     #def _make_blocks_threaded(self, parameterObj, debug=False, threads=2):
     #    '''there might be some speed improvement here ... has to be finished...'''
     #    meta = self.data['seqs'].attrs
@@ -3035,3 +3131,120 @@ class Store(object):
     #        self.parameter_combinations = self._return_boundaries()
     #    else:
     #        sys.exit("[X] gimble.py_processing_config: Not implemented yet.")
+
+# def calculate_popgen_from_array(mutype_array, sites):
+#     # print('# Mutypes: 0=MULTI, 1=MISS, 2=MONO, 3=HetB, 4=HetA, 5=HetAB, 6=Fixed')
+#     pi_1 = float("%.8f" % np.divide(np.sum(mutype_array[:, 1]) + np.sum(mutype_array[:, 2]), sites)) # average heterozygosity
+#     pi_2 = float("%.8f" % np.divide(np.sum(mutype_array[:, 0]) + np.sum(mutype_array[:, 2]), sites)) # average heterozygosity
+#     d_xy = float("%.8f" % np.divide(np.divide(np.sum(mutype_array[:, 0]) + np.sum(mutype_array[:, 1]) + np.sum(mutype_array[:, 2]), 2.0) + np.sum(mutype_array[:, 3]), sites))
+#     mean_pi = (pi_1 + pi_2) / 2.0
+#     total_pi = (d_xy + mean_pi) / 2.0 # special case of pairwise Fst
+#     f_st = np.nan
+#     if (total_pi):
+#         f_st = float("%.8f" % ((total_pi - mean_pi) / total_pi)) # special case of pairwise Fst
+#     fgv = len(mutype_array[(mutype_array[:, 2] > 0) & (mutype_array[:, 3] > 0)])
+#     return (pi_1, pi_2, d_xy, f_st, fgv)
+
+    #def dump_windows(self, parameterObj):
+    #    window_info_rows = []
+    #    window_mutuple_tally = []
+    #    for sequence_id in tqdm(self.data.attrs['sequence_ids'], total=len(self.data.attrs['sequence_ids']), desc="[%] Generating output ", ncols=100):
+    #        variations = self.data["%s/windows/variation" % sequence_id]
+    #        #print(self.data["%s/windows/starts" % sequence_id][:])
+    #        #print(self.data["%s/windows/pos_mean" % sequence_id][:])
+    #        #print(self.data["%s/windows/pos_median" % sequence_id][:])
+    #        window_ids = np.array(["_".join([sequence_id, _start, _end]) for (_start, _end) in zip(
+    #            np.array(self.data["%s/windows/starts" % sequence_id]).astype(str), 
+    #            np.array(self.data["%s/windows/ends" % sequence_id]).astype(str))])
+    #        #window_ids = self.data["%s/windows/window_id" % sequence_id]
+    #        midpoint_means = self.data["%s/windows/pos_mean" % sequence_id]
+    #        midpoint_medians = self.data["%s/windows/pos_median" % sequence_id]
+    #        for window_id, variation, midpoint_mean, midpoint_median in zip(window_ids, variations, midpoint_means, midpoint_medians):
+    #            pi_1, pi_2, d_xy, f_st, fgv = calculate_popgen_from_array(variation, (self.data.attrs['block_length'] * variation.shape[0]))
+    #            window_info_rows.append([window_id, sequence_id, midpoint_mean, midpoint_median, pi_1, pi_2, d_xy, f_st, fgv/variation.shape[0]])
+    #            # mutuple barchart
+    #            mutypes, counts = np.unique(variation, return_counts=True, axis=0)
+    #            tally = np.concatenate([counts[:, np.newaxis], mutypes], axis =-1)
+    #            windows = np.array([window_id] * tally.shape[0])
+    #            window_mutuple_tally.append(np.concatenate([windows[:, np.newaxis], tally], axis =-1))
+    #    window_bsfs_cols = ['window_id', 'count'] + [x+1 for x in range(self.data.attrs['mutypes_count'])]
+    #    window_bsfs_df = pd.DataFrame(np.vstack(window_mutuple_tally), columns=window_bsfs_cols)
+    #    print("[+] Made %s windows" % window_bsfs_df['window_id'].nunique()) 
+    #    window_bsfs_f = "%s.window_bsfs.tsv" % self.prefix
+    #    window_bsfs_df.to_csv(window_bsfs_f, sep='\t', index=False)
+    #    print("[>] Created: %r" % str(window_bsfs_f))
+    #
+    #    window_info_cols = ['window_id', 'sequence_id', 'midpoint_mean', 'midpoint_median', 'pi_%s' % self.data.attrs['pop_ids'][0], 'pi_%s' % self.data.attrs['pop_ids'][1], 'd_xy', 'f_st', 'fgv']
+    #    window_info_df = pd.DataFrame(window_info_rows, columns=window_info_cols)
+    #    window_info_f = "%s.window_info.tsv" % self.prefix
+    #    window_info_df.to_csv(window_info_f, sep='\t', index=False)
+    #    print("[>] Created: %r" % str(window_info_f))        
+    #    self.plot_fst_genome_scan(window_info_df)
+    #    self.plot_pi_genome_scan(window_info_df)
+    #    #     plot_pi_scatter(window_df, '%s.pi_scatter.png' % parameterObj.dataset)
+    
+    #def plot_pi_genome_scan(self, window_df):
+    #    offset_by_sequence_id = {}
+    #    offset = 0
+    #    x_boundaries = []
+    #    for sequence_id, sequence_length in zip(self.data.attrs['sequence_ids'], self.data.attrs['sequence_length']):
+    #        offset_by_sequence_id[sequence_id] = offset
+    #        x_boundaries.append(offset)
+    #        offset += sequence_length
+    #    x_boundaries.append(offset)
+    #    #print([(sequenceObj.id, sequenceObj.length) for sequenceObj in sequenceObjs])
+    #    #print(x_boundaries)
+    #    fig = plt.figure(figsize=(18,4), dpi=200, frameon=True)
+    #    #connecting dots
+    #    ax = fig.add_subplot(111)  
+    #    window_df['rel_pos'] = window_df['midpoint_median'] + window_df['sequence_id'].map(offset_by_sequence_id)
+    #    window_df.sort_values(['rel_pos'], inplace=True)
+    #    #print(window_df)
+    #    pi_A_key = list(window_df.columns)[4]
+    #    pi_B_key = list(window_df.columns)[5]
+    #    ax.plot(window_df['rel_pos'], window_df[pi_A_key], color='orange', alpha=0.8, linestyle='-', linewidth=1, label=pi_A_key.replace('pi_', ''))
+    #    ax.plot(window_df['rel_pos'], window_df[pi_B_key], color='dodgerblue', alpha=0.8, linestyle='-', linewidth=1, label=pi_B_key.replace('pi_', ''))
+    #    y_lim = (min(window_df[pi_A_key].min(), window_df[pi_B_key].min()), max(window_df[pi_A_key].max(), window_df[pi_B_key].max()))
+    #    ax.vlines(x_boundaries, y_lim[0], y_lim[1], colors=['lightgrey'], linestyles='dashed', linewidth=1)
+    #    ax.set_ylim(y_lim)
+    #    ax.spines['right'].set_visible(False)
+    #    ax.spines['top'].set_visible(False)
+    #    ax.legend(numpoints=1)
+    #    plt.ylabel('Pi')
+    #    plt.xlabel("Genome coordinate")
+    #    out_f = '%s.pi_genome_scan.png' % self.prefix
+    #    plt.tight_layout()
+    #    fig.savefig(out_f, format="png")
+    #    print("[>] Created: %r" % str(out_f))
+    #    plt.close(fig)
+    #
+    #def plot_fst_genome_scan(self, window_df):
+    #    offset_by_sequence_id = {}
+    #    offset = 0
+    #    x_boundaries = []
+    #    for sequence_id, sequence_length in zip(self.data.attrs['sequence_ids'], self.data.attrs['sequence_length']):
+    #        offset_by_sequence_id[sequence_id] = offset
+    #        x_boundaries.append(offset)
+    #        offset += sequence_length
+    #    x_boundaries.append(offset)
+    #    fig = plt.figure(figsize=(18,4), dpi=200, frameon=True)
+    #    #connecting dots
+    #    ax = fig.add_subplot(111)  
+    #    y_lim = (0.0, 1.0)
+    #    window_df['rel_pos'] = window_df['midpoint_median'] + window_df['sequence_id'].map(offset_by_sequence_id)
+    #    window_df.sort_values(['rel_pos'], inplace=True)
+    #    ax.plot(window_df['rel_pos'], window_df['f_st'], color='lightgrey', alpha=0.8, linestyle='-', linewidth=1)
+    #    scatter = ax.scatter(window_df['rel_pos'], window_df['f_st'], c=window_df['d_xy'], alpha=1.0, cmap='PiYG_r', edgecolors='white', marker='o', s=40, linewidth=0.2)
+    #    cbar = fig.colorbar(scatter, ax=ax)
+    #    cbar.ax.set_title('D_xy')
+    #    ax.vlines(x_boundaries, 0.0, 1.0, colors=['lightgrey'], linestyles='dashed', linewidth=1)
+    #    ax.set_ylim(y_lim)
+    #    ax.spines['right'].set_visible(False)
+    #    ax.spines['top'].set_visible(False)
+    #    plt.ylabel('F_st')
+    #    plt.xlabel("Genome coordinate")
+    #    ax.autoscale_view(tight=None, scalex=True, scaley=True)
+    #    out_f = '%s.fst_genome_scan.png' % self.prefix
+    #    fig.savefig(out_f, format="png")
+    #    plt.close(fig)
+    #    print("[>] Created: %r" % str(out_f))
