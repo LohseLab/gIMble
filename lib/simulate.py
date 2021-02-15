@@ -248,10 +248,11 @@ def run_ind_sim(
 		#result[idx] = lib.gimble.genotype_to_mutype_array(
 		#    subset_genotype_array, block_sites_variant_bool, block_sites, debug=False
 		#)
-		block_sites = lib.gimble.genotype_to_mutype_array(
-			subset_genotype_array, block_sites_variant_bool, block_sites, debug=False
-		)
-		multiallelic, missing, monomorphic, variation = lib.gimble.block_sites_to_variation_arrays(block_sites)
+		# block_sites = lib.gimble.genotype_to_mutype_array(
+		# 	subset_genotype_array, block_sites_variant_bool, block_sites, debug=False
+		# )
+		# multiallelic, missing, monomorphic, variation = lib.gimble.block_sites_to_variation_arrays(block_sites)
+		starts, ends, multiallelic, missing, monomorphic, variation = lib.gimble.blocks_to_arrays(block_sites, subset_genotype_array, new_positions)
 		result[idx] = variation
 	#flatten
 	result = result.reshape(-1, result.shape[-1])

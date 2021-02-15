@@ -29,7 +29,6 @@ class BlockParameterObj(lib.gimble.ParameterObj):
         self.block_max_multiallelic = self._get_max_values(args['--max_multiallelic'])
         self.block_max_missing = self._get_max_values(args['--max_missing'])
         self.overwrite = True if args['--force'] else False
-        print(self.block_length, self.block_span, self.block_gap_run)
 
     def _get_max_values(self, max_value):
         if max_value is None:
