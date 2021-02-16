@@ -2,7 +2,7 @@
 Usage: gimble <module> [<args>...] [-D -V -h]
 
   [Modules]
-    setup                 Setup data store
+    parse                 Parse variation data into DataStore
     info                  Print information about DataStore
     blocks                Generate blocks from data in DataStore 
     windows               Generate windows from blocks in DataStore (requires blocks)
@@ -49,9 +49,9 @@ def main(gimble_dir):
             'debug': True if '--debug' in args['<args>'] or '-D' in args['<args>'] else False,
             'version': version
         }
-        if args['<module>'] == 'setup':
-            import cli.setup as setup
-            setup.main(params)
+        if args['<module>'] == 'parse':
+            import cli.parse as parse
+            parse.main(params)
         elif args['<module>'] == 'preprocess':
             import cli.preprocess as preprocess
             preprocess.main(params)

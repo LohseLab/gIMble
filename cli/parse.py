@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gimble setup          [-v <FILE> -b <FILE> -g <FILE> -s <FILE> -o <STR> -f -D -h]
+"""usage: gimble parse          [-v <FILE> -b <FILE> -g <FILE> -s <FILE> -o <STR> -f -D -h]
 
     [Input]
         -g, --genome_f <FILE>        Gimble genome file (TSV) of sequence IDs/lengths for filtering BED file.
@@ -23,12 +23,7 @@ from timeit import default_timer as timer
 from docopt import docopt
 import lib.gimble 
 
-'''
-[To Do]
-- rename to: 'init', 'load', ... ?
-'''
-
-class SetupParameterObj(lib.gimble.ParameterObj):
+class ParseParameterObj(lib.gimble.ParameterObj):
     '''Sanitises command line arguments and stores parameters.'''
 
     def __init__(self, params, args):
@@ -58,9 +53,9 @@ def main(params):
         start_time = timer()
         print("[+] Running 'gimble setup'")
         args = docopt(__doc__)
-        parameterObj = SetupParameterObj(params, args)
+        parameterObj = ParseParameterObj(params, args)
         gimbleStore = lib.gimble.Store(prefix=parameterObj.outprefix, create=True, overwrite=parameterObj.overwrite)
-        gimbleStore.setup_seq(parameterObj)
+        gimbleStore.parse(parameterObj)
         gimbleStore.info()
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:

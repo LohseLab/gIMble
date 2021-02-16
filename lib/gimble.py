@@ -713,154 +713,6 @@ def grid_meta_dict_to_value_arrays_by_parameter(grid_meta_dict):
         values_by_parameter[key] = np.array(values)
     return values_by_parameter
 
-#functions for gridsearch/sim_grid
-def get_slice_grid_meta_idxs(grid_meta_dict=None, lncls=None, fixed_parameter=None, parameter_value=None):
-    '''
-    fixed_parameter=None, parameter_value=None  => 1 idx (overall max likelihood gridkey)
-    fixed_parameter=str, parameter_value=None   => list of n 1d-arrays of idxs with shape (windows,) (n=unique values of parameter)
-    fixed_parameter=str, parameter_value=float  => 1d-array of idxs with shape (windows,) 
-    '''
-    if fixed_parameter: 
-        if isinstance(grid_meta_dict, list):
-            values_by_parameter = LOD_to_DOL(grid_meta_dict)
-            #values_by_parameter = grid_meta_dict_to_value_arrays_by_parameter(grid_meta_dict)
-        else:
-            values_by_parameter = {k:np.array(v, dtype=np.float64) for k,v in grid_meta_dict.items()}
-        if not fixed_parameter in values_by_parameter:
-            raise ValueError("%r is not part of this model" % fixed_parameter)
-        fixed_parameter_values = np.array(values_by_parameter[fixed_parameter])
-        if parameter_value:
-            fixed_parameter_indices = np.concatenate(np.argwhere(parameter_value==fixed_parameter_values))
-            #if not np.any(fixed_parameter_indices): #will evaluate to True for np.array([0])
-            if fixed_parameter_indices.size==0:
-                raise ValueError("parameter_value %r not found in grid" % parameter_value)
-            fixed_parameter_lncls = lncls[:, fixed_parameter_indices]
-            fixed_parameter_lncls_max_idx = np.argmax(fixed_parameter_lncls, axis=1)        
-            fixed_parameter_lncls_max_idx = fixed_parameter_indices[fixed_parameter_lncls_max_idx] #translate back to larger grid_meta_dict idxs
-            return fixed_parameter_lncls_max_idx
-        results = []
-        for i in np.unique(fixed_parameter_values): #these values are sorted
-            fixed_parameter_indices = np.concatenate(np.argwhere(i==fixed_parameter_values))
-            fixed_parameter_lncls = lncls[:, fixed_parameter_indices]
-            fixed_parameter_lncls_max_idx = np.argmax(fixed_parameter_lncls, axis=1)
-            idxs = fixed_parameter_indices[fixed_parameter_lncls_max_idx]
-            results.append(idxs)
-        return results
-    return np.argmax(lncls, axis=1)
-
-def _get_sim_grid(grid_meta_dict, lncls_global, lncls_windows, fixed_param_grid, rec, window_coordinates=None):
-    #lncls global should be based on w_bsfs !
-    global_winning_fixed_param_idx = np.argmax(lncls_global)
-    #get optimal parametercombo given background for fixed parameter
-    if fixed_param_grid:
-        global_winning_fixed_param_value = grid_meta_dict[fixed_param_grid][global_winning_fixed_param_idx]
-        local_winning_fixed_param_idx = get_slice_grid_meta_idxs(
-            lncls=lncls_windows, grid_meta_dict=grid_meta_dict, 
-            fixed_parameter=fixed_param_grid, 
-            parameter_value=global_winning_fixed_param_value
-            )
-    else:
-        global_winning_fixed_param_value = None
-        local_winning_fixed_param_idx = get_slice_grid_meta_idxs(lncls=lncls_windows)
-    
-    if isinstance(rec, pd.DataFrame):
-        assert(rec.shape[0]==len(local_winning_fixed_param_idx)), "Index recmap and windows not matching. Should have been caught."
-        grid_to_sim, window_df = _get_sim_grid_with_rec_map(rec, local_winning_fixed_param_idx, grid_meta_dict)
-    else:
-        grid_to_sim, window_df = _get_sim_grid_fixed_rec(rec, local_winning_fixed_param_idx, grid_meta_dict, window_coordinates)
-    return (grid_to_sim, window_df)
-        
-def _get_sim_grid_output_df(parameterObj, grid_to_sim, window_df):
-    param_df = pd.DataFrame(grid_to_sim)
-    param_df.drop(labels=['mu'], inplace=True, axis=1, errors='ignore')
-    param_df.to_csv(f'simulated_grid_{parameterObj.label}.tsv', sep='\t')
-    print(f"[+] Wrote simulated_grid_{parameterObj.label}.tsv containing all simulated parameter combinations.")
-    window_df.to_csv(f'windows_sims_param_idx_{parameterObj.label}.tsv', sep='\t')
-    print(f"[+] Wrote windows_sims_param_idx_{parameterObj.label}.tsv containing all windowwise info.")
-
-def _get_sim_grid_with_rec_map(rec_map, local_winning_fixed_param_idx, grid_meta_dict):
-    rec_map['param_idx']=local_winning_fixed_param_idx
-    param_for_window = rec_map[['rec_bins','param_idx']].to_dict(orient='split')['data']
-    param_for_window = [tuple(window) for window in param_for_window]
-    unique, param_combo_idxs = np.unique(param_for_window, return_inverse=True, axis=0)
-    rec_map['param_with_rec_idx'] = param_combo_idxs
-    grid_to_sim = []
-    for r, idx in unique:
-        #param_dict = copy.deepcopy(grid_meta_dict[str(int(idx))])
-        param_dict = {k:v for k,v in zip(grid_meta_dict.keys(),list(zip(*grid_meta_dict.values()))[int(idx)])}
-        param_dict['recombination'] = r
-        grid_to_sim.append(param_dict)
-    window_df = rec_map[['sequence', 'start', 'end', 'param_with_rec_idx']]
-    return (grid_to_sim, window_df)
-
-def _get_sim_grid_fixed_rec(rec_rate, local_winning_fixed_param_idx, grid_meta_dict, window_coordinates):
-    param_combo_idxs = np.unique(local_winning_fixed_param_idx)
-    #rec_rate = parameterObj.config["parameters"]["recombination"][0]
-    grid_to_sim=[]
-    old_to_new_idx = {} #dict to translate old idx to new in grid_to_sim
-    for new_idx, old_idx in enumerate(param_combo_idxs):
-        old_to_new_idx[old_idx] = new_idx
-        #param_dict = copy.deepcopy(grid_meta_dict[str(int(old_idx))])
-        param_dict = {k:v for k,v in zip(grid_meta_dict.keys(),list(zip(*grid_meta_dict.values()))[int(old_idx)])}
-        param_dict['recombination'] = rec_rate
-        grid_to_sim.append(param_dict)
-    #window_df = self._get_window_coordinates()
-    window_df = window_coordinates.copy()
-    window_df['param_idx'] = [old_to_new_idx[idx] for idx in local_winning_fixed_param_idx]
-    return (grid_to_sim, window_df)
-
-def _gridsearch_sims_single(data, grids, fixed_param_grid, gridded_params, grid_meta_dict, label, name, fixed_param_grid_value_idx, output_df=True):
-    """
-    data=sim_bsfs, grids=lncls for each grid point, fixed_param_grid=fixed parameter, gridded_params=dict of parameters that are gridded,
-    grid_meta_dict = , fixed_param_grid_value_idx=index of background value of fixed param
-    determines optimal parameter combination (for each of theparameters that determine an axis along the grid)
-    and returns list df containing those parameter combinations
-    if a fixed_param_grid is passed: particular parameter along grid that is fixed to the global optimual value
-        returns distribution of lncls for each value of that fixed parameter
-    """
-    assert np.product(data.shape[1:])==np.product(grids.shape[1:]), "Dimensions of sim bSFS and grid bSFS do not correspond. k_max does not correspond but not caught."
-    data = np.reshape(data, (data.shape[0],-1)) #data shape: replicates * bSFS
-    grids = np.reshape(grids, (grids.shape[0],-1)) #grids shape: num_grid_points * bSFS
-    grids_log = np.zeros(grids.shape, dtype=np.float64)
-    grids = np.log(grids, where=grids>0, out=grids_log)
-    lncls = np.inner(data, grids_log) #result shape: replicates*num_grid_points
-    param_idxs = np.argmax(lncls, axis=1) #returns optimal index for each replicate
-
-    results_dict = {}
-    for key in gridded_params:
-        results_dict[key] = grid_meta_dict[key][param_idxs]
-    df = pd.DataFrame(results_dict)
-    if output_df:
-        summary=df.describe(percentiles=[0.025, 0.05, 0.95, 0.975])
-        summary.to_csv(f'{label}_{name}_summary.csv')
-    df_fixed_param = None
-
-    if fixed_param_grid:
-        assert fixed_param_grid in gridded_params, "fixed param for bootstrap not in gridded_params list! Report this issue."
-        columns = [] #shape = num_values_fixed_param * replicates
-        #values are not sorted!
-        for fixed_param_value_idxs in get_slice_grid_meta_idxs(grid_meta_dict=grid_meta_dict, lncls=lncls, fixed_parameter=fixed_param_grid):
-            best_likelihoods = lncls[np.arange(lncls.shape[0]), fixed_param_value_idxs]
-            columns.append(best_likelihoods)
-        #results in column are sorted from smallest to largest param value
-        columns= np.array(columns).T
-        df_fixed_param = pd.DataFrame(columns, columns=[f"{fixed_param_grid}_{str(i)}" if i!=fixed_param_grid_value_idx else f'{fixed_param_grid}_background' for i in range(columns.shape[1])])
-        if output_df:
-            df_fixed_param.to_csv(f'{label}_{name}_lnCL_dist.csv')
-    return (df, df_fixed_param)
-
-def gridsearch_np(bsfs=None, grids=None):
-    '''returns 2d array of likelihoods of shape (windows, grids)'''
-    if grids is None or bsfs is None:
-        raise ValueError('gridsearch: needs grid and data')
-    grids_log = np.zeros(grids.shape)
-    np.log(grids, where=grids>0, out=grids_log)
-    if bsfs.ndim == 4:
-        return np.squeeze(np.apply_over_axes(np.sum, (bsfs * grids_log), axes=[-4,-3,-2,-1]))
-    return np.squeeze(np.apply_over_axes(np.sum, (bsfs[:, None] * grids_log), axes=[-4,-3,-2,-1]))
-
-#new section of functions
-
 class CustomNormalizer(cerberus.Validator):
     def __init__(self, *args, **kwargs):
         super(CustomNormalizer, self).__init__(*args, **kwargs)
@@ -1226,20 +1078,20 @@ class Store(object):
         self._set_bsfs(parameterObj)
         # inference can be done on ETP-counts
 
-    def setup_seq(self, parameterObj):
+    def parse(self, parameterObj):
         print("[#] Preparing store...")
         self._init_meta(overwrite=True)
         print("[#] Processing GENOME_FILE %r..." % parameterObj.genome_f)
         self._set_sequences(parameterObj)
         print("[#] Processing SAMPLE_FILE %r..." % parameterObj.sample_f)
         self._set_samples(parameterObj)
-        print("[#] Processing VCF_FILE %r..." % parameterObj.vcf_f)
-        self._set_variants(parameterObj)
         print("[#] Processing BED_FILE %r..." % parameterObj.bed_f)
         self._set_intervals(parameterObj)
+        print("[#] Processing VCF_FILE %r..." % parameterObj.vcf_f)
+        self._set_variants(parameterObj)
         self.log_stage(parameterObj)
 
-    def blocks(self, parameterObj, flag='old'):
+    def blocks(self, parameterObj):
         print("[#] Preflight...")
         self._preflight_blocks(parameterObj)
         print("[#] Making blocks...")
@@ -1270,7 +1122,7 @@ class Store(object):
             parameterObj.label = f"run_{run_count}"
         self.data.require_group(f'sims/{parameterObj.label}')
         if parameterObj.sim_grid:
-            sim_configs = self._get_sim_grid_parameterObj(parameterObj)
+            sim_configs = self._get_sim_grid(parameterObj)
         else:
             sim_configs = lib.gimble.DOL_to_LOD(parameterObj.parameter_combinations)
         lib.simulate.simulate_parameterObj(sim_configs, parameterObj, self)
@@ -1326,7 +1178,7 @@ class Store(object):
             bed_dfs = []
             out_f = '%s.%s.gridsearch.lnCls.%s_fixed.tsv' % (self.prefix, parameterObj.data_type, parameter)
             fixed = np.full_like(lncls_windows.shape[0], parameter, dtype='<U%s' % MAX_PARAM_LENGTH)
-            for grid_meta_idxs in get_slice_grid_meta_idxs(grid_meta_dict=grid_meta_dict, lncls=lncls_windows, fixed_parameter=parameter, parameter_value=None):
+            for grid_meta_idxs in self.get_slice_grid_meta_idxs(grid_meta_dict=grid_meta_dict, lncls=lncls_windows, fixed_parameter=parameter, parameter_value=None):
                 best_likelihoods = lncls_windows[np.arange(lncls_windows.shape[0]), grid_meta_idxs]
                 best_params = np.array(list(zip(*grid_meta_dict.values())))[grid_meta_idxs]    
                 #line above replaces code until best_params = 
@@ -1415,7 +1267,6 @@ class Store(object):
 
     def get_slice_grid_meta_idxs(self, grid_meta_dict=None, lncls=None, fixed_parameter=None, parameter_value=None):
         '''
-        ---> turned into function, should be redundant
         fixed_parameter=None, parameter_value=None  => 1 idx (overall max likelihood gridkey)
         fixed_parameter=str, parameter_value=None   => list of n 1d-arrays of idxs with shape (windows,) (n=unique values of parameter)
         fixed_parameter=str, parameter_value=float  => 1d-array of idxs with shape (windows,) 
@@ -1467,11 +1318,11 @@ class Store(object):
                 population_by_letter=parameterObj.config['population_by_letter'], 
                 sample_sets='X', 
                 kmax_by_mutype=parameterObj.config['k_max'])
-            lncls_windows = gridsearch_np(bsfs=bsfs_windows_clipped, grids=grids)
+            lncls_windows = self.gridsearch_np(bsfs=bsfs_windows_clipped, grids=grids)
             self._set_lncls(unique_hash, lncls_windows, lncls_type='windows', overwrite=parameterObj.overwrite)
             # gridsearch [global]
             bsfs_windows_clipped_summed = sum_wbsfs(bsfs_windows_clipped)
-            lncls_global = gridsearch_np(bsfs=bsfs_windows_clipped_summed, grids=grids)
+            lncls_global = self.gridsearch_np(bsfs=bsfs_windows_clipped_summed, grids=grids)
             self._set_lncls(unique_hash, lncls_global, lncls_type='global', overwrite=parameterObj.overwrite)
             best_idx = np.argmax(lncls_global, axis=0)
             print('[+] Best grid point (based on bSFS within windows): %s' % lncls_global[best_idx])
@@ -1490,7 +1341,7 @@ class Store(object):
                 population_by_letter=parameterObj.config['population_by_letter'], 
                 sample_sets='X', 
                 kmax_by_mutype=parameterObj.config['k_max'])
-            lncls_blocks = gridsearch_np(bsfs=bsfs_clipped, grids=grids)
+            lncls_blocks = self.gridsearch_np(bsfs=bsfs_clipped, grids=grids)
             self._set_lncls(unique_hash, lncls_blocks, lncls_type='blocks', overwrite=parameterObj.overwrite)
             best_idx = np.argmax(lncls_blocks, axis=0)
             best_value = [v[best_idx] for v in grid_meta_dict.values()]
@@ -1531,7 +1382,7 @@ class Store(object):
             ) #iterator over each parameter combination that was sim'ed
         num_param_combos = self.data[f'sims/{parameterObj.label}'].__len__()
         for name, data in tqdm(param_combo_iterator, desc='Processing all parameter combinations', total=num_param_combos,  ncols=100):
-            df, df_fixed_param = _gridsearch_sims_single(data, grids, fixed_param_grid, gridded_params, grid_meta_dict, parameterObj.label, name, fixed_param_grid_value_idx)
+            df, df_fixed_param = self._gridsearch_sims_single(data, grids, fixed_param_grid, gridded_params, grid_meta_dict, parameterObj.label, name, fixed_param_grid_value_idx)
         
         print(f"[+] Output written to {os.getcwd()}")    
         if fixed_param_grid:
@@ -1539,16 +1390,7 @@ class Store(object):
             print('\t'.join(f'{fixed_param_grid}_{i}' if i !=fixed_param_grid_value_idx else f'{fixed_param_grid}_background' for i in range(len(unique_values_fixed_param))))
             print('\t'.join("{:.3e}".format(value) for value in unique_values_fixed_param))
 
-    def _gridsearch_sims_single(self, data, grids, fixed_param_grid, gridded_params, grid_meta_dict, label, name, fixed_param_grid_value_idx, output_df=True):
-        """
-        -> transfered as function, should be redundant
-        data=sim_bsfs, grids=lncls for each grid point, fixed_param_grid=fixed parameter, gridded_params=dict of parameters that are gridded,
-        grid_meta_dict = , fixed_param_grid_value_idx=index of background value of fixed param
-        determines optimal parameter combination (for each of theparameters that determine an axis along the grid)
-        and returns list df containing those parameter combinations
-        if a fixed_param_grid is passed: particular parameter along grid that is fixed to the global optimual value
-            returns distribution of lncls for each value of that fixed parameter
-        """
+    def _gridsearch_sims_single(self, data, grids, fixed_param_grid, gridded_params, grid_meta_dict, label, name, fixed_param_grid_value_idx):
         assert np.product(data.shape[1:])==np.product(grids.shape[1:]), "Dimensions of sim bSFS and grid bSFS do not correspond. k_max does not correspond but not caught."
         data = np.reshape(data, (data.shape[0],-1)) #data shape: replicates * bSFS
         grids = np.reshape(grids, (grids.shape[0],-1)) #grids shape: num_grid_points * bSFS
@@ -1561,23 +1403,21 @@ class Store(object):
         for key in gridded_params:
             results_dict[key] = grid_meta_dict[key][param_idxs]
         df = pd.DataFrame(results_dict)
-        if output_df:
-            summary=df.describe(percentiles=[0.025, 0.05, 0.95, 0.975])
-            summary.to_csv(f'{label}_{name}_summary.csv')
+        summary=df.describe(percentiles=[0.025, 0.05, 0.95, 0.975])
+        summary.to_csv(f'{label}_{name}_summary.csv')
         df_fixed_param = None
 
         if fixed_param_grid:
             assert fixed_param_grid in gridded_params, "fixed param for bootstrap not in gridded_params list! Report this issue."
             columns = [] #shape = num_values_fixed_param * replicates
             #values are not sorted!
-            for fixed_param_value_idxs in get_slice_grid_meta_idxs(grid_meta_dict=grid_meta_dict, lncls=lncls, fixed_parameter=fixed_param_grid):
+            for fixed_param_value_idxs in self.get_slice_grid_meta_idxs(grid_meta_dict=grid_meta_dict, lncls=lncls, fixed_parameter=fixed_param_grid):
                 best_likelihoods = lncls[np.arange(lncls.shape[0]), fixed_param_value_idxs]
                 columns.append(best_likelihoods)
             #results in column are sorted from smallest to largest param value
             columns= np.array(columns).T
             df_fixed_param = pd.DataFrame(columns, columns=[f"{fixed_param_grid}_{str(i)}" if i!=fixed_param_grid_value_idx else f'{fixed_param_grid}_background' for i in range(columns.shape[1])])
-            if output_df:
-                df_fixed_param.to_csv(f'{label}_{name}_lnCL_dist.csv')
+            df_fixed_param.to_csv(f'{label}_{name}_lnCL_dist.csv')
         return (df, df_fixed_param)
 
     def _set_lncls(self, unique_hash, lncls, lncls_type='global', overwrite=False):
@@ -1625,7 +1465,6 @@ class Store(object):
         #resample blocks and determine for each parameter ftol_abs
         self._set_stopping_criteria(data, parameterObj, label)
         # load math.EquationSystemObj
-        precision = parameterObj.config['gimble']['precision'] if parameterObj.config['gimble']['precision']>165 else 165
         equationSystem = lib.math.EquationSystemObj(
             parameterObj.model_file, 
             parameterObj.config['populations']['reference_pop'],
@@ -1634,8 +1473,7 @@ class Store(object):
             parameterObj.config['mu']['mu'],
             seed=parameterObj.config['gimble']['random_seed'],
             module="optimize",
-            threads=parameterObj.threads,
-            precision=precision
+            threads=parameterObj.threads
             )
         # initiate model equations
         equationSystem.initiate_model(sync_ref=parameterObj.reference, sync_targets=parameterObj.toBeSynced)
@@ -1752,7 +1590,6 @@ class Store(object):
             sys.exit("[X] Grid for this config file already exists.")
         number_grid_points = len(parameterObj.parameter_combinations[next(iter(parameterObj.parameter_combinations))])
         print("[+] Generated %s grid points combinations." % number_grid_points)
-        precision = parameterObj.config['gimble']['precision'] if parameterObj.config['gimble']['precision']>165 else 165
         equationSystem = lib.math.EquationSystemObj(
             parameterObj.model_file, 
             parameterObj.config['populations']['reference_pop'],
@@ -1761,8 +1598,7 @@ class Store(object):
             parameterObj.config['mu']['mu'],
             seed=parameterObj.config['gimble']['random_seed'],
             module="makegrid",
-            threads=parameterObj.threads,
-            precision=precision
+            threads=parameterObj.threads
             )
         #build the equations
         equationSystem.initiate_model(sync_ref=parameterObj.reference, sync_targets=parameterObj.toBeSynced)
@@ -1791,73 +1627,56 @@ class Store(object):
         else:
             sys.exit("[X] No grid for this INI.")
 
-    def _get_sim_grid_parameterObj(self, parameterObj):
+    def _get_sim_grid(self, parameterObj):
         unique_hash = parameterObj._get_unique_hash(module='makegrid')
         grid_meta_dict = self.data[f'grids/{unique_hash}'].attrs.asdict()
         if not self._has_lncls(unique_hash):
             sys.exit("[X] Run gridsearch -w module first to calculate lnCLs.")
         lncls_global, lncls_windows = self._get_lncls(unique_hash)
-        if isinstance(parameterObj.recombination_map, pd.DataFrame):
-            rec=parameterObj.recombination_map
-            window_coordinates=None
-        else:   
-            rec=parameterObj.config["parameters"]["recombination"][0]
-            window_coordinates = self._get_window_coordinates()
-        (grid_to_sim, window_df) = _get_sim_grid(grid_meta_dict, lncls_global, lncls_windows, parameterObj.fixed_param_grid, rec, window_coordinates)
-        _get_sim_grid_output_df(parameterObj, grid_to_sim, window_df)
-        return grid_to_sim
-    """
-    def _get_sim_grid(self, grid_meta_dict, lncls_global, lncls_windows, fixed_param_grid, rec):
-        '''
-        now a function -> redundant
-        '''
         #lncls global should be based on w_bsfs !
         global_winning_fixed_param_idx = np.argmax(lncls_global)
-        #get optimal parametercombo given background for fixed parameter
-        if fixed_param_grid:
-            global_winning_fixed_param_value = grid_meta_dict[fixed_param_grid][global_winning_fixed_param_idx]
-            local_winning_fixed_param_idx = get_slice_grid_meta_idxs(
-                lncls=lncls_windows, grid_meta_dict=grid_meta_dict, 
-                fixed_parameter=fixed_param_grid, 
-                parameter_value=global_winning_fixed_param_value
-                )
+        if parameterObj.fixed_param_grid:
+            global_winning_fixed_param_value = grid_meta_dict[parameterObj.fixed_param_grid][global_winning_fixed_param_idx]
+            #global_winning_fixed_param_value = grid_meta_dict[str(global_winning_fixed_param_idx)][parameterObj.fixed_param_grid]
         else:
             global_winning_fixed_param_value = None
-            local_winning_fixed_param_idx = get_slice_grid_meta_idxs(lncls=lncls_windows)
-        
-        if isinstance(rec, pd.DataFrame):
-            assert(rec.shape[0]==len(local_winning_fixed_param_idx)), "Index recmap and windows not matching. Should have been caught."
-            grid_to_sim, window_df = self._get_sim_grid_with_rec_map(rec, local_winning_fixed_param_idx, grid_meta_dict)
+        #get optimal parametercombo given background for fixed parameter
+        if parameterObj.fixed_param_grid:
+            local_winning_fixed_param_idx = self.get_slice_grid_meta_idxs(lncls=lncls_windows, grid_meta_dict=grid_meta_dict, fixed_parameter=parameterObj.fixed_param_grid, parameter_value=global_winning_fixed_param_value)
         else:
-            grid_to_sim, window_df = self._get_sim_grid_fixed_rec(rec, local_winning_fixed_param_idx, grid_meta_dict)
-        return grid_to_sim
-        
-    def _get_sim_grid_output_df(self, parameterObj, grid_to_sim)
+            local_winning_fixed_param_idx = self.get_slice_grid_meta_idxs(lncls=lncls_windows)
+        if isinstance(parameterObj.recombination_map, pd.DataFrame):
+            assert(parameterObj.recombination_map.shape[0]==len(local_winning_fixed_param_idx)), "Index recmap and windows not matching. Should have been caught."
+            grid_to_sim, window_df = self._get_sim_grid_with_rec_map(parameterObj, local_winning_fixed_param_idx, grid_meta_dict)
+        else:
+            grid_to_sim, window_df = self._get_sim_grid_fixed_rec(parameterObj, local_winning_fixed_param_idx, grid_meta_dict)
+
         param_df = pd.DataFrame(grid_to_sim)
         param_df.drop(labels=['mu'], inplace=True, axis=1, errors='ignore')
         param_df.to_csv(f'simulated_grid_{parameterObj.label}.tsv', sep='\t')
         print(f"[+] Wrote simulated_grid_{parameterObj.label}.tsv containing all simulated parameter combinations.")
         window_df.to_csv(f'windows_sims_param_idx_{parameterObj.label}.tsv', sep='\t')
         print(f"[+] Wrote windows_sims_param_idx_{parameterObj.label}.tsv containing all windowwise info.")
+        return grid_to_sim
 
-    def _get_sim_grid_with_rec_map(self, rec_map, local_winning_fixed_param_idx, grid_meta_dict):
-        rec_map['param_idx']=local_winning_fixed_param_idx
-        param_for_window = rec_map[['rec_bins','param_idx']].to_dict(orient='split')['data']
+    def _get_sim_grid_with_rec_map(self, parameterObj, local_winning_fixed_param_idx, grid_meta_dict):
+        parameterObj.recombination_map['param_idx']=local_winning_fixed_param_idx
+        param_for_window = parameterObj.recombination_map[['rec_bins','param_idx']].to_dict(orient='split')['data']
         param_for_window = [tuple(window) for window in param_for_window]
         unique, param_combo_idxs = np.unique(param_for_window, return_inverse=True, axis=0)
-        rec_map['param_with_rec_idx'] = param_combo_idxs
+        parameterObj.recombination_map['param_with_rec_idx'] = param_combo_idxs
         grid_to_sim = []
         for r, idx in unique:
             #param_dict = copy.deepcopy(grid_meta_dict[str(int(idx))])
             param_dict = {k:v for k,v in zip(grid_meta_dict.keys(),list(zip(*grid_meta_dict.values()))[int(idx)])}
             param_dict['recombination'] = r
             grid_to_sim.append(param_dict)
-        window_df = rec_map[['sequence', 'start', 'end', 'param_with_rec_idx']]
+        window_df = parameterObj.recombination_map[['sequence', 'start', 'end', 'param_with_rec_idx']]
         return (grid_to_sim, window_df)
 
-    def _get_sim_grid_fixed_rec(self, rec_rate, local_winning_fixed_param_idx, grid_meta_dict):
+    def _get_sim_grid_fixed_rec(self, parameterObj, local_winning_fixed_param_idx, grid_meta_dict):
         param_combo_idxs = np.unique(local_winning_fixed_param_idx)
-        #rec_rate = parameterObj.config["parameters"]["recombination"][0]
+        rec_rate = parameterObj.config["parameters"]["recombination"][0]
         grid_to_sim=[]
         old_to_new_idx = {} #dict to translate old idx to new in grid_to_sim
         for new_idx, old_idx in enumerate(param_combo_idxs):
@@ -1869,11 +1688,8 @@ class Store(object):
         window_df = self._get_window_coordinates()
         window_df['param_idx'] = [old_to_new_idx[idx] for idx in local_winning_fixed_param_idx]
         return (grid_to_sim, window_df) 
-    """
+
     def _get_window_coordinates(self):
-        """
-        
-        """
         meta_seqs = self._get_meta('seqs')
         meta_windows = self._get_meta('windows')
         MAX_SEQNAME_LENGTH = max([len(seq_name) for seq_name in meta_seqs['seq_names']])
@@ -2102,9 +1918,7 @@ class Store(object):
                 sys.exit(f"[X] Specify label. Should be one of {', '.join(self.data['sims'].group_keys())}")
 
     def gridsearch_np(self, bsfs=None, grids=None):
-        '''returns 2d array of likelihoods of shape (windows, grids)
-    old function->redundant
-        '''
+        '''returns 2d array of likelihoods of shape (windows, grids)'''
         if grids is None or bsfs is None:
             raise ValueError('gridsearch: needs grid and data')
         grids_log = np.zeros(grids.shape)
@@ -2422,7 +2236,7 @@ class Store(object):
 
     def _set_variants(self, parameterObj):
         meta = self._get_meta('seqs')
-        sequences = meta['seq_names']
+        seq_names = meta['seq_names']
         samples = meta['samples']
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -2436,31 +2250,39 @@ class Store(object):
                     ))
             # Set up counts arrays
             count_shape = (len(meta['seq_names']), len(query_samples))
+            count_raw_records = np.zeros(count_shape[0], dtype=np.int64)
             count_records = np.zeros(count_shape[0], dtype=np.int64)
             count_called = np.zeros(count_shape, dtype=np.int64)
             count_hom_ref = np.zeros(count_shape, dtype=np.int64)
             count_hom_alt = np.zeros(count_shape, dtype=np.int64)
             count_het = np.zeros(count_shape, dtype=np.int64)
             count_missing = np.zeros(count_shape, dtype=np.int64)
-            for idx, sequence in tqdm(enumerate(sequences), total=len(sequences), desc="[%] Reading variants...", ncols=100):
-                vcf_data = allel.read_vcf(parameterObj.vcf_f, region=sequence, samples=query_samples, fields=[gt_key, pos_key])
+            for idx, seq_name in tqdm(enumerate(seq_names), total=len(seq_names), desc="[%] Reading variants...", ncols=100):
+                vcf_data = allel.read_vcf(parameterObj.vcf_f, region=seq_name, samples=query_samples, fields=[gt_key, pos_key])
                 if vcf_data:
                     # genotypes
-                    gt_matrix = vcf_data[gt_key]
+                    gt_matrix_raw = vcf_data[gt_key]
+                    count_raw_records[idx] = gt_matrix_raw.shape[0]
                     # counts
-                    sa_genotype_matrix = allel.GenotypeArray(gt_matrix)
-                    count_records[idx] = gt_matrix.shape[0]
-                    count_called[idx,:] = sa_genotype_matrix.count_called(axis=0)
-                    count_hom_ref[idx,:] = sa_genotype_matrix.count_hom_ref(axis=0)
-                    count_hom_alt[idx,:] = sa_genotype_matrix.count_hom_alt(axis=0)
-                    count_het[idx,:] = sa_genotype_matrix.count_het(axis=0)
-                    count_missing[idx,:] = sa_genotype_matrix.count_missing(axis=0)
-                    # positions
-                    pos_array = check_unique_pos(vcf_data[pos_key] - 1) # port to BED (0-based) coordinates
-                    self.data.create_dataset("seqs/%s/variants/pos" % sequence, data=pos_array, dtype=np.int64)
-                    self.data.create_dataset("seqs/%s/variants/matrix" % sequence, data=gt_matrix, dtype=np.int64)
+                    intervals = self._get_interval_coordinates_for_sample_set(seq_name=seq_name)
+                    sites = intervals_to_sites(intervals)
+                    if sites is not None:
+                        # positions in VCF
+                        pos_array = check_unique_pos(vcf_data[pos_key] - 1) # port to BED (0-based) coordinates
+                        # intersection of VCF and BED intervals
+                        interval_mask = np.isin(pos_array, sites, assume_unique=True)
+                        gt_matrix = gt_matrix_raw[interval_mask]
+                        sa_genotype_matrix = allel.GenotypeArray(gt_matrix)
+                        count_called[idx,:] = sa_genotype_matrix.count_called(axis=0)
+                        count_hom_ref[idx,:] = sa_genotype_matrix.count_hom_ref(axis=0)
+                        count_hom_alt[idx,:] = sa_genotype_matrix.count_hom_alt(axis=0)
+                        count_het[idx,:] = sa_genotype_matrix.count_het(axis=0)
+                        count_missing[idx,:] = sa_genotype_matrix.count_missing(axis=0)
+                        self.data.create_dataset("seqs/%s/variants/pos" % seq_name, data=pos_array, dtype=np.int64)
+                        self.data.create_dataset("seqs/%s/variants/matrix" % seq_name, data=gt_matrix, dtype=np.int64)        
             meta['variants_idx_by_sample'] = {query_sample: idx for idx, query_sample in enumerate(query_samples)}
         meta['vcf_f'] = parameterObj.vcf_f
+        meta['variants_counts_raw'] = int(np.sum(count_records)) # ZARR JSON encoder does not like numpy dtypes
         meta['variants_counts'] = int(np.sum(count_records)) # ZARR JSON encoder does not like numpy dtypes
         meta['variants_counts_called'] = [int(x) for x in np.sum(count_called, axis=0)] # ZARR JSON encoder does not like numpy dtypes
         meta['variants_counts_hom_ref'] = [int(x) for x in np.sum(count_hom_ref, axis=0)] # ZARR JSON encoder does not like numpy dtypes
@@ -2737,15 +2559,25 @@ class Store(object):
                 self.data.create_dataset("windows/%s/pos_median" % seq_name, data=window_pos_median, overwrite=True)
                 meta_windows['count'] += window_variation.shape[0]
 
-    def _get_interval_coordinates_for_sample_set(self, seq_name='', sample_set=[]):
-        meta_seqs = self._get_meta('seqs')
-        sample_set_key = np.array([meta_seqs['intervals_idx_by_sample'][sample] for sample in sample_set]) # order should not matter...
+    def _get_interval_coordinates_for_sample_set(self, seq_name=None, sample_set=None):
+        if seq_name is None:
+            raise ValueError('_get_interval_coordinates_for_sample_set: needs seq_name')
         matrix_key = 'seqs/%s/intervals/matrix' % seq_name
-        start_key = 'seqs/%s/intervals/starts' % seq_name
-        end_key = 'seqs/%s/intervals/ends' % seq_name
         if matrix_key in self.data:
-            mask = np.all(np.array(self.data[matrix_key])[:,sample_set_key], axis=1)
-            return (np.array(self.data[start_key])[mask], np.array(self.data[end_key])[mask])
+            start_key = 'seqs/%s/intervals/starts' % seq_name
+            end_key = 'seqs/%s/intervals/ends' % seq_name
+            if sample_set is None:
+                return (np.array(self.data[start_key]), np.array(self.data[end_key])) 
+            meta_seqs = self._get_meta('seqs')
+            try:
+                sample_set_key = np.array([meta_seqs['intervals_idx_by_sample'][sample] for sample in sample_set])
+            except KeyError:
+                sys.exit('_get_interval_coordinates_for_sample_set: sample_set %s not found in store. Existing samples: %s' % (sample_set, list(meta_seqs['intervals_idx_by_sample'].keys())))
+            if sample_set_key:
+                mask = np.all(np.array(self.data[matrix_key])[:,sample_set_key], axis=1)
+                return (np.array(self.data[start_key])[mask], np.array(self.data[end_key])[mask])
+            else:
+                raise ValueError('_get_interval_coordinates_for_sample_set: sample_set %s not found in store. Existing samples: %s' % (sample_set, list(meta_seqs['intervals_idx_by_sample'].keys())))
         return (None, None)
 
     def _get_variants_for_sequence(self, seq_name):
@@ -2807,6 +2639,18 @@ class Store(object):
         meta_blocks['count_by_sample_set_idx'] = dict(blocks_by_sample_set_idx) # keys are strings
         meta_blocks['count_raw_by_sample_set_idx'] = dict(blocks_raw_by_sample_set_idx) # keys are strings
         meta_blocks['count'] = sum([count for count in blocks_by_sample_set_idx.values()])
+
+
+
+
+#########################################################################################################################
+#########################################################################################################################
+#########################################################################################################################
+#########################################################################################################################
+#########################################################################################################################
+#########################################################################################################################
+#########################################################################################################################
+#########################################################################################################################
 
     # old
     #def _make_blocks(self, parameterObj, debug=False):
