@@ -13,53 +13,6 @@ import tests.aux_functions as af
 # - multiallelic-only
 import sys
 np.set_printoptions(threshold=sys.maxsize)
-genotypes_unfolded = {
-    'gt_1': np.array([
-        [[ 0, 0], [ 0, 0]],
-        [[ 0, 0], [ 0, 1]],
-        [[ 0, 1], [ 0, 0]],
-        [[ 0, 1], [ 0, 1]],
-        [[ 0, 0], [ 1, 1]],
-        [[ 0, 0], [ 2, 2]],
-        [[ 1, 1], [ 2, 2]],
-        [[ 1, 2], [ 1, 2]],
-        [[ 1, 2], [ 2, 2]],
-        [[ 2, 2], [ 1, 2]],
-        [[-1,-1], [ 0, 0]],
-        [[ 0, 1], [ 2, 3]]
-        ]),
-    'gt_biallelic': af.sim_combi_gt_matrix(p=2, s=2, alleles=[0, 1]),
-    'gt_triallelic': af.sim_combi_gt_matrix(p=2, s=2, alleles=[0, 1, 2]),
-    'gt_missing': af.sim_combi_gt_matrix(p=2, s=2, alleles=[-1, 0]),
-    'gt_monomorphic': af.sim_random_gt_matrix(p=2, s=2, n=10, alleles=[0]),
-    'gt_random': af.sim_random_gt_matrix(p=2, s=2, n=100, alleles=[-1,0,1,2]),
-}
-
-genotypes_folded = {
-    'gt_1': np.array([
-        [[ 0, 0], [ 0, 0]],
-        [[ 0, 0], [ 0, 1]],
-        [[ 0, 1], [ 0, 0]],
-        [[ 0, 1], [ 0, 1]],
-        [[ 0, 0], [ 1, 1]],
-        [[ 0, 0], [ 1, 1]],
-        [[ 0, 0], [ 1, 1]],
-        [[ 0, 1], [ 0, 1]],
-        [[ 0, 1], [ 1, 1]],
-        [[ 0, 0], [ 1, 0]],
-        [[-1,-1], [ 0, 0]],
-        [[ 0, 1], [ 2, 3]]
-        ]),
-}
-
-#@pytest.fixture(scope='class')
-#def config(request):
-#    yield request.param
-
-# steps
-# 2D genotype array
-
-#@pytest.mark.parametrize('genotypes', ['gt_example', 'gt_biallelic', 'gt_triallelic', 'gt_missing', 'gt_monomorphic'], indirect=True, scope='class')
 
 @pytest.mark.genotypes
 class Test_genotypes:
@@ -136,6 +89,14 @@ class Test_genotypes:
         assert result_obs.ndim == 2
         assert result_obs.shape[1] == block_length 
         assert result_obs.shape[0] > 120 # more than 120 blocks
+
+    def test_sites_to_blocks_3(self):
+        sites = np.array([0, 1, 5, 6, 7, 8, 11,12,15,16,17])
+        block_length = 1
+        block_span = 1
+        result_exp = np.array([[0], [1], [5], [6], [7], [8], [11],[12],[15],[16],[17]])
+        result_obs = lib.gimble.sites_to_blocks(sites, block_length, block_span, debug=True)
+        assert np.all(np.equal(result_obs, result_exp))
 
     def test_blocks_to_arrays(self):
         '''Generates all possible 256 diploid GT combinations out of the 4 alleles [-1, 0, 1, 2]

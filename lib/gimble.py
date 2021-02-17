@@ -2174,15 +2174,7 @@ class Store(object):
             self.data.require_group(stage, overwrite=overwrite)
             self.data[stage].attrs.put(copy.deepcopy(META_TEMPLATE_BY_STAGE[stage]))
 
-    #def _is_zarr_group(self, name, subgroup=None):
-    #    '''needed?'''
-    #    if not subgroup:
-    #        return name in list(self.data.group_keys())
-    #    else:
-    #        return name in list(self.data[subgroup].group_keys())
-
     def _return_group_last_integer(self, name):
-        '''needed? yes, lib.simulate.py'''
         try:
             all_groups = [int([namestring for namestring in groupnames.split('_')][-1]) for groupnames in list(self.data[name]) if groupnames.startswith('run')]
         except KeyError:
