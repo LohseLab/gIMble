@@ -45,9 +45,6 @@ import warnings
 '''
 
 '''
-[To Do]
-- generalise prefligth-checks for relevant modules
-
 
 [FASTA parsing]
 - https://pypi.org/project/pyfasta/
@@ -420,6 +417,9 @@ def harmonic(n):
     return _harmonic(1,n+1)
 
 def cut_windows(mutype_array, idxs, start_array, end_array, num_blocks=10, num_steps=3):
+    '''
+    expand num_blocks to (num_blocks * sample_sets)
+    '''
     coordinate_sorted_idx = np.argsort(end_array)
     mutype_array_sorted = mutype_array.take(coordinate_sorted_idx, axis=0)
     window_idxs = np.arange(mutype_array_sorted.shape[0] - num_blocks + 1)[::num_steps, None] + np.arange(num_blocks)
@@ -1713,7 +1713,7 @@ class Store(object):
     def _validate_seq_names(self, sequences=None):
         """Returns valid seq_names in sequences or raises ValueError."""
         meta = self._get_meta('seqs')
-        if not sequences:
+        if sequences is None:
             return meta['seq_names']
         if set(sequences).issubset(set(meta['seq_names'])):
             return sequences
@@ -1748,7 +1748,7 @@ class Store(object):
             sample_set_idxs that can be used to access data in gimble store
         """
         meta = self._get_meta('seqs')
-        if not query:
+        if query is None:
             return [str(idx) for idx in range(len(meta['sample_sets']))]
         elif query == 'X':
             return [str(idx) for (idx, is_cartesian) in enumerate(meta['sample_sets_inter']) if is_cartesian]
@@ -1758,6 +1758,53 @@ class Store(object):
             return [str(idx) for (idx, is_intra_B) in enumerate(meta['sample_sets_intra_B']) if is_intra_B]
         else:
             raise ValueError("'query' must be 'X', 'A', 'B', or None")
+
+    # new variation getter
+    def _get_variation(self, data_type=None, sample_sets='X', sequences=None, population_by_letter=None):
+        sequences = self._validate_seq_names(sequences)
+        variations = []
+        for seq_name in tqdm(sequences, total=len(sequences), desc="[%] Querying data ", ncols=100):
+            variation_key = "%s/%s/variation" % (data_type, seq_name)
+            variation = np.array(self.data[variation_key], dtype=np.uint16)
+            variations.append(variation)
+        variation = np.concatenate(variations, axis=0)
+        return variation
+
+        '''
+        General way of polarising arrays 
+        >>> x = np.array([[0,1,2,3],[4,5,6,7],[8,9,10,11]])
+        >>> x[..., [0, 1]] = x[..., [1, 0]]
+        >>> x
+        array([[ 1,  0,  2,  3],
+        [ 5,  4,  6,  7],
+        [ 9,  8, 10, 11]])
+        >>> y = np.array([[[0,1,2,3],[4,5,6,7],[8,9,10,11]],[[0,1,2,3],[4,5,6,7],[8,9,10,11]]])
+        >>> y
+        array([[[ 0,  1,  2,  3],
+                [ 4,  5,  6,  7],
+                [ 8,  9, 10, 11]],
+        
+               [[ 0,  1,  2,  3],
+                [ 4,  5,  6,  7],
+                [ 8,  9, 10, 11]]])
+        >>> y[..., [0, 1]] = y[..., [1, 0]]
+        >>> y
+        array([[[ 1,  0,  2,  3],
+                [ 5,  4,  6,  7],
+                [ 9,  8, 10, 11]],
+        
+               [[ 1,  0,  2,  3],
+                [ 5,  4,  6,  7],
+                [ 9,  8, 10, 11]]])
+        '''
+
+    def _get_block_variation():
+        variation = se_get_variation(self, data_type=None, sample_sets='X', sequences=None, population_by_letter=None)
+        
+
+    def _get_window_variation():
+        pass
+
 
     def _get_window_bsfs(self, sample_sets='X', sequences=None, population_by_letter=None, kmax_by_mutype=None):
         """Return bsfs_array of 5 dimensions (fifth dimension is the window-idx across ALL sequences in sequences).

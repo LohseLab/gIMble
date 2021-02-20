@@ -7,23 +7,11 @@ import tests.aux_functions as af
 # exceptions: checking that function receives correct input
 # assertions: checking that function operates as expected for given input
 
-# testcases
-# - all
-# - monomorphic-only
-# - multiallelic-only
 import sys
 np.set_printoptions(threshold=sys.maxsize)
 
 @pytest.mark.genotypes
 class Test_genotypes:
-        # pos = np.arange(1, 2*gts.shape[0], 2) # positions of GTs in VCF (only for didactic purpose)
-        # sa_genotype_array = allel.GenotypeArray(gts)
-        # print("[+] %s variants in VCF file on the following positions:\n%s" % (gts.shape[0], str(list(pos))))
-        # block_sites = np.arange(25).reshape(5,5)
-        # print("[+] block_sites inferred from BED file: \n%s" % (block_sites))
-        # block_sites_variant_bool = np.isin(block_sites, pos, assume_unique=True)
-        # print("[+] block_sites in VCF file: \n%s" % (block_sites_variant_bool))
-        # return (sa_genotype_array, block_sites_variant_bool, block_sites)
 
     def test_intervals_to_sites(self):
         starts = np.array([0, 5, 8, 11, 15])
