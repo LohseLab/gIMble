@@ -1668,7 +1668,7 @@ class Store(object):
         """
         sequences = self._validate_seq_names(sequences)
         invert_population_flag = self._get_invert_population_flag(population_by_letter)
-        max_k = np.array(list(kmax_by_mutype.values())) + 1 if kmax_by_mutype else None 
+        max_k = np.array(list(kmax_by_mutype.values())) + 1 if kmax_by_mutype else np.array([8,8,8,8]) 
         variations = []
         for seq_name in tqdm(sequences, total=len(sequences), desc="[%] Querying data ", ncols=100):
             variation = np.array(self.data["windows/%s/variation" % seq_name], dtype=np.uint16)
