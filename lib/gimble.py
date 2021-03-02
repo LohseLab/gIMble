@@ -541,99 +541,6 @@ def blocks_to_arrays(blocks, gts, pos):
         variation = np.zeroes((blocks.shape[0], 1))
     return (starts, ends, multiallelic, missing, monomorphic, variation)
 
-########################################
-
-### OLD CODE 
-
-# old
-#def genotype_to_mutype_array(sa_genotype_array, idx_block_sites_in_pos, block_sites, debug=True):
-#    # DEPRECATED
-#    warnings.warn("lib.gimble.genotype_to_mutype_array() is deprecated. Use gt2fmac() ...", DeprecationWarning)
-#    '''
-#    - possible errors:
-#        - if whole sequence has only missing GTs in genotypes for a sample set, then np_allele_count_array will be empty ... (should never happen)
-#    '''
-#    np_genotype_array = np.array(sa_genotype_array)
-#    #print('np_genotype_array', np_genotype_array.shape, np_genotype_array)
-#    np_allele_count_array = np.ma.masked_equal(sa_genotype_array.count_alleles(), 0, copy=True) 
-#    #print('np_allele_count_array', np_allele_count_array.shape, np_allele_count_array)
-#    #print('np.any(np_allele_count_array)', np.any(np_allele_count_array))
-#    allele_map = np.ones((np_allele_count_array.shape), dtype=np.int64) * np.arange(np_allele_count_array.shape[-1], dtype=np.int64)
-#    #print('allele_map', allele_map.shape, allele_map)
-#    #print('np.any(allele_map)', np.any(allele_map))
-#    if np.any(np_allele_count_array) and np.any(allele_map):
-#        idx_max_global_allele_count = np.nanargmax(np_allele_count_array, axis=1)
-#        idx_min_global_allele_count = np.nanargmin(np_allele_count_array, axis=1)
-#        has_major_allele = (idx_max_global_allele_count != idx_min_global_allele_count)
-#        idx_min_prime_allele = np.amin(np_genotype_array[:,0], axis=1)
-#        idx_min_global_allele = np.amin(np.amin(np_genotype_array, axis=1), axis=1)
-#        idx_max_global_allele = np.amax(np.amax(np_genotype_array, axis=1), axis=1)
-#        idx_major_allele = np.where(
-#            has_major_allele, 
-#            idx_max_global_allele_count, 
-#            idx_min_prime_allele)
-#        idx_minor_allele = np.where(
-#            has_major_allele, 
-#            idx_min_global_allele_count, 
-#            np.where((
-#                idx_min_global_allele == idx_min_prime_allele),
-#                np.max((idx_min_global_allele, idx_max_global_allele), axis=0), 
-#                np.min((idx_min_global_allele, idx_max_global_allele), axis=0)))
-#        # for each genotype (np.arange(allele_map.shape[0])), set minor allele to 1 (1st do minor, so that overwritten if monomorphic)
-#        allele_map[np.arange(allele_map.shape[0]), idx_minor_allele] = 1 
-#        # for each genotype (np.arange(allele_map.shape[0])), set major allele to 0
-#        allele_map[np.arange(allele_map.shape[0]), idx_major_allele] = 0
-#    folded_minor_allele_counts = sa_genotype_array.map_alleles(allele_map).to_n_alt(fill=-1)
-#    #print(folded_minor_allele_counts)
-#    folded_minor_allele_counts[np.any(sa_genotype_array.is_missing(), axis=1)] = np.ones(2) * -1        # -1, -1 for missing => -1
-#    folded_minor_allele_counts[(np_allele_count_array.count(axis=1) > 2)] = np.ones(2) * (-1, -2)       # -1, -2 for multiallelic => -2
-#    block_sites[idx_block_sites_in_pos] = szudzik_pairing(folded_minor_allele_counts) + 2               # add 2 so that not negative for bincount
-#    block_sites[~idx_block_sites_in_pos] = 2                                                            # monomorphic = 2 (0 = multiallelic, 1 = missing)
-#    if debug == True:
-#        print("# block_sites as mutype array", block_sites)
-#    if debug == True:
-#        block_sites_pos = block_sites.flatten()
-#        pos_df = pd.DataFrame(block_sites_pos[idx_block_sites_in_pos.flatten()], dtype='int64', columns=['pos'])
-#        genotypes_df = pd.DataFrame(np_genotype_array.reshape(np_genotype_array.shape[0], 4), dtype='i4', columns=['a1', 'a2', 'b1', 'b2'])        
-#        block_sites_df = pos_df.join(genotypes_df)
-#        folded_minor_allele_count_df = pd.DataFrame(folded_minor_allele_counts, dtype='int8', columns=['fmAC_a', 'fmAC_b'])
-#        block_sites_df = block_sites_df.join(folded_minor_allele_count_df)
-#        variants = pd.DataFrame(block_sites[idx_block_sites_in_pos], dtype='int', columns=['SVar'])
-#        block_sites_df = block_sites_df.join(variants)
-#        print('# Mutypes: 0=MULTI, 1=MISS, 2=MONO, 3=HetB, 4=HetA, 5=HetAB, 6=Fixed')
-#        print(block_sites_df)
-#    return block_sites
-
-# old
-#def cut_blocks(interval_starts, interval_ends, block_length, block_span, block_gap_run):
-#    #print("\n")
-#    #print('interval_starts', type(interval_starts), interval_starts.shape, interval_starts)
-#    #print('interval_ends', type(interval_ends), interval_ends.shape, interval_ends)
-#    sites = create_ranges(np.array((interval_starts, interval_ends), dtype=np.int64).T)
-#    if sites is None: 
-#        return None
-#    block_sites = np.concatenate([
-#        x[:block_length * (x.shape[0] // block_length)].reshape(-1, block_length) 
-#            for x in np.split(sites, np.where(np.diff(sites) > block_gap_run)[0] + 1)
-#        ]) 
-#    block_span_valid_mask = (((block_sites[:, -1] - block_sites[:, 0]) + 1) <= block_span)
-#    return block_sites[block_span_valid_mask]
-
-# old
-#def create_ranges(aranges):
-#    # does the transformation form 0-based (BED) to 1-based (VCF) coordinate system 
-#    # https://stackoverflow.com/a/47126435
-#    l = (aranges[:, 1] - aranges[:, 0])
-#    clens = l.cumsum()
-#    if np.any(clens):
-#        ids = np.ones(clens[-1], dtype=np.int64)
-#        ids[0] = aranges[0, 0]
-#        ids[clens[:-1]] = aranges[1:, 0] - aranges[:-1, 1] + 1
-#        return ids.cumsum()
-#    return None
-
-##################################################################
-
 def bsfs_to_2d(bsfs):
     """Converts 4D bsfs to 2D array with counts, mutuples.
        Converts 5D bsfs to 2D array with window_idx, counts, mutuples.
@@ -1759,48 +1666,108 @@ class Store(object):
         else:
             raise ValueError("'query' must be 'X', 'A', 'B', or None")
 
+
+    # def _get_invert_population_flag(self, population_by_letter=None):
+    #     """Returns True if populations need inverting, and False if not or population_by_letter is None. 
+    #     Raises ValueError if population_by_letter of data and config differ"""
+    #     meta = self._get_meta('seqs')
+    #     if population_by_letter:
+    #         if not population_by_letter['A'] in meta['population_by_letter'].values() or not population_by_letter['B'] in meta['population_by_letter'].values():
+    #             sys.exit("[X] Population names in config (%r) and gimble-store (%r) must match" % (str(population_by_letter.values()), str(meta['population_by_letter'].values())))
+    #         if not population_by_letter['A'] == meta['population_by_letter']['A']:
+    #             return True
+    #     return False
+
     # new variation getter
     def _get_variation(self, data_type=None, sample_sets='X', sequences=None, population_by_letter=None):
         sequences = self._validate_seq_names(sequences)
+        if data_type == 'blocks':
+            sample_set_idxs = self._get_sample_set_idxs(query=sample_sets)
+            keys = ['blocks/%s/%s/variation' % (seq_name, sample_set_idx) 
+                for seq_name, sample_set_idx in list(itertools.product(sequences, sample_set_idxs))]
+        elif data_type == 'windows':
+            keys = ['windows/%s/variation' % (seq_name) for seq_name in sequences]
+        else:
+            raise ValueError("Datatype must be 'blocks' or 'windows'.")
         variations = []
-        for seq_name in tqdm(sequences, total=len(sequences), desc="[%] Querying data ", ncols=100):
-            variation_key = "%s/%s/variation" % (data_type, seq_name)
-            variation = np.array(self.data[variation_key], dtype=np.uint16)
-            variations.append(variation)
+        for key in tqdm(keys, total=len(keys), desc="[%] Getting variation ", ncols=100):
+            variations.append(np.array(self.data[key], dtype=np.int64))
         variation = np.concatenate(variations, axis=0)
+        meta = self._get_meta('seqs')
+        assert set(population_by_letter.values()) == set(meta['population_by_letter'].values()), (
+            'population_by_letter %r does not equal populations in ZARR store (%r)' % (population_by_letter, meta['population_by_letter']))
+        polarise_true = (population_by_letter['A'] == meta['population_by_letter']['B']) and (population_by_letter['B'] == meta['population_by_letter']['A'])
+        if polarise_true:
+            variation[..., [0, 1]] = variation[..., [1, 0]]
         return variation
 
-        '''
-        General way of polarising arrays 
-        >>> x = np.array([[0,1,2,3],[4,5,6,7],[8,9,10,11]])
-        >>> x[..., [0, 1]] = x[..., [1, 0]]
-        >>> x
-        array([[ 1,  0,  2,  3],
-        [ 5,  4,  6,  7],
-        [ 9,  8, 10, 11]])
-        >>> y = np.array([[[0,1,2,3],[4,5,6,7],[8,9,10,11]],[[0,1,2,3],[4,5,6,7],[8,9,10,11]]])
-        >>> y
-        array([[[ 0,  1,  2,  3],
-                [ 4,  5,  6,  7],
-                [ 8,  9, 10, 11]],
-        
-               [[ 0,  1,  2,  3],
-                [ 4,  5,  6,  7],
-                [ 8,  9, 10, 11]]])
-        >>> y[..., [0, 1]] = y[..., [1, 0]]
-        >>> y
-        array([[[ 1,  0,  2,  3],
-                [ 5,  4,  6,  7],
-                [ 9,  8, 10, 11]],
-        
-               [[ 1,  0,  2,  3],
-                [ 5,  4,  6,  7],
-                [ 9,  8, 10, 11]]])
-        '''
+    def variation_to_counter(variation):
+        pass
 
-    def _get_block_variation():
-        variation = se_get_variation(self, data_type=None, sample_sets='X', sequences=None, population_by_letter=None)
-        
+    def variation_to_2d(variation):
+        pass
+
+    def variation2bsfs(variation, kmax_by_mutype=None):
+        # blocks 
+        # count mutuples (clipping at k_max, if supplied)
+        mutuples, counts = np.unique(np.clip(variation, 0, max_k), return_counts=True, axis=0)
+        # define out based on max values for each column
+        out = np.zeros(tuple(np.max(mutuples, axis=0) + 1), np.int64)
+        # assign values
+        out[tuple(mutuples.T)] = counts
+        return out
+        b = np.array([[0,0,0,0],
+                      [1,0,0,0],
+                      [1,0,0,0],
+                      [0,1,0,0],
+                      [0,1,0,0],
+                      [0,1,0,0],
+                      [0,0,1,0],
+                      [0,0,1,0],
+                      [0,0,1,0],
+                      [0,0,1,0],
+                      [0,0,0,1],
+                      [0,0,0,1],
+                      [0,0,0,1],
+                      [0,0,0,1],
+                      [0,0,0,1],
+                      [1,1,0,0],
+                      [1,0,1,0],
+                      [1,0,0,1],
+                      [1,1,1,0],
+                      [1,0,1,1],
+                      [1,1,0,1],
+                      [1,1,1,1]])
+
+        array([[[[2, 2],  0000, 
+                 [2, 0]],
+                [[2, 0],
+                 [0, 0]]],
+               [[[2, 1],  1000
+                 [1, 1]],
+                [[1, 1],
+                 [1, 1]]]])
+        w = np.array([[[1,0,0,0],[1,1,2,0],[1,1,0,3],[1,1,1,0],[1,1,0,3]],
+                      [[1,0,0,0],[1,1,2,0],[1,1,0,3],[1,1,1,0],[1,1,0,3]],
+                      [[1,0,0,0],[1,1,2,0],[1,1,0,3],[1,1,1,0],[1,1,0,3]],
+                      [[1,0,0,0],[1,1,2,0],[1,1,0,3],[1,1,1,0],[1,1,0,3]],
+                      [[1,0,0,0],[1,1,2,0],[1,1,0,3],[1,1,1,0],[1,1,0,3]]])
+                      
+        # windows
+        mutuples, counts = np.unique(variation, return_counts=True, axis=0)
+        bsfs = variation.reshape((variation.shape[0] * variation.shape[1], variation.shape[2]))
+        index = np.repeat(np.arange(variation.shape[0]), variation.shape[1]).reshape(variation.shape[0] * variation.shape[1], 1)
+        mutuples, counts = np.unique(
+            np.concatenate([index, np.clip(bsfs, 0, max_k)], axis=-1).reshape(-1, bsfs.shape[-1] + 1),
+            return_counts=True, axis=0)
+        # define out based on max values for each column
+        try:
+            out = np.zeros(tuple(np.max(mutuples, axis=0) + 1), np.uint16) # set to np.uint16 [0..65535]
+        except MemoryError as e:
+            sys.exit('[+] Gimble ran out of memory. %s' % str(e))
+        # assign values
+        out[tuple(mutuples.T)] = counts
+        return out
 
     def _get_window_variation():
         pass
@@ -2567,6 +2534,8 @@ class Store(object):
                 sys.exit("[X] Provided config file does not correspond to an existing grid.")
 
     def _make_windows(self, parameterObj, sample_sets='X'):
+        # 1. needs to be split into making/saving/savingmeta
+        # 2. needs to be refactored to using _get_variation() and _get_interval_coordinates_for_sample_set()
         meta_seqs = self._get_meta('seqs')
         meta_windows = self._get_meta('windows')
         meta_windows['size'] = parameterObj.window_size
@@ -2625,7 +2594,6 @@ class Store(object):
         pos = np.array(self.data[pos_key], dtype=np.int64) if pos_key in self.data else None
         gt_matrix = allel.GenotypeArray(self.data[gt_key].view(read_only=True)) if gt_key in self.data else None
         return (pos, gt_matrix)
-
 
     def _make_blocks(self, block_length, block_span, block_max_missing, block_max_multiallelic):
         meta_seqs = self._get_meta('seqs')
@@ -3317,3 +3285,94 @@ class Store(object):
     #    fig.savefig(out_f, format="png")
     #    plt.close(fig)
     #    print("[>] Created: %r" % str(out_f))
+
+### OLD CODE 
+
+# old
+#def genotype_to_mutype_array(sa_genotype_array, idx_block_sites_in_pos, block_sites, debug=True):
+#    # DEPRECATED
+#    warnings.warn("lib.gimble.genotype_to_mutype_array() is deprecated. Use gt2fmac() ...", DeprecationWarning)
+#    '''
+#    - possible errors:
+#        - if whole sequence has only missing GTs in genotypes for a sample set, then np_allele_count_array will be empty ... (should never happen)
+#    '''
+#    np_genotype_array = np.array(sa_genotype_array)
+#    #print('np_genotype_array', np_genotype_array.shape, np_genotype_array)
+#    np_allele_count_array = np.ma.masked_equal(sa_genotype_array.count_alleles(), 0, copy=True) 
+#    #print('np_allele_count_array', np_allele_count_array.shape, np_allele_count_array)
+#    #print('np.any(np_allele_count_array)', np.any(np_allele_count_array))
+#    allele_map = np.ones((np_allele_count_array.shape), dtype=np.int64) * np.arange(np_allele_count_array.shape[-1], dtype=np.int64)
+#    #print('allele_map', allele_map.shape, allele_map)
+#    #print('np.any(allele_map)', np.any(allele_map))
+#    if np.any(np_allele_count_array) and np.any(allele_map):
+#        idx_max_global_allele_count = np.nanargmax(np_allele_count_array, axis=1)
+#        idx_min_global_allele_count = np.nanargmin(np_allele_count_array, axis=1)
+#        has_major_allele = (idx_max_global_allele_count != idx_min_global_allele_count)
+#        idx_min_prime_allele = np.amin(np_genotype_array[:,0], axis=1)
+#        idx_min_global_allele = np.amin(np.amin(np_genotype_array, axis=1), axis=1)
+#        idx_max_global_allele = np.amax(np.amax(np_genotype_array, axis=1), axis=1)
+#        idx_major_allele = np.where(
+#            has_major_allele, 
+#            idx_max_global_allele_count, 
+#            idx_min_prime_allele)
+#        idx_minor_allele = np.where(
+#            has_major_allele, 
+#            idx_min_global_allele_count, 
+#            np.where((
+#                idx_min_global_allele == idx_min_prime_allele),
+#                np.max((idx_min_global_allele, idx_max_global_allele), axis=0), 
+#                np.min((idx_min_global_allele, idx_max_global_allele), axis=0)))
+#        # for each genotype (np.arange(allele_map.shape[0])), set minor allele to 1 (1st do minor, so that overwritten if monomorphic)
+#        allele_map[np.arange(allele_map.shape[0]), idx_minor_allele] = 1 
+#        # for each genotype (np.arange(allele_map.shape[0])), set major allele to 0
+#        allele_map[np.arange(allele_map.shape[0]), idx_major_allele] = 0
+#    folded_minor_allele_counts = sa_genotype_array.map_alleles(allele_map).to_n_alt(fill=-1)
+#    #print(folded_minor_allele_counts)
+#    folded_minor_allele_counts[np.any(sa_genotype_array.is_missing(), axis=1)] = np.ones(2) * -1        # -1, -1 for missing => -1
+#    folded_minor_allele_counts[(np_allele_count_array.count(axis=1) > 2)] = np.ones(2) * (-1, -2)       # -1, -2 for multiallelic => -2
+#    block_sites[idx_block_sites_in_pos] = szudzik_pairing(folded_minor_allele_counts) + 2               # add 2 so that not negative for bincount
+#    block_sites[~idx_block_sites_in_pos] = 2                                                            # monomorphic = 2 (0 = multiallelic, 1 = missing)
+#    if debug == True:
+#        print("# block_sites as mutype array", block_sites)
+#    if debug == True:
+#        block_sites_pos = block_sites.flatten()
+#        pos_df = pd.DataFrame(block_sites_pos[idx_block_sites_in_pos.flatten()], dtype='int64', columns=['pos'])
+#        genotypes_df = pd.DataFrame(np_genotype_array.reshape(np_genotype_array.shape[0], 4), dtype='i4', columns=['a1', 'a2', 'b1', 'b2'])        
+#        block_sites_df = pos_df.join(genotypes_df)
+#        folded_minor_allele_count_df = pd.DataFrame(folded_minor_allele_counts, dtype='int8', columns=['fmAC_a', 'fmAC_b'])
+#        block_sites_df = block_sites_df.join(folded_minor_allele_count_df)
+#        variants = pd.DataFrame(block_sites[idx_block_sites_in_pos], dtype='int', columns=['SVar'])
+#        block_sites_df = block_sites_df.join(variants)
+#        print('# Mutypes: 0=MULTI, 1=MISS, 2=MONO, 3=HetB, 4=HetA, 5=HetAB, 6=Fixed')
+#        print(block_sites_df)
+#    return block_sites
+
+# old
+#def cut_blocks(interval_starts, interval_ends, block_length, block_span, block_gap_run):
+#    #print("\n")
+#    #print('interval_starts', type(interval_starts), interval_starts.shape, interval_starts)
+#    #print('interval_ends', type(interval_ends), interval_ends.shape, interval_ends)
+#    sites = create_ranges(np.array((interval_starts, interval_ends), dtype=np.int64).T)
+#    if sites is None: 
+#        return None
+#    block_sites = np.concatenate([
+#        x[:block_length * (x.shape[0] // block_length)].reshape(-1, block_length) 
+#            for x in np.split(sites, np.where(np.diff(sites) > block_gap_run)[0] + 1)
+#        ]) 
+#    block_span_valid_mask = (((block_sites[:, -1] - block_sites[:, 0]) + 1) <= block_span)
+#    return block_sites[block_span_valid_mask]
+
+# old
+#def create_ranges(aranges):
+#    # does the transformation form 0-based (BED) to 1-based (VCF) coordinate system 
+#    # https://stackoverflow.com/a/47126435
+#    l = (aranges[:, 1] - aranges[:, 0])
+#    clens = l.cumsum()
+#    if np.any(clens):
+#        ids = np.ones(clens[-1], dtype=np.int64)
+#        ids[0] = aranges[0, 0]
+#        ids[clens[:-1]] = aranges[1:, 0] - aranges[:-1, 1] + 1
+#        return ids.cumsum()
+#    return None
+
+##################################################################
