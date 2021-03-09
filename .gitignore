@@ -167,3 +167,9 @@ gimble.heliconius.intergenic.testing_chr02_chr09_chr18.windows.bed
 gimble.model.s_A_B.n_1_1.J_A_B.tsv
 
 mergebed.sh
+
+profile_bsfss.py
+
+variation2bsfs.prof
+
+windows2bsfs.prof
