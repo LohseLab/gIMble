@@ -1,4 +1,4 @@
-"""usage: gIMble blocks         -z <DIR> [-l <INT> -m <INT> -u <INT> -i <INT> -d -f -h]
+"""usage: gimble blocks         -z <DIR> [-l <INT> -m <INT> -u <INT> -i <INT> -d -f -h]
     
     -z, --zarr <DIR>                            gIMble ZARR directory
     
@@ -9,7 +9,7 @@
 
     -f, --force                                 Force overwrite of existing data
     -d, --debug                                 Write debugging logs
-    -h, --help
+    -h, --help                                  
 """
 import sys
 from timeit import default_timer as timer
@@ -49,18 +49,17 @@ class BlockParameterObj(lib.gimble.ParameterObj):
 def main(params):
     try:
         start_time = timer()
-        print("[+] Running 'gimble blocks'")
         args = docopt(__doc__)
         parameterObj = BlockParameterObj(params, args)
-        print("[+] Parameters = [-l %s -m %s -u %s -i %s]" % (
-            parameterObj.block_length, 
-            parameterObj.block_span, 
-            parameterObj.block_max_multiallelic, 
-            parameterObj.block_max_missing))
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore)
-        gimbleStore.blocks(parameterObj)
-        print(gimbleStore.info())
-        print("[*] Total runtime: %.3fs" % (timer() - start_time))
+        gimbleStore.blocks(
+            block_length=parameterObj.block_length,
+            block_span=parameterObj.block_span,
+            block_max_multiallelic=parameterObj.block_max_multiallelic,
+            block_max_missing=parameterObj.block_max_missing,
+            overwrite=parameterObj.overwrite)
+        gimbleStore.log_action(module=parameterObj._MODULE, command=parameterObj._get_cmd())
+        print("[*] Total runtime was %s" % (lib.gimble.format_time(timer() - start_time)))
     except KeyboardInterrupt:
         print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
         exit(-1)
