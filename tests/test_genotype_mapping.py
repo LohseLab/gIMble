@@ -78,7 +78,7 @@ class Test_genotypes:
         assert result_obs.shape[1] == block_length 
         assert result_obs.shape[0] > 120 # more than 120 blocks
 
-    def test_sites_to_blocks_3(self):
+    def test_sites_to_blocks_7(self):
         sites = np.array([0, 1, 5, 6, 7, 8, 11,12,15,16,17])
         block_length = 1
         block_span = 1
