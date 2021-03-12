@@ -30,6 +30,42 @@ def sim_sites(n):
     rng = np.random.default_rng()
     return np.unique(np.sort(rng.integers(low=0, high=n, size=n)))
 
+def sim_block_variation(b=10, kmax=3):
+    '''simulates blocks variation array'''
+    rng = np.random.default_rng(12345)
+    out =  rng.choice(range(kmax+1), size=(b, 4))
+    # FGVs need to be fixed
+    rows_to_fix = (out[:,2] > 0) & (out[:,3] > 0)
+    cols_to_fix = rng.choice([2,3], size=rows_to_fix[rows_to_fix==True].shape[0])
+    out[rows_to_fix, cols_to_fix] = 0
+    return out 
+
+def sim_window_variation(b=10, w=10, kmax=3):
+    '''simulates windows variation array'''
+    rng = np.random.default_rng(12345)
+    out = rng.choice(range(kmax+1), size=(w, b, 4))
+    # FGVs need to be fixed
+    rows_to_fix = (out[:,:,2] > 0) & (out[:,:,3] > 0)
+    cols_to_fix = rng.choice([2,3], size=rows_to_fix[rows_to_fix==True].shape[0])
+    out[rows_to_fix, cols_to_fix] = 0
+    return out 
+
+def bsfs_to_2d(bsfs):
+    '''needed for testing that tally-arrays and bsfs are identical'''
+    if not np.any(bsfs):
+        return None
+    non_zero_idxs = np.nonzero(bsfs)
+    if bsfs.ndim == 4: # blocks
+        return np.concatenate([bsfs[non_zero_idxs].reshape(non_zero_idxs[0].shape[0], 1), np.array(non_zero_idxs, dtype=np.uint64).T], axis=1)
+    elif bsfs.ndim == 5: # windows
+        non_zero_idxs_array = np.array(non_zero_idxs, dtype=np.uint64).T
+        first = non_zero_idxs_array[:,0].reshape(non_zero_idxs[0].shape[0], 1)
+        second = bsfs[non_zero_idxs].reshape(non_zero_idxs[0].shape[0], 1)
+        third = non_zero_idxs_array[:,1:]
+        return np.concatenate([first, second, third], axis=1)
+    else:
+        raise ValueError('bsfs_to_2d: bsfs.ndim must be 4 (blocks) or 5 (windows)')
+
 def chisquare(observed, expected, p_th=0.05, recombination=False, all_sims=False):
     #expected counts need to be larger than 5 for chisquare
     #combining bins with less than 5 counts into one bin.
