@@ -23,22 +23,22 @@ class WindowsParameterObj(lib.gimble.ParameterObj):
     def __init__(self, params, args):
         super().__init__(params)
         self.zstore = self._get_path(args['--zarr'])
-        self.window_size = int(args['--blocks'])
-        self.window_step = int(args['--steps'])
-        self.overwrite = args['--force']
+        self.window_size = self._get_int((args['--blocks']))
+        self.window_step = self._get_int((args['--steps']))
+        self.overwrite = True if args['--force'] else False
 
 def main(params):
     try:
         start_time = timer()
-        print("[+] Running 'gimble windows'")
         args = docopt(__doc__)
-        #log = lib.log.get_logger(run_params)
         parameterObj = WindowsParameterObj(params, args)
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
-        gimbleStore.windows(parameterObj)
-        gimbleStore.info()
-        #gimbleStore.tree()
-        print("[*] Total runtime: %.3fs" % (timer() - start_time))
+        gimbleStore.windows(
+            window_size=parameterObj.window_size, 
+            window_step=parameterObj.window_step, 
+            overwrite=parameterObj.overwrite)
+        gimbleStore.log_action(module=parameterObj._MODULE, command=parameterObj._get_cmd())
+        print("[*] Total runtime was %s" % (lib.gimble.format_time(timer() - start_time)))
     except KeyboardInterrupt:
         print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
         exit(-1)
