@@ -30,7 +30,7 @@ def main(params):
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore)
         info = gimbleStore.info(tree=parameterObj.tree)
         print(info)
-        print("[*] Total runtime: %.3fs" % (timer() - start_time))
+        print("[*] Total runtime was %s" % (lib.gimble.format_time(timer() - start_time)))
     except KeyboardInterrupt:
         print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
         exit(-1)
