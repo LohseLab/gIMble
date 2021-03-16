@@ -690,11 +690,11 @@ def tally_variation(variation, form='bsfs', max_k=None):
     out : ndarray, int
           ndim (4 or 5) if form == 'bsfs'
           ndim (2 or 3) if form == 'tally'
-          
-    # we should use scipy/sparse in the long run for bsfs... 
-    https://github.com/benbovy/xarray-simlab/issues/165
-    https://github.com/zarr-developers/zarr-python/issues/152'''
-    max_k = max_k if not (form == 'bsfs' and max_k is None) else np.array([8,8,8,8]) 
+    '''
+    if max_k is None:
+        max_k = np.array([8,8,8,8]) if form == 'bsfs' else None
+    else:
+        max_k = max_k+1 
     if variation.ndim == 2: 
         mutuples = np.clip(variation, 0, max_k)
     elif variation.ndim == 3:
@@ -721,33 +721,11 @@ def calculate_bsfs_marginality(bsfs_2d, kmax_by_mutype=None):
     if not kmax_by_mutype:
         return format_percentage(0.0)
     return format_percentage(np.sum(bsfs_2d[np.any((np.array(list(kmax_by_mutype.values())) - bsfs_2d[:,1:]) < 0, axis=1), 0]) / np.sum(bsfs_2d[:,0]))
-    
-# DRL: not needed 
-def bsfs_to_counter(bsfs):
-    """Returns (dict of) collections.Counter based on bsfs_array of 4 or 5 dimensions.
 
-    Parameters 
-    ----------
-    bsfs : ndarray, int, ndim (4) or (5)  
-    
-    Returns
-    -------
-    out : (dict of) collections.Counter
-
-    """
-    non_zero_idxs = np.nonzero(bsfs)
-    if bsfs.ndim == 5:
-        out = collections.defaultdict(collections.Counter())
-        for idx, count in zip(tuple(np.array(non_zero_idxs).T), bsfs[non_zero_idxs]):
-            window_idx, mutuple = idx[0], idx[1:]
-            out[window_idx][mutuple] = count
-    elif bsfs.ndim == 4:
-        out = collections.defaultdict(lambda: collections.Counter())
-        for mutuple, count in zip(tuple(np.array(non_zero_idxs).T), bsfs[non_zero_idxs]):
-            out[window_idx][mutuple] = count
-    else:
-        raise ValueError('bsfs must have 4 or 5 dimensions')
-    return out
+def calculate_marginality(tally, max_k=None):
+    if max_k is None:
+        return format_percentage(0.0)
+    return format_percentage(np.sum(tally[np.any((max_k - tally[:,1:]) < 0, axis=1), 0]) / np.sum(tally[:,0]))
 
 def ordered_intersect(a=[], b=[], order='a'):
     A, B = a, b
@@ -1187,48 +1165,55 @@ class Store(object):
             print(self._get_sims_report(width=100, label=parameterObj.label).__repr__().encode('utf-8')) #temp fix for my environment
         self.log_stage(parameterObj)
 
-    def query(self, version, data_type, data_format, kmax_by_mutype):
+    def query(self, version, data_type, data_format, max_k):
         self._preflight_query(data_type, data_format)
         if data_format == 'bed':
             if data_type == 'windows':
                 print("[#] Writing window BED...")
                 self._write_window_bed(version)
         elif data_format == 'tally':
-            self._write_tally_tsv(data_type=data_type, sample_sets='X', kmax_by_mutype=kmax_by_mutype)
+            self._write_tally_tsv(data_type=data_type, sample_sets='X', max_k=max_k)
         elif data_format == 'lncls':
             self.dump_lncls(parameterObj)
         else:
             sys.exit("[+] Nothing to be done.")
 
-    def _write_tally_tsv(self, data_type=None, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None):
+    def _write_tally_tsv(self, data_type=None, sequences=None, sample_sets=None, population_by_letter=None, max_k=None):
         header = ['count', '1', '2', '3', '4']
         print("[#] Getting %s variation tally ..." % data_type)
-        variation_tally = tally_variation(self._get_variation(data_type=data_type, sample_sets='X', sequences=sequences, population_by_letter=population_by_letter))
-        bsfs_marginality = calculate_bsfs_marginality(bsfs_2d, kmax_by_mutype=kmax_by_mutype) # float, proportion of data summarised at that kmax_by_mutype
-        print('[+] Proportion of %s-data in marginals (w/ kmax = %s) = %s' % (bsfs_type, list(kmax_by_mutype.values()) if kmax_by_mutype else None, bsfs_marginality))
-        bsfs_filename = self.get_bsfs_filename(
+        variation_tally = tally_variation(self._get_variation(data_type=data_type, sample_sets='X', sequences=sequences, population_by_letter=population_by_letter), form='tally', max_k=max_k)
+        variation_tally_marginality = calculate_marginality(variation_tally, max_k=max_k) # float, proportion of data summarised at that kmax_by_mutype
+        print('[+] Proportion of data in marginals (w/ kmax = %s) = %s' % (max_k if max_k is None else list(max_k), variation_tally_marginality))
+        tally_filename = self.get_tally_filename(
             data_type=data_type,
             sequences=sequences,
             sample_sets=sample_sets,
             population_by_letter=population_by_letter,
-            kmax_by_mutype=kmax_by_mutype
+            max_k=max_k
             )
-        print("[#] Writing %s ..." % bsfs_type)
-        pd.DataFrame(data=bsfs_2d, columns=header, dtype='int64').to_csv(bsfs_filename, index=False, sep='\t')
+        print("[#] Writing %s ..." % tally_filename)
+        pd.DataFrame(data=variation_tally, columns=header, dtype='int64').to_csv(tally_filename, index=False, sep='\t')
 
-    def get_bsfs_filename(self, data_type=None, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None):
+    def get_tally_filename(self, data_type=None, sequences=None, sample_sets=None, population_by_letter=None, max_k=None):
         # [needs fixing]
         if data_type == 'blocks':
             meta_blocks = self._get_meta('blocks')
-            return "%s.l_%s.m_%s.i_%s.u_%s.bsfs.%s.tsv" % (self.prefix, meta_blocks['length'], meta_blocks['span'], meta_blocks['max_missing'], meta_blocks['max_multiallelic'], data_type)
+            return "%s.l_%s.m_%s.i_%s.u_%s.kmax_%s.tally.%s.tsv" % (
+                self.prefix, 
+                meta_blocks['length'], 
+                meta_blocks['span'], 
+                meta_blocks['max_missing'], 
+                meta_blocks['max_multiallelic'], 
+                "None" if max_k is None else "_".join([str(k) for k in list(max_k)]), 
+                data_type)
         elif data_type == 'windows':
             meta_blocks = self._get_meta('blocks')
             meta_windows = self._get_meta('windows')
-            return "%s.l_%s.m_%s.i_%s.u_%s.w_%s.s_%s.bsfs.%s.tsv" % (self.prefix, meta_blocks['length'], meta_blocks['span'], meta_blocks['max_missing'], meta_blocks['max_multiallelic'], meta_windows['size'], meta_windows['step'], data_type)
+            return "%s.l_%s.m_%s.i_%s.u_%s.w_%s.s_%s.tally.%s.tsv" % (self.prefix, meta_blocks['length'], meta_blocks['span'], meta_blocks['max_missing'], meta_blocks['max_multiallelic'], meta_windows['size'], meta_windows['step'], data_type)
         elif data_type == 'windows_sum':
             meta_blocks = self._get_meta('blocks')
             meta_windows = self._get_meta('windows')
-            return "%s.l_%s.m_%s.i_%s.u_%s.w_%s.s_%s.bsfs.%s.tsv" % (self.prefix, meta_blocks['length'], meta_blocks['span'], meta_blocks['max_missing'], meta_blocks['max_multiallelic'], meta_windows['size'], meta_windows['step'], data_type)
+            return "%s.l_%s.m_%s.i_%s.u_%s.w_%s.s_%s.tally.%s.tsv" % (self.prefix, meta_blocks['length'], meta_blocks['span'], meta_blocks['max_missing'], meta_blocks['max_multiallelic'], meta_windows['size'], meta_windows['step'], data_type)
         else:
             raise ValueError("data_type %s is not defined" % data_type)
 

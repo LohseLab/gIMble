@@ -17,6 +17,7 @@
 from timeit import default_timer as timer
 from docopt import docopt
 import lib.gimble
+import numpy as np
 import sys
 import ast
 
@@ -28,7 +29,7 @@ class QueryParameterObj(lib.gimble.ParameterObj):
         self.zstore = self._get_path(args['--zarr_file'])
         self.data_type = self._get_data_type(args)
         self.data_format = self._get_data_format(args)
-        self.kmax_by_mutype = self._get_kmax(args['--maxk'])
+        self.max_k = self._get_max_k(args['--maxk'])
         self.key = args['--key']
         self._check_input(args)
 
@@ -66,12 +67,12 @@ class QueryParameterObj(lib.gimble.ParameterObj):
         else:
             return None
 
-    def _get_kmax(self, kmax_string):
-        mutypes = ['m_1', 'm_2', 'm_3', 'm_4']
+    def _get_max_k(self, kmax_string):
+        #mutypes = ['m_1', 'm_2', 'm_3', 'm_4']
         if kmax_string == None:
             return None
         try:
-            return {mutype: kmax for mutype, kmax in zip(mutypes, ast.literal_eval(kmax_string))}
+            return np.array(ast.literal_eval(kmax_string))
         except ValueError:
             sys.exit("[X] Invalid k-max string (must be python list)") 
 
@@ -85,7 +86,7 @@ def main(params):
             parameterObj._VERSION,
             parameterObj.data_type,
             parameterObj.data_format,
-            parameterObj.kmax_by_mutype
+            parameterObj.max_k
             )
         print("[*] Total runtime was %s" % (lib.gimble.format_time(timer() - start_time)))
     except KeyboardInterrupt:
