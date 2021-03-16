@@ -536,6 +536,17 @@ def cut_windows(mutype_array, idxs, start_array, end_array, num_blocks=10, num_s
     window_pos_median = np.median(window_midpoints, axis=1).T
     return window_mutypes, window_starts, window_ends, window_pos_mean, window_pos_median
 
+def chisq(window_samples_set_idxs):
+    spacer = (np.max(window_samples_set_idxs)+1)
+    sample_sets = np.unique(window_samples_set_idxs)
+    window_count = window_samples_set_idxs.shape[0]
+    window_size = window_samples_set_idxs.shape[1]
+    temp_sites = window_samples_set_idxs + (spacer * np.arange(window_count, dtype=np.int64).reshape(window_count, 1))
+    obs = np.bincount(temp_sites.ravel(), minlength=(window_count * spacer)).reshape(-1, spacer)[:,sample_sets]
+    #print(obs)
+    exp = np.full(obs.shape, window_size/sample_sets.shape[0])
+    return np.sum((((obs-exp)**2)/exp), axis=1) # / sample_sets.shape[0]
+
 def blocks_to_windows(block_variation, start_array, end_array, block_sample_set_idxs, window_size, window_step):
     # order of blocks is defined by end_array, 
     coordinate_sorted_idx = np.argsort(end_array) 
@@ -547,12 +558,16 @@ def blocks_to_windows(block_variation, start_array, end_array, block_sample_set_
     window_starts = np.min(start_array.take(coordinate_sorted_idx, axis=0).take(window_idxs, axis=0), axis=1).T
     block_ends = end_array.take(coordinate_sorted_idx, axis=0).take(window_idxs, axis=0)
     window_ends = np.max(end_array.take(coordinate_sorted_idx, axis=0).take(window_idxs, axis=0), axis=1).T
-    # window_samples_set_idxs is not used for anything yet ...
-    # window_samples_set_idxs = block_sample_set_idxs.take(coordinate_sorted_idx, axis=0).take(window_idxs, axis=0)
+    # needs some solution for chisq-calculation by window ...
+    window_samples_set_idxs = block_sample_set_idxs.take(coordinate_sorted_idx, axis=0).take(window_idxs, axis=0)
+    #np.set_printoptions(threshold=sys.maxsize)
+    #print(window_samples_set_idxs)
+    balance = chisq(window_samples_set_idxs)
+    #print('balance', balance)
     block_midpoints = (block_starts / 2) + (block_ends / 2)
     window_pos_mean = np.rint(np.mean(block_midpoints, axis=1).T)
     window_pos_median = np.rint(np.median(block_midpoints, axis=1).T)
-    return (window_variation, window_starts, window_ends, window_pos_mean, window_pos_median)
+    return (window_variation, window_starts, window_ends, window_pos_mean, window_pos_median, balance)
 
 def block_sites_to_variation_arrays(block_sites, cols=np.array([1,2,3]), max_type_count=7):
     temp_sites = block_sites + (max_type_count * np.arange(block_sites.shape[0], dtype=np.int64).reshape(block_sites.shape[0], 1))
@@ -2125,6 +2140,7 @@ class Store(object):
         ends = np.zeros(window_count, dtype=np.int64)
         pos_mean = np.zeros(window_count, dtype=np.float64)
         pos_median = np.zeros(window_count, dtype=np.float64)
+        balance = np.zeros(window_count, dtype=np.float64)
         index = np.arange(window_count)
         offset = 0
         for seq_name in tqdm(meta_seqs['seq_names'], total=len(meta_seqs['seq_names']), desc="[%] Preparing data...", ncols=100, unit_scale=True): 
@@ -2132,6 +2148,7 @@ class Store(object):
             end_key = 'windows/%s/ends' % (seq_name)
             pos_mean_key = 'windows/%s/pos_mean' % (seq_name)
             pos_median_key = 'windows/%s/pos_median' % (seq_name)
+            balance_key = 'windows/%s/balance' % (seq_name)
             if start_key in self.data:
                 start_array = np.array(self.data[start_key])
                 window_count = start_array.shape[0]
@@ -2139,13 +2156,14 @@ class Store(object):
                 ends[offset:offset+window_count] = np.array(self.data[end_key])
                 pos_mean[offset:offset+window_count] = np.array(self.data[pos_mean_key])
                 pos_median[offset:offset+window_count] = np.array(self.data[pos_median_key])
+                balance[offset:offset+window_count] = np.array(self.data[balance_key])
                 sequences[offset:offset+window_count] = np.full_like(window_count, seq_name, dtype='<U%s' % MAX_SEQNAME_LENGTH)
                 offset += window_count
         print("[+] Calculating popgen metrics ...")
         tally = tally_variation(self._get_variation(data_type='windows', sample_sets='X'), form='tally')
         pop_metrics = get_popgen_metrics(tally, sites=(meta_blocks['length'] * meta_windows['size']))
-        int_bed = np.vstack([starts, ends, index, pos_mean, pos_median, pop_metrics]).T
-        columns = ['sequence', 'start', 'end', 'index', 'pos_mean', 'pos_median', 'heterozygosity_A', 'heterozygosity_B', 'd_xy', 'f_st']
+        int_bed = np.vstack([starts, ends, index, pos_mean, pos_median, pop_metrics, balance]).T
+        columns = ['sequence', 'start', 'end', 'index', 'pos_mean', 'pos_median', 'heterozygosity_A', 'heterozygosity_B', 'd_xy', 'f_st', 'balance']
         header = ["# %s" % version, "# %s" % "\t".join(columns)]
         out_f = '%s.windows.popgen.bed' % self.prefix
         print("[+] Writing BED file %s ..." % out_f)
@@ -2154,7 +2172,7 @@ class Store(object):
         dtypes = {
             'start': 'int64', 'end': 'int64', 'index': 'int64', 'pos_mean': 'int64', 
             'pos_median': 'int64','heterozygosity_A': 'float64', 'heterozygosity_B': 'float64', 
-            'd_xy': 'float64', 'f_st': 'float64'}
+            'd_xy': 'float64', 'f_st': 'float64', 'balance': 'float64'}
         bed_df = pd.DataFrame(data=int_bed, columns=columns[1:]).astype(dtype=dtypes)
         bed_df['sequence'] = sequences
         bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=columns, float_format='%.5f')
@@ -2320,17 +2338,18 @@ class Store(object):
             block_variation = self._get_variation(data_type='blocks', sample_sets=sample_sets, sequences=[seq_name])
             block_starts, block_ends = self._get_block_coordinates(sample_sets=sample_sets, sequences=[seq_name])
             block_sample_set_idxs = self._get_block_sample_set_idxs(sample_sets=sample_sets, sequences=[seq_name])
-            window_variation, window_starts, window_ends, window_pos_mean, window_pos_median = blocks_to_windows(
+            window_variation, window_starts, window_ends, window_pos_mean, window_pos_median, balance = blocks_to_windows(
                 block_variation, block_starts, block_ends, block_sample_set_idxs, window_size, window_step)
-            window_count += self._set_windows(seq_name, window_variation, window_starts, window_ends, window_pos_mean, window_pos_median)
+            window_count += self._set_windows(seq_name, window_variation, window_starts, window_ends, window_pos_mean, window_pos_median, balance)
         self._set_windows_meta(window_size, window_step, window_count)
 
-    def _set_windows(self, seq_name, window_variation, window_starts, window_ends, window_pos_mean, window_pos_median):
+    def _set_windows(self, seq_name, window_variation, window_starts, window_ends, window_pos_mean, window_pos_median, balance):
         self.data.create_dataset("windows/%s/variation" % seq_name, data=window_variation, overwrite=True)
         self.data.create_dataset("windows/%s/starts" % seq_name, data=window_starts, overwrite=True)
         self.data.create_dataset("windows/%s/ends" % seq_name, data=window_ends, overwrite=True)
         self.data.create_dataset("windows/%s/pos_mean" % seq_name, data=window_pos_mean, overwrite=True)
         self.data.create_dataset("windows/%s/pos_median" % seq_name, data=window_pos_median, overwrite=True)
+        self.data.create_dataset("windows/%s/balance" % seq_name, data=balance, overwrite=True)
         return window_variation.shape[0]
 
     def _set_windows_meta(self, window_size, window_step, window_count):
