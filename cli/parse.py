@@ -1,20 +1,17 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-"""usage: gimble parse          [-v <FILE> -b <FILE> -g <FILE> -s <FILE> -o <STR> -f -D -h]
+"""usage: gimbl parse                    [-v <FILE> -b <FILE> -g <FILE> -s <FILE> -z <STR> -f -D -h]
 
     [Input]
-        -g, --genome_f <FILE>        Gimble genome file (TSV) of sequence IDs/lengths for filtering BED file.
-        -b, --bed_f <FILE>           Gimble BED file of regions for filtering VCF file (horizontally).
-        -s, --sample_f <FILE>        Gimble sample file (CSV) for filtering VCF file (vertically). Only two populations are supported.
-        -v, --vcf_f <FILE>           VCF file of variants. bgzip'ed. Indexed.
+        -g, --genome_f <FILE>            Gimble genome file (TSV) of sequence IDs/lengths for filtering BED file.
+        -b, --bed_f <FILE>               Gimble BED file of regions for filtering VCF file (horizontally).
+        -s, --sample_f <FILE>            Gimble sample file (CSV) for filtering VCF file (vertically). Only two populations are supported.
+        -v, --vcf_f <FILE>               VCF file of variants. bgzip'ed. Indexed.
     
     [Options]
-        -o, --outprefix <STR>           Prefix to use in output files [default: gimble]
-        -f, --force                     Force overwrite if GimbleStore already exists.
-        -D, --debug                     Show debugging information
+        -z, --zarr <STR>                 Prefix to use for ZARR store [default: gimble]
+        -f, --force                      Force overwrite if GimbleStore already exists.
+        -D, --debug                      Show debugging information
 
-        -h --help                       Show this
+        -h --help                        Show this
     
 """
 import sys
@@ -32,7 +29,7 @@ class ParseParameterObj(lib.gimble.ParameterObj):
         self.bed_f = self._get_path(args['--bed_f'])
         self.genome_f = self._get_path(args['--genome_f'])
         self.sample_f = self._get_path(args['--sample_f'])
-        self.outprefix = args['--outprefix']
+        self.outprefix = args['--zarr']
         self.overwrite = args['--force']
         self._pairedness = 2
         self._check()
