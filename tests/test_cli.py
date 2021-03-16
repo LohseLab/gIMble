@@ -2,8 +2,6 @@ import pytest
 import lib.gimble
 import numpy as np
 
-@pytest.mark.cli
-
 '''
 [to test]
 
@@ -18,9 +16,8 @@ import numpy as np
 ./gimble parse -g ~/git/gimble/data/test.genomefile -b ~/git/gimble/data/test.bed -v ~/git/gimble/data/test.vcf -s ~/git/gimble/data/test.samples.csv -o ~/data/gimble/test_master/gimble.v0.7.1.master.toy -f
 ./gimble blocks -z /Users/dlaetsch/data/gimble/test_master/gimble.v0.7.1.master.toy.z -l 10 -m 20
 ./gimble windows -z /Users/dlaetsch/data/gimble/test_master/gimble.v0.7.1.master.toy.z -w 50 -s 5 -f
-
 '''
-
+@pytest.mark.cli
 def test_entrypoint():
     exit_status = os.system('gimble --help')
     assert exit_status == 0
