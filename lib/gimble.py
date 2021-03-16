@@ -407,6 +407,7 @@ def calculate_blocks_report_metrics(tally, sample_sets_count, block_length, inte
         # not sure about heterozygosity ...
         BRM['heterozygosity_A'] = (hetA + hetAB) / effective_length 
         BRM['heterozygosity_B'] = (hetB + hetAB) / effective_length # hetB or hetA ?
+        BRM['heterozygosity_intra'] = (float(fractions.Fraction(1, 2) * (hetA + hetB) + hetAB)) / effective_length 
         # BRM['heterozygosity_B'] = BRM['heterozygosity_A'] # this is how it was before...
         BRM['dxy'] = ((hetA + hetB + hetAB) / 2.0 + fixed) / effective_length
         mean_pi = (BRM['heterozygosity_A'] + BRM['heterozygosity_B']) / 2.0
@@ -2418,9 +2419,11 @@ class Store(object):
                 del BRM['watterson_theta']
             if sample_sets == 'A' or sample_sets == 'B':
                 if sample_sets == 'A':
-                    del BRM['heterozygosity_B'] 
+                    del BRM['heterozygosity_B']
+                    BRM['heterozygosity_A'] =  BRM['heterozygosity_intra']
                 if sample_sets == 'B':
                     del BRM['heterozygosity_A'] 
+                    BRM['heterozygosity_B'] =  BRM['heterozygosity_intra']
                 del BRM['dxy']
                 del BRM['fst']
             BRMs[sample_sets] = BRM
@@ -2468,7 +2471,7 @@ class Store(object):
         reportObj.add_line(prefix="[+]", left='[', center='Windows', right=']', fill='=')
         if self.has_stage('windows'):
             reportObj.add_line(prefix="[+]", left='windows')
-            reportObj.add_line(prefix="[+]", branch='F', fill=".", left="'-w %s -s %s'" % (meta_windows['size'], meta_windows['step']), right=' %s windows' % (
+            reportObj.add_line(prefix="[+]", branch='F', fill=".", left="'-w %s -s %s'" % (meta_windows['size'], meta_windows['step']), right=' %s windows of inter-population (X) blocks' % (
                 format_count(meta_windows['count'])))
         return reportObj
 
