@@ -245,7 +245,7 @@ class StateGraph(object):
     def get_origins(self):
         self.origin_idx_by_label = {self.graph.nodes[node_idx]['label']: node_idx for node_idx, out_degree in self.graph.out_degree() if out_degree == 0}
 
-    def write_config(self, parameterObj):
+    def old_write_config(self, parameterObj):
         events = [event for event in sorted(self.events_counter.keys()) if event[0:2] in CM]
         lineages = sorted([lineage for lineage in self.set_of_lineages if not lineage == self.lca_label])
         mutypes = sorted(set([mutype for mutype in [lineage_to_mutype(lineage) for lineage in lineages] if not mutype is None]))
@@ -330,13 +330,13 @@ class StateGraph(object):
         config['gimble'] = {
             'version': parameterObj._VERSION,
             'model': 'models/%s.tsv' % parameterObj.model,
-            "pop_ids": ", ".join(sorted(self.pop_ids)),
             'random_seed' : 19,
             'precision': 25,
         }
         # populations
         config.add_section('populations')
         config.set('populations', "# Link model to data in GimbleStore")
+        config.set('populations', "pop_ids", ", ".join(sorted(self.pop_ids)))
         config.set('populations', "A", "")
         config.set('populations', "B", "")
         config.set('populations', "# Pick reference population (required)")
@@ -393,7 +393,7 @@ class StateGraph(object):
         config_file = parameterObj.outfile
         with open(config_file, 'w') as fp:
             config.write(fp)
-        print("[+] Please specify model/simulation parameters in INI file %r" % str(config_file))
+        print("[+] Wrote INI file %r. Please fill in values before starting optimize/makegrid/gridsearch." % str(config_file))
 
     def write_model(self, parameterObj):
         #print("[+] Calculating model ...")
