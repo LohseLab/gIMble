@@ -1,19 +1,16 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-"""usage: gimble preprocess                 -f FILE -v FILE -b DIR [-g INT -m INT -M INT -t INT -o STR -k] [-h|--help]
+"""usage: gimbl preprocess               -f FILE -v FILE -b DIR [-g INT -m INT -M INT -t INT -o STR -k] [-h|--help]
                                             
     Options:
-        -h --help                                   show this
-        -f, --fasta_file FILE                       FASTA file
-        -v, --vcf_file FILE                         VCF file (raw)
-        -b, --bam_dir FILE                          Directory containing all BAM files
-        -g, --snpgap INT                            SnpGap [default: 2]
-        -m, --min_depth INT                         Min read depth [default: 8]
-        -M, --max_depth INT                         Max read depth (as multiple of SD from mean) [default: 2]
-        -t, --threads INT                           Threads [default: 1]
-        -o, --outprefix STR                         Outprefix [default: gimble]
-        -k, --keep_tmp                              Do not delete temporary files [default: False]
+        -h --help                        show this
+        -f, --fasta_file FILE            FASTA file
+        -v, --vcf_file FILE              VCF file (raw)
+        -b, --bam_dir FILE               Directory containing all BAM files
+        -g, --snpgap INT                 SnpGap [default: 2]
+        -m, --min_depth INT              Min read depth [default: 8]
+        -M, --max_depth INT              Max read depth (as multiple of SD from mean) [default: 2]
+        -t, --threads INT                Threads [default: 1]
+        -o, --outprefix STR              Outprefix [default: gimble]
+        -k, --keep_tmp                   Do not delete temporary files [default: False]
 """
 
 from timeit import default_timer as timer
@@ -231,7 +228,7 @@ def main(params):
         parameterObj = PreprocessParameterObj(params, args)
         #print(parameterObj.__dict__)
         preprocess(parameterObj)
-        print("[*] Total runtime: %.3fs" % (timer() - start_time))
+        print("[*] Total runtime was %s" % (lib.gimble.format_time(timer() - start_time)))
     except KeyboardInterrupt:
-        print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
+        print("\n[X] Interrupted by user after %s !\n" % (lib.gimble.format_time(timer() - start_time)))
         exit(-1)

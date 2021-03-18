@@ -1,16 +1,13 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-"""usage: gimble windows -z <DIR> [-w <INT> -s <INT> -u <INT> -i <INT> -f -D -h]
+"""usage: gimbl windows                  -z <DIR> [-w <INT> -s <INT> -u <INT> -i <INT> -f -D -h]
 
     Options:
-        -z, --zarr <DIR>                            gimble ZARR directory
-        -w, --blocks <INT>                          Number of blocks in windows [default: 500]
-        -s, --steps <INT>                           Number of steps (blocks) by which windows are shifted [default: 50]
+        -z, --zarr <DIR>                 gimble ZARR directory
+        -w, --blocks <INT>               Number of blocks in windows [default: 500]
+        -s, --steps <INT>                Number of steps (blocks) by which windows are shifted [default: 50]
         
-        -f, --force                                 Force overwrite of existing data
-        -D, --debug                                 Print debug information
-        -h, --help                                   show this
+        -f, --force                      Force overwrite of existing data
+        -D, --debug                      Print debug information
+        -h, --help                       show this
 
 """
 
@@ -40,5 +37,5 @@ def main(params):
         gimbleStore.log_action(module=parameterObj._MODULE, command=parameterObj._get_cmd())
         print("[*] Total runtime was %s" % (lib.gimble.format_time(timer() - start_time)))
     except KeyboardInterrupt:
-        print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
+        print("\n[X] Interrupted by user after %s !\n" % (lib.gimble.format_time(timer() - start_time)))
         exit(-1)

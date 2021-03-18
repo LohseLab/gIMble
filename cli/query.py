@@ -1,17 +1,17 @@
-"""usage: gimble query                  -z DIR [-b|-w|-s] [--bed|--tally|--lncls] [-m STR] [-k STR] 
+"""usage: gimbl query                    -z DIR [-b|-w|-s] [--bed|--tally|--lncls] [-m STR] [-k STR] 
                                             [-h|--help]
                                             
-        -z, --zarr_file DIR                 ZARR datastore
-        -b, --blocks                        Query data for blocks
-        -w, --windows                       Query data for windows
-        -s, --windows_sum                   Query data for sum of windows
-        --bed                               Writes BED with variation/multiallelic/missing (windows)
-        --tally                             Writes 2D bSFS for data (blocks/windows/windows_sum)
-        --lncls                             Write grid and lnCls (for -k <STR>)
-        -m, --maxk STR                      Max value for mutypes (values above get binned), e.g. [2, 2, 2, 2]
-        -k, --key STR                       Query data based on key
+        -z, --zarr_file DIR              ZARR datastore
+        -b, --blocks                     Query data for blocks
+        -w, --windows                    Query data for windows
+        -s, --windows_sum                Query data for sum of windows
+        --bed                            Writes BED with variation/multiallelic/missing (windows)
+        --tally                          Writes 2D bSFS for data (blocks/windows/windows_sum)
+        --lncls                          Write grid and lnCls (for -k <STR>)
+        -m, --maxk STR                   Max value for mutypes (values above get binned), e.g. [2, 2, 2, 2]
+        -k, --key STR                    Query data based on key
 
-        -h --help                           show this
+        -h --help                        show this
 """
 
 from timeit import default_timer as timer
@@ -90,5 +90,5 @@ def main(params):
             )
         print("[*] Total runtime was %s" % (lib.gimble.format_time(timer() - start_time)))
     except KeyboardInterrupt:
-        print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
+        print("\n[X] Interrupted by user after %s !\n" % (lib.gimble.format_time(timer() - start_time)))
         exit(-1)
