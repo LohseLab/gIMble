@@ -1,20 +1,18 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-"""usage: gimble makegrid (-z <FILE> | -o <STR>) -m <FILE> -c <FILE> [-f] [--inner_pool <INT> --outer_pool <INT>] [-h|--help]
+"""usage: gimbl makegrid                 (-z <FILE> | -o <STR>) -m <FILE> -c <FILE> [-f] [--inner_pool <INT> --outer_pool <INT>] [-h|--help]
                                             
     Options:
-        -h --help                                show this
+        -h --help                        show this
 
-        -z, --zarr_file <FILE>                   Path to existing GimbleStore
-        -o, --outprefix <STR>                    Prefix to use for new GimbleStore
-        -m, --model_file <FILE>                  Model file
-        -c, --config_file <FILE>                 Config file with model parameters
-        -f, --overwrite                          Overwrite grid in GimbleStore
-        --inner_pool INT                         Number of processes used to optimize a single data point [default: 1] 
-        --outer_pool INT                         Number of data points processed in parallel [default: 1]
+        -z, --zarr_file <FILE>           Path to existing GimbleStore
+        -o, --outprefix <STR>            Prefix to use for new GimbleStore
+        -m, --model_file <FILE>          Model file
+        -c, --config_file <FILE>         Config file with model parameters
+        -f, --overwrite                  Overwrite grid in GimbleStore
+        --inner_pool INT                 Number of processes used to optimize a single data point [default: 1] 
+        --outer_pool INT                 Number of data points processed in parallel [default: 1]
         
 """
+
 from timeit import default_timer as timer
 from docopt import docopt
 import lib.gimble
@@ -49,7 +47,7 @@ def main(params):
             raise ValueError("needs config or prefix")
         gimbleStore = lib.gimble.Store(path=path, prefix=prefix, create=create)
         gimbleStore.makegrid(parameterObj)
-        print("[*] Total runtime: %.3fs" % (timer() - start_time))
+        print("[*] Total runtime was %s" % (lib.gimble.format_time(timer() - start_time)))
     except KeyboardInterrupt:
-        print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
+        print("\n[X] Interrupted by user after %s !\n" % (lib.gimble.format_time(timer() - start_time)))
         exit(-1)

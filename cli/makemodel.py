@@ -1,69 +1,82 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gimbl makemodel -p <STR> (-1|-2|-3|-4|-5) [-h|--help]
+"""usage: gimbl makemodel                       [-o <STR>] (-1|-2|-3|-4|-5) [-h|--help]
                                             
     [Options]
-        -o, --outprefix <STR>                   Prefix to use for new GimbleStore
-        -1, --DIV                               Divergence model. No Migration. Third Ne for ancestral population (AB).
-        -2, --MIG_AB                            Migration model. Migration from A to B, backwards in time. B is ancestral population.
-        -3, --MIG_BA                            Migration model. Migration from B to A, backwards in time. A is ancestral population.
-        -4, --IM_AB                             IM model. Migration from A to B. Third Ne for ancestral population (AB) 
-        -5, --IM_BA                             IM model. Migration from B to A. Third Ne for ancestral population (AB) 
+        -o, --outprefix <STR>                   Prefix to use for INI config file [default: gimble]
+
+        -1, --DIV                               Divergence model config file. 
+                                                    No Migration. Third Ne for ancestral population (AB).
+        -2, --MIG_AB                            Migration model config file. 
+                                                    Migration from A to B, backwards in time. B is ancestral population.
+        -3, --MIG_BA                            Migration model config file. 
+                                                    Migration from B to A, backwards in time. A is ancestral population.
+        -4, --IM_AB                             IM model config file. 
+                                                    Migration from A to B. Third Ne for ancestral population (AB) 
+        -5, --IM_BA                             IM model config file. 
+                                                    Migration from B to A. Third Ne for ancestral population (AB) 
         -h --help                               show this
         
 """
+
+'''
+[To do]
+- write documentation (no automated filling in)
+
+    Ne lower bounds = min(Pi_A / 4 mu, Pi_B / 4 mu) / 2
+    Ne upper bounds = d_xy / (4 mu)
+
+    T lower bound = 0
+    T upper bound = dxy / (2 mu)
+
+'''
+
 from docopt import docopt
 from timeit import default_timer as timer
 from sys import stderr, exit
-import lib.model
+import gimblelib.model
 import lib.gimble
-import ast
-import re
-import collections
-import sys
 
-'''
-[ To Do ]
-- Output config file for simulation/inference based on model
-- add header to model file : -s A,B -p 2 -n 1,1
-
-'''
+MODEL_BY_ARG = {
+    '--DIV': 'DIV',
+    '--MIG_AB': 'MIG_AB',
+    '--MIG_BA': 'MIG_BA',
+    '--IM_AB': 'IM_AB',
+    '--IM_BA': 'IM_BA'
+        }
+JOIN_EVENTS_BY_MODEL = {
+    'DIV': ['A_B'],
+    'MIG_AB': [],
+    'MIG_BA': [],
+    'IM_AB': ['A_B'],
+    'IM_BA': ['A_B']
+}
+MIGRATION_EVENTS_BY_MODEL = {
+    'DIV': [],
+    'MIG_AB': ['M_A_B'],
+    'MIG_BA': ['M_B_A'],
+    'IM_AB': ['M_A_B'],
+    'IM_BA': ['M_B_A']
+}
 
 class ModelParameterObj(lib.gimble.ParameterObj):
     '''Sanitises command line arguments and stores parameters'''
 
     def __init__(self, params, args):
         super().__init__(params)
-        '''
-        2. write rules regarding model strings
-        - Population IDs must be single letters, e.g. A and B
-        - 
-        3. write config YAML
-        '''
-        self.ploidy = self._get_int(args['--ploidy'])
-        self.pop_ids = sorted(args['--pop_ids'].split(','))
-        self.samples_by_pop_id = {pop_id: int(samples) for pop_id, samples in zip(args['--pop_ids'].split(','), args['--samples'].split(','))}
-        self.join_events = self._parse_join_events(args['--join_string']) if args['--join_string'] else []
-        self.migration_events = self._parse_migration_events(args['--migration_string'])
+        self.ploidy = 2
+        self.pop_ids = ['A', 'B']
+        self.model = [model for arg, model in MODEL_BY_ARG.items() if args[arg]][0]
+        self.samples_by_pop_id = {pop_id: 1 for pop_id in self.pop_ids}
+        self.join_events = JOIN_EVENTS_BY_MODEL[self.model]
+        self.migration_events = MIGRATION_EVENTS_BY_MODEL[self.model]
         self.sample_stateObj = self._get_sample_stateObj()
         self.set_of_events = self._get_set_of_events() 
-        self.out_prefix = self._get_outprefix()
-        self.model_output = False if args['--nomodel'] else True 
-        self.graph_output = False if args['--nograph'] else True
-        self.yaml_output = False if args['--noini'] else True
-        #print(self.__dict__) 
+        self.outfile = self._get_outfile(args['--outprefix'])
 
-    def _get_outprefix(self):
-        pop_string = "_".join(self.pop_ids)
-        sample_string = "_".join([str(self.samples_by_pop_id[pop_id]) for pop_id in self.pop_ids])
-        prefix = ["gimble.model.s_%s.n_%s" % (pop_string, sample_string)]
-        if self.migration_events:
-            prefix.append(".".join(self.migration_events))
-        if self.join_events:
-            prefix.append("J_%s" % ".".join(self.join_events))
-        return ".".join(prefix)
-            
+    def _get_outfile(self, outprefix):
+        return ".".join([outprefix, self.model, 'ini'])
         
     def _get_ploidy(ploidy):
         return int(ploidy)
@@ -78,58 +91,17 @@ class ModelParameterObj(lib.gimble.ParameterObj):
             for i in range(self.samples_by_pop_id[pop_id]):
                 for j in range(self.ploidy):
                     pop_list.append("%s%s" % (pop_id.lower(), i+1))
-            pop_dict[pop_id.upper()] = lib.model.PopObj(pop_list)
-        return lib.model.StateObj(pop_dict)
-
-    def _parse_join_events(self, join_string):
-        char_counter = collections.Counter(join_string)
-        #print(char_counter)
-        if not all([char_counter[pop_id] <= 1 for pop_id in self.pop_ids]) == True:
-            return "[X] Duplicated population IDs"
-        #print(lib.model.joins(ast.literal_eval(re.sub(r'([a-zA-Z]+)',r'"\1"', join_string))))
-        return lib.model.joins(ast.literal_eval(re.sub(r'([a-zA-Z]+)',r'"\1"', join_string)))
-
-    def _parse_migration_events(self, migration_string):
-        events = []
-        #print(migration_string)
-        if not migration_string == "''":
-            for m in migration_string.split(','):
-               if '>' in m:
-                   a, b = m.split('>')
-                   events.append("M_%s_%s" % (a, b))
-               elif '<' in m:
-                   a, b = m.split('<')
-                   events.append("M_%s_%s" % (b, a))
-               else:
-                   sys.exit("[X] %r is not a valid migration parameter.")
-        return events
+            pop_dict[pop_id.upper()] = gimblelib.model.PopObj(pop_list)
+        return gimblelib.model.StateObj(pop_dict)
 
 def main(params):
     try:
         start_time = timer()
-        print("[+] Running 'gimble model'")
         args = docopt(__doc__)
         parameterObj = ModelParameterObj(params, args)
-        stateGraph = lib.model.graph_generator(parameterObj)
-        if parameterObj.model_output:
-            stateGraph.write_model(parameterObj)
-            stateGraph.write_config(parameterObj)
-        if parameterObj.graph_output:
-            stateGraph.plot_dot_graph(parameterObj)
-        print("[*] Total runtime: %.3fs" % (timer() - start_time))
+        stateGraph = gimblelib.model.graph_generator(parameterObj)
+        stateGraph.write_ini(parameterObj)
+        print("[*] Total runtime was %s" % (lib.gimble.format_time(timer() - start_time)))
     except KeyboardInterrupt:
-        stderr.write("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
-        exit(-1)
-
-###############################################################################
-
-def main(params):
-    try:
-        start_time = timer()
-        args = docopt(__doc__)
-        parameterObj = PreprocessParameterObj(params, args)
-        gimble.preprocess.preprocess(parameterObj)
-        print("[*] Total runtime: %.3fs" % (timer() - start_time))
-    except KeyboardInterrupt:
-        print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
+        print("\n[X] Interrupted by user after %s !\n" % (lib.gimble.format_time(timer() - start_time)))
         exit(-1)

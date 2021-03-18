@@ -1,26 +1,26 @@
 """
-Usage: gimble <module> [<args>...] [-D -V -h]
+Usage: gimbl <module> [<args>...] [-D -V -h]
 
   [Modules]
-    parse                 Parse variation data into DataStore
-    info                  Print information about DataStore
-    blocks                Generate blocks from data in DataStore 
-    windows               Generate windows from blocks in DataStore (requires blocks)
-    query                 Query BED file of blocks (windows [TBI])
-    model                 Build demographic model
-    simulate              Simulate data [TBI] 
-    makegrid              Make grid [TBI]
-    gridsearch            Search grid [TBI]
-    optimize              Perform optimisation search [TBI]
+    parse                                Parse variation data into DataStore
+    info                                 Print information about DataStore
+    blocks                               Generate blocks from data in DataStore 
+    windows                              Generate windows from blocks in DataStore (requires blocks)
+    query                                Query BED file of blocks (windows [TBI])
+    model                                Build demographic model
+    simulate                             Simulate data [TBI] 
+    makegrid                             Make grid [TBI]
+    gridsearch                           Search grid [TBI]
+    optimize                             Perform optimisation search [TBI]
     
-    preprocess            Preprocess input files
-    partitioncds          Partition CDS sites in BED file by degeneracy in sample GTs 
-    plotbed               Plot BED file [TBR]
+    preprocess                           Preprocess input files
+    partitioncds                         Partition CDS sites in BED file by degeneracy in sample GTs 
+    plotbed                              Plot BED file [TBR]
 
   [Options]
-    -h, --help                         Show this screen.
-    -D, --debug                        Print debug information.
-    -V, --version                      Show version.
+    -h, --help                           Show this screen.
+    -D, --debug                          Print debug information.
+    -V, --version                        Show version.
 
   [Dependencies] 
     
@@ -70,18 +70,15 @@ def main(gimble_dir):
         elif args['<module>'] == 'windows':
             import cli.windows as windows
             windows.main(params)
-        elif args['<module>'] == 'model':
-            import cli.model as model
-            model.main(params)
+        #elif args['<module>'] == 'model':
+        #    import cli.model as model
+        #    model.main(params)
         elif args['<module>'] == 'makemodel':
-            import gimblelib.cli_makemodel as cli_makemodel
-            cli_makemodel.main(params)
+            import cli.makemodel as makemodel
+            makemodel.main(params)
         elif args['<module>'] == 'info':
             import cli.info as info
             info.main(params)
-        #elif args['<module>'] == 'inference':
-        #    import cli.inference as inference
-        #    inference.main(params)
         elif args['<module>'] == 'simulate':
             import cli.simulate as simulate
             simulate.main(params)
@@ -92,7 +89,7 @@ def main(gimble_dir):
             import cli.makegrid as makegrid
             makegrid.main(params)
         elif args['<module>'] == 'optimize' or args['<module>'] == 'optimise':
-            import cli.optimise as optimize
+            import cli.optimize as optimize
             optimize.main(params)
         else:
             sys.exit("%r is not a gimble module. See 'gimble -help'." % args['<module>'])

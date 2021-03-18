@@ -1,7 +1,4 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-"""usage: gIMble info                  -z FILE [--tree] [-h|--help]
+"""usage: gimbl info                  -z FILE [--tree] [-h|--help]
                                             
     Options:
         -z, --zarr_file FILE                        ZARR datastore
@@ -32,5 +29,5 @@ def main(params):
         print(info)
         print("[*] Total runtime was %s" % (lib.gimble.format_time(timer() - start_time)))
     except KeyboardInterrupt:
-        print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
+        print("\n[X] Interrupted by user after %s !\n" % (lib.gimble.format_time(timer() - start_time)))
         exit(-1)

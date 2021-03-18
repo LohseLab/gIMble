@@ -1,14 +1,14 @@
-"""usage: gimble blocks         -z <DIR> [-l <INT> -m <INT> -u <INT> -i <INT> -d -f -h]
+"""usage: gimbl blocks                   -z <DIR> [-l <INT> -m <INT> -u <INT> -i <INT> -d -f -h]
     
-    -z, --zarr <DIR>                            gIMble ZARR directory
+    -z, --zarr <DIR>                     gIMble ZARR directory
     
-    -l, --block_length <INT>                    Successively genotyped sites per block [default: 64] 
-    -m, --block_span <INT>                      Maximum distance between first and last site of a block (default: '-l' * 2)
-    -u, --max_multiallelic <INT>                Max multiallelics per block (default: round('-l' * 0.05))
-    -i, --max_missing <INT>                     Max missing per block (default: round('-l' * 0.05))
+    -l, --block_length <INT>             Successively genotyped sites per block [default: 64] 
+    -m, --block_span <INT>               Maximum distance between first and last site of a block (default: '-l' * 2)
+    -u, --max_multiallelic <INT>         Max multiallelics per block (default: round('-l' * 0.05))
+    -i, --max_missing <INT>              Max missing per block (default: round('-l' * 0.05))
 
-    -f, --force                                 Force overwrite of existing data
-    -d, --debug                                 Write debugging logs
+    -f, --force                          Force overwrite of existing data
+    -d, --debug                          Write debugging logs
     -h, --help                                  
 """
 import sys
@@ -61,5 +61,5 @@ def main(params):
         gimbleStore.log_action(module=parameterObj._MODULE, command=parameterObj._get_cmd())
         print("[*] Total runtime was %s" % (lib.gimble.format_time(timer() - start_time)))
     except KeyboardInterrupt:
-        print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
+        print("\n[X] Interrupted by user after %s !\n" % (lib.gimble.format_time(timer() - start_time)))
         exit(-1)
