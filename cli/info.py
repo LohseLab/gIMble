@@ -19,13 +19,19 @@ class InfoParameterObj(lib.gimble.ParameterObj):
         self.zstore = self._get_path(args['--zarr_file'])
         self.tree = args['--tree']
 
+'''[To Do]
+- MUST write info report to file
+'''
 def main(params):
     try:
         start_time = timer()
         args = docopt(__doc__)
         parameterObj = InfoParameterObj(params, args)
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore)
-        info = gimbleStore.info(tree=parameterObj.tree)
+        print("[+] Getting report. This might take a while ...")
+        info = gimbleStore.info(
+            version=parameterObj._VERSION,
+            tree=parameterObj.tree)
         print(info)
         print("[*] Total runtime was %s" % (lib.gimble.format_time(timer() - start_time)))
     except KeyboardInterrupt:

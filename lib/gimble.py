@@ -672,6 +672,14 @@ def calculate_blocks_report_metrics(tally, sample_sets_count, block_length, inte
         BRM['watterson_theta'] = total_segregating / float(harmonic(3)) / effective_length
     return BRM
 
+def write_info_report(version, report, prefix):
+    txt = ["# %s" % version, str(report)]
+    out_f = '%s.info.txt' % prefix
+    print("[+] Writing info file %s ..." % out_f)
+    with open(out_f, 'w') as out_fh:
+        out_fh.write("\n".join(txt) + "\n")
+    return out_f
+
 def get_popgen_metrics(array, sites=0):
     '''only works for mutypes=4
     Possible inputs: 
@@ -2853,7 +2861,7 @@ class Store(object):
                 format_count(meta_windows['count'])))
         return reportObj
 
-    def info(self, tree=False):
+    def info(self, version=None, tree=False):
         width = 100
         if tree:
             return self.data.tree()
@@ -2865,7 +2873,7 @@ class Store(object):
         report += self._get_lncls_report(width)
         #report += self._get_bsfs_report(width)
         #report += self._get_sims_report(width)
-        # multiple instance data
+        write_info_report(version, report, self.prefix)
         return report
 
     def _get_grids_report(self, width):
