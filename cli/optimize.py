@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-usage: gimble optimize                  [-z FILE] -c FILE -m FILE (-b [-n INT]|-w| --simID <STR>) [--track] 
+usage: gimble optimize                  [-z FILE] -c FILE (-b [-n INT]|-w| --simID <STR>) [--track] 
                                             [-x FLOAT -i INT] [-f FLOAT] [-p] [--inner_pool <INT> --outer_pool <INT>]
                                             [-h|--help]
                                             
@@ -11,7 +11,6 @@ usage: gimble optimize                  [-z FILE] -c FILE -m FILE (-b [-n INT]|-
         -h --help                                   show this
         -z, --zarr_file FILE                        ZARR datastore
         -c, --config_file FILE                      INI config file
-        -m, --model_file FILE                       gimble model TSV
         -b, --blocks                                Optimize based on blocks 
         -w, --windows                               Optimize based on windows (might take very long)
         --simID STR                                 Provide name of simulation run to optimize
@@ -27,9 +26,6 @@ from timeit import default_timer as timer
 from docopt import docopt
 import sys
 import lib.gimble
-import lib.math
-import zarr
-import numpy as np
 
 class OptimizeParameterObj(lib.gimble.ParameterObj):
     '''Sanitises command line arguments and stores parameters.'''
@@ -39,7 +35,9 @@ class OptimizeParameterObj(lib.gimble.ParameterObj):
         self.zstore = self._get_path(args['--zarr_file'])
         self.data_type = self._get_datatype(args)
         self.config_file = self._get_path(args['--config_file'])
-        self.model_file = self._get_path(args['--model_file'])
+        self.old_parse_config(self.config_file)
+        #self._parse_config(self.config_file)
+        self.model_file = self._get_model_f()
         #self.threads, self.gridThreads = [self._get_int(t) for t in args["--threads"].split(',')]
         self.threads = self._get_int(args['--inner_pool']) #number of workers for a single set of equations to be solved
         self.gridThreads = self._get_int(args['--outer_pool']) #number of workers for independent processes
@@ -48,10 +46,6 @@ class OptimizeParameterObj(lib.gimble.ParameterObj):
         self.xtol_rel = self._get_float(args['--xtol_rel'])
         self.ftol_rel = self._get_float(args['--ftol_rel'])
         self.trackHistory = args['--track']
-        self.config = None
-        self.toBeSynced = None
-        self.reference = None
-        self._parse_config(self.config_file)
 
     def _get_datatype(self, args):
         choices = [args['--blocks'], args['--windows'], args['--simID']]
@@ -65,6 +59,9 @@ class OptimizeParameterObj(lib.gimble.ParameterObj):
             self.label = args["--simID"]
             return 'simulate'
 
+    def _get_model_f(self):
+        return self.config['gimble']['model']
+
 def main(params):
     try:
         start_time = timer()
@@ -72,8 +69,7 @@ def main(params):
         parameterObj = OptimizeParameterObj(params, args)
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
         gimbleStore.optimize(parameterObj)
-        
-        print("[*] Total runtime: %.3fs" % (timer() - start_time))
+        print("[*] Total runtime was %s" % (lib.gimble.format_time(timer() - start_time)))
     except KeyboardInterrupt:
-        print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
+        print("\n[X] Interrupted by user after %s !\n" % (lib.gimble.format_time(timer() - start_time)))
         exit(-1)

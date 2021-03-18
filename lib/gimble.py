@@ -17,17 +17,14 @@ import configparser
 import matplotlib.pyplot as plt
 from matplotlib.path import Path
 import matplotlib.patches as patches
-import numpy as np
 import cerberus
 import lib.simulate
 #import dask
 import hashlib 
-from timeit import default_timer as timer
 import fractions
 import copy
 import lib.math
 import tabulate
-import warnings
 # np.set_printoptions(threshold=sys.maxsize)
 
 
@@ -67,30 +64,6 @@ DFRT = '├──'
 DPPM = '    '
 DFRL = '└──'
 DPPL = '│   '
-
-############## Only needed once we have demand for multidimensional pairing function
-# def multidimensional_box_pairing(lengths: List[int], indexes: List[int]) -> int:
-#     n = len(lengths)
-#     index = 0
-#     dimension_product = 1
-#     for dimension in reversed(range(n)):
-#         index += indexes[dimension] * dimension_product
-#         dimension_product *= lengths[dimension]
-#     return index
-# def multidimensional_szudzik_pairing(*indexes: int) -> int:
-#     n = len(indexes)
-#     if n == 0:
-#         return 0
-#     shell = max(indexes)
-#     def recursive_index(dim: int):
-#         slice_dims = n - dim - 1
-#         subshell_count = (shell + 1) ** slice_dims - shell ** slice_dims
-#         index_i = indexes[dim]
-#         if index_i == shell:
-#             return subshell_count * shell + multidimensional_box_pairing([shell + 1] * slice_dims, indexes[dim + 1:])
-#         else:
-#             return subshell_count * index_i + recursive_index(dim + 1)
-#     return shell ** n + recursive_index(0)
 
 SIGNS = {
         'T': '%s%s%s' % (u"\u251C", u"\u2500", u"\u2500"),  # '├──'
@@ -160,6 +133,7 @@ META_TEMPLATE_BY_STAGE = {
         }
 
 def get_validator_error_string(validator_errors):
+    # parameterObj file ...
     out = []
     for section, errors in validator_errors.items():
         out.append("Section %s ..." % section)
@@ -186,15 +160,6 @@ class ReportObj(object):
     '''Report class for making reports'''
 
     def __init__(self, width=80):
-        '''
-        Parameters 
-        ----------
-        width : int, width of report in characters, default=80
-        
-        Returns
-        -------
-        out : instance
-        '''
         self.width = width
         self.out = []
     
@@ -224,13 +189,259 @@ class ReportObj(object):
 
     def __repr__(self):
         return "\n".join(self.out)
+
+
+def get_config(config_file, module):
+    parser = configparser.ConfigParser(inline_comment_prefixes='#', allow_no_value=True)
+    parser.optionxform=str # otherwise keys are lowercase
+    parser.read(config_file)
+    parsee = {s: dict(parser.items(s)) for s in parser.sections()}
+    print("[PARSEE]", parsee)
+    schema = get_config_schema_new(module)
+    validator = NewCustomNormalizer(schema, module=module, purge_unknown=True)
+    validator.validate(parsee)
+    if not validator.validate(parsee):
+        validator_error_string = get_validator_error_string(validator.errors)
+        sys.exit("[X] INI Config file format error(s) ...\n%s" % validator_error_string)
+    config = validator.normalized(parsee)
+    print('[POST-VALIDATION]', config)
+    config['populations']['sample_pop_ids'] = sample_pop_ids
+    config['population_by_letter'] = {pop_id: config['populations'][pop_id] for pop_id in sample_pop_ids}
+    config['max_k'] = np.array(list(config['k_max'].values()))
+    # self.config['mu']['blocklength'] = self._get_blocks_length() # check later ...
     
-def get_config_schema(module):
+    print('[POST-AAA_get_pops_to_sync]', config)
+    config['reference'] = reference
+    config['toBeSynced'] = toBeSynced
+    config['parameter_combinations'] = make_parameter_combinations(config, module=module, sync_reference=reference, sync_target=toBeSynced)
+    print('[POST-GET]', config)
+
+class NewCustomNormalizer(cerberus.Validator):
+    # move to parameterObj file ...
+    def __init__(self, *args, **kwargs):
+        super(NewCustomNormalizer, self).__init__(*args, **kwargs)
+        self.module = kwargs['module']
+
+    def _normalize_coerce_pop_ids(self, value):
+        pop_ids = [v for v in value.replace(" ", "").split(",") if v]
+        return pop_ids if pop_ids else None
+
+    def _normalize_coerce_reference_pop_id(self, value):
+        if value in set(self.document['pop_ids']):
+            return value
+        self._error('reference_pop', 
+            "invalid reference_pop: %r. Must be one of the following: %s" % (value, ", ".join(self.document['pop_ids'])))
+        return value
+
+    def _normalize_coerce_sync_pop_sizes(self, value):
+        sync_pop_ids = set(self._normalize_coerce_pop_ids(value))
+        if sync_pop_ids:
+            sync_pop_ids_valid_sets = set([frozenset(self._normalize_coerce_pop_ids(",".join(pops))) for pops in list(itertools.chain.from_iterable(
+                itertools.combinations(self.document['pop_ids'], r) for r in range(len(self.document['pop_ids'])+1)))[4:]])
+            if sync_pop_ids in sync_pop_ids_valid_sets:
+                pops_to_sync = set(self.document['reference_pop']).difference(sync_pop_ids)
+                return sorted(pops_to_sync)
+            else:
+                self._error('sync_pop_ids', 'invalid sync_pop_ids: %r. Must be one of the following: %s' % (value, ", ".join(sync_pop_ids_valid_sets)))
+        return []
+
+    def _normalize_coerce_float_or_list(self, value):
+        values = value.strip('()[]').replace(' ', '').split(",")
+        try:
+            if len(values) == 4 and values[-1] in set(['lin', 'log']):
+                return [float(values[0]), float(values[1]), int(values[2]), values[3]]
+            elif len(values) == 2:
+                return [float(values[0]), float(values[1])]
+            elif len(values) == 1:
+                return [float(values[0])]
+            else:
+                return None
+        except ValueError:
+            return None
+
+    def _normalize_coerce_float_or_empty(self, value):
+        value = value.replace(" ", "")
+        if value:
+            try:
+                return float(value)
+            except ValueError:
+                return None
+        return value
+
+    def _normalize_coerce_int_or_empty(self, value):
+        value = value.replace(" ", "")
+        if value:
+            try:
+                return int(value)
+            except ValueError:
+                return None
+        return value
+
+    def _validate_notNoneInt(self, notNoneNumeric, field, value):
+        """{'type':'boolean'}"""
+        if value == None and notNoneNumeric:
+            self._error(field, "Must be an int value or empty")
+    
+    def _validate_notNoneFloat(self, notNoneNumeric, field, value):
+        """{'type':'boolean'}"""
+        if value == None and notNoneNumeric:
+            self._error(field, "Must be a float or empty")
+
+    def _validate_notNone(self, notNone, field, value):
+        """{'type':'boolean'}"""
+        if not value and notNone:
+            self._error(field, "Must be FLOAT, or (MIN, MAX), or (MIN, MAX, STEPS, LIN|LOG).")
+
+    def _validate_isPath(self, isPath, field, value):
+        """{'type':'boolean'}"""
+        if value.strip(" ") != '' and not os.path.isfile(value):
+            if field == 'model':
+                self._error(field, 'Must be a valid path to a model file. Not %r' % value)
+            else:
+                self._error(field, 'Must be a valid path to the recombination map. Not %r' % value)
+
+
+def get_config_schema_new(module):
+    # [To Do] 
+    # move to parameterObj file
     schema = {
         'gimble': {
             'type': 'dict',
             'schema': {
                 'version': {'required': True, 'empty':False, 'type': 'string'},
+                'model': {'required': True, 'empty':False, 'type': 'string', 'isPath': True},
+                'precision': {'required': True, 'empty':False, 'type': 'integer', 'coerce': int},
+                'random_seed': {'required': True, 'empty':False, 'type': 'integer', 'coerce': int}}},
+        'populations': {
+            'type': 'dict', 
+            'schema': {
+                'pop_ids': {'required': True, 'empty':False, 'type': 'list', 'coerce': 'pop_ids'},
+                'A': {'required':True, 'empty':True, 'type':'string'},
+                'B': {'required':True, 'empty':True, 'type':'string'},
+                'reference_pop': {'required':True, 'empty':False, 'type': 'string', 'coerce': 'reference_pop_id'},
+                'sync_pop_sizes': {'required':False, 'empty':True, 'type': 'list', 'coerce': 'sync_pop_sizes'},
+                }},
+        'k_max': {
+            'type': 'dict', 
+            'valuesrules': {'required': True, 'empty':False, 'type': 'integer', 'min': 1, 'coerce':int}},
+        'mu': {
+            'type':'dict', 
+            'schema':{
+                'mu': {'required': False, 'empty':True, 'type': 'float', 'coerce':float},
+                'blocklength': {'required': False, 'empty':True,'notNoneInt':True, 'coerce':'int_or_empty'}
+                }},
+        'parameters': {
+            'type': 'dict', 'required':True, 'empty':False, 
+            'valuesrules': {'coerce':'float_or_list', 'notNone':True}
+        },
+        'simulations':{
+            'required':False, 'empty':True}
+        }
+    if module == 'simulate':
+        schema['simulations'] = {
+            'type': 'dict',
+            'required':True,
+            'schema': {
+                'ploidy': {'required':True,'empty':False, 'required':True, 'type':'integer', 'min':1, 'coerce':int},
+                'blocks': {'required':True, 'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+                'chunks': {'required':True, 'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+                'replicates': {'required':True,'empty': False, 'type': 'integer', 'min':1, 'coerce':int},
+                'sample_size_A': {'required':True,'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+                'sample_size_B': {'required':True,'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+                'recombination_rate': {'empty': True, 'notNoneFloat':True, 'coerce':'float_or_empty', 'min':0.0},
+                'recombination_map': {'empty': True, 'type': 'string', 'isPath': True, 'dependencies':['number_bins', 'cutoff', 'scale']},
+                'number_bins': {'empty': True, 'notNoneInt': True, 'coerce':'int_or_empty', 'min':1},
+                'cutoff': {'empty': True, 'notNoneFloat': True, 'coerce':'float_or_empty', 'min':0},
+                'scale': {'empty':True, 'type':'string', 'allowed':['lin', 'log']}
+        }}
+        schema['mu'] = {
+            'type':'dict', 
+            'schema':{
+                'mu': {'required': True, 'empty':False, 'type': 'float', 'coerce':float},
+                'blocklength': {'required': False, 'empty':True, 'min':1, 'type': 'integer', 'coerce':int}
+                }}
+    return schema
+
+
+
+def get_fixed_params(config, subgroup=None, as_dict=False):
+    print("config['parameters']", config['parameters'])
+    print("config['parameter_combinations']", config['parameter_combinations'])
+    if not as_dict:
+        fixed_params =  [param for param,value in config['parameters'].items() if isinstance(value,float) or isinstance(value,int)]
+        if subgroup:
+            fixed_params = [param for param in fixed_params if param.startswith(subgroup)]
+        return fixed_params
+    else:
+        fixedParams = {k:next(iter(v)) for k, v in config['parameter_combinations'].items() if len(set(v))==1}
+        fixedParams['mu'] = config['mu']['mu']
+        if subgroup:
+            fixedParams = {k:v for k,v in fixedParams.items() if k.startswith(subgroup)}
+        return fixedParams
+
+def expand_params(config, module, remove=None):
+    if len(config['parameters'])>0:
+        parameter_combinations = collections.defaultdict(list)
+        if remove is not None:
+            for key in remove:
+                del config['parameters'][f'Ne_{key}']
+        for key, value in config['parameters'].items():
+            if isinstance(value, float) or isinstance(value, int):
+                parameter_combinations[key]=np.array([value,], dtype=np.float64)
+            elif key=='recombination':
+                pass
+            else:
+                if len(value) == 4:
+                    if module == 'optimize':
+                        sys.exit(f"[X] {module} requires a single point or boundary for all parameters.")
+                    minv, maxv, n, scale = value
+                    sim_range = expand_params_scale(scale, minv, maxv, n)
+                    parameter_combinations[key] = sim_range
+                elif len(value) <= 2:
+                    parameter_combinations[key] = np.unique(value)
+                else:
+                    raise ValueError("Uncaught error in config file configuration.")
+        return parameter_combinations
+    else:
+        raise ValueError("config parameters does not contain any parameters.")
+
+def expand_params_scale(scale, minv, maxv, n):
+    if scale.startswith('lin'):
+        return np.linspace(minv, maxv, num=n, endpoint=True, dtype=np.float64)
+    elif scale.startswith('log'):
+        return np.logspace(minv, maxv, num=n, endpoint=True, dtype=np.float64)
+    else:
+        sys.exit("scale in config parameters should either be lin or log")
+
+def make_parameter_combinations(config, module=None, sync_reference=None, sync_target=None):
+    parameter_combinations = expand_params(config, module, remove=sync_target)
+    if module == 'optimize':
+        return parameter_combinations
+    if module == 'simulate':
+        rec = lib.simulate._set_recombination_rate()
+        if rec != None:
+            parameter_combinations['recombination'] = rec
+    parameter_combinations =  _dict_product(parameter_combinations)
+    if sync_reference and sync_target:
+        for pop in sync_target:
+            parameter_combinations[f'Ne_{pop}'] = parameter_combinations[f'Ne_{sync_reference}']
+    return parameter_combinations
+
+def _dict_product(parameter_dict):
+    cartesian_product = itertools.product(*parameter_dict.values())
+    rearranged_product = list(zip(*cartesian_product))
+    return {k:np.array(v,dtype=np.float64) for k,v in zip(parameter_dict.keys(), rearranged_product)}
+
+def get_config_schema(module):
+    # [To Do] 
+    # move to parameterObj file
+    schema = {
+        'gimble': {
+            'type': 'dict',
+            'schema': {
+                'version': {'required': True, 'empty':False, 'type': 'string'},
+                'model': {'required': True, 'empty':False, 'type': 'string'},
+                'pop_ids': {'required': True, 'empty':False, 'type': 'string'},
                 'precision': {'required': True, 'empty':False, 'type': 'integer', 'coerce': int},
                 'random_seed': {'required': True, 'empty':False, 'type': 'integer', 'coerce': int}}},
         'populations': {
@@ -259,20 +470,20 @@ def get_config_schema(module):
         }
     if module == 'simulate':
         schema['simulations'] = {
-        'type': 'dict',
-        'required':True,
-        'schema': {
-            'ploidy': {'required':True,'empty':False, 'required':True, 'type':'integer', 'min':1, 'coerce':int},
-            'blocks': {'required':True, 'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
-            'chunks': {'required':True, 'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
-            'replicates': {'required':True,'empty': False, 'type': 'integer', 'min':1, 'coerce':int},
-            'sample_size_A': {'required':True,'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
-            'sample_size_B': {'required':True,'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
-            'recombination_rate': {'empty': True, 'notNoneFloat':True, 'coerce':'float_or_empty', 'min':0.0},
-            'recombination_map': {'empty': True, 'type': 'string', 'isPath':True, 'dependencies':['number_bins', 'cutoff', 'scale']},
-            'number_bins': {'empty': True, 'notNoneInt': True, 'coerce':'int_or_empty', 'min':1},
-            'cutoff': {'empty': True, 'notNoneFloat': True, 'coerce':'float_or_empty', 'min':0},
-            'scale': {'empty':True, 'type':'string', 'allowed':['lin', 'log']}
+            'type': 'dict',
+            'required':True,
+            'schema': {
+                'ploidy': {'required':True,'empty':False, 'required':True, 'type':'integer', 'min':1, 'coerce':int},
+                'blocks': {'required':True, 'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+                'chunks': {'required':True, 'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+                'replicates': {'required':True,'empty': False, 'type': 'integer', 'min':1, 'coerce':int},
+                'sample_size_A': {'required':True,'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+                'sample_size_B': {'required':True,'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+                'recombination_rate': {'empty': True, 'notNoneFloat':True, 'coerce':'float_or_empty', 'min':0.0},
+                'recombination_map': {'empty': True, 'type': 'string', 'isPath':True, 'dependencies':['number_bins', 'cutoff', 'scale']},
+                'number_bins': {'empty': True, 'notNoneInt': True, 'coerce':'int_or_empty', 'min':1},
+                'cutoff': {'empty': True, 'notNoneFloat': True, 'coerce':'float_or_empty', 'min':0},
+                'scale': {'empty':True, 'type':'string', 'allowed':['lin', 'log']}
         }}
         schema['mu'] = {
             'type':'dict', 
@@ -298,6 +509,8 @@ def parse_csv(csv_f='', dtype=[], usecols=[], sep=',', header=None):
     if df.isnull().values.any():
         sys.exit("[X] Bad file format %r." % csv_f)
     return df
+
+# all formats should be in another file 
 
 def format_bases(bases):
     if bases in set(['-', 'N/A']):
@@ -489,24 +702,11 @@ def szudzik_pairing(folded_minor_allele_counts):
     # adapted from: https://drhagen.com/blog/superior-pairing-function/
     return np.where(
             (folded_minor_allele_counts[:,0] >= folded_minor_allele_counts[:,1]),
-            np.square(folded_minor_allele_counts[:,0]) + folded_minor_allele_counts[:,0] + folded_minor_allele_counts[:,1],
-            folded_minor_allele_counts[:,0] + np.square(folded_minor_allele_counts[:,1])
+            (np.square(folded_minor_allele_counts[:,0]) + 
+                folded_minor_allele_counts[:,0] + folded_minor_allele_counts[:,1]),
+            (np.square(folded_minor_allele_counts[:,1]) + 
+                folded_minor_allele_counts[:,0])
             )
-    #if isinstance(folded_minor_allele_counts, np.ndarray):
-    #    # assumes folded_minor_allele_counts is array with shape (n,2)
-    #    return np.where(
-    #        (folded_minor_allele_counts[:,0] >= folded_minor_allele_counts[:,1]),
-    #        np.square(folded_minor_allele_counts[:,0]) + folded_minor_allele_counts[:,0] + folded_minor_allele_counts[:,1],
-    #        folded_minor_allele_counts[:,0] + np.square(folded_minor_allele_counts[:,1])
-    #        )
-    #elif isinstance(folded_minor_allele_counts, tuple):
-    #    # assumes folded_minor_allele_counts is tuple of size 2
-    #    a, b = folded_minor_allele_counts
-    #    if a >= b:
-    #        return (a**2) + a + b 
-    #    return a + (b**2)
-    #else:
-    #    pass
 
 def _harmonic(a, b):
     if b-a == 1:
@@ -536,18 +736,27 @@ def cut_windows(mutype_array, idxs, start_array, end_array, num_blocks=10, num_s
     window_pos_median = np.median(window_midpoints, axis=1).T
     return window_mutypes, window_starts, window_ends, window_pos_mean, window_pos_median
 
-def chisq(window_samples_set_idxs):
+def chisq(sample_set_idxs, window_samples_set_idxs):
     spacer = (np.max(window_samples_set_idxs)+1)
-    sample_sets = np.unique(window_samples_set_idxs)
     window_count = window_samples_set_idxs.shape[0]
     window_size = window_samples_set_idxs.shape[1]
     temp_sites = window_samples_set_idxs + (spacer * np.arange(window_count, dtype=np.int64).reshape(window_count, 1))
-    obs = np.bincount(temp_sites.ravel(), minlength=(window_count * spacer)).reshape(-1, spacer)[:,sample_sets]
+    obs = np.bincount(temp_sites.ravel(), minlength=(window_count * spacer)).reshape(-1, spacer)[:,sample_set_idxs]
     #print(obs)
-    exp = np.full(obs.shape, window_size/sample_sets.shape[0])
+    exp = np.full(obs.shape, window_size/sample_set_idxs.shape[0])
     return np.sum((((obs-exp)**2)/exp), axis=1) # / sample_sets.shape[0]
 
-def blocks_to_windows(block_variation, start_array, end_array, block_sample_set_idxs, window_size, window_step):
+def mse(sample_set_idxs, window_samples_set_idxs):
+    spacer = (np.max(window_samples_set_idxs)+1)
+    window_count = window_samples_set_idxs.shape[0]
+    window_size = window_samples_set_idxs.shape[1]
+    temp_sites = window_samples_set_idxs + (spacer * np.arange(window_count, dtype=np.int64).reshape(window_count, 1))
+    obs = np.bincount(temp_sites.ravel(), minlength=(window_count * spacer)).reshape(-1, spacer)[:,sample_set_idxs]
+    #print(obs)
+    exp = np.full(obs.shape, window_size/sample_set_idxs.shape[0])
+    return np.sum((((obs-exp)**2)/sample_set_idxs.shape[0]), axis=1) 
+
+def blocks_to_windows(sample_set_idxs, block_variation, start_array, end_array, block_sample_set_idxs, window_size, window_step):
     # order of blocks is defined by end_array, 
     coordinate_sorted_idx = np.argsort(end_array) 
     # elements in windows are defined by window_idxs -> shape(n, window_size)
@@ -562,12 +771,13 @@ def blocks_to_windows(block_variation, start_array, end_array, block_sample_set_
     window_samples_set_idxs = block_sample_set_idxs.take(coordinate_sorted_idx, axis=0).take(window_idxs, axis=0)
     #np.set_printoptions(threshold=sys.maxsize)
     #print(window_samples_set_idxs)
-    balance = chisq(window_samples_set_idxs)
+    balance = chisq(sample_set_idxs, window_samples_set_idxs)
+    mse_sample_set_cov = mse(sample_set_idxs, window_samples_set_idxs)
     #print('balance', balance)
     block_midpoints = (block_starts / 2) + (block_ends / 2)
     window_pos_mean = np.rint(np.mean(block_midpoints, axis=1).T)
     window_pos_median = np.rint(np.median(block_midpoints, axis=1).T)
-    return (window_variation, window_starts, window_ends, window_pos_mean, window_pos_median, balance)
+    return (window_variation, window_starts, window_ends, window_pos_mean, window_pos_median, balance, mse_sample_set_cov)
 
 def block_sites_to_variation_arrays(block_sites, cols=np.array([1,2,3]), max_type_count=7):
     temp_sites = block_sites + (max_type_count * np.arange(block_sites.shape[0], dtype=np.int64).reshape(block_sites.shape[0], 1))
@@ -717,11 +927,6 @@ def tally_variation(variation, form='bsfs', max_k=None):
         sys.exit('[X] tally_variation() ran out of memory. Try specifying lower k-max values. %s.' % str(e))
     return out
 
-def calculate_bsfs_marginality(bsfs_2d, kmax_by_mutype=None):
-    if not kmax_by_mutype:
-        return format_percentage(0.0)
-    return format_percentage(np.sum(bsfs_2d[np.any((np.array(list(kmax_by_mutype.values())) - bsfs_2d[:,1:]) < 0, axis=1), 0]) / np.sum(bsfs_2d[:,0]))
-
 def calculate_marginality(tally, max_k=None):
     if max_k is None:
         return format_percentage(0.0)
@@ -751,6 +956,7 @@ def grid_meta_dict_to_value_arrays_by_parameter(grid_meta_dict):
     return values_by_parameter
 
 class CustomNormalizer(cerberus.Validator):
+    # move to parameterObj file ...
     def __init__(self, *args, **kwargs):
         super(CustomNormalizer, self).__init__(*args, **kwargs)
         self.valid_pop_ids = kwargs['valid_pop_ids']
@@ -838,10 +1044,6 @@ class CustomNormalizer(cerberus.Validator):
         if value.strip(" ") != '' and not os.path.isfile(value):
             self._error(field, 'Must be a valid path to the recombination map.')
 
-#def get_unique_hash(parameterObj, purpose='makegrid'):
-#    if purpose == 'makegrid':
-#        print(parameterObj)
-
 class ParameterObj(object):
     '''Superclass ParameterObj'''
     def __init__(self, params):
@@ -868,6 +1070,7 @@ class ParameterObj(object):
         return [dict(zip(pdict, x)) for x in zip(*pdict.values())]
 
     def _get_blocks_length(self):
+        warnings.warn("lib.gimble._get_blocks_length() is deprecated.", DeprecationWarning)
         blocks_length_zarr = None
         blocks_length_ini = self._get_int(self.config['mu']['blocklength'], ret_none=True)
         if self.zstore:
@@ -948,13 +1151,15 @@ class ParameterObj(object):
             sys.exit("[X] Path does not exist: %r" % str(parent_path))
         return str(path)
 
-    def _get_pops_to_sync(self, config=None, valid_sync_pops=None):
+    def AAA_get_pops_to_sync(self, config=None, valid_sync_pops=None):
+        print('####### AAA_get_pops_to_sync')
         reference, to_be_synced = None, None
-        if config:
-            syncing = config['populations']['sync_pop_sizes']
-            reference_pop = config['populations']['reference_pop']
-        else:
-            syncing =  self.config['populations']['sync_pop_sizes']
+        print('config', config)
+        print('valid_sync_pops', valid_sync_pops)
+        syncing = config['populations']['sync_pop_sizes']
+        reference_pop = config['populations']['reference_pop']
+        print('reference_pop', reference_pop)
+        print('syncing', syncing)
         if syncing:
             if len(syncing)>0:
                 syncing = syncing.split(',')
@@ -972,7 +1177,40 @@ class ParameterObj(object):
                     if len(fixed_Nes)>0:
                         if not f"Ne_{reference_pop}" in fixed_Nes:
                             sys.exit("[X] No. No. No. It would make much more sense to set a population with a fixed size as reference.")
+        print('reference', reference)
+        print('to_be_synced', to_be_synced)
+        return (reference, to_be_synced)
 
+    def _get_pops_to_sync(self, config=None, valid_sync_pops=None):
+        print('_get_pops_to_sync_old')
+        reference, to_be_synced = None, None
+        print('valid_sync_pops', valid_sync_pops)
+        if config:
+            syncing = config['populations']['sync_pop_sizes']
+            reference_pop = config['populations']['reference_pop']
+        else:
+            syncing =  self.config['populations']['sync_pop_sizes']
+        print('reference_pop', reference_pop)
+        print('syncing', syncing)
+        if syncing:
+            if len(syncing)>0:
+                syncing = syncing.split(',')
+                reference = syncing[0]
+                to_be_synced = syncing[1:]
+                if self.config['populations']['reference_pop'] in to_be_synced:
+                    sys.exit(f"[X] Set reference pop to {reference}.")
+                reference_size = config['parameters'][f'Ne_{reference}']
+                tBS_sizes = [config['parameters'][f'Ne_{pop}'] for pop in to_be_synced]
+                reference_size = [s for s in tBS_sizes if s!=None and s!=reference_size and s!='']
+                if len(reference_size)>0:
+                    sys.exit(f"[X] Syncing pop sizes: set no value or the same value for Ne_{', Ne_'.join(to_be_synced)} as for Ne_{reference}")         
+                if self._MODULE == 'optimize':
+                    fixed_Nes = self._get_fixed_params(subgroup='Ne')
+                    if len(fixed_Nes)>0:
+                        if not f"Ne_{reference_pop}" in fixed_Nes:
+                            sys.exit("[X] No. No. No. It would make much more sense to set a population with a fixed size as reference.")
+        print('reference', reference)
+        print('to_be_synced', to_be_synced)
         return (reference, to_be_synced)
 
     def _get_unique_hash_from_dict(self, d):
@@ -983,6 +1221,7 @@ class ParameterObj(object):
         '''passive'''
         module = module if module else self._MODULE
         to_hash = copy.deepcopy(self.config)
+        #print('to_hash', to_hash)
         if module in set(['makegrid','gridsearch', 'query']):
             del to_hash['simulations']
             if 'kmax_by_mutype' in to_hash:
@@ -1049,14 +1288,7 @@ class ParameterObj(object):
                 parameter_combinations[f'Ne_{pop}'] = parameter_combinations[f'Ne_{sync_reference}']
         return parameter_combinations
 
-    def _parse_config(self, config_file):
-        '''validates types in INI config, returns dict with keys, values as sections/params/etc
-        - does not deal with missing/incompatible values (should be dealt with in ParameterObj subclasses)
-            https://docs.python-cerberus.org/en/stable/usage.html
-
-        '''
-        #validating config
-   
+    def old_parse_config(self, config_file):
         raw_config = configparser.ConfigParser(inline_comment_prefixes='#', allow_no_value=True)
         raw_config.optionxform=str # otherwise keys are lowercase
         raw_config.read(config_file)
@@ -1080,9 +1312,14 @@ class ParameterObj(object):
 
         self.config['populations']['sample_pop_ids'] = sample_pop_ids
         self.config['population_by_letter'] = {pop:config['populations'][pop] for pop in sample_pop_ids}
-        self.config['mu']['blocklength'] = self._get_blocks_length()
+        self.config['mu']['blocklength'] = self._get_blocks_length() 
         self.reference, self.toBeSynced = self._get_pops_to_sync(config, valid_sync_pops)
+        print('self.reference', self.reference)
+        print('self.toBeSynced', self.toBeSynced)
+        print(self.config)
         self.parameter_combinations = self._make_parameter_combinations(sync_reference=self.reference, sync_target=self.toBeSynced)
+        print('*** self.parameter_combinations', self.parameter_combinations)
+        print('*** self.config', self.config)
         
 class Store(object):
     def __init__(self, prefix=None, path=None, create=False, overwrite=False):
@@ -1169,18 +1406,23 @@ class Store(object):
         self._preflight_query(data_type, data_format)
         if data_format == 'bed':
             if data_type == 'windows':
-                print("[#] Writing window BED...")
                 self._write_window_bed(version)
         elif data_format == 'tally':
             self._write_tally_tsv(data_type=data_type, sample_sets='X', max_k=max_k)
         elif data_format == 'lncls':
+            # needs to be called with explicit args
             self.dump_lncls(parameterObj)
         else:
             sys.exit("[+] Nothing to be done.")
 
     def _write_tally_tsv(self, data_type=None, sequences=None, sample_sets=None, population_by_letter=None, max_k=None):
-        header = ['count', '1', '2', '3', '4']
-        print("[#] Getting %s variation tally ..." % data_type)
+        if data_type == 'blocks' or data_type == 'windows_sum':
+            header = ['count', 'm_1', 'm_2', 'm_3', 'm_4']
+        elif data_type == 'windows':
+            header = ['window_idx', 'count', 'm_1', 'm_2', 'm_3', 'm_4']
+        else:
+            raise ValueError("Invalid data type %s" % data_type) 
+        print("[#] Getting variation tally for %s ..." % data_type)
         variation_tally = tally_variation(self._get_variation(data_type=data_type, sample_sets='X', sequences=sequences, population_by_letter=population_by_letter), form='tally', max_k=max_k)
         variation_tally_marginality = calculate_marginality(variation_tally, max_k=max_k) # float, proportion of data summarised at that kmax_by_mutype
         print('[+] Proportion of data in marginals (w/ kmax = %s) = %s' % (max_k if max_k is None else list(max_k), variation_tally_marginality))
@@ -1189,8 +1431,7 @@ class Store(object):
             sequences=sequences,
             sample_sets=sample_sets,
             population_by_letter=population_by_letter,
-            max_k=max_k
-            )
+            max_k=max_k)
         print("[#] Writing %s ..." % tally_filename)
         pd.DataFrame(data=variation_tally, columns=header, dtype='int64').to_csv(tally_filename, index=False, sep='\t')
 
@@ -1209,11 +1450,29 @@ class Store(object):
         elif data_type == 'windows':
             meta_blocks = self._get_meta('blocks')
             meta_windows = self._get_meta('windows')
-            return "%s.l_%s.m_%s.i_%s.u_%s.w_%s.s_%s.tally.%s.tsv" % (self.prefix, meta_blocks['length'], meta_blocks['span'], meta_blocks['max_missing'], meta_blocks['max_multiallelic'], meta_windows['size'], meta_windows['step'], data_type)
+            return "%s.l_%s.m_%s.i_%s.u_%s.w_%s.s_%s.kmax_%s.tally.%s.tsv" % (
+                self.prefix, 
+                meta_blocks['length'], 
+                meta_blocks['span'], 
+                meta_blocks['max_missing'], 
+                meta_blocks['max_multiallelic'], 
+                meta_windows['size'], 
+                meta_windows['step'],
+                "None" if max_k is None else "_".join([str(k) for k in list(max_k)]),  
+                data_type)
         elif data_type == 'windows_sum':
             meta_blocks = self._get_meta('blocks')
             meta_windows = self._get_meta('windows')
-            return "%s.l_%s.m_%s.i_%s.u_%s.w_%s.s_%s.tally.%s.tsv" % (self.prefix, meta_blocks['length'], meta_blocks['span'], meta_blocks['max_missing'], meta_blocks['max_multiallelic'], meta_windows['size'], meta_windows['step'], data_type)
+            return "%s.l_%s.m_%s.i_%s.u_%s.w_%s.s_%s.kmax_%s.tally.%s.tsv" % (
+                self.prefix, 
+                meta_blocks['length'], 
+                meta_blocks['span'], 
+                meta_blocks['max_missing'], 
+                meta_blocks['max_multiallelic'], 
+                meta_windows['size'], 
+                meta_windows['step'], 
+                "None" if max_k is None else "_".join([str(k) for k in list(max_k)]), 
+                data_type)
         else:
             raise ValueError("data_type %s is not defined" % data_type)
 
@@ -1505,7 +1764,8 @@ class Store(object):
         lncls_windows = np.array(self.data[key_windows], dtype=np.float64)
         return (lncls_global, lncls_windows)
 
-    def optimize(self, parameterObj):
+    def old_optimize(self, parameterObj):
+        print("optimize parameterObj.config :", parameterObj.config)
         if not self.has_stage(parameterObj.data_type):
             sys.exit("[X] gimbleStore has no %r." % parameterObj.data_type)
         label = parameterObj.label if hasattr(parameterObj, 'label') else parameterObj._get_unique_hash()
@@ -1522,6 +1782,69 @@ class Store(object):
             label=label
             )
 
+        #resample blocks and determine for each parameter ftol_abs
+        self._set_stopping_criteria(data, parameterObj, label)
+        # load math.EquationSystemObj
+        equationSystem = lib.math.EquationSystemObj(
+            parameterObj.model_file, 
+            parameterObj.config['populations']['reference_pop'],
+            parameterObj.config['k_max'],
+            parameterObj.config['mu']['blocklength'],
+            parameterObj.config['mu']['mu'],
+            seed=parameterObj.config['gimble']['random_seed'],
+            module="optimize",
+            threads=parameterObj.threads
+            )
+        # initiate model equations
+        equationSystem.initiate_model(sync_ref=parameterObj.reference, sync_targets=parameterObj.toBeSynced)
+        #this is for a single dataset
+        
+        '''
+        DRL: is there a way of not making distinction between data_type below?
+        GB: Yes, that would be making the distinction between running optimize across
+        replicates and running it across multiple starting points. 
+        '''
+        if parameterObj.data_type=='simulate':
+            if parameterObj.trackHistory:
+                print("[-] Tracking optimization cannot be enabled when optimising simulations.")
+                parameterObj.trackHistory = False
+            #data is an iterator over parameter_combination_name, parameter_combination_array
+            #each param_comb_array contains n replicates
+            all_results={}
+            for param_combo, replicates in data:
+                print(f"Optimising replicates {param_combo}")
+                result = equationSystem.optimize_parameters(replicates, parameterObj, trackHistory=False, verbose=False, label=label, param_combo_name=param_combo)
+                all_results[param_combo] = result
+                self._optimize_to_csv(result, label, param_combo)
+        else:
+            results = equationSystem.optimize_parameters(
+                data, 
+                parameterObj,
+                trackHistory=True,
+                verbose=True,
+                label=f"{parameterObj.data_type}_{parameterObj._get_unique_hash()}"
+                )
+
+    def optimize(self, parameterObj):
+        '''[To Do]
+        rewrite
+            - preflight
+            - stopping_criteria should be passed as argument
+            - 
+        '''
+        if not self.has_stage(parameterObj.data_type):
+            sys.exit("[X] gimbleStore has no %r." % parameterObj.data_type)
+        label = parameterObj.label if hasattr(parameterObj, 'label') else parameterObj._get_unique_hash()
+        if parameterObj.numPoints>1: #numPoints can only be used with blocks
+            if parameterObj.data_type != 'blocks':
+                print("[-] --n_points cannot be set with datatypes other than blocks. Will be set to 1.")
+                parameterObj.numPoints = 1
+        max_k = np.array(list(parameterObj.config['k_max'].values()))
+        data = tally_variation(self._get_variation(
+            data_type=parameterObj.data_type, 
+            population_by_letter=parameterObj.config['population_by_letter'], 
+            sample_sets="X"
+            ), form='bsfs', max_k=max_k)
         #resample blocks and determine for each parameter ftol_abs
         self._set_stopping_criteria(data, parameterObj, label)
         # load math.EquationSystemObj
@@ -1750,13 +2073,13 @@ class Store(object):
         return (grid_to_sim, window_df) 
 
     def _get_window_coordinates(self):
+        warnings.warn("lib.gimble._get_window_coordinates() is deprecated. Use lib.gimble._get_window_bed() ...", DeprecationWarning)
         meta_seqs = self._get_meta('seqs')
         meta_windows = self._get_meta('windows')
         MAX_SEQNAME_LENGTH = max([len(seq_name) for seq_name in meta_seqs['seq_names']])
         sequences = np.zeros(meta_windows['count'], dtype='<U%s' % MAX_SEQNAME_LENGTH)
         starts = np.zeros(meta_windows['count'], dtype=np.int64)
         ends = np.zeros(meta_windows['count'], dtype=np.int64)
-        #retrieving window coordinates
         offset = 0
         for seq_name in meta_seqs['seq_names']: 
             start_key = 'windows/%s/starts' % (seq_name)
@@ -1810,24 +2133,20 @@ class Store(object):
 
     def _get_variation(self, data_type=None, sample_sets='X', sequences=None, population_by_letter=None):
         """Returns variation array of 2 (blocks) or 3 (windows) dimensions.
-
+        
         Parameters 
         ----------
         data_type : 'blocks' or 'windows'
-
         sample_sets : only needed for data_type 'blocks'. String or None
                 None - all sample_sets 
                 'X' - inter-population sample_sets (default)
                 'A' - intra-population sample_sets of population A
                 'B' - intra-population sample_sets of population B 
             If supplied, array is based only on variation in those sample_sets
-
         sequences : list of strings or None
             If supplied, array is based only on those sequences
-        
         population_by_letter : dict (string -> string) or None
-            Mapping of population IDs to population letter in model (from INI file).
-
+            Mapping of population IDs to population letter in model (from INI file)
         kmax : dict (string -> int) or None
             Mapping of kmax values to mutypes.
 
@@ -1835,28 +2154,29 @@ class Store(object):
         -------
         out : ndarray, int, ndim (mutypes)
         """
+        meta = self._get_meta('seqs')
         sequences = self._validate_seq_names(sequences)
-
         if population_by_letter:
             assert (set(population_by_letter.values()) == set(meta['population_by_letter'].values())), 'population_by_letter %r does not equal populations in ZARR store (%r)' % (population_by_letter, meta['population_by_letter'])
         if data_type == 'blocks':
             sample_set_idxs = self._get_sample_set_idxs(query=sample_sets)
             keys = ['blocks/%s/%s/variation' % (seq_name, sample_set_idx) 
                 for seq_name, sample_set_idx in list(itertools.product(sequences, sample_set_idxs))]
-        elif data_type == 'windows':
+        elif data_type == 'windows' or data_type == 'windows_sum':
             keys = ['windows/%s/variation' % (seq_name) for seq_name in sequences]
         else:
-            raise ValueError("Datatype must be 'blocks' or 'windows'.")
+            raise ValueError("Invalid datatype: %s" % data_type)
         variations = []
         for key in keys:
             variations.append(np.array(self.data[key], dtype=np.int64))
         variation = np.concatenate(variations, axis=0)
-        meta = self._get_meta('seqs')
         polarise_true = (
             (population_by_letter['A'] == meta['population_by_letter']['B']) and 
             (population_by_letter['B'] == meta['population_by_letter']['A'])) if population_by_letter else False
         if polarise_true:
             variation[..., [0, 1]] = variation[..., [1, 0]]
+        if data_type == 'windows_sum':
+            variation = variation.reshape(-1, variation.shape[-1])
         return variation
 
     def _get_sims_bsfs(self, label, single=False):
@@ -2090,7 +2410,7 @@ class Store(object):
         meta_intervals['intervals_span'] = intervals_span
 
     def _plot_intervals(self):
-        '''needs fixing'''
+        # [needs fixing]
         pass
         # QC plots
         #intervals_df['distance'] = np.where((intervals_df['sequence'] == intervals_df['sequence'].shift(-1)), (intervals_df['start'].shift(-1) - intervals_df['end']) + 1, np.nan)
@@ -2106,27 +2426,25 @@ class Store(object):
 
     def _plot_blocks(self, parameterObj):
         # [needs fixing]
-        # mutuple barchart
-        # meta = self.data['seqs'].attrs
         mutypes_inter_key = 'seqs/bsfs/inter/mutypes' 
         counts_inter_key = 'seqs/bsfs/inter/counts' 
         mutypes_inter = self.data[mutypes_inter_key]
         counts_inter = self.data[counts_inter_key]
         self.plot_bsfs_pcp('%s.bsfs_pcp.png' % self.prefix, mutypes_inter, counts_inter)
 
-    def _write_window_bed(self, version, simple=False):
+    def _get_window_bed(self):
         meta_seqs = self._get_meta('seqs')
         meta_windows = self._get_meta('windows')
-        meta_blocks = self._get_meta('blocks')
-        MAX_SEQNAME_LENGTH = max([len(seq_name) for seq_name in meta_seqs['seq_names']])
+        MAX_SEQNAME_LENGTH = max([len(seq_name)+1 for seq_name in meta_seqs['seq_names']])
         window_count = meta_windows['count']
+        index = np.arange(window_count)
         sequences = np.zeros(window_count, dtype='<U%s' % MAX_SEQNAME_LENGTH)
         starts = np.zeros(window_count, dtype=np.int64)
         ends = np.zeros(window_count, dtype=np.int64)
         pos_mean = np.zeros(window_count, dtype=np.float64)
         pos_median = np.zeros(window_count, dtype=np.float64)
         balance = np.zeros(window_count, dtype=np.float64)
-        index = np.arange(window_count)
+        mse_sample_set_cov = np.zeros(window_count, dtype=np.float64)
         offset = 0
         for seq_name in tqdm(meta_seqs['seq_names'], total=len(meta_seqs['seq_names']), desc="[%] Preparing data...", ncols=100, unit_scale=True): 
             start_key = 'windows/%s/starts' % (seq_name)
@@ -2134,21 +2452,30 @@ class Store(object):
             pos_mean_key = 'windows/%s/pos_mean' % (seq_name)
             pos_median_key = 'windows/%s/pos_median' % (seq_name)
             balance_key = 'windows/%s/balance' % (seq_name)
+            mse_sample_set_cov_key = 'windows/%s/mse_sample_set_cov' % (seq_name)
             if start_key in self.data:
                 start_array = np.array(self.data[start_key])
-                window_count = start_array.shape[0]
-                starts[offset:offset+window_count] = start_array
-                ends[offset:offset+window_count] = np.array(self.data[end_key])
-                pos_mean[offset:offset+window_count] = np.array(self.data[pos_mean_key])
-                pos_median[offset:offset+window_count] = np.array(self.data[pos_median_key])
-                balance[offset:offset+window_count] = np.array(self.data[balance_key])
-                sequences[offset:offset+window_count] = np.full_like(window_count, seq_name, dtype='<U%s' % MAX_SEQNAME_LENGTH)
-                offset += window_count
+                _window_count = start_array.shape[0]
+                starts[offset:offset+_window_count] = start_array
+                ends[offset:offset+_window_count] = np.array(self.data[end_key])
+                pos_mean[offset:offset+_window_count] = np.array(self.data[pos_mean_key])
+                pos_median[offset:offset+_window_count] = np.array(self.data[pos_median_key])
+                balance[offset:offset+_window_count] = np.array(self.data[balance_key])
+                mse_sample_set_cov[offset:offset+_window_count] = np.array(self.data[mse_sample_set_cov_key])
+                sequences[offset:offset+_window_count] = np.full_like(_window_count, seq_name, dtype='<U%s' % MAX_SEQNAME_LENGTH)
+                offset += _window_count
+        return (sequences, starts, ends, index, pos_mean, pos_median, balance, mse_sample_set_cov)
+
+    def _write_window_bed(self, version):
+        meta_blocks = self._get_meta('blocks')
+        meta_windows = self._get_meta('windows')
+        print("[+] Getting data for BED ...")
+        sequences, starts, ends, index, pos_mean, pos_median, balance, mse_sample_set_cov = self._get_window_bed()
         print("[+] Calculating popgen metrics ...")
         tally = tally_variation(self._get_variation(data_type='windows', sample_sets='X'), form='tally')
         pop_metrics = get_popgen_metrics(tally, sites=(meta_blocks['length'] * meta_windows['size']))
-        int_bed = np.vstack([starts, ends, index, pos_mean, pos_median, pop_metrics, balance]).T
-        columns = ['sequence', 'start', 'end', 'index', 'pos_mean', 'pos_median', 'heterozygosity_A', 'heterozygosity_B', 'd_xy', 'f_st', 'balance']
+        int_bed = np.vstack([starts, ends, index, pos_mean, pos_median, pop_metrics, balance, mse_sample_set_cov]).T
+        columns = ['sequence', 'start', 'end', 'index', 'pos_mean', 'pos_median', 'heterozygosity_A', 'heterozygosity_B', 'd_xy', 'f_st', 'balance', 'mse_sample_set_cov']
         header = ["# %s" % version, "# %s" % "\t".join(columns)]
         out_f = '%s.windows.popgen.bed' % self.prefix
         print("[+] Writing BED file %s ..." % out_f)
@@ -2317,24 +2644,25 @@ class Store(object):
 
     def _make_windows(self, window_size, window_step, sample_sets='X'):
         meta_seqs = self._get_meta('seqs')
-        sample_set_idxs = self._get_sample_set_idxs(query=sample_sets)
+        sample_set_idxs = np.array(self._get_sample_set_idxs(query=sample_sets), dtype=np.int64)
         window_count = 0
         for seq_name in tqdm(meta_seqs['seq_names'], total=len(meta_seqs['seq_names']), desc="[%] Making windows", ncols=100):
             block_variation = self._get_variation(data_type='blocks', sample_sets=sample_sets, sequences=[seq_name])
             block_starts, block_ends = self._get_block_coordinates(sample_sets=sample_sets, sequences=[seq_name])
             block_sample_set_idxs = self._get_block_sample_set_idxs(sample_sets=sample_sets, sequences=[seq_name])
-            window_variation, window_starts, window_ends, window_pos_mean, window_pos_median, balance = blocks_to_windows(
-                block_variation, block_starts, block_ends, block_sample_set_idxs, window_size, window_step)
-            window_count += self._set_windows(seq_name, window_variation, window_starts, window_ends, window_pos_mean, window_pos_median, balance)
+            windows = blocks_to_windows(sample_set_idxs, block_variation, block_starts, block_ends, block_sample_set_idxs, window_size, window_step)
+            window_variation, window_starts, window_ends, window_pos_mean, window_pos_median, balance, mse_sample_set_cov = windows
+            window_count += self._set_windows(seq_name, window_variation, window_starts, window_ends, window_pos_mean, window_pos_median, balance, mse_sample_set_cov)
         self._set_windows_meta(window_size, window_step, window_count)
 
-    def _set_windows(self, seq_name, window_variation, window_starts, window_ends, window_pos_mean, window_pos_median, balance):
+    def _set_windows(self, seq_name, window_variation, window_starts, window_ends, window_pos_mean, window_pos_median, balance, mse_sample_set_cov):
         self.data.create_dataset("windows/%s/variation" % seq_name, data=window_variation, overwrite=True)
         self.data.create_dataset("windows/%s/starts" % seq_name, data=window_starts, overwrite=True)
         self.data.create_dataset("windows/%s/ends" % seq_name, data=window_ends, overwrite=True)
         self.data.create_dataset("windows/%s/pos_mean" % seq_name, data=window_pos_mean, overwrite=True)
         self.data.create_dataset("windows/%s/pos_median" % seq_name, data=window_pos_median, overwrite=True)
         self.data.create_dataset("windows/%s/balance" % seq_name, data=balance, overwrite=True)
+        self.data.create_dataset("windows/%s/mse_sample_set_cov" % seq_name, data=mse_sample_set_cov, overwrite=True)
         return window_variation.shape[0]
 
     def _set_windows_meta(self, window_size, window_step, window_count):
@@ -2480,17 +2808,11 @@ class Store(object):
         return reportObj
 
     def info(self, tree=False):
-        '''
-        single instance data/stages: parse/blocks/windows/ 
-        multiple-instance data/stages : bsfs/grids/lncls/sims
-        '''
         width = 100
         if tree:
             return self.data.tree()
         report = self._get_storage_report(width)
-        # single instance data/stages
-        if self.has_stage('parse'):
-            report += self._get_parse_report(width)    
+        report += self._get_parse_report(width)    
         report += self._get_blocks_report(width)
         report += self._get_windows_report(width)
         report += self._get_grids_report(width)
@@ -2561,6 +2883,7 @@ class Store(object):
 ######################################################################################################################### 
 
     def dump_bsfs(self, data_type=None, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None):
+        warnings.warn("lib.gimble.dump_bsfs() is deprecated. ...", DeprecationWarning)
         # [needs fixing]
         meta_seqs = self._get_meta('seqs')
         header = ['count'] + [x + 1 for x in range(meta_seqs['mutypes_count'])]
@@ -2587,6 +2910,7 @@ class Store(object):
 
 
     def _make_windows_old(self, window_size, window_step, sample_sets='X'):
+        warnings.warn("lib.gimble._make_windows_old() is deprecated. ...", DeprecationWarning)
         meta_seqs = self._get_meta('seqs')
         meta_windows = self._get_meta('windows')
         meta_windows['size'] = window_size
@@ -2619,6 +2943,7 @@ class Store(object):
                 meta_windows['count'] += window_variation.shape[0]
 
     def _get_invert_population_flag(self, population_by_letter=None):
+        warnings.warn("lib.gimble._get_invert_population_flag() is deprecated. ...", DeprecationWarning)
         """Returns True if populations need inverting, and False if not or population_by_letter is None. """
         meta = self._get_meta('seqs')
         if population_by_letter:
@@ -2629,7 +2954,7 @@ class Store(object):
         return False
 
     def get_bsfs(self, data_type=None, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None, label=None):
-        
+        warnings.warn("lib.gimble.get_bsfs() is deprecated. ...", DeprecationWarning)
         """main method for accessing bsfs
         
         unique hash-keys have to be made based on defining parameters of bsfs, which varies by data_type.         
@@ -2674,6 +2999,7 @@ class Store(object):
         return bsfs
 
     def _get_block_bsfs(self, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None):
+        warnings.warn("lib.gimble._get_block_bsfs() is deprecated. ...", DeprecationWarning)
         """Returns bsfs_array of 4 dimensions.
 
         Parameters 
@@ -2767,6 +3093,12 @@ class Store(object):
         # assign values
         out[tuple(mutuples.T)] = counts
         return out
+
+def calculate_bsfs_marginality(bsfs_2d, kmax_by_mutype=None):
+    if not kmax_by_mutype:
+        return format_percentage(0.0)
+    return format_percentage(np.sum(bsfs_2d[np.any((np.array(list(kmax_by_mutype.values())) - bsfs_2d[:,1:]) < 0, axis=1), 0]) / np.sum(bsfs_2d[:,0]))
+
 #########################################################################################################################
 #########################################################################################################################
 #########################################################################################################################
@@ -3637,3 +3969,50 @@ class Store(object):
     #     except MemoryError as e:
     #         sys.exit('[X] variation_to_bsfs() ran out of memory. %s. Try specifying lower k-max values.' % str(e))
     #     return out
+
+# def szudzik_pairing(folded_minor_allele_counts):
+#     # adapted from: https://drhagen.com/blog/superior-pairing-function/
+#     return np.where(
+#             (folded_minor_allele_counts[:,0] >= folded_minor_allele_counts[:,1]),
+#             np.square(folded_minor_allele_counts[:,0]) + folded_minor_allele_counts[:,0] + folded_minor_allele_counts[:,1],
+#             folded_minor_allele_counts[:,0] + np.square(folded_minor_allele_counts[:,1])
+#             )
+#     #if isinstance(folded_minor_allele_counts, np.ndarray):
+#     #    # assumes folded_minor_allele_counts is array with shape (n,2)
+#     #    return np.where(
+#     #        (folded_minor_allele_counts[:,0] >= folded_minor_allele_counts[:,1]),
+#     #        np.square(folded_minor_allele_counts[:,0]) + folded_minor_allele_counts[:,0] + folded_minor_allele_counts[:,1],
+#     #        folded_minor_allele_counts[:,0] + np.square(folded_minor_allele_counts[:,1])
+#     #        )
+#     #elif isinstance(folded_minor_allele_counts, tuple):
+#     #    # assumes folded_minor_allele_counts is tuple of size 2
+#     #    a, b = folded_minor_allele_counts
+#     #    if a >= b:
+#     #        return (a**2) + a + b 
+#     #    return a + (b**2)
+#     #else:
+#     #    pass
+
+############## Only needed once we have demand for multidimensional pairing function
+# def multidimensional_box_pairing(lengths: List[int], indexes: List[int]) -> int:
+#     n = len(lengths)
+#     index = 0
+#     dimension_product = 1
+#     for dimension in reversed(range(n)):
+#         index += indexes[dimension] * dimension_product
+#         dimension_product *= lengths[dimension]
+#     return index
+# def multidimensional_szudzik_pairing(*indexes: int) -> int:
+#     n = len(indexes)
+#     if n == 0:
+#         return 0
+#     shell = max(indexes)
+#     def recursive_index(dim: int):
+#         slice_dims = n - dim - 1
+#         subshell_count = (shell + 1) ** slice_dims - shell ** slice_dims
+#         index_i = indexes[dim]
+#         if index_i == shell:
+#             return subshell_count * shell + multidimensional_box_pairing([shell + 1] * slice_dims, indexes[dim + 1:])
+#         else:
+#             return subshell_count * index_i + recursive_index(dim + 1)
+#     return shell ** n + recursive_index(0)

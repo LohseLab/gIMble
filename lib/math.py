@@ -737,6 +737,7 @@ class EquationSystemObj(object):
         '''
         fix multithreading
         '''
+        #print('_get_equationObjs', sync_ref, sync_targets)
         constructors = []
         for constructor_id, event_tuples in tqdm(self.event_tuples_by_idx.items(), total=len(self.event_tuples_by_idx), desc="[%] Building equations", ncols=100, disable=disable_tqdm):
             constructor = Constructor(constructor_id)
