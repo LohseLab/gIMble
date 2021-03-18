@@ -25,6 +25,7 @@ import fractions
 import copy
 import lib.math
 import tabulate
+import time
 # np.set_printoptions(threshold=sys.maxsize)
 
 
@@ -795,19 +796,18 @@ def chisq(sample_set_idxs, window_samples_set_idxs):
     return np.sum((((obs-exp)**2)/exp), axis=1) # / sample_sets.shape[0]
 
 def mse(sample_set_idxs, window_samples_set_idxs):
+    '''measure of eveness'''
     spacer = (np.max(window_samples_set_idxs)+1)
     window_count = window_samples_set_idxs.shape[0]
     window_size = window_samples_set_idxs.shape[1]
     temp_sites = window_samples_set_idxs + (spacer * np.arange(window_count, dtype=np.int64).reshape(window_count, 1))
     obs = np.bincount(temp_sites.ravel(), minlength=(window_count * spacer)).reshape(-1, spacer)[:,sample_set_idxs]
-    #print(obs)
     exp = np.full(obs.shape, window_size/sample_set_idxs.shape[0])
     # Gertjan: scale by max
     max_mse_obs = np.zeros(sample_set_idxs.shape[0])
-    max_mse_obs[0] = window_size
+    max_mse_obs[0] = window_size 
     max_mse = np.sum(((max_mse_obs-exp)**2), axis=1)
-    print('max_mse', max_mse)
-    return np.sum((((obs-exp)**2)), axis=1)/max_mse
+    return np.sum((((obs-exp)**2)), axis=1) / max_mse
 
 def blocks_to_windows(sample_set_idxs, block_variation, start_array, end_array, block_sample_set_idxs, window_size, window_step):
     # order of blocks is defined by end_array, 
@@ -1459,6 +1459,7 @@ class Store(object):
     def query(self, version, data_type, data_format, max_k):
         self._preflight_query(data_type, data_format)
         if data_format == 'bed':
+            # new query for window_coverage by SAMPLE!!!
             if data_type == 'windows':
                 self._write_window_bed(version)
         elif data_format == 'tally':
@@ -2700,14 +2701,16 @@ class Store(object):
         meta_seqs = self._get_meta('seqs')
         sample_set_idxs = np.array(self._get_sample_set_idxs(query=sample_sets), dtype=np.int64)
         window_count = 0
+        window_size_effective = window_size * sample_set_idxs.shape[0]
+        window_step_effective = window_step * sample_set_idxs.shape[0]
         for seq_name in tqdm(meta_seqs['seq_names'], total=len(meta_seqs['seq_names']), desc="[%] Making windows", ncols=100):
             block_variation = self._get_variation(data_type='blocks', sample_sets=sample_sets, sequences=[seq_name])
             block_starts, block_ends = self._get_block_coordinates(sample_sets=sample_sets, sequences=[seq_name])
             block_sample_set_idxs = self._get_block_sample_set_idxs(sample_sets=sample_sets, sequences=[seq_name])
-            windows = blocks_to_windows(sample_set_idxs, block_variation, block_starts, block_ends, block_sample_set_idxs, window_size, window_step)
+            windows = blocks_to_windows(sample_set_idxs, block_variation, block_starts, block_ends, block_sample_set_idxs, window_size_effective, window_step_effective)
             window_variation, window_starts, window_ends, window_pos_mean, window_pos_median, balance, mse_sample_set_cov = windows
             window_count += self._set_windows(seq_name, window_variation, window_starts, window_ends, window_pos_mean, window_pos_median, balance, mse_sample_set_cov)
-        self._set_windows_meta(window_size, window_step, window_count)
+        self._set_windows_meta(sample_set_idxs, window_size_effective, window_step_effective, window_count)
 
     def _set_windows(self, seq_name, window_variation, window_starts, window_ends, window_pos_mean, window_pos_median, balance, mse_sample_set_cov):
         self.data.create_dataset("windows/%s/variation" % seq_name, data=window_variation, overwrite=True)
@@ -2719,10 +2722,13 @@ class Store(object):
         self.data.create_dataset("windows/%s/mse_sample_set_cov" % seq_name, data=mse_sample_set_cov, overwrite=True)
         return window_variation.shape[0]
 
-    def _set_windows_meta(self, window_size, window_step, window_count):
+    def _set_windows_meta(self, sample_set_idxs, window_size, window_step, window_count):
+        '''[To Do]
+        - check whether window size/step should be effective or not
+        '''
         meta_windows = self._get_meta('windows')
-        meta_windows['size'] = window_size
-        meta_windows['step'] = window_step
+        meta_windows['size'] = int(window_size / len(sample_set_idxs))
+        meta_windows['step'] = int(window_step / len(sample_set_idxs))
         meta_windows['count'] = window_count
 
 ####################### REPORTS ######################
@@ -2968,7 +2974,7 @@ class Store(object):
         meta_seqs = self._get_meta('seqs')
         meta_windows = self._get_meta('windows')
         meta_windows['size'] = window_size
-        meta_windows['step'] = window_step
+        meta_windows['step'] = window_step 
         meta_windows['count'] = 0
         sample_set_idxs = self._get_sample_set_idxs(query=sample_sets)
         with tqdm(meta_seqs['seq_names'], total=(len(meta_seqs['seq_names']) * len(sample_set_idxs)), desc="[%] Constructing windows ", ncols=100, unit_scale=True) as pbar: 
