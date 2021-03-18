@@ -48,7 +48,7 @@ class Test_popgen:
                                [ 0.1       ,  0.07      ,  0.08      ,  0.07      ,  0.1       ],
                                [ 0.145     ,  0.07      ,  0.11      ,  0.085     ,  0.11      ],
                                [ 0.18367347, -0.09677419,  0.1       ,  0.        ,  0.04761905]])
-        result_obs = lib.gimble.pop_metrics(window_tally, sites=sites)
+        result_obs = lib.gimble.get_popgen_metrics(window_tally, sites=sites)
         assert np.all(np.isclose(result_exp, result_obs))
 
     def test_popgen_metrics_blocks_tally(self):
@@ -86,5 +86,5 @@ class Test_popgen:
                                [0.158],
                                [0.187],
                                [0.1]])
-        result_obs = lib.gimble.pop_metrics(block_tally, sites=sites)
+        result_obs = lib.gimble.get_popgen_metrics(block_tally, sites=sites)
         assert np.all(np.isclose(result_exp, result_obs))
