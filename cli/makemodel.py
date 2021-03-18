@@ -7,15 +7,15 @@
         -o, --outprefix <STR>                   Prefix to use for INI config file [default: gimble]
 
         -1, --DIV                               Divergence model config file. 
-                                                    No Migration. Third Ne for ancestral population (AB).
+                                                    No Migration. Third Ne for ancestral population (Ne_A_B).
         -2, --MIG_AB                            Migration model config file. 
-                                                    Migration from A to B, backwards in time. B is ancestral population.
+                                                    Migration from A to B, backwards in time. B is source population.
         -3, --MIG_BA                            Migration model config file. 
-                                                    Migration from B to A, backwards in time. A is ancestral population.
+                                                    Migration from B to A, backwards in time. A is source population.
         -4, --IM_AB                             IM model config file. 
-                                                    Migration from A to B. Third Ne for ancestral population (AB) 
+                                                    Migration from A to B. Third Ne for ancestral population (Ne_A_B) 
         -5, --IM_BA                             IM model config file. 
-                                                    Migration from B to A. Third Ne for ancestral population (AB) 
+                                                    Migration from B to A. Third Ne for ancestral population (Ne_A_B) 
         -h --help                               show this
         
 """
