@@ -2398,7 +2398,6 @@ class Store(object):
                 if vcf_data:
                     # genotypes
                     gt_matrix_raw = vcf_data[gt_key]
-                    count_records[idx] = gt_matrix_raw.shape[0]
                     # counts
                     intervals = self._get_interval_coordinates(seq_name=seq_name)
                     sites = intervals_to_sites(intervals)
@@ -2408,6 +2407,7 @@ class Store(object):
                         # intersection of VCF and BED intervals
                         interval_mask = np.isin(pos_array_raw, sites, assume_unique=True)
                         gt_matrix = gt_matrix_raw[interval_mask]
+                        count_records[idx] = gt_matrix.shape[0]
                         pos_array = pos_array_raw[interval_mask]
                         sa_genotype_matrix = allel.GenotypeArray(gt_matrix)
                         count_called[idx,:] = sa_genotype_matrix.count_called(axis=0)
