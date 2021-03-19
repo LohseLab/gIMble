@@ -958,7 +958,7 @@ def tally_variation(variation, form='bsfs', max_k=None):
     if max_k is None:
         max_k = np.array([8,8,8,8]) if form == 'bsfs' else None
     else:
-        max_k = max_k+1 
+        max_k = max_k + 1 # for clipping
     if variation.ndim == 2: 
         mutuples = np.clip(variation, 0, max_k)
     elif variation.ndim == 3:
@@ -969,7 +969,7 @@ def tally_variation(variation, form='bsfs', max_k=None):
     try:
         mutuples_unique, counts = np.unique(mutuples, return_counts=True, axis=0)
         if form == 'bsfs': 
-            out = np.zeros(tuple(np.max(mutuples_unique, axis=0) + 1), np.uint64) 
+            out = np.zeros((max_k + 1), np.uint64) # for having enough bins to place them
             out[tuple(mutuples_unique.T)] = counts
         elif form == 'tally':
             out = np.concatenate((counts.reshape(counts.shape[0], 1), mutuples_unique), axis=1)
@@ -2724,9 +2724,6 @@ class Store(object):
         return window_variation.shape[0]
 
     def _set_windows_meta(self, sample_set_idxs, window_size, window_step, window_count):
-        '''[To Do]
-        - check whether window size/step should be effective or not
-        '''
         meta_windows = self._get_meta('windows')
         meta_windows['size_user'] = int(window_size / len(sample_set_idxs))
         meta_windows['step_user'] = int(window_step / len(sample_set_idxs))
