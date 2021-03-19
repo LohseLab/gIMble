@@ -157,6 +157,26 @@ def LOD_to_DOL(LOD):
     reshape_LOD = list(zip(*(d.values() for d in LOD)))
     return {k:np.array(v,dtype=np.float64) for k,v in zip(LOD[0].keys(),reshape_LOD)}
 
+def _return_np_type(entries ,counts=True):
+    if counts:
+        max_entry = np.max(entries) 
+        if max_entry>255:
+            if max_entry>65535:
+                return np.uint32
+            else:
+                return np.uint16
+        else:
+            return np.uint8
+    else:
+        max_entry = np.max(np.abs(entries)) 
+        if max_entry>127:
+            if max_entry>32767:
+                return np.int32
+            else:
+                return np.int16
+        else:
+            return np.int8
+
 class ReportObj(object):
     '''Report class for making reports'''
 
@@ -968,8 +988,10 @@ def tally_variation(variation, form='bsfs', max_k=None):
         raise ValueError('variation.ndim is %r, should either be 2 (blocks) or 3 (windows)' % variation.ndim)
     try:
         mutuples_unique, counts = np.unique(mutuples, return_counts=True, axis=0)
-        if form == 'bsfs': 
             out = np.zeros((max_k + 1), np.uint64) # for having enough bins to place them
+            #typing based on counts
+            #dtype = _return_np_type(counts)
+            #out = np.zeros(tuple(max_k + 1), dtype) 
             out[tuple(mutuples_unique.T)] = counts
         elif form == 'tally':
             out = np.concatenate((counts.reshape(counts.shape[0], 1), mutuples_unique), axis=1)
