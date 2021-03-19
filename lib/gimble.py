@@ -2728,8 +2728,10 @@ class Store(object):
         - check whether window size/step should be effective or not
         '''
         meta_windows = self._get_meta('windows')
-        meta_windows['size'] = int(window_size / len(sample_set_idxs))
-        meta_windows['step'] = int(window_step / len(sample_set_idxs))
+        meta_windows['size_user'] = int(window_size / len(sample_set_idxs))
+        meta_windows['step_user'] = int(window_step / len(sample_set_idxs))
+        meta_windows['size'] = window_size 
+        meta_windows['step'] = window_step
         meta_windows['count'] = window_count
 
 ####################### REPORTS ######################
@@ -2864,7 +2866,7 @@ class Store(object):
         reportObj.add_line(prefix="[+]", left='[', center='Windows', right=']', fill='=')
         if self.has_stage('windows'):
             reportObj.add_line(prefix="[+]", left='windows')
-            reportObj.add_line(prefix="[+]", branch='F', fill=".", left="'-w %s -s %s'" % (meta_windows['size'], meta_windows['step']), right=' %s windows of inter-population (X) blocks' % (
+            reportObj.add_line(prefix="[+]", branch='F', fill=".", left="'-w %s -s %s'" % (meta_windows['size_user'], meta_windows['step_user']), right=' %s windows of inter-population (X) blocks' % (
                 format_count(meta_windows['count'])))
         return reportObj
 
