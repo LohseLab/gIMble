@@ -209,6 +209,7 @@ def add_parameter_combinations(config, module):
                 "please adjust parameters in INI file to have equal ranges."
                 "\n\tCurrent ranges %s" % (Ne_sync_pops_all_string, parameter_string_list))
     # get parameter_combinations
+    print(config['parameters'])
     parameter_combinations = collections.defaultdict(list)
 
     parameter_combinations = expand_params(config, module, remove=sync_target)
