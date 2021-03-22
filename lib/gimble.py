@@ -988,10 +988,11 @@ def tally_variation(variation, form='bsfs', max_k=None):
         raise ValueError('variation.ndim is %r, should either be 2 (blocks) or 3 (windows)' % variation.ndim)
     try:
         mutuples_unique, counts = np.unique(mutuples, return_counts=True, axis=0)
-            out = np.zeros((max_k + 1), np.uint64) # for having enough bins to place them
+        if form == 'bsfs':
             #typing based on counts
             #dtype = _return_np_type(counts)
-            #out = np.zeros(tuple(max_k + 1), dtype) 
+            #out = np.zeros(tuple(max_k + 1), dtype)
+            out = np.zeros((max_k + 1), np.uint64) # for having enough bins to place them
             out[tuple(mutuples_unique.T)] = counts
         elif form == 'tally':
             out = np.concatenate((counts.reshape(counts.shape[0], 1), mutuples_unique), axis=1)
