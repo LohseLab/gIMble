@@ -217,7 +217,7 @@ def add_parameter_combinations(config, module):
     # check for parameter range incompatibilities
     # [To Do]: 
     # - check whether this is how it should be, when ref_pop not in sync_pops!!!
-    # - must ref_pop be part of sync_pops
+    # - must ref_pop be part of sync_pops: NO
     # - currently allows sync'ing between non-refs
     for Ne_sync_pop in Ne_sync_pops:
         if not (config['parameters'][Ne_ref_pop] == config['parameters'][Ne_sync_pop]):
@@ -1008,6 +1008,7 @@ def tally_variation(variation, form='bsfs', max_k=None):
         raise ValueError('variation.ndim is %r, should either be 2 (blocks) or 3 (windows)' % variation.ndim)
     try:
         mutuples_unique, counts = np.unique(mutuples, return_counts=True, axis=0)
+<<<<<<< Updated upstream
         if form == 'bsfs':
             #typing based on counts
             dtype = _return_np_type(counts)
@@ -2204,7 +2205,7 @@ class Store(object):
         else:
             raise ValueError("%s not a subset of %s" % (sequences, meta['seq_names']))
 
-    def _get_sample_set_idxs(self, query=None):
+    def _get_sample_set_idxs(self, query='X'):
         """Returns list of sample_set_idxs.
 
         Parameters 
@@ -2670,6 +2671,7 @@ class Store(object):
         meta_seqs = self._get_meta('seqs')
         blocks_raw_by_sample_set_idx = collections.Counter()   # all possible blocks
         blocks_by_sample_set_idx = collections.Counter()       # all valid blocks => only these get saved to store
+        blocks_by_sequence = collections.Counter()             # all valid blocks 
         with tqdm(total=(len(meta_seqs['seq_names']) * len(meta_seqs['sample_sets'])), desc="[%] Building blocks ", ncols=100, unit_scale=True) as pbar:        
             for seq_name in meta_seqs['seq_names']:
                 pos, gt_matrix = self._get_variants(seq_name) # arrays or None
@@ -2682,7 +2684,8 @@ class Store(object):
                     blocks = sites_to_blocks(sites, block_length, block_span) 
                     if blocks is not None:
                         # subset gts of sample_set from gt_matrix (or None)
-                        gts = subset_gt_matrix(meta_seqs, sample_set, np.isin(pos, blocks, assume_unique=True), gt_matrix)
+                        gts = subset_gt_matrix(meta_seqs, sample_set, 
+                            np.isin(pos, blocks, assume_unique=True), gt_matrix)
                         # get block arrays
                         starts, ends, multiallelic, missing, monomorphic, variation = blocks_to_arrays(blocks, gts, pos)
                         # save block arrays
@@ -2690,11 +2693,20 @@ class Store(object):
                         # record counts
                         blocks_raw_by_sample_set_idx[sample_set_idx] += blocks_raw
                         blocks_by_sample_set_idx[sample_set_idx] += blocks_valid
+                        blocks_by_sequence[seq_name] += blocks_valid
                     pbar.update(1)
         # save blocks meta
-        self._set_blocks_meta(block_length, block_span, block_max_missing, block_max_multiallelic, blocks_raw_by_sample_set_idx, blocks_by_sample_set_idx)
+        self._set_blocks_meta(
+            block_length, 
+            block_span, 
+            block_max_missing, 
+            block_max_multiallelic, 
+            blocks_raw_by_sample_set_idx, 
+            blocks_by_sample_set_idx,
+            blocks_by_sequence)
 
-    def _set_blocks(self, seq_name, sample_set_idx, starts, ends, multiallelic, missing, monomorphic, variation, block_max_missing, block_max_multiallelic):
+    def _set_blocks(self, seq_name, sample_set_idx, starts, ends, multiallelic, 
+            missing, monomorphic, variation, block_max_missing, block_max_multiallelic):
         valid = (np.less_equal(missing, block_max_missing) & np.less_equal(multiallelic, block_max_multiallelic)).flatten()
         blocks_starts_key = 'blocks/%s/%s/starts' % (seq_name, sample_set_idx)
         self.data.create_dataset(blocks_starts_key, data=starts[valid], overwrite=True)
@@ -2708,13 +2720,15 @@ class Store(object):
         self.data.create_dataset(blocks_multiallelic_key, data=multiallelic[valid], overwrite=True)
         return (valid.shape[0], valid[valid==True].shape[0])
 
-    def _set_blocks_meta(self, block_length, block_span, block_max_missing, block_max_multiallelic, blocks_raw_by_sample_set_idx, blocks_by_sample_set_idx):
+    def _set_blocks_meta(self, block_length, block_span, block_max_missing, block_max_multiallelic, 
+            blocks_raw_by_sample_set_idx, blocks_by_sample_set_idx, blocks_by_sequence):
         meta_blocks = self._get_meta('blocks')
         meta_blocks['length'] = block_length
         meta_blocks['span'] = block_span
         meta_blocks['max_missing'] = block_max_missing
         meta_blocks['max_multiallelic'] = block_max_multiallelic
         meta_blocks['count_by_sample_set_idx'] = dict(blocks_by_sample_set_idx) # keys are strings
+        meta_blocks['count_by_sequence'] = dict(blocks_by_sequence) # keys are strings
         meta_blocks['count_raw_by_sample_set_idx'] = dict(blocks_raw_by_sample_set_idx) # keys are strings
         meta_blocks['count_total'] = sum([count for count in blocks_by_sample_set_idx.values()])
         meta_blocks['count_total_raw'] = sum([count for count in blocks_raw_by_sample_set_idx.values()])
@@ -2744,12 +2758,20 @@ class Store(object):
         return block_sample_set_idxs
 
     def _make_windows(self, window_size, window_step, sample_sets='X'):
-        meta_seqs = self._get_meta('seqs')
+        meta_blocks = self._get_meta('blocks')
         sample_set_idxs = np.array(self._get_sample_set_idxs(query=sample_sets), dtype=np.int64)
         window_count = 0
         window_size_effective = window_size * sample_set_idxs.shape[0]
         window_step_effective = window_step * sample_set_idxs.shape[0]
-        for seq_name in tqdm(meta_seqs['seq_names'], total=len(meta_seqs['seq_names']), desc="[%] Making windows", ncols=100):
+
+        blockable_seqs = [seq_name for seq_name, block_count in meta_blocks['count_by_sequence'].items()
+            if block_count >= window_size_effective]
+
+        if not blockable_seqs:
+            sys.exit("[X] Not enough blocks to make windows with size %s * %s = %s." % (
+                window_size, sample_set_idxs.shape[0], window_size_effective))
+        for seq_name in tqdm(blockable_seqs, total=len(blockable_seqs), desc="[%] Making windows", ncols=100):
+
             block_variation = self._get_variation(data_type='blocks', sample_sets=sample_sets, sequences=[seq_name])
             block_starts, block_ends = self._get_block_coordinates(sample_sets=sample_sets, sequences=[seq_name])
             block_sample_set_idxs = self._get_block_sample_set_idxs(sample_sets=sample_sets, sequences=[seq_name])
