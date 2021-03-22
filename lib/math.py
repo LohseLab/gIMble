@@ -239,8 +239,8 @@ def objective_function(paramsToOptimize, grad, paramNames, fixedParams, equation
     return result
 
 def run_single_optimize(p0, lower, upper, specified_objective_function, maxeval, xtol_rel, ftol_rel):
-
-    #nlopt.LN_NELDERMEAD, nlopt.LN_SBPLX
+    # [Gertjan] nlopt.LN_NELDERMEAD is faster and gives same result 
+    # no need for nlopt.LN_SBPLX
     opt = nlopt.opt(nlopt.LN_NELDERMEAD, len(p0))
     opt.set_lower_bounds(lower)
     opt.set_upper_bounds(upper)

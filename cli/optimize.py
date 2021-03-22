@@ -27,6 +27,12 @@ from docopt import docopt
 import sys
 import lib.gimble
 
+'''
+[To Do]
+- document how tols are used
+- needs figuring out NLOPT
+ - 1%, 0.1%, 0.01%, etc
+'''
 class OptimizeParameterObj(lib.gimble.ParameterObj):
     '''Sanitises command line arguments and stores parameters.'''
 
