@@ -958,6 +958,26 @@ def sum_wbsfs(bsfs_windows):
     assert bsfs_windows.ndim == 5, "only works for bsfs_windows.ndim = 5"
     return bsfs_windows.sum(axis=0)
 
+def tally_to_bsfs(tally, max_k, data='blocks'):
+    if data == 'blocks':
+        counts = tally[:,0]
+        dtype = _return_np_type(counts)
+        out = np.zeros((np.array(max_k,dtype='int') + 2), dtype)
+        out[tuple(tally[:,1:].T)] = counts
+    elif data == 'windows':
+        counts = tally[:,1]
+        window_idxs = tally[:,0][np.newaxis]
+        num_windows = np.max(window_idxs) + 1
+        out_shape = np.insert((np.array(max_k,dtype='int') + 2), 0, num_windows)
+        dtype = _return_np_type(counts)
+        out = np.zeros(out_shape, dtype)
+        idx_and_counts = np.hstack((window_idxs.T, tally[:,2:]))
+        out[tuple(idx_and_counts.T)] = counts
+
+    else:
+        raise ValueError(f'2d_to_bsfs not implemtened for {data}.')
+    return out
+
 def tally_variation(variation, form='bsfs', max_k=None):
     '''
     Parameters 
@@ -990,14 +1010,16 @@ def tally_variation(variation, form='bsfs', max_k=None):
         mutuples_unique, counts = np.unique(mutuples, return_counts=True, axis=0)
         if form == 'bsfs':
             #typing based on counts
-            #dtype = _return_np_type(counts)
-            #out = np.zeros(tuple(max_k + 1), dtype)
-            out = np.zeros((max_k + 1), np.uint64) # for having enough bins to place them
+            dtype = _return_np_type(counts)
+            out = np.zeros(tuple(max_k + 1), dtype)
+            #out = np.zeros((max_k + 1), np.uint64) # for having enough bins to place them
             out[tuple(mutuples_unique.T)] = counts
         elif form == 'tally':
             out = np.concatenate((counts.reshape(counts.shape[0], 1), mutuples_unique), axis=1)
             if variation.ndim == 3:
                 out[:, [0, 1]] = out[:, [1, 0]] # for window variation, order must be [idx, count, mutuple]
+            dtype = _return_np_type(out)
+            out = out.astype(dtype)
         else:
             raise ValueError('form must be %r or %r, was %r' % ('bsfs', 'tally', form))    
     except MemoryError as e:
