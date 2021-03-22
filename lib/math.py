@@ -19,6 +19,11 @@ import concurrent.futures
 #import logging
 import datetime
 from timeit import default_timer as timer
+
+
+
+
+# [INFERENCE.py] : RENAME AS INFERENC.PY
 #logging.basicConfig(filename='log_file.txt', level=logging.DEBUG)
 #sage.all.numerical_approx(value, digits=1)
 
@@ -157,6 +162,7 @@ def place_mutations(parameter_batch):
     return (mutation_tuple, sum(equations))
 
 def param_generator(pcentre, pmin, pmax, psamples, distr):
+    # [atavism]
     starts = [pmin, pcentre]
     ends = [pcentre, pmax]
     nums = [round(psamples/2) + 1, round(psamples/2)] if psamples % 2 == 0 else [round(psamples/2) + 1, round(psamples/2) + 1]
@@ -275,6 +281,7 @@ def fp_map(f, *args):
     return f(*args)
 
 class Constructor(object):
+    # [EQUATIONS.py]
     def __init__(self, constructor_id):
         self.constructor_id = constructor_id
         self.numerators = []
@@ -298,6 +305,7 @@ class Constructor(object):
         return placeable
 
 class EquationObj(object):
+    # [EQUATIONS.py]
     def __init__(self, matrix_idx, marginal_idx, equation):
         self.matrix_idx = matrix_idx
         self.marginal_idx = marginal_idx
@@ -309,6 +317,7 @@ class EquationObj(object):
 
 class EquationSystemObj(object):
     def __init__(self, model_file, reference_pop, k_max_by_mutype, block_length, mu, seed=None, module=None, threads=1, precision=165):
+        # [EQUATIONS.py]
         #parameters
         self.model_file = model_file
         self.reference_pop = reference_pop

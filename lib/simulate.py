@@ -14,7 +14,7 @@ import pandas as pd
 from functools import partial
 import collections
 
-def run_sims(sim_configs, global_info, all_interpop_comparisons, chunks=1, threads=1, store=None, disable_tqdm=False):
+def run_sims(sim_configs, global_info, all_interpop_comparisons, chunks=1, threads=1, store=None, disable_tqdm=False): 
 	"""
 	Arguments:
 		sim_configs {list} -- [containing dicts with keys: Ne_x, me_x_x, T, recombination]
@@ -40,6 +40,8 @@ def run_sims(sim_configs, global_info, all_interpop_comparisons, chunks=1, threa
 			result_list = run_sim_serial(single_config, global_info, seeds, all_interpop_comparisons, idx, disable_tqdm)
 		result_list = _combine_chunks(result_list, chunks)
 		if store is not None:
+			# def _set_sims
+			# def _set_sims_meta
 			name = f"parameter_combination_{idx}"
 			store.create_dataset(name, data=result_list, overwrite=True)
 			store[name].attrs.put(zarr_attrs)
@@ -49,6 +51,7 @@ def run_sims(sim_configs, global_info, all_interpop_comparisons, chunks=1, threa
 	return np.array(all_results, dtype=np.int64) #check do we need int64?
 
 def simulate_parameterObj(sim_configs, parameterObj, gimbleStore):
+	# [INPUTLIB] 
 	global_info = compile_global_info(parameterObj)
 	all_interpop_comparisons = all_interpopulation_comparisons(*global_info['sample_pop_sizes'])
 	print(f'[+] simulating {int(global_info["replicates"]//global_info["chunks"])} replicate(s) of {int(global_info["blocks"]*global_info["chunks"])} block(s) for {len(sim_configs)} parameter combinations')
@@ -61,9 +64,11 @@ def simulate_parameterObj(sim_configs, parameterObj, gimbleStore):
 	gimbleStore.data.require_group(f'sims/{group_name}')
 	gimbleStore.data[f'sims/{group_name}'].attrs.put(global_info)
 	gimbleStore.data[f'sims/{group_name}'].attrs['fixed_param_grid'] = parameterObj.fixed_param_grid
+	# [SIMULATION]
 	run_sims(sim_configs, global_info, all_interpop_comparisons, global_info["chunks"], parameterObj.threads, gimbleStore.data[f'sims/{group_name}'])
 
 def compile_global_info(parameterObj):
+	# [INPUTLIB]
 	#global_info_list =['mu', 'ploidy', 'sample_pop_ids', 'sample_pop_sizes', 'blocklength', 
 	#                      'blocks','k_max', 'chunks', 'replicates']
 	global_info = parameterObj.config['simulations'].copy()    
@@ -84,7 +89,7 @@ def compile_global_info(parameterObj):
 	return global_info
 
 def run_sim_parallel(config, global_info, seeds, all_interpop_comparisons, idx, threads, disable_tqdm):
-
+	# [SIMULATION] 
 	with multiprocessing.Pool(processes=threads) as pool:
 		run_sims_specified = partial(
 		run_ind_sim,
@@ -100,6 +105,7 @@ def run_sim_parallel(config, global_info, seeds, all_interpop_comparisons, idx, 
 	return result_list
 	   
 def run_sim_serial(config, global_info, seeds, all_interpop_comparisons, idx, disable_tqdm):
+	# [SIMULATION] 
 	result_list = []
 	for seed in tqdm(seeds,desc=f'running parameter combination {idx}',ncols=100, unit_scale=True, disable=disable_tqdm):
 		result_list.append(
@@ -116,6 +122,7 @@ def run_sim_serial(config, global_info, seeds, all_interpop_comparisons, idx, di
 	return result_list
 			
 def make_sim_configs(params, global_info):
+	# [INPUTLIB] 
 	A, B = global_info["sample_pop_ids"]
 	sample_size_A, sample_size_B = global_info['sample_pop_sizes']
 	num_samples = sum(global_info['sample_pop_sizes'])
@@ -175,7 +182,7 @@ def make_sim_configs(params, global_info):
 		rec_rate,
 	)
 
-
+# [SIMULATION] 
 def run_ind_sim(
 	seed,
 	msprime_config,
@@ -247,7 +254,7 @@ def generate_bsfs(genotype_matrix, positions, comparisons, max_k, blocklength, b
 	out[tuple(mutuples.T)] = counts
 	return out
 
-def infinite_sites_msprime_0(ts, blocklength, blocks, total_length):
+def infinite_sites_msprime_0(ts, blocklength, blocks, total_length): 
 	positions = np.array([int(site.position) for site in ts.sites()])
 	new_positions = lib.gimble.fix_pos_array(positions)
 	if ts.num_sites>0 and new_positions[-1]>=total_length:

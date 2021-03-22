@@ -29,6 +29,8 @@ class Test_bsfs:
                                [[[3, 2],[1, 0]],
                                 [[3, 2],[1, 0]]]])
         result_obs = lib.gimble.tally_variation(variation_blocks, form='bsfs')
+        print('result_exp', result_exp)
+        print('result_obs', result_obs)
         assert np.all(np.equal(result_exp, result_obs))
 
     def test_tally_variation_blocks_bsfs_vs_tally(self):
