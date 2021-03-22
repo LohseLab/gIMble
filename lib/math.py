@@ -236,6 +236,8 @@ def objective_function(paramsToOptimize, grad, paramNames, fixedParams, equation
         iteration_number = len(path)
     #print(str(iteration_number)+'\t'+'\t'.join(str(param) for param in paramsToOptimize)+'\t'+str(result))
     if verbose:
+        # generation time scaled
+        # for time use lib.gimble.format_time(seconds)
         time = str(datetime.timedelta(seconds=round(timer()-start_time, 1)))
         print("[+] i=%s -- {%s} -- L=%s -- %s" % (
             str(iteration_number).ljust(4), 
