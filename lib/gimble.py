@@ -133,6 +133,8 @@ META_TEMPLATE_BY_STAGE = {
             }
         }
 
+MUTYPES = ['m_1', 'm_2', 'm_3', 'm_4']
+
 def get_validator_error_string(validator_errors):
     # parameterObj file ...
     out = []
@@ -211,112 +213,73 @@ class ReportObj(object):
     def __repr__(self):
         return "\n".join(self.out)
 
-def add_parameter_combinations(config, module):
-    Ne_ref_pop = "Ne_%s" % config['populations']['reference_pop']
+def check_sync_pop_value_consistency(config):
+    # check for consistent values in sync_pops
     Ne_sync_pops = ["Ne_%s" % _ for _ in config['populations']['sync_pop_sizes']]
-    # check for parameter range incompatibilities
-    # [To Do]: 
-    # - check whether this is how it should be, when ref_pop not in sync_pops!!!
-    # - must ref_pop be part of sync_pops: NO
-    # - currently allows sync'ing between non-refs
-    for Ne_sync_pop in Ne_sync_pops:
-        if not (config['parameters'][Ne_ref_pop] == config['parameters'][Ne_sync_pop]):
-            Ne_sync_pops_all = [Ne_ref_pop] + Ne_sync_pops
+    for Ne_sync_pop in Ne_sync_pops[1:]:
+        if not (config['parameters'][Ne_sync_pops[0]] == config['parameters'][Ne_sync_pop]):
+            Ne_sync_pops_all = Ne_sync_pops
             Ne_sync_pops_all_string = ", ".join(Ne_sync_pops_all)
             parameter_string_list = "\n\t".join([
-                "%s = %s" % (Ne, config['parameters'][Ne]) for Ne in Ne_sync_pops_all])
+                "%s\t= %s" % (Ne, config['parameters'][Ne]) for Ne in Ne_sync_pops_all])
             sys.exit("[X] If sync'ing of %s is desired "
                 "please adjust parameters in INI file to have equal ranges."
-                "\n\tCurrent ranges %s" % (Ne_sync_pops_all_string, parameter_string_list))
-    # get parameter_combinations
-    print(config['parameters'])
-    parameter_combinations = collections.defaultdict(list)
-
-    parameter_combinations = expand_params(config, module, remove=sync_target)
-    if module == 'optimize':
-        return parameter_combinations
-    if module == 'simulate':
-        rec = lib.simulate._set_recombination_rate()
-        if rec != None:
-            parameter_combinations['recombination'] = rec
-    parameter_combinations =  _dict_product(parameter_combinations)
-    if sync_reference and sync_target:
-        for pop in sync_target:
-            parameter_combinations[f'Ne_{pop}'] = parameter_combinations[f'Ne_{sync_reference}']
+                "\n\t%s" % (Ne_sync_pops_all_string, parameter_string_list))
     return config
 
-def expand_params(config, module, remove=None):
-    if len(config['parameters'])>0:
-        parameter_combinations = collections.defaultdict(list)
-        if remove is not None:
-            for key in remove:
-                del config['parameters'][f'Ne_{key}']
-        for key, value in config['parameters'].items():
-            if isinstance(value, float) or isinstance(value, int):
-                parameter_combinations[key]=np.array([value,], dtype=np.float64)
-            elif key=='recombination':
-                pass
+def parameters_to_arrays(config, module):
+    # Convert parameters to numpy arrays
+    config['parameters_np'] = {}
+    config['parameters_fixed'] = []
+    for parameter, values in config['parameters'].items():
+        if len(values) <= 2:
+            if len(values) == 1:
+                config['parameters_fixed'].append(parameter)
+            config['parameters_np'][parameter] = np.array(values)
+        elif len(values) == 4:
+            if module == 'optimize':
+                sys.exit("[X] Module %r only supports FLOAT, or (MIN, MAX) for parameters. Not %r" % (module, values))
+            value_min, value_max, value_num, value_scale = values
+            if value_scale.startswith('lin'):
+                config['parameters_np'][parameter] = np.linspace(
+                    value_min, value_max, num=value_num, endpoint=True, dtype=np.float64)
+            elif value_scale.startswith('log'):
+                config['parameters_np'][parameter] = np.logspace(
+                    value_min, value_max, num=value_num, endpoint=True, dtype=np.float64)
             else:
-                if len(value) == 4:
-                    if module == 'optimize':
-                        sys.exit(f"[X] {module} requires a single point or boundary for all parameters.")
-                    minv, maxv, n, scale = value
-                    sim_range = expand_params_scale(scale, minv, maxv, n)
-                    parameter_combinations[key] = sim_range
-                elif len(value) <= 2:
-                    parameter_combinations[key] = np.unique(value)
-                else:
-                    raise ValueError("Uncaught error in config file configuration.")
-        return parameter_combinations
-    else:
-        raise ValueError("config parameters does not contain any parameters.")
+                sys.exit("[X] Config: Scale should either be lin or log. Not %r." % value_scale)
+        else:
+            sys.exit("[X] Config: Parameters must be FLOAT, or (MIN, MAX), or (MIN, MAX, STEPS, LIN|LOG).") 
+    # Gertjan: 
+    # if len(reference_size)>0:
+    #    sys.exit(f"[X] Syncing pop sizes: set no value or the same value for Ne_{', Ne_'.join(to_be_synced)} as for Ne_{reference}")         
+    # if self._MODULE == 'optimize':
+    #   fixed_Nes = self._get_fixed_params(subgroup='Ne')
+    #   if len(fixed_Nes)>0:
+    #       if not f"Ne_{reference_pop}" in fixed_Nes:
+    #           sys.exit("[X] No. No. No. It would make much more sense to set a population with a fixed size as reference.")
+    return config
 
+def kmax_to_maxk(config):
+    try:
+        config['max_k'] = np.array([config['k_max'][mutype] for mutype in MUTYPES])
+    except KeyError as e:
+        sys.exit('[X] Config: No k-max value found for mutype %r ' % e.args[0])
+    return config
 
-def get_fixed_params(config, subgroup=None, as_dict=False):
-    print("config['parameters']", config['parameters'])
-    print("config['parameter_combinations']", config['parameter_combinations'])
-    if not as_dict:
-        fixed_params =  [param for param,value in config['parameters'].items() if isinstance(value,float) or isinstance(value,int)]
-        if subgroup:
-            fixed_params = [param for param in fixed_params if param.startswith(subgroup)]
-        return fixed_params
-    else:
-        fixedParams = {k:next(iter(v)) for k, v in config['parameter_combinations'].items() if len(set(v))==1}
-        fixedParams['mu'] = config['mu']['mu']
-        if subgroup:
-            fixedParams = {k:v for k,v in fixedParams.items() if k.startswith(subgroup)}
-        return fixedParams
-
-
-
-def expand_params_scale(scale, minv, maxv, n):
-    if scale.startswith('lin'):
-        return np.linspace(minv, maxv, num=n, endpoint=True, dtype=np.float64)
-    elif scale.startswith('log'):
-        return np.logspace(minv, maxv, num=n, endpoint=True, dtype=np.float64)
-    else:
-        sys.exit("scale in config parameters should either be lin or log")
-
-def make_parameter_combinations(config, module=None, sync_reference=None, sync_target=None):
-    parameter_combinations = expand_params(config, module, remove=sync_target)
-    if module == 'optimize':
-        return parameter_combinations
-    if module == 'simulate':
-        rec = lib.simulate._set_recombination_rate()
-        if rec != None:
-            parameter_combinations['recombination'] = rec
-    parameter_combinations =  _dict_product(parameter_combinations)
-    if sync_reference and sync_target:
-        for pop in sync_target:
-            parameter_combinations[f'Ne_{pop}'] = parameter_combinations[f'Ne_{sync_reference}']
-    return parameter_combinations
+def parameters_to_grid(config):
+    # parameter combinations
+    cartesian_product = itertools.product(*config['parameters_np'].values())
+    rearranged_product = list(zip(*cartesian_product))
+    config['parameters_grid_points'] = len(rearranged_product[0])
+    config['parameters_grid'] = {k: np.array(v, dtype=np.float64) for k, v in zip(config['parameters_np'].keys(), rearranged_product)}
+    return config
 
 def get_config(config_file, module):
     parser = configparser.ConfigParser(inline_comment_prefixes='#', allow_no_value=True)
-    parser.optionxform=str # otherwise keys are lowercase
+    parser.optionxform = str # otherwise keys are lowercase
     parser.read(config_file)
     parsee = {s: dict(parser.items(s)) for s in parser.sections()}
-    print("[PARSEE]", parsee)
     schema = get_config_schema_new(module)
     validator = NewCustomNormalizer(schema, module=module, purge_unknown=True)
     validator.validate(parsee)
@@ -324,25 +287,13 @@ def get_config(config_file, module):
         validator_error_string = get_validator_error_string(validator.errors)
         sys.exit("[X] INI Config file format error(s) ...\n%s" % validator_error_string)
     config = validator.normalized(parsee)
-    print('[POST-VALIDATION]', config)
-    config = add_parameter_combinations(config, module)
-    print('[POST-PARAMETERCOMBOS]', config)
-    return True
-    config['populations']['sample_pop_ids'] = sample_pop_ids
-    config['population_by_letter'] = {pop_id: config['populations'][pop_id] for pop_id in sample_pop_ids}
-    # Check explicitely for keys : m1,2,3,4
-    # mutype field in config
-    config['max_k'] = np.array(list(config['k_max'].values()))
-    # self.config['mu']['blocklength'] = self._get_blocks_length() # check later ...
-    
-    print('[POST-AAA_get_pops_to_sync]', config)
-    config['reference'] = reference
-    config['toBeSynced'] = toBeSynced
-    config['parameter_combinations'] = make_parameter_combinations(config, module=module, sync_reference=reference, sync_target=toBeSynced)
-    print('[POST-GET]', config)
+    config = check_sync_pop_value_consistency(config)
+    config = kmax_to_maxk(config)
+    config = parameters_to_arrays(config, module)
+    config = parameters_to_grid(config)
+    return config
 
 class NewCustomNormalizer(cerberus.Validator):
-    # move to parameterObj file ...
     def __init__(self, *args, **kwargs):
         super(NewCustomNormalizer, self).__init__(*args, **kwargs)
         self.module = kwargs['module']
@@ -356,7 +307,7 @@ class NewCustomNormalizer(cerberus.Validator):
             return value
         self._error('reference_pop', 
             "invalid reference_pop: %r. Must be one of the following: %s" % (value, ", ".join(self.document['pop_ids'])))
-        return value
+        return None
 
     def _normalize_coerce_sync_pop_sizes(self, value):
         if value: 
@@ -365,8 +316,7 @@ class NewCustomNormalizer(cerberus.Validator):
                 sync_pop_ids_valid_sets = set([frozenset(self._normalize_coerce_pop_ids(",".join(pops))) for pops in list(itertools.chain.from_iterable(
                     itertools.combinations(self.document['pop_ids'], r) for r in range(len(self.document['pop_ids'])+1)))[4:]])
                 if sync_pop_ids in sync_pop_ids_valid_sets:
-                    pops_to_sync = sync_pop_ids.difference(set(self.document['reference_pop']))
-                    return sorted(pops_to_sync)
+                    return sorted(sync_pop_ids)
                 else:
                     self._error('sync_pop_ids', 'invalid sync_pop_ids: %r. Must be one of the following: %s' % (value, ", ".join(sync_pop_ids_valid_sets)))
                     return []
@@ -404,6 +354,19 @@ class NewCustomNormalizer(cerberus.Validator):
                 return None
         return value
 
+    def _normalize_coerce_path(self, value):
+        if value is None:
+            return None
+        _path = pathlib.Path(value).resolve()
+        return str(_path)
+        if not _path.exists():
+            if self.module == 'model':
+                self._error(self.module, 'Must be a valid path to a model file. Not %r' % value)
+            elif self.module == 'simulate':
+                self._error(self.module, 'Must be a valid path to the recombination map. Not %r' % value)
+            else:
+                pass
+
     def _validate_notNoneInt(self, notNoneNumeric, field, value):
         """{'type':'boolean'}"""
         if value == None and notNoneNumeric:
@@ -421,7 +384,11 @@ class NewCustomNormalizer(cerberus.Validator):
 
     def _validate_isPath(self, isPath, field, value):
         """{'type':'boolean'}"""
-        if value.strip(" ") != '' and not os.path.isfile(value):
+        if value is None:
+            return None
+        _path = pathlib.Path(value).resolve()
+        return str(_path)
+        if not _path.exists():
             if field == 'model':
                 self._error(field, 'Must be a valid path to a model file. Not %r' % value)
             else:
@@ -436,7 +403,7 @@ def get_config_schema_new(module):
             'type': 'dict',
             'schema': {
                 'version': {'required': True, 'empty':False, 'type': 'string'},
-                'model': {'required': True, 'empty':False, 'type': 'string', 'isPath': True},
+                'model': {'required': True, 'empty':False, 'type': 'string', 'coerce': 'path'},
                 'precision': {'required': True, 'empty':False, 'type': 'integer', 'coerce': int},
                 'random_seed': {'required': True, 'empty':False, 'type': 'integer', 'coerce': int}}},
         'populations': {
@@ -476,7 +443,7 @@ def get_config_schema_new(module):
                 'sample_size_A': {'required':True,'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
                 'sample_size_B': {'required':True,'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
                 'recombination_rate': {'empty': True, 'notNoneFloat':True, 'coerce':'float_or_empty', 'min':0.0},
-                'recombination_map': {'empty': True, 'type': 'string', 'isPath': True, 'dependencies':['number_bins', 'cutoff', 'scale']},
+                'recombination_map': {'empty': True, 'type': 'string', 'coerce': 'path', 'dependencies':['number_bins', 'cutoff', 'scale']},
                 'number_bins': {'empty': True, 'notNoneInt': True, 'coerce':'int_or_empty', 'min':1},
                 'cutoff': {'empty': True, 'notNoneFloat': True, 'coerce':'float_or_empty', 'min':0},
                 'scale': {'empty':True, 'type':'string', 'allowed':['lin', 'log']}
@@ -492,7 +459,7 @@ def get_config_schema_new(module):
 def _dict_product(parameter_dict):
     cartesian_product = itertools.product(*parameter_dict.values())
     rearranged_product = list(zip(*cartesian_product))
-    return {k:np.array(v,dtype=np.float64) for k,v in zip(parameter_dict.keys(), rearranged_product)}
+    return {k: np.array(v, dtype=np.float64) for k, v in zip(parameter_dict.keys(), rearranged_product)}
 
 def get_config_schema(module):
     # [To Do] 
@@ -1415,7 +1382,6 @@ class ParameterObj(object):
             validator_error_string = get_validator_error_string(validator.errors)
             sys.exit("[X] INI Config file format error(s) ...\n%s" % validator_error_string)
         self.config = validator.normalized(config)
-
         self.config['populations']['sample_pop_ids'] = sample_pop_ids
         self.config['population_by_letter'] = {pop:config['populations'][pop] for pop in sample_pop_ids}
         self.config['mu']['blocklength'] = self._get_blocks_length() 
