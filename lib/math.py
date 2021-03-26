@@ -577,6 +577,13 @@ class EquationSystemObj(object):
         #casting ETPs to numpy floats
         ETPs=ETPs.astype(np.float64)
         #these test should go in the final version     
+        
+        '''
+        @Gertjan:
+            - when running makegrid the ETP_logs overwrite themselves for each error.
+                - logfiles should be written outside of this function.
+            - also there are (stupid) cases when increasing ETPs does not help. Error message should reflect that 
+        '''
         try:
             assert math.isclose(np.sum(ETPs.flatten()), 1, rel_tol=1e-5), f"[-] sum(ETPs): {np.sum(ETPs.flatten())} != 1 (rel_tol=1e-5)"
         except AssertionError:

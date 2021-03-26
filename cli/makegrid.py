@@ -13,6 +13,15 @@
         
 """
 
+'''
+[To Do]
+- remove --model_file
+- remove --outprefix
+- remove --inner/outer poll
+- change to new config parser
+- add --grid_id
+
+'''
 from timeit import default_timer as timer
 from docopt import docopt
 import lib.gimble
@@ -32,20 +41,17 @@ class MakeGridParameterObj(lib.gimble.ParameterObj):
         self.gridThreads = self._get_int(args['--outer_pool']) #number of workers for independent processes
         self.overwrite = args['--overwrite']
         self.config = None
-        self._parse_config(self.config_file)
+        self.old_parse_config(self.config_file)
 
 def main(params):
     try:
         start_time = timer()
         args = docopt(__doc__)
         parameterObj = MakeGridParameterObj(params, args)
-        if parameterObj.zstore:
-            path, prefix, create = parameterObj.zstore, None, False
-        elif parameterObj.prefix:
-            path, prefix, create = None, parameterObj.prefix, True
-        else:
-            raise ValueError("needs config or prefix")
-        gimbleStore = lib.gimble.Store(path=path, prefix=prefix, create=create)
+        gimbleStore = lib.gimble.Store(
+            path=parameterObj.zstore, 
+            prefix=parameterObj.prefix, 
+            create=(False if parameterObj.zstore else True))
         gimbleStore.makegrid(parameterObj)
         print("[*] Total runtime was %s" % (lib.gimble.format_time(timer() - start_time)))
     except KeyboardInterrupt:
