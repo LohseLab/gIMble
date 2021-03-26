@@ -232,9 +232,12 @@ def parameters_to_arrays(config, module):
     config['parameters_np'] = {}
     config['parameters_fixed'] = []
     for parameter, values in config['parameters'].items():
-        if len(values) <= 2:
-            if len(values) == 1:
-                config['parameters_fixed'].append(parameter)
+        if len(values) == 1:
+            config['parameters_fixed'].append(parameter)
+            config['parameters_np'][parameter] = np.array(values)
+        elif len(values) == 2:
+            if module == 'makegrid':
+                sys.exit("[X] Module %r only supports FLOAT, or (MIN, MAX, STEPS, LIN|LOG) for parameters. Not %r" % (module, values))
             config['parameters_np'][parameter] = np.array(values)
         elif len(values) == 4:
             if module == 'optimize':
@@ -268,7 +271,6 @@ def kmax_to_maxk(config):
     return config
 
 def parameters_to_grid(config):
-    # parameter combinations
     cartesian_product = itertools.product(*config['parameters_np'].values())
     rearranged_product = list(zip(*cartesian_product))
     config['parameters_grid_points'] = len(rearranged_product[0])
@@ -2156,6 +2158,15 @@ class Store(object):
         return out    
 
     def makegrid(self, parameterObj):
+        '''
+        1. checks whether grid exists
+        2. print gridpoint number
+        3. sets up equations
+        4. initiates model
+        5. calculates ETPs
+        6. sets_grid
+
+        '''
         unique_hash = parameterObj._get_unique_hash()
         if self._has_grid(unique_hash) and not parameterObj.overwrite:
             sys.exit("[X] Grid for this config file already exists.")
@@ -2164,7 +2175,7 @@ class Store(object):
         equationSystem = lib.math.EquationSystemObj(
             parameterObj.model_file, 
             parameterObj.config['populations']['reference_pop'],
-            parameterrObj.config['k_max'],
+            parameterObj.config['k_max'],
             parameterObj.config['mu']['blocklength'],
             parameterObj.config['mu']['mu'],
             seed=parameterObj.config['gimble']['random_seed'],
