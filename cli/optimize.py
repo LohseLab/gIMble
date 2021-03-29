@@ -29,7 +29,10 @@ import lib.gimble
 
 '''
 [To Do]
+- change --simID to --data_id
+    - blocks, windows, windowsblocks ?
 - document how tols are used
+
 - needs figuring out NLOPT
  - 1%, 0.1%, 0.01%, etc
 '''
