@@ -135,6 +135,79 @@ META_TEMPLATE_BY_STAGE = {
 
 MUTYPES = ['m_1', 'm_2', 'm_3', 'm_4']
 
+def get_model_params(model):
+    pop_ids, events = ['A', 'B'], []
+    if model in set(['DIV', 'IM_BA', 'IM_AB']):
+        pop_ids += ['A_B']
+        events += ['J_A_B']
+    if model in set(['MIG_AB', 'IM_AB']):
+        events += ['M_A_B']
+    if model in set(['MIG_BA', 'IM_BA']):
+        events += ['M_B_A']
+    events = ['C_%s' % pop_id for pop_id in pop_ids] + events
+    pop_ids_sync = [",".join(combination) for combination 
+        in itertools.combinations(pop_ids, 2)] + [','.join(pop_ids),]
+    return pop_ids, pop_ids_sync, events
+
+def write_config(version=0.0, model=None, outfile=None):
+    pop_ids, pop_ids_sync, events = get_model_params(model)
+    config = configparser.ConfigParser(inline_comment_prefixes="#", allow_no_value=True)
+    config.optionxform = str # otherwise keys are lowercase
+    config['gimble'] = {'version': version, 'model': 'models/%s.tsv' % model, 'random_seed' : 19,
+        'precision': 25}
+    config.add_section('populations')
+    config.set('populations', "pop_ids", ", ".join(pop_ids))
+    config.set('populations', "# Link model to data in GimbleStore")
+    config.set('populations', "A", "")
+    config.set('populations', "B", "")
+    config.set('populations', "# Pick reference population : ( %s )" % " | ".join(pop_ids))
+    config.set('populations', 'reference_pop', "")
+    config.set('populations', "# [OPTIONAL] Simplify model by assuming equality of Ne's : [ %s ]" % " | ".join(pop_ids_sync))
+    config.set('populations', 'sync_pop_sizes', "")
+    config.add_section('k_max')
+    config.set('k_max', "# max dimensionsionality of bSFSs")
+    for mutype, comment in zip(MUTYPES, ['# hetB', '# hetA', '# hetAB', '# fixed']):
+        config.set('k_max', "%s" % (mutype), "2    %s" % comment)
+    config.add_section('simulations')
+    config.set('simulations', 'ploidy', '2')
+    config.set('simulations', "# Number of blocks to simulate")
+    config.set('simulations', 'blocks', "")
+    config.set('simulations', 'chunks', "1")
+    config.set('simulations', "# Number of replicates")
+    config.set('simulations', 'replicates', "")
+    config.set('simulations', 'sample_size_A', '1')
+    config.set('simulations', 'sample_size_B', '1')
+    config.set('simulations', "# Set recombination rate or provide path to recombination map (optional)")
+    config.set('simulations', 'recombination_rate', "")
+    config.set('simulations', 'recombination_map', "")
+    config.set('simulations', "# If recombination map is provide the number of bins and cutoff")
+    config.set('simulations', 'number_bins', "")
+    config.set('simulations', 'cutoff', "")
+    config.set('simulations', 'scale', "")
+    config.add_section('mu')
+    config.set('mu', '# mutation rate (in mutations/site/generation) (gridsearch: required)')
+    config.set('mu', 'mu', "")
+    config.set('mu', '# blocklength in bases (required, if no blocking has been done on BED file)')
+    config.set('mu', 'blocklength', "")
+    config.add_section('parameters')
+    config.set('parameters', "## param: floats")
+    config.set('parameters', "## param: min, [max, [n, (lin|log)]]")
+    for event in events:
+        if event.startswith("C_"):
+            config.set('parameters', '# Effective population size of %s' % event[2:])
+            config.set('parameters', 'Ne_%s' % event[2:], "")
+        if event.startswith("M_"):
+            config.set('parameters', '# Migration rate (in migrants/generation) from %s to %s (backwards in time)' % (event.split("_")[1], event.split("_")[2]))
+            config.set('parameters', 'me_%s' % event[2:], "")
+        if event.startswith("J_"):
+            config.set('parameters', "# Split time (in generations)")
+            config.set('parameters', 'T', "")    
+    #config.set('parameters', "# Scaled mutation rate (on the coalescence time scale) (optional)")
+    #config.set('parameters', 'theta', "")
+    with open(outfile, 'w') as fh:
+        config.write(fh)
+    print("[+] Wrote INI file %r. Please fill in values before starting optimize/makegrid/gridsearch." % str(outfile))
+
 def get_validator_error_string(validator_errors):
     # parameterObj file ...
     out = []
