@@ -1149,7 +1149,9 @@ class Store(object):
         bsfs_windows_full = self.get_bsfs(
                 data_type='windows', 
                 population_by_letter=parameterObj.config['population_by_letter'], 
-                sample_sets='X')
+                sample_sets='X',
+                kmax_by_mutype=parameterObj.config['k_max']
+                )
         popgen_metrics = pop_metrics_from_bsfs(bsfs_windows_full, block_length=meta_blocks['length'], window_size=meta_windows['size'])
         popgen_header = ['heterozygosity_A', 'heterozygosity_B', 'd_xy', 'f_st']
         columns = ['sequence', 'start', 'end', 'index', 'lnCL', 'delta_lnCl'] + params_header + popgen_header
