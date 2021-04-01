@@ -1705,12 +1705,12 @@ class Store(object):
         data_type_ws = set(['windows', 'windows_sum'])
         if data_type in data_type_bws:
             meta_blocks = self._get_meta('blocks')
-            assert meta_blocks['count_total'] > 0, sys.exit('[X] No blocks found.')
+            #assert meta_blocks['count_total'] > 0, sys.exit('[X] No blocks found.')
             for key in params_blocks:
                 params[key] = meta_blocks[key]
         if data_type in data_type_ws:
             meta_windows = self._get_meta('windows')
-            assert meta_windows['count'] > 0, sys.exit('[X] No windows found.')
+            #assert meta_windows['count'] > 0, sys.exit('[X] No windows found.')
             for key in params_windows:
                 params[key] = meta_windows[key]
         elif data_type == 'simulate':
