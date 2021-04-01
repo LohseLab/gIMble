@@ -1705,7 +1705,7 @@ class Store(object):
         data_type_ws = set(['windows', 'windows_sum'])
         if data_type in data_type_bws:
             meta_blocks = self._get_meta('blocks')
-            assert meta_blocks['count'] > 0, sys.exit('[X] No blocks found.')
+            assert meta_blocks['count_total'] > 0, sys.exit('[X] No blocks found.')
             for key in params_blocks:
                 params[key] = meta_blocks[key]
         if data_type in data_type_ws:
@@ -1982,11 +1982,11 @@ class Store(object):
             grid_path = 'grids/%s' % grid_id
             grid_dict = self.data[grid_path].attrs.asdict()
             reportObj.add_line(prefix="[+]", branch='W', fill=".", left=grid_id, right=' %s grid points' % format_count(len(grid_dict)))
-            # also needs kmax, populations? sync?
+            # also needs kmax, populations? sync? YES...
             table = []
-            for grid_point, grid_params in grid_dict.items():
-                table.append([grid_point] + list(grid_params.values()))
-            rows = tabulate.tabulate(table, numalign="right", headers=['i'] + list(grid_params.keys())).split("\n")
+            for param_name, param_values in grid_dict.items():
+                table.append([param_name] + [min(param_values), max(param_values), len(param_values)])
+            rows = tabulate.tabulate(table, numalign="right", headers=['param', 'min', 'max', 'n']).split("\n")
             for i, row in enumerate(rows):
                 branch = 'F' if (i + 1) == len(rows) else 'P'
                 reportObj.add_line(prefix="[+]", branch=branch, fill="", left=row, right='')
@@ -1995,22 +1995,22 @@ class Store(object):
     def _get_lncls_report(self, width):
         reportObj = ReportObj(width=width)
         reportObj.add_line(prefix="[+]", left='[', center='lnCLs', right=']', fill='=')
-        legacy = True if 'global' in self.data['lncls/'] else False
-        lncls_path = 'lncls/global' if legacy else 'lncls/'
-        for grid_id in self.data[lncls_path]:
-            
-            shape = self.data["%s/%s" % (lncls_path, grid_id)].shape
-            reportObj.add_line(prefix="[+]", branch='S', fill=".", left=grid_id, right='NA')
-
-            # grid_dict = self.data[grid_path].attrs.asdict()
-            # reportObj.add_line(prefix="[+]", branch='W', fill=".", left=grid_id, right=' %s grid points' % format_count(len(grid_dict)))
-            # table = []
-            # for grid_point, grid_params in grid_dict.items():
-            #     table.append([grid_point] + list(grid_params.values()))
-            # rows = tabulate.tabulate(table, numalign="right", headers=['i'] + list(grid_params.keys())).split("\n")
-            # for i, row in enumerate(rows):
-            #     branch = 'F' if (i + 1) == len(rows) else 'P'
-            #     reportObj.add_line(prefix="[+]", branch=branch, fill="", left=row, right='')
+        for lncls_id in self.data['lncls/']:
+            windows_key = 'lncls/%s/%s' % (lncls_id, 'windows')
+            global_key = 'lncls/%s/%s' % (lncls_id, 'global')
+            lncls_window_shape = np.array(self.data[windows_key]).shape
+            lncls_global_shape = np.array(self.data[global_key]).shape
+            grid_points = lncls_global_shape[0] if lncls_global_shape else lncls_window_shape[-1]
+            reportObj.add_line(prefix="[+]", branch='W', fill=".", left=lncls_id, right=' %s grid points' % format_count(grid_points))
+            # also needs kmax, populations? sync? YES...
+            table = [
+                ['global', lncls_global_shape],
+                ['windows', lncls_window_shape]
+                ] 
+            rows = tabulate.tabulate(table, numalign="right", headers=['datatype', 'shape' ]).split("\n")
+            for i, row in enumerate(rows):
+                branch = 'F' if (i + 1) == len(rows) else 'P'
+                reportObj.add_line(prefix="[+]", branch=branch, fill="", left=row, right='')
         return reportObj
 
     def _get_sims_report(self, width, label):
