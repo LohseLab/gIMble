@@ -1,15 +1,13 @@
-"""usage: gimbl makegrid                 (-z <FILE> | -o <STR>) -m <FILE> -c <FILE> [-f] [--inner_pool <INT> --outer_pool <INT>] [-h|--help]
+"""usage: gimbl makegrid                 (-z <FILE> | -o <STR>) -c <FILE> [-f] [--numc <INT> ] [-h|--help]
                                             
     Options:
         -h --help                        show this
 
         -z, --zarr_file <FILE>           Path to existing GimbleStore
         -o, --outprefix <STR>            Prefix to use for new GimbleStore
-        -m, --model_file <FILE>          Model file
         -c, --config_file <FILE>         Config file with model parameters
         -f, --overwrite                  Overwrite grid in GimbleStore
-        --inner_pool INT                 Number of processes used to optimize a single data point [default: 1] 
-        --outer_pool INT                 Number of data points processed in parallel [default: 1]
+        --numc INT                       Number of available cores [default: 1] 
         
 """
 
@@ -41,6 +39,7 @@ class MakeGridParameterObj(lib.gimble.ParameterObj):
         self.gridThreads = self._get_int(args['--outer_pool']) #number of workers for independent processes
         self.overwrite = args['--overwrite']
         self.config = None
+        #self.config = lib.gimble.get_config(self.config_file, self._MODULE) 
         self.old_parse_config(self.config_file)
 
 def main(params):

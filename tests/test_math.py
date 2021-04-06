@@ -1,10 +1,14 @@
+import itertools
+import numpy as np
 import pytest
-import numpy as np 
+import sage.all
+
 import lib.math
 import lib.gimble
 import lib.simulate
 import tests.aux_functions as af
-import itertools
+
+from lib.GeneratingFunction.gf import togimble
 
 #ini files translated to the necessary parameters to test ETPs
 all_configs = {
@@ -57,27 +61,19 @@ class Test_ETPs:
 	@pytest.fixture(scope='class')
 	def gimble_ETPs(self):
 		def _gimble_ETPs(global_info, sim_configs):
-			equationSob = lib.math.EquationSystemObj(
-				model_file=global_info['model_file'], 
-				reference_pop=global_info['reference_pop'], 
-				k_max_by_mutype=global_info['k_max'], 
-				block_length=global_info['blocklength'], 
-				mu=global_info['mu']
-				)
-			equationSob.initiate_model(
-				sync_ref=None, 
-				sync_targets=None,
-				disable_tqdm=True
-				)
-			#parameter_combinations: DOL
+			model = lib.gimble.get_model_name(global_info['model_file'])
+			mutype_labels, max_k = zip(*sorted(global_info['k_max'].items()))
+			gf = lib.math.config_to_gf(model, mutype_labels)
+			gfEvaluatorObj = togimble.gfEvaluator(gf, max_k, mutype_labels)
 			parameter_combinations = lib.gimble.LOD_to_DOL(sim_configs)
-			equationSob.ETPs = equationSob.calculate_all_ETPs(
-				parameter_combinations, 
-				threads=2, 
-				gridThreads=1
+			ETPs = lib.math.new_calculate_all_ETPs(
+				gfEvaluatorObj,
+				parameter_combinations,
+				global_info['reference_pop'],
+				global_info['blocklength'],
+				global_info['mu']
 				)
-	
-			return equationSob.ETPs
+			return ETPs
 		return _gimble_ETPs
 
 	def test_ETPs_model(self, gimble_ETPs, config, cmd_plot):
@@ -106,8 +102,20 @@ class Test_n_blocks_chunks:
 	def test_sample_size(self, sim_ETPs_basic, cmd_plot):
 		n, blocks, chunks = 4, 1, 1
 		replicates = 1000
-		test_replicates = af.sim_ETPs(**all_configs['IM_AB'], n=n, blocks=blocks, chunks=chunks, replicates=replicates)
-		self.run_actualtest(sim_ETPs_basic, test_replicates, 'sim_increased_sample_size', correction=True, plot=cmd_plot)
+		test_replicates = af.sim_ETPs(
+			**all_configs['IM_AB'], 
+			n=n, 
+			blocks=blocks, 
+			chunks=chunks, 
+			replicates=replicates
+			)
+		self.run_actualtest(
+			sim_ETPs_basic, 
+			test_replicates, 
+			'sim_increased_sample_size', 
+			correction=True, 
+			plot=cmd_plot
+			)
 	
 	def test_chunking(self, sim_ETPs_basic):
 		chunks = 0 
@@ -147,31 +155,28 @@ class Test_optimize:
 
 	@pytest.fixture(scope='class')
 	def get_equationSystemObj(self):
-		equationSob = lib.math.EquationSystemObj(
-				model_file=all_configs[Test_optimize.model_to_test]['global_info']['model_file'], 
-				reference_pop=all_configs[Test_optimize.model_to_test]['global_info']['reference_pop'], 
-				k_max_by_mutype=all_configs[Test_optimize.model_to_test]['global_info']['k_max'], 
-				block_length=all_configs[Test_optimize.model_to_test]['global_info']['blocklength'], 
-				mu=all_configs[Test_optimize.model_to_test]['global_info']['mu']
-				)
-		equationSob.initiate_model(
-				sync_ref=None, 
-				sync_targets=None,
-				disable_tqdm=True
-				)		
-		yield equationSob
+		model_file = all_configs[Test_optimize.model_to_test]['global_info']['model_file']  
+		k_max = all_configs[Test_optimize.model_to_test]['global_info']['k_max']
+		model = lib.gimble.get_model_name(model_file)
+		mutype_labels, max_k = zip(*sorted(k_max.items()))
+		gf = lib.math.config_to_gf(model, mutype_labels)
+		gfEvaluatorObj = togimble.gfEvaluator(gf, max_k, mutype_labels)		
+		yield gfEvaluatorObj
 
 	@pytest.fixture(scope='class')
 	def gimble_ETPs(self, get_equationSystemObj):
 		parameter_combinations = lib.gimble.LOD_to_DOL(all_configs[Test_optimize.model_to_test]['sim_configs'])
-		get_equationSystemObj.ETPs = get_equationSystemObj.calculate_all_ETPs(
-			parameter_combinations, 
-			threads=2, 
-			gridThreads=1
+		global_info = all_configs[Test_optimize.model_to_test]['global_info']		
+		ETPs = lib.math.new_calculate_all_ETPs(
+			get_equationSystemObj,
+			parameter_combinations,
+			global_info['reference_pop'],
+			global_info['blocklength'],
+			global_info['mu']
 			)
-		return get_equationSystemObj.ETPs
+		return ETPs
 
-	def optimize_parameters(self, parameter_combinations, numPoints, equationSystemObj, ETPs, truth=None):
+	def optimize_parameters(self, parameter_combinations, numPoints, gfEvaluatorObj, ETPs, truth=None):
 		"""
 		method is stripped down version of lib.math.optimize_parameters: 
 		ideally same function, but dependency of parameterObj and printing logfiles --> can it be avoided?
@@ -179,20 +184,41 @@ class Test_optimize:
 		max_eval, xtol_rel, ftol_rel = 10, -1, 0.1
 		threads=1
 		verbose=False
+		reference_pop = global_info = all_configs[Test_optimize.model_to_test]['global_info']['reference_pop']
 		#fixedParams list of parameters that are fixed including ,mu
 		fixedParams = {k:v for k,v in all_configs[Test_optimize.model_to_test]['sim_configs'][0].items() if k not in parameter_combinations.keys()}
-		fixedParams['mu'] = all_configs[Test_optimize.model_to_test]['global_info']['mu'] 
+		mu = all_configs[Test_optimize.model_to_test]['global_info']['mu']
+		block_length = all_configs[Test_optimize.model_to_test]['global_info']['blocklength'] 
 		#boundaryNames: list of parameters that are not fixed
 		boundaryNames = list(parameter_combinations.keys())
-		starting_points, parameter_combinations_lowest, parameter_combinations_highest = equationSystemObj._optimize_get_boundaries(parameter_combinations, boundaryNames, numPoints)
+		starting_points, parameter_combinations_lowest, parameter_combinations_highest = lib.math._optimize_get_boundaries(parameter_combinations, boundaryNames, numPoints)
 		if truth is not None:
 			starting_points = truth
 		trackHistoryPath = [[] for _ in range(numPoints)]
 		#specify the objective function to be optimized
-		specified_objective_function_list = equationSystemObj._optimize_specify_objective_function('simulate', trackHistoryPath, ETPs, boundaryNames,fixedParams, verbose, threads)
+		specified_objective_function_list = lib.math._optimize_specify_objective_function(
+			gfEvaluatorObj, 
+			'simulate', 
+			trackHistoryPath, 
+			ETPs, 
+			boundaryNames,
+			fixedParams, 
+			mu, 
+			block_length, 
+			reference_pop, 
+			verbose
+			)
 		allResults=[]
 		for startPos, specified_objective_function in zip(itertools.cycle(starting_points), specified_objective_function_list):
-			single_run_result = lib.math.run_single_optimize(startPos, parameter_combinations_lowest, parameter_combinations_highest, specified_objective_function, max_eval, xtol_rel, ftol_rel) 
+			single_run_result = lib.math.run_single_optimize(
+				startPos, 
+				parameter_combinations_lowest, 
+				parameter_combinations_highest, 
+				specified_objective_function, 
+				max_eval, 
+				xtol_rel, 
+				ftol_rel
+				) 
 			allResults.append(single_run_result)
 		return allResults                    
 
@@ -201,7 +227,13 @@ class Test_optimize:
 		parameter_combinations = {'Ne_B':[3e5, 9e5], 'me_B_A':[7e-8,7e-6]}
 		numPoints=1
 		#gimble_ETPs is data
-		optimized_results = self.optimize_parameters(parameter_combinations, numPoints, get_equationSystemObj, gimble_ETPs, truth=[known_truth,])
+		optimized_results = self.optimize_parameters(
+			parameter_combinations, 
+			numPoints, 
+			get_equationSystemObj, 
+			gimble_ETPs, 
+			truth=[known_truth,]
+			)
 		print(optimized_results)
 		compare_truth_optimize = known_truth-optimized_results[0]['optimum']
 		assert np.all(np.isclose(compare_truth_optimize, np.zeros((len(parameter_combinations))), atol=1e-3))

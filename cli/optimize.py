@@ -3,7 +3,7 @@
 
 """
 usage: gimble optimize                  [-z FILE] -c FILE (-b [-n INT]|-w| --simID <STR>) [--track] 
-                                            [-x FLOAT -i INT] [-f FLOAT] [-p] [--inner_pool <INT> --outer_pool <INT>]
+                                            [-x FLOAT -i INT] [-f FLOAT] [-p] [--numc <INT>]
                                             [-h|--help]
                                             
                                             
@@ -14,8 +14,7 @@ usage: gimble optimize                  [-z FILE] -c FILE (-b [-n INT]|-w| --sim
         -b, --blocks                                Optimize based on blocks 
         -w, --windows                               Optimize based on windows (might take very long)
         --simID STR                                 Provide name of simulation run to optimize
-        --inner_pool INT                            Number of processes used to optimize a single data point [default: 1] 
-        --outer_pool INT                            Number of data points processed in parallel [default: 1]
+        --numc INT                                  Number of cores available [default: 1] 
         -n, --n_points INT                          Number of starting points [default: 1]
         -i, --iterations INT                        Number of iterations to perform when optimizing [default: 100]
         -x, --xtol_rel FLOAT                        Set relative tolerance on norm of vector of optimisation parameters [default: -1.0]
@@ -47,9 +46,7 @@ class OptimizeParameterObj(lib.gimble.ParameterObj):
         self.old_parse_config(self.config_file)
         #self._parse_config(self.config_file)
         self.model_file = self._get_model_f()
-        #self.threads, self.gridThreads = [self._get_int(t) for t in args["--threads"].split(',')]
-        self.threads = self._get_int(args['--inner_pool']) #number of workers for a single set of equations to be solved
-        self.gridThreads = self._get_int(args['--outer_pool']) #number of workers for independent processes
+        self.gridThreads = self._get_int(args['--numc']) #number of workers for independent processes
         self.numPoints = self._get_int(args['--n_points'])
         self.max_eval = self._get_int(args['--iterations'])
         self.xtol_rel = self._get_float(args['--xtol_rel'])
