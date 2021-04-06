@@ -28,7 +28,7 @@ import tabulate
 import time
 # np.set_printoptions(threshold=sys.maxsize)
 
-
+from lib.GeneratingFunction.gf import togimble
 '''
 [Rules for better living]
 
@@ -149,12 +149,15 @@ def get_model_params(model):
         in itertools.combinations(pop_ids, 2)] + [','.join(pop_ids),]
     return pop_ids, pop_ids_sync, events
 
+def get_model_name(model_file):
+    return model_file.rstrip('.tsv').split('/')[-1]
+
 def write_config(version=0.0, model=None, outfile=None):
     pop_ids, pop_ids_sync, events = get_model_params(model)
     config = configparser.ConfigParser(inline_comment_prefixes="#", allow_no_value=True)
     config.optionxform = str # otherwise keys are lowercase
     config['gimble'] = {'version': version, 'model': 'models/%s.tsv' % model, 'random_seed' : 19,
-        'precision': 25}
+        'precision': 165}
     config.add_section('populations')
     config.set('populations', "pop_ids", ", ".join(pop_ids))
     config.set('populations', "# Link model to data in GimbleStore")
@@ -338,6 +341,9 @@ def parameters_to_arrays(config, module):
 
 def kmax_to_maxk(config):
     try:
+        #GB: sorting seems to be the way to go here
+        #mutype_labels, max_k = zip(*sorted(config[k_max].items()))
+        #max_k can set to np.array afterwards
         config['max_k'] = np.array([config['k_max'][mutype] for mutype in MUTYPES])
     except KeyError as e:
         sys.exit('[X] Config: No k-max value found for mutype %r ' % e.args[0])
@@ -1361,6 +1367,13 @@ class ParameterObj(object):
         print('to_be_synced', to_be_synced)
         return (reference, to_be_synced)
 
+    def _get_pops_to_sync_short(self):
+        syncing_to, to_be_synced = None, []
+        syncing = self.config['populations']['sync_pop_sizes']
+        if syncing and syncing.strip(' ') !='':        
+            syncing_to, *to_be_synced = syncing.split(',')
+        return (syncing_to, to_be_synced)
+
     def _get_unique_hash_from_dict(self, d):
         '''active'''
         return hashlib.md5(str(d).encode()).hexdigest()
@@ -2102,34 +2115,26 @@ class Store(object):
             if parameterObj.data_type != 'blocks':
                 print("[-] --n_points cannot be set with datatypes other than blocks. Will be set to 1.")
                 parameterObj.numPoints = 1
-        max_k = np.array(list(parameterObj.config['k_max'].values()))
-        data = tally_variation(self._get_variation(
-            data_type=parameterObj.data_type, 
-            population_by_letter=parameterObj.config['population_by_letter'], 
-            sample_sets="X"
-            ), form='bsfs', max_k=max_k)
-        #resample blocks and determine for each parameter ftol_abs
+        mutype_labels, max_k = zip(*sorted(parameterObj.config['k_max'].items()))
+        if parameterObj.data_type=='simulate': #temp fix with if statement
+            data = self._get_sims_bsfs(label) #data is an iterator across parameter combos
+        else: 
+            data = tally_variation(
+                    self._get_variation(
+                        data_type=parameterObj.data_type, 
+                        population_by_letter=parameterObj.config['population_by_letter'], 
+                        sample_sets="X"
+                        ), 
+                    form='bsfs', max_k=np.array(max_k, dtype=np.uint8))
+
         self._set_stopping_criteria(data, parameterObj, label)
-        # load math.EquationSystemObj
-        equationSystem = lib.math.EquationSystemObj(
-            parameterObj.model_file, 
-            parameterObj.config['populations']['reference_pop'],
-            parameterObj.config['k_max'],
-            parameterObj.config['mu']['blocklength'],
-            parameterObj.config['mu']['mu'],
-            seed=parameterObj.config['gimble']['random_seed'],
-            module="optimize",
-            threads=parameterObj.threads
-            )
-        # initiate model equations
-        equationSystem.initiate_model(sync_ref=parameterObj.reference, sync_targets=parameterObj.toBeSynced)
-        #this is for a single dataset
         
-        '''
-        DRL: is there a way of not making distinction between data_type below?
-        GB: Yes, that would be making the distinction between running optimize across
-        replicates and running it across multiple starting points. 
-        '''
+        model = get_model_name(parameterObj.config['gimble']['model'])
+        print('[+] Generating equations.')
+        sync_pops = parameterObj._get_pops_to_sync_short()
+        gf = lib.math.config_to_gf(model, mutype_labels, sync_pops)
+        gfEvaluatorObj = togimble.gfEvaluator(gf, max_k, mutype_labels)
+
         if parameterObj.data_type=='simulate':
             if parameterObj.trackHistory:
                 print("[-] Tracking optimization cannot be enabled when optimising simulations.")
@@ -2139,30 +2144,47 @@ class Store(object):
             all_results={}
             for param_combo, replicates in data:
                 print(f"Optimising replicates {param_combo}")
-                result = equationSystem.optimize_parameters(replicates, parameterObj, trackHistory=False, verbose=False, label=label, param_combo_name=param_combo)
+                result = lib.math.optimize_parameters(
+                    gfEvaluatorObj,
+                    replicates, 
+                    parameterObj, 
+                    trackHistory=False, 
+                    verbose=False, 
+                    label=label, 
+                    param_combo_name=param_combo
+                    )
                 all_results[param_combo] = result
-                self._optimize_to_csv(result, label, param_combo)
+                long_label = f'{label}_{param_combo}' 
+                self._optimize_to_csv(result, long_label, 'simulate')
         else:
-            results = equationSystem.optimize_parameters(
+            long_label=f"{parameterObj.data_type}_{label}"
+            result = lib.math.optimize_parameters(
+                gfEvaluatorObj,
                 data, 
                 parameterObj,
-                trackHistory=True,
+                trackHistory=parameterObj.trackHistory,
                 verbose=True,
-                label=f"{parameterObj.data_type}_{parameterObj._get_unique_hash()}"
+                label=long_label
                 )
+            if parameterObj.trackHistory:
+                self._optimize_to_csv(result, long_label, 'blocks')
 
-    def _optimize_to_csv(self, results, label, param_combo):
-        df = pd.DataFrame(results[1:])
-        df.columns=results[0]
-        df = df.sort_values(by='iterLabel')
-        df.set_index('iterLabel', inplace=True)
-        #df.to_csv(f'{label}_{param_combo}.csv') #already in log
-        #print(f"[] Optimize output saved to {os.getcwd()}")
-        self._optimize_describe_df(df, label, param_combo)
+    def _optimize_to_csv(self, results, label, data_type='simulate'):
+        if data_type=='simulate':
+            df = pd.DataFrame(results[1:])
+            df.columns=results[0]
+            df = df.sort_values(by='iterLabel')
+            df.set_index('iterLabel', inplace=True)
+            self._optimize_describe_df(df, label)
+        else:
+            headers = results.pop(0)
+            df = pd.DataFrame(results, columns=headers)
+            df['step_id'] = df['step_id'].astype(int)
+            df.to_csv(f'{label}_track_history.csv')
 
-    def _optimize_describe_df(self, df, label, param_combo):
+    def _optimize_describe_df(self, df, label):
         summary=df.drop(labels=['lnCL', 'exitcode'], axis=1).describe(percentiles=[0.025,0.975])
-        summary.to_csv(f'{label}_{param_combo}_summary.csv')
+        summary.to_csv(f'{label}_summary.csv')
 
     def _set_stopping_criteria(self, data, parameterObj, label):
         set_by_user = True
@@ -2178,7 +2200,7 @@ class Store(object):
             pass
             #print(f"Relative tolerance on lnCL set by data resampling: {parameterObj.ftol_rel}")
         if parameterObj.xtol_rel>0:
-            print(f"Relative tolerance on norm of parameter vector: {parameterObj.ftol_rel}")
+            print(f"Relative tolerance on norm of parameter vector: {parameterObj.xtol_rel}")
         
     def _get_lnCL_SD(self, all_data, parameterObj, label):
         if parameterObj.data_type == 'windows':
@@ -2244,7 +2266,14 @@ class Store(object):
         if self._has_grid(unique_hash) and not parameterObj.overwrite:
             sys.exit("[X] Grid for this config file already exists.")
         number_grid_points = len(parameterObj.parameter_combinations[next(iter(parameterObj.parameter_combinations))])
-        print("[+] Generated %s grid points combinations." % number_grid_points)
+        print("[+] %s grid point combinations were provided." % number_grid_points)
+        model = get_model_name(parameterObj.config['gimble']['model'])
+        mutype_labels, max_k = zip(*sorted(parameterObj.config['k_max'].items()))
+        print('[+] Generating equations.')
+        sync_pops = parameterObj._get_pops_to_sync_short()
+        gf = lib.math.config_to_gf(model, mutype_labels, sync_pops)
+        gfEvaluatorObj = togimble.gfEvaluator(gf, max_k, mutype_labels)
+        """
         equationSystem = lib.math.EquationSystemObj(
             parameterObj.model_file, 
             parameterObj.config['populations']['reference_pop'],
@@ -2257,8 +2286,18 @@ class Store(object):
             )
         #build the equations
         equationSystem.initiate_model(sync_ref=parameterObj.reference, sync_targets=parameterObj.toBeSynced)
-        equationSystem.ETPs = equationSystem.calculate_all_ETPs(parameterObj.parameter_combinations, module=parameterObj._MODULE, threads=parameterObj.threads, gridThreads=parameterObj.gridThreads, verbose=False)
-        self._set_grid(unique_hash, equationSystem.ETPs, parameterObj.parameter_combinations, overwrite=parameterObj.overwrite)
+        ETPs = equationSystem.calculate_all_ETPs(parameterObj.parameter_combinations, module=parameterObj._MODULE, threads=parameterObj.threads, gridThreads=parameterObj.gridThreads, verbose=False)
+        """
+        ETPs = lib.math.new_calculate_all_ETPs(
+            gfEvaluatorObj, 
+            parameterObj.parameter_combinations, 
+            parameterObj.config['populations']['reference_pop'], 
+            parameterObj.config['mu']['blocklength'], 
+            parameterObj.config['mu']['mu'], 
+            processes=parameterObj.gridThreads, 
+            verbose=False
+            )
+        self._set_grid(unique_hash, ETPs, parameterObj.parameter_combinations, overwrite=parameterObj.overwrite)
 
     def _set_grid(self, unique_hash, ETPs, grid_labels, overwrite=False):
         dataset = self.data['grids'].create_dataset(unique_hash, data=ETPs, overwrite=overwrite)

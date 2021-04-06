@@ -1,26 +1,25 @@
+import copy
+import collections
+import contextlib
+import concurrent.futures
+import datetime
 import itertools
+import math
+import multiprocessing
+import nlopt
+import numpy as np
+import pandas as pd
+import random
 import sys, os
 import sage.all
-import sage.parallel.multiprocessing_sage
-import pandas as pd
-import collections
-import numpy as np
-import copy
-import random
-import math
-from tqdm import tqdm
-import multiprocessing
-import contextlib
-import lib.gimble
+
 from functools import partial
 from functools import partialmethod
-import nlopt
-import concurrent.futures
-#import logging
-import datetime
 from timeit import default_timer as timer
+from tqdm import tqdm
 
-
+import lib.gimble
+from lib.GeneratingFunction.gf import togimble
 
 
 # [INFERENCE.py] : RENAME AS INFERENC.PY
@@ -132,7 +131,7 @@ def get_mutation_profiles(k_max_by_mutype, offset=0, by_mutype=True):
                 mutation_profile = mutation_tuple
             mutation_profiles.append(mutation_profile)
     return mutation_profiles
-
+"""
 def place_mutations(parameter_batch):
     mutation_profile, constructors = parameter_batch 
     mutation_tuple = tuple(mutation_profile.values())
@@ -160,7 +159,7 @@ def place_mutations(parameter_batch):
             equation = mutation_equation * event_equation
         equations.append(equation)
     return (mutation_tuple, sum(equations))
-
+"""
 def param_generator(pcentre, pmin, pmax, psamples, distr):
     # [atavism]
     starts = [pmin, pcentre]
@@ -171,6 +170,35 @@ def param_generator(pcentre, pmin, pmax, psamples, distr):
     else:
         raise ValueError('"distr" must be "linear"')
 
+def config_to_gf(model, mutype_labels, sync_pops=None):
+    pop_ids, pop_ids_sync, events = lib.gimble.get_model_params(model)
+    sample_list = [(),('a','a'),('b','b')] #currently hard-coded
+    pop_mapping = ['A_B', 'A', 'B'] #pop_mapping: should be more general sorted list of pops
+    coalescence_rates = [sage.all.var(f'C_{pop}') for pop in pop_mapping]
+    if sync_pops:
+        syncing_to, to_be_synced = sync_pops
+        syncing_to_idx = pop_mapping.index(syncing_to)
+        for pop_to_sync in to_be_synced:
+            coalescence_rates[pop_mapping.index(pop_to_sync)] = coalescence_rates[syncing_to_idx]
+    migration_events = [event for event in events if event.startswith('M')]
+    exodus_events = [event for event in events if event.startswith('J')]
+    if len(migration_events)>0:
+        migration_rate = sage.all.var('M')
+        migration_direction = [tuple(pop_mapping.index(pop) for pop in mig.lstrip('M_').split('_')) for mig in migration_events]
+        #migration_direction = [(1,2)] if migration_events[0] == 'M_A_B' else [(2,1)]
+    else:
+        migration_rate, migration_direction = None, None
+    if len(exodus_events)>0:
+        exodus_rate = sage.all.var('J')
+        exodus_source = [[pop_mapping.index(pop) for pop in exodus.lstrip('J_').split('_')] for exodus in exodus_events] 
+        exodus_dest = [[pop_mapping.index(exodus.lstrip('J_'))] for exodus in exodus_events]
+        exodus_direction = [tuple(srce + dest) for srce, dest in zip(exodus_source, exodus_dest)]
+        #exodus_direction = [(1,2,0)]
+    else:
+        exodus_rate, exodus_direction = None, None
+    gf = togimble.get_gf(sample_list, coalescence_rates, mutype_labels, migration_direction, migration_rate, exodus_direction, exodus_rate)
+    return gf
+"""
 def calculate_inverse_laplace(params):
     '''
     [To Do]
@@ -202,46 +230,44 @@ def calculate_inverse_laplace(params):
             sys.exit("Inverse laplace transform undefined (using maxima)")
     equationObj.result = sage.all.RealField(precision)(equationObj.result)
     return equationObj
-
+"""
 def calculate_composite_likelihood(ETPs, data):
     ETP_log = np.zeros(ETPs.shape, dtype=np.float64)
     np.log(ETPs, where=ETPs>0, out=ETP_log)
     return np.sum(ETP_log * data)
 
-def objective_function(paramsToOptimize, grad, paramNames, fixedParams, equationSystemObj, data, threads, verbose=True, path=None):
+def objective_function(paramsToOptimize, grad, paramNames, fixedParams, mu, block_length, reference_pop, gfEvaluatorObj, data, verbose=True, path=None):
     if grad.size:
         raise ValueError('no optimization with derivatives implemented')
     start_time = timer()
-    all_rates_unscaled = {k:v for k,v in zip(paramNames, paramsToOptimize)}
-    all_rates_unscaled = {**all_rates_unscaled, **fixedParams}
-    #scaling to coalescent time scale (theta=4*Ne*mu)
-    all_rates = equationSystemObj._scale_parameter_combination(all_rates_unscaled, equationSystemObj.reference_pop, equationSystemObj.block_length, 'optimize', fixedParams['mu'])
-    #rates are no longer in standard scaling aka theta=2*Ne*mu rather than 4*Ne*mu
-    rates = equationSystemObj._get_base_rate_by_variable(all_rates)
-    split_time = equationSystemObj._get_split_time(all_rates)
-    iteration_number=-1
-    if isinstance(path, list):
-        iteration_number = len(path)
-    ETPs = equationSystemObj.calculate_ETPs((rates, split_time, threads, verbose))
+    #scale parameters from generation scale to coalescence time scale
+    params_to_optimize_unscaled = {k:v for k,v in zip(paramNames, paramsToOptimize)}
+    all_rates_unscaled = {**params_to_optimize_unscaled, **fixedParams}
+    all_rates_scaled = scale_single_gens_to_gimble_symbolic(
+        all_rates_unscaled, 
+        reference_pop, 
+        block_length, 
+        mu
+        )
 
+    ETPs = gfEvaluatorObj.evaluate_gf(all_rates_scaled, all_rates_scaled[sage.all.SR.var('theta')])
     result = calculate_composite_likelihood(ETPs, data)
-    toSave = np.append(paramsToOptimize, result)
-    #scaled parameters are in all_rates
-    #all_rates['theta']/=equationSystemObj.block_length
-    #C_x if x not reference
-    #all_rates[f'theta_{pop}'] = all_rates['theta']/all_rates[f'C_{pop}']
-    iteration_number=-1
+    
+    iteration_number = -1
     if isinstance(path, list):
-        path.append(toSave)
         iteration_number = len(path)
-    #print(str(iteration_number)+'\t'+'\t'.join(str(param) for param in paramsToOptimize)+'\t'+str(result))
+        toSave = np.append(paramsToOptimize, (result, iteration_number))
+        path.append(toSave)
+    
     if verbose:
+        #scale coalescence time scale: 
+        #all_rates_coal_scaled = scale_single_gimble_to_coal(parameter_dict)
         # generation time scaled
         # for time use lib.gimble.format_time(seconds)
         time = str(datetime.timedelta(seconds=round(timer()-start_time, 1)))
         print("[+] i=%s -- {%s} -- L=%s -- %s" % (
             str(iteration_number).ljust(4), 
-            " ".join(["%s=%s" % (k, '{:.2e}'.format(float(v))) for k, v in all_rates.items()]), 
+            " ".join(["%s=%s" % (k, '{:.2e}'.format(float(v))) for k, v in params_to_optimize_unscaled.items()]), 
             '{:.2f}'.format(float(result)), 
             str(time[:-5]) if len(time) > 9 else str(time))) # rounding is hard ...
     return result
@@ -264,6 +290,148 @@ def run_single_optimize(p0, lower, upper, specified_objective_function, maxeval,
     
     return rdict
 
+def optimize_parameters(gfEvaluatorObj, data, parameterObj, trackHistory=True, verbose=False, label='', param_combo_name=''):
+
+    fixedParams = parameterObj._get_fixed_params(as_dict=True) #adapt for new config parser
+    boundaryNames = _optimize_get_boundary_names(parameterObj, fixedParams, data)
+    starting_points, parameter_combinations_lowest, parameter_combinations_highest = _optimize_get_boundaries(parameterObj.parameter_combinations, boundaryNames, parameterObj.numPoints)
+    trackHistoryPath = [[] for _ in range(parameterObj.numPoints)]
+    #specify the objective function to be optimized
+    reference_pop = parameterObj.config['populations']['reference_pop']
+    mu = parameterObj.config['mu']['mu']
+    block_length = parameterObj.config['mu']['blocklength']
+    specified_objective_function_list = _optimize_specify_objective_function(
+        gfEvaluatorObj, 
+        parameterObj.data_type, 
+        trackHistoryPath, 
+        data, 
+        boundaryNames,
+        fixedParams, 
+        mu, 
+        block_length, 
+        reference_pop, 
+        verbose
+        )
+    
+    #print to screen
+    startdesc = "[+] Optimization starting for specified point."
+    if parameterObj.numPoints>1:
+        startdesc = f"[+] Optimization starting for specified point and {parameterObj.numPoints-1} random points."
+    if verbose:
+        print(startdesc)
+    #make log file for simulation replicates:
+    _init_optimize_log(boundaryNames, f'optimize_log_{label}_{param_combo_name}.tsv', parameterObj._CWD, meta=parameterObj._get_cmd())
+    
+    #parallelize over starting points or data points
+    allResults=[] 
+    if parameterObj.gridThreads <= 1:
+        with open(os.path.join(parameterObj._CWD, f'optimize_log_{label}_{param_combo_name}.tsv'), 'a') as log_file:
+            for idx, (startPos, specified_objective_function) in enumerate(tqdm(zip(itertools.cycle(starting_points), specified_objective_function_list), desc="progress", total=len(specified_objective_function_list),disable=verbose)):
+                single_run_result = run_single_optimize(startPos, parameter_combinations_lowest, parameter_combinations_highest, specified_objective_function, parameterObj.max_eval, parameterObj.xtol_rel, parameterObj.ftol_rel) 
+                allResults.append(single_run_result)
+                _optimize_log(single_run_result, idx, log_file)
+                #allResults.append(run_single_optimize(startPos, parameter_combinations_lowest, parameter_combinations_highest, specified_objective_function, parameterObj.max_eval, parameterObj.xtol_rel, parameterObj.ftol_rel))
+            
+    else:
+        #single_runs need to be specified before passing them to the pool
+        specified_run_list = _optimize_specify_run_list_(parameterObj, specified_objective_function_list, starting_points, parameter_combinations_lowest, parameter_combinations_highest)
+        with open(os.path.join(parameterObj._CWD, f'optimize_log_{label}_{param_combo_name}.tsv'), 'a') as log_file:
+            with concurrent.futures.ProcessPoolExecutor(max_workers=parameterObj.gridThreads) as outer_pool:
+                for idx, single_run in enumerate(tqdm(outer_pool.map(fp_map, specified_run_list), desc="progress", total=len(specified_run_list), disable=verbose)):
+                    _optimize_log(single_run, idx, log_file)
+                    allResults.append(single_run)
+
+    #process results found in allResults (final step including exit code), and trackHistoryPath (all steps) 
+    exitcodeDict = {
+                    1: 'optimum found', 
+                    2: 'stopvalue reached',
+                    3: 'tolerance on lnCL reached',
+                    4: 'tolerance on parameter vector reached',
+                    5: 'max number of evaluations reached',
+                    6: 'max computation time was reached'
+                }
+    result = _optimize_reshape_output(allResults, trackHistoryPath, boundaryNames, exitcodeDict, trackHistory, verbose)
+    return result
+
+def _optimize_get_boundary_names(parameterObj, fixedParams, data):
+    syncing_to, to_be_synced = parameterObj._get_pops_to_sync_short()
+    boundaryNames = [k for k in parameterObj.config['parameters'].keys() if not (k=='mu' or k in fixedParams or k in to_be_synced)]
+    if len(boundaryNames) == 0:
+        sys.exit("[X] No boundaries specified.")
+    return boundaryNames
+    
+def _optimize_get_boundaries(parameter_combinations, boundary_names, numPoints):
+    parameter_combinations_lowest = np.array([parameter_combinations[k][0] for k in boundary_names])
+    parameter_combinations_highest = np.array([parameter_combinations[k][1] for k in boundary_names])
+    #start from midpoint
+    pmid = np.mean(np.vstack((parameter_combinations_lowest, parameter_combinations_highest)), axis=0)
+    if numPoints > 1:
+        #np.random.seed(self.seed)
+        starting_points = np.random.uniform(low=parameter_combinations_lowest, high=parameter_combinations_highest, size=(numPoints-1, len(boundary_names)))
+        starting_points = np.vstack((pmid,starting_points))
+    else:
+        starting_points = [pmid,]
+
+    return (starting_points, parameter_combinations_lowest, parameter_combinations_highest)
+    
+def _optimize_specify_objective_function(gfEvaluatorObj, data_type, trackHistoryPath, data, boundary_names, fixedParams, mu, block_length, reference_pop, verbose):
+    if data_type=='simulate':
+        specified_objective_function_list = [partial(
+                objective_function,
+                paramNames=boundary_names,
+                fixedParams=fixedParams,
+                mu=mu,
+                block_length = block_length,
+                reference_pop=reference_pop,
+                gfEvaluatorObj=gfEvaluatorObj,
+                data=bsfs,
+                verbose=verbose,
+                path=None) for bsfs in data]
+    
+    elif data_type=='blocks':
+        specified_objective_function_list = [partial(
+                    objective_function,
+                    paramNames=boundary_names,
+                    fixedParams=fixedParams,
+                    mu=mu,
+                    block_length = block_length,
+                    reference_pop=reference_pop,
+                    gfEvaluatorObj=gfEvaluatorObj,
+                    data=data,
+                    verbose=verbose,
+                    path=sublist) for sublist in trackHistoryPath]
+    else:
+        raise ValueError("Only blocks and sims have been implemented so far.")
+    return specified_objective_function_list
+    
+def _optimize_specify_run_list_(parameterObj, specified_objective_function_list, starting_points, parameter_combinations_lowest, parameter_combinations_highest):
+    specified_run_list=[partial(
+                run_single_optimize,
+                p0=p0,
+                lower=parameter_combinations_lowest,
+                upper=parameter_combinations_highest,
+                specified_objective_function=specified_objective_function,
+                maxeval=parameterObj.max_eval,
+                xtol_rel=parameterObj.xtol_rel,
+                ftol_rel=parameterObj.ftol_rel
+                ) for p0, specified_objective_function in zip(itertools.cycle(starting_points), specified_objective_function_list)]
+    return specified_run_list
+    
+def _optimize_reshape_output(raw_output, trackHistoryPath, boundary_names, exitcodeDict, trackHistory, verbose):
+    #raw_output is list of dicts with {"lnCL":value, "optimum":list, "exitcode":value}
+    if verbose:
+        print([exitcodeDict.get(resultd['exitcode'],'Not in exitcodeDict.') for resultd in raw_output])
+        
+    #process trackhistory
+    if not trackHistory:
+        trackHistoryPath = [list(resultd['optimum'])+[resultd['lnCL'],label, resultd['exitcode']] for label,resultd in enumerate(raw_output)]
+        result = [boundary_names+["lnCL", 'iterLabel', 'exitcode'],]+trackHistoryPath 
+    else:
+        trackHistoryPath = [list(ar)+[idx,] for idx, sublist in enumerate(trackHistoryPath) for ar in sublist]
+        result = [boundary_names+['lnCL', 'step_id' , 'iterLabel'],]+trackHistoryPath
+
+    return result
+
 def _init_optimize_log(boundary_names, file_name, directory, meta=None):
     if not directory:
         directory=os.getcwd()
@@ -282,6 +450,130 @@ def fp_map(f, *args):
     #used with pool.map(fp_map, function_list, arg_list1, arg_list2,...)
     return f(*args)
 
+def scale_single_gens_to_gimble_symbolic(parameter_dict, reference_pop, block_length, mu):
+    rdict = {}
+    ref_value = parameter_dict[f'Ne_{reference_pop}']
+    scaling_factor = 2
+    rdict[sage.all.SR.var('theta')] = scaling_factor*sage.all.Rational(ref_value*mu*block_length)
+    for parameter, value in parameter_dict.items():
+        if parameter.startswith('Ne'):
+            label = parameter.lstrip('Ne_')
+            rdict[sage.all.SR.var(f'C_{label}')] = sage.all.Rational(ref_value/value)
+        elif parameter=='T':
+            rdict[sage.all.SR.var('T')] = sage.all.Rational(value/(scaling_factor*ref_value))
+        elif parameter.startswith('m'):
+            rdict[sage.all.SR.var('M')] = sage.all.Rational(scaling_factor*ref_value*value)
+        else:
+            pass
+    return rdict
+
+def scale_single_gimble_to_coal(parameter_dict):
+    scaling_factor = 2
+    rdict = {}
+    for param, value in parameter_dict.items():
+        if str(param)=='M':
+            rdict['M'] = float(scaling_factor*value)
+        elif str(param)=='T':
+            rdict['T'] = float((1/scaling_factor)*value)
+        else:
+            rdict(str(param))==float(value)
+    return rdict
+
+def scale_single_parameter_dict(parameter_dict, reference_pop, block_length, mu, input_scaling='gimble', output_scaling='generations', symbolic=False):
+    parameter_dict = {k:[v,] for k,v in parameter_dict.items()}
+    shape = 'LOD'
+    LOD = scale_parameters(parameter_dict, reference_pop, block_length, mu, input_scaling, output_scaling, symbolic, 'LOD')
+    return LOD[0]
+
+def scale_parameters(parameter_dict, reference_pop, block_length, mu, input_scaling='generations', output_scaling='coalescence', symbolic=False, shape='DOL'):
+    rdict = {}
+    if input_scaling=='generations':
+        reference_values = parameter_dict[f'Ne_{reference_pop}']
+        if output_scaling=='coalescence' or output_scaling=='gimble':
+            scaling_factor = 4 if output_scaling=='coalescence' else 2
+            rdict['theta'] = [scaling_factor*sage.all.Rational(ref*mu*block_length) for ref in reference_values]
+            for parameter, values in parameter_dict.items():
+                if parameter.startswith('Ne'):
+                    label = parameter.lstrip('Ne_')
+                    rdict[f'C_{label}'] = [sage.all.Rational(ref/other) for other, ref in zip(values, reference_values)]
+                elif parameter=='T':
+                    rdict['T'] = [sage.all.Rational(t/(scaling_factor*ref)) for t, ref in zip(values, reference_values)]
+                elif parameter.startswith('m'):
+                    rdict['M'] = [sage.all.Rational(scaling_factor*ref*m) for m, ref in zip(values, reference_values)]
+                else:
+                    pass
+        else:
+            raise ValueError(f'Scaling generations to {output_scaling} not implemented.')
+    
+    elif input_scaling=='gimble' or input_scaling=='coalescence':
+        reference_values = parameter_dict[f'C_{reference_pop}']
+        if output_scaling=='generations':
+            scaling_factor = 4 if input_scaling=='coalescence' else 2
+            for parameter, values in parameter_dict.items():
+                if parameter.startswith('C'):
+                    label = parameter.lstrip('C_')
+                    rdict[f'Ne_{label}'] = [float(ref/c) for c,ref in zip(values, reference_values)]
+                elif parameter=='T':
+                    rdict['T'] = [float(scaling_factor*t*ref) for t,ref in zip(values, reference_values)]
+                elif parameter=='M':
+                    rdict['m'] = [float(M/(scaling_factor*ref)) for M,ref in zip(parameter_values, reference_values)]
+                else:
+                    pass
+        elif output_scaling=='coalescence' or output_scaling=='gimble':
+            if output_scaling=='coalescence' and input_scaling=='gimble':
+                scaling_factor = 2
+                rdict = copy.deepcopy(parameter_dict)
+                if rdict.get('M'):
+                    rdict['M'] = [float(scaling_factor*v) for v in rdict['M']]
+                if rdict.get['T']:
+                    rdict['T'] = [float((1/scaling_factor)*v) for v in rdict['T']]
+                rdict['theta'] = [float(scaling_factor*v) for v in rdict['theta']]
+            else:
+                scaling_factor = 0.5
+                rdict = copy.deepcopy(parameter_dict)
+                if rdict.get('M'):
+                    rdict['M'] = [float(scaling_factor*v) for v in rdict['M']]
+                if rdict.get['T']:
+                    rdict['T'] = [float((1/scaling_factor)*v) for v in rdict['T']]
+                rdict['theta'] = [float(scaling_factor*v) for v in rdict['theta']]
+        else:
+            raise ValueError(f'Scaling {input_scaling} to {output_scaling} not implemented.')
+    else:
+        raise ValueError(f'Scaling {input_scaling} to {output_scaling} not implemented.')
+
+    if symbolic:
+        rdict = {sage.all.SR.var(k):v for k,v in rdict.items()}
+    if shape == 'DOL':
+        return rdict
+    elif shape == 'LOD':
+        return lib.gimble.DOL_to_LOD(rdict)
+    else:
+        raise ValueError(f'scale_parameters() not implemented for shape: {shape}')
+
+def new_calculate_all_ETPs(gfEvaluatorObj, parameter_combinations, reference_pop, block_length, mu, processes=1, verbose=False):
+    scaled_parameter_combinations = scale_parameters(
+        parameter_combinations, 
+        reference_pop, 
+        block_length, 
+        mu, 
+        input_scaling='generations', 
+        output_scaling='gimble', 
+        symbolic=True, 
+        shape='LOD'
+        )
+    all_ETPs = []
+    desc = f'[%] Calculating mutation configuration probabilities for {len(scaled_parameter_combinations)} gridpoints'
+    if processes==1:
+        all_ETPs = [gfEvaluatorObj.evaluate_gf(parameter_combination, parameter_combination[sage.all.SR.var('theta')]) for parameter_combination in tqdm(scaled_parameter_combinations, desc=desc, ncols=100, disable=True)]
+    else:
+        args = ((param_combo, param_combo[sage.all.SR.var('theta')]) for param_combo in scaled_parameter_combinations)
+        with multiprocessing.Pool(processes=processes) as pool:
+            with tqdm(total=len(scaled_parameter_combinations), desc=desc, ncols=100) as pbar:
+                    for ETP in pool.starmap(gfEvaluatorObj.evaluate_gf, args):
+                        all_ETPs.append(ETP)
+                        pbar.update()
+    return np.array(all_ETPs, dtype=np.float64)
+"""
 class Constructor(object):
     # [EQUATIONS.py]
     def __init__(self, constructor_id):
@@ -421,11 +713,11 @@ class EquationSystemObj(object):
         return base_rate_by_variable
 
     def _scale_all_parameter_combinations(self, parameterObj):
-        """function redundant """
+        #function redundant
         #self.reference_pop = parameterObj.config['populations']['reference_pop']
         #self.block_length = sage.all.Rational(parameterObj.config['mu']['blocklength'])
-        result = []
-        """
+        #result = []
+    
         if parameterObj._MODULE == 'optimize':
             #currently not used, can be removed once function is rewritten.
             mid = self._scale_parameter_combination(parameterObj.parameter_combinations[0], self.reference_pop, self.block_length, parameterObj._MODULE)
@@ -449,7 +741,7 @@ class EquationSystemObj(object):
             #all other parameters should have 3 values
             #assert all(ratesPerVariableSet[k]==3 for k in ratesPerVariable.keys() if k not in self.fixed_params or k not self.reference_pop), 'All parameters with boundaries should be associated with a list of length 3.'             
             print(self.fixed_params)
-        """
+        
         if parameterObj._MODULE=='makegrid':
             #now dict of lists
             parameter_combinations = lib.gimble.DOL_to_LOD(parameterObj.parameter_combinations)
@@ -820,3 +1112,4 @@ class EquationSystemObj(object):
                     equationObj.equation = equationObj.equation.subs(sync_target_var==sync_ref_var)
         print("[+] Generated equations for %s mutation tuples" % len(equationObjs))
         return equationObjs
+"""
