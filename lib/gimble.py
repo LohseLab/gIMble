@@ -1107,6 +1107,39 @@ def grid_meta_dict_to_value_arrays_by_parameter(grid_meta_dict):
         values_by_parameter[key] = np.array(values)
     return values_by_parameter
 
+def _optimize_to_csv(results, label, parameterObj, data_type='simulate'):
+    if data_type=='simulate':
+        df = pd.DataFrame(results[1:])
+        df.columns=results[0]
+        df = df.sort_values(by='iterLabel')
+        df.set_index('iterLabel', inplace=True)
+        _optimize_describe_df(df, label)
+    else:
+        headers = results.pop(0)
+        df = pd.DataFrame(results, columns=headers)
+        if parameterObj.trackHistory:
+            df['step_id'] = df['step_id'].astype(int)
+    df_with_scaling = _optimize_scale_output(parameterObj, df)
+    df_with_scaling.to_csv(f'{label}_optimize_result.csv')
+
+def _optimize_scale_output(parameterObj, df):
+    parameter_dict = df.to_dict(orient='list')
+    reference_pop = parameterObj.config['populations']['reference_pop']
+    block_length = parameterObj.config['mu']['blocklength']
+    mu = parameterObj.config['mu']['mu']
+    scaled_result = lib.math.scale_parameters(
+        parameter_dict, 
+        reference_pop, 
+        block_length, 
+        mu
+        )
+    scaled_df = pd.DataFrame(scaled_result).astype(float)
+    return pd.concat([df, scaled_df], axis=1)
+
+def _optimize_describe_df(df, label):
+    summary=df.drop(labels=['lnCL', 'exitcode'], axis=1).describe(percentiles=[0.025,0.975])
+    summary.to_csv(f'{label}_summary.csv')
+
 class CustomNormalizer(cerberus.Validator):
     # move to parameterObj file ...
     def __init__(self, *args, **kwargs):
@@ -2127,7 +2160,7 @@ class Store(object):
                         ), 
                     form='bsfs', max_k=np.array(max_k, dtype=np.uint8))
 
-        self._set_stopping_criteria(data, parameterObj, label)
+        #self._set_stopping_criteria(data, parameterObj, label)
         
         model = get_model_name(parameterObj.config['gimble']['model'])
         print('[+] Generating equations.')
@@ -2155,7 +2188,7 @@ class Store(object):
                     )
                 all_results[param_combo] = result
                 long_label = f'{label}_{param_combo}' 
-                self._optimize_to_csv(result, long_label, 'simulate')
+                _optimize_to_csv(result, long_label, parameterObj, 'simulate')
         else:
             long_label=f"{parameterObj.data_type}_{label}"
             result = lib.math.optimize_parameters(
@@ -2166,25 +2199,7 @@ class Store(object):
                 verbose=True,
                 label=long_label
                 )
-            if parameterObj.trackHistory:
-                self._optimize_to_csv(result, long_label, 'blocks')
-
-    def _optimize_to_csv(self, results, label, data_type='simulate'):
-        if data_type=='simulate':
-            df = pd.DataFrame(results[1:])
-            df.columns=results[0]
-            df = df.sort_values(by='iterLabel')
-            df.set_index('iterLabel', inplace=True)
-            self._optimize_describe_df(df, label)
-        else:
-            headers = results.pop(0)
-            df = pd.DataFrame(results, columns=headers)
-            df['step_id'] = df['step_id'].astype(int)
-            df.to_csv(f'{label}_track_history.csv')
-
-    def _optimize_describe_df(self, df, label):
-        summary=df.drop(labels=['lnCL', 'exitcode'], axis=1).describe(percentiles=[0.025,0.975])
-        summary.to_csv(f'{label}_summary.csv')
+            _optimize_to_csv(result, long_label, parameterObj, 'blocks')
 
     def _set_stopping_criteria(self, data, parameterObj, label):
         set_by_user = True
@@ -2200,6 +2215,7 @@ class Store(object):
             pass
             #print(f"Relative tolerance on lnCL set by data resampling: {parameterObj.ftol_rel}")
         if parameterObj.xtol_rel>0:
+
             print(f"Relative tolerance on norm of parameter vector: {parameterObj.xtol_rel}")
         
     def _get_lnCL_SD(self, all_data, parameterObj, label):

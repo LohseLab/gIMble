@@ -17,8 +17,8 @@ usage: gimble optimize                  [-z FILE] -c FILE (-b [-n INT]|-w| --sim
         --numc INT                                  Number of cores available [default: 1] 
         -n, --n_points INT                          Number of starting points [default: 1]
         -i, --iterations INT                        Number of iterations to perform when optimizing [default: 100]
-        -x, --xtol_rel FLOAT                        Set relative tolerance on norm of vector of optimisation parameters [default: -1.0]
-        -f, --ftol_rel FLOAT                        Set relative tolerance on lnCL [default: -1.0]
+        -x, --xtol_rel FLOAT                        Set relative tolerance on norm of vector of optimisation parameters, float between 0 and 1 [default: -1.0]
+        -f, --ftol_rel FLOAT                        Set relative tolerance on lnCL, float between 0 and 1 [default: -1.0]
         --track                                     Track likelihood search                        
 """
 from timeit import default_timer as timer

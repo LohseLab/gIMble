@@ -280,6 +280,10 @@ def run_single_optimize(p0, lower, upper, specified_objective_function, maxeval,
     opt.set_upper_bounds(upper)
     opt.set_max_objective(specified_objective_function)
     opt.set_xtol_rel(xtol_rel)
+    if xtol_rel>0:
+        #assigning weights to address size difference between params
+        xtol_weights = 1/(len(p0) * p0)
+        opt.set_x_weights(xtol_weights)
     opt.set_ftol_rel(ftol_rel)
     opt.set_maxeval(maxeval)
     optimum = opt.optimize(p0)
@@ -467,18 +471,6 @@ def scale_single_gens_to_gimble_symbolic(parameter_dict, reference_pop, block_le
             pass
     return rdict
 
-def scale_single_gimble_to_coal(parameter_dict):
-    scaling_factor = 2
-    rdict = {}
-    for param, value in parameter_dict.items():
-        if str(param)=='M':
-            rdict['M'] = float(scaling_factor*value)
-        elif str(param)=='T':
-            rdict['T'] = float((1/scaling_factor)*value)
-        else:
-            rdict(str(param))==float(value)
-    return rdict
-
 def scale_single_parameter_dict(parameter_dict, reference_pop, block_length, mu, input_scaling='gimble', output_scaling='generations', symbolic=False):
     parameter_dict = {k:[v,] for k,v in parameter_dict.items()}
     shape = 'LOD'
@@ -490,7 +482,7 @@ def scale_parameters(parameter_dict, reference_pop, block_length, mu, input_scal
     if input_scaling=='generations':
         reference_values = parameter_dict[f'Ne_{reference_pop}']
         if output_scaling=='coalescence' or output_scaling=='gimble':
-            scaling_factor = 4 if output_scaling=='coalescence' else 2
+            scaling_factor = 2
             rdict['theta'] = [scaling_factor*sage.all.Rational(ref*mu*block_length) for ref in reference_values]
             for parameter, values in parameter_dict.items():
                 if parameter.startswith('Ne'):
@@ -508,7 +500,7 @@ def scale_parameters(parameter_dict, reference_pop, block_length, mu, input_scal
     elif input_scaling=='gimble' or input_scaling=='coalescence':
         reference_values = parameter_dict[f'C_{reference_pop}']
         if output_scaling=='generations':
-            scaling_factor = 4 if input_scaling=='coalescence' else 2
+            scaling_factor = 2
             for parameter, values in parameter_dict.items():
                 if parameter.startswith('C'):
                     label = parameter.lstrip('C_')
@@ -519,23 +511,6 @@ def scale_parameters(parameter_dict, reference_pop, block_length, mu, input_scal
                     rdict['m'] = [float(M/(scaling_factor*ref)) for M,ref in zip(parameter_values, reference_values)]
                 else:
                     pass
-        elif output_scaling=='coalescence' or output_scaling=='gimble':
-            if output_scaling=='coalescence' and input_scaling=='gimble':
-                scaling_factor = 2
-                rdict = copy.deepcopy(parameter_dict)
-                if rdict.get('M'):
-                    rdict['M'] = [float(scaling_factor*v) for v in rdict['M']]
-                if rdict.get['T']:
-                    rdict['T'] = [float((1/scaling_factor)*v) for v in rdict['T']]
-                rdict['theta'] = [float(scaling_factor*v) for v in rdict['theta']]
-            else:
-                scaling_factor = 0.5
-                rdict = copy.deepcopy(parameter_dict)
-                if rdict.get('M'):
-                    rdict['M'] = [float(scaling_factor*v) for v in rdict['M']]
-                if rdict.get['T']:
-                    rdict['T'] = [float((1/scaling_factor)*v) for v in rdict['T']]
-                rdict['theta'] = [float(scaling_factor*v) for v in rdict['theta']]
         else:
             raise ValueError(f'Scaling {input_scaling} to {output_scaling} not implemented.')
     else:
