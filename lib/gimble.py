@@ -149,6 +149,33 @@ def get_model_params(model):
         in itertools.combinations(pop_ids, 2)] + [','.join(pop_ids),]
     return pop_ids, pop_ids_sync, events
 
+def get_ini_parameter_string(task, events):
+    string = ['# Model parameters and their values/ranges:']
+    if task == 'simulate':
+        string.append('# A) Fixed : VALUE')
+        string.append('# B) Range : MIN, MAX, STEPS, LIN|LOG')
+    elif task == 'optimize':
+        string.append('# A) Fixed : VALUE')
+        string.append('# B) Range : MIN, MAX')
+    elif task == 'makegrid':
+        string.append('# A) Fixed : VALUE')
+        string.append('# B) Range : MIN, MAX, STEPS, LIN|LOG')
+    else:
+        raise ValueError(f"{task} is not a supported task.")  
+    for event in events:
+        event_type, event_name = event[:1], event[2:]
+        if event_type == 'C':
+            string.append(f'# Effective population size of {event_name}')
+            string.append(f'Ne_{event_name} = ')
+        if event_type == 'M':
+            source, sink = event_name.split("_")
+            string.append(f'# Migration rate (migrants/generation) from {source} to {sink} (backwards in time)')
+            string.append(f'me_{event_name} = ')
+        if event_type == 'J':
+            string.append(f'# Split time (in generations)')
+            string.append(f'T = ')
+    return string
+
 def get_model_name(model_file):
     return model_file.rstrip('.tsv').split('/')[-1]
 
