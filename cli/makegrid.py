@@ -33,14 +33,16 @@ class MakeGridParameterObj(lib.gimble.ParameterObj):
         self.zstore = self._get_path(args["--zarr_file"])
         self.prefix = self._get_prefix(args["--outprefix"])
         self.config_file = self._get_path(args['--config_file'])
-        self.model_file = self._get_path(args['--model_file'])
+        #self.model_file = self._get_path(args['--model_file'])
         #self.threads, self.gridThreads = [self._get_int(t) for t in args["--threads"].split(',')]
-        self.threads = self._get_int(args['--inner_pool']) #number of workers for a single set of equations to be solved
-        self.gridThreads = self._get_int(args['--outer_pool']) #number of workers for independent processes
+        #self.threads = self._get_int(args['--inner_pool']) #number of workers for a single set of equations to be solved
+        self.gridThreads = self._get_int(args['--numc']) #number of workers for independent processes
         self.overwrite = args['--overwrite']
         self.config = None
         #self.config = lib.gimble.get_config(self.config_file, self._MODULE) 
         self.old_parse_config(self.config_file)
+        print(self.config)
+        sys.exit()
 
 def main(params):
     try:
