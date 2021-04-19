@@ -2193,7 +2193,7 @@ class Store(object):
         print('[+] Generating equations.')
         sync_pops = parameterObj._get_pops_to_sync_short()
         gf = lib.math.config_to_gf(model, mutype_labels, sync_pops)
-        gfEvaluatorObj = togimble.gfEvaluator(gf, max_k, mutype_labels)
+        gfEvaluatorObj = togimble.gfEvaluator(gf, max_k, mutype_labels, parameterObj.config['gimble']['precision'])
 
         if parameterObj.data_type=='simulate':
             if parameterObj.trackHistory:
@@ -2315,7 +2315,7 @@ class Store(object):
         print('[+] Generating equations.')
         sync_pops = parameterObj._get_pops_to_sync_short()
         gf = lib.math.config_to_gf(model, mutype_labels, sync_pops)
-        gfEvaluatorObj = togimble.gfEvaluator(gf, max_k, mutype_labels)
+        gfEvaluatorObj = togimble.gfEvaluator(gf, max_k, mutype_labels, parameterObj.config['gimble']['precision'])
         """
         equationSystem = lib.math.EquationSystemObj(
             parameterObj.model_file, 
