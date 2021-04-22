@@ -3,16 +3,18 @@ Usage: gimbl <module> [<args>...] [-D -V -h]
 
   [Modules]
     parse                                Parse variation data into DataStore
-    info                                 Print information about DataStore
     blocks                               Generate blocks from data in DataStore 
     windows                              Generate windows from blocks in DataStore (requires blocks)
-    query                                Query BED file of blocks (windows [TBI])
-    model                                Build demographic model
-    simulate                             Simulate data [TBI] 
-    makegrid                             Make grid [TBI]
-    gridsearch                           Search grid [TBI]
-    optimize                             Perform optimisation search [TBI]
     
+    info                                 Print information about DataStore
+    query                                Extract information from DataStore
+    
+    makeconfig                           Build config file for inference
+    simulate                             Simulate data 
+    optimize                             Perform global parameter optimisation 
+    makegrid                             Precalculate grid'ed inference 
+    gridsearch                           Search windows using grid
+
     preprocess                           Preprocess input files
     partitioncds                         Partition CDS sites in BED file by degeneracy in sample GTs 
     plotbed                              Plot BED file [TBR]
@@ -24,9 +26,9 @@ Usage: gimbl <module> [<args>...] [-D -V -h]
 
   [Dependencies] 
     
-    --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
     | $  conda install bedtools bcftools samtools vcflib mosdepth pysam numpy docopt tqdm pandas tabulate zarr scikit-allel parallel more-itertools networkx giac sagelib matplotlib msprime networkx pygraphviz sympy cerberus maxima -c conda-forge -c bioconda |
-    --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 """
 
 import sys
@@ -73,9 +75,9 @@ def main(gimble_dir):
         #elif args['<module>'] == 'model':
         #    import cli.model as model
         #    model.main(params)
-        elif args['<module>'] == 'makemodel':
-            import cli.makemodel as makemodel
-            makemodel.main(params)
+        elif args['<module>'] == 'makeconfig':
+            import cli.makeconfig as makeconfig
+            makeconfig.main(params)
         elif args['<module>'] == 'info':
             import cli.info as info
             info.main(params)

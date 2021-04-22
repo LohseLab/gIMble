@@ -135,7 +135,7 @@ META_TEMPLATE_BY_STAGE = {
 
 MUTYPES = ['m_1', 'm_2', 'm_3', 'm_4']
 
-def get_model_params(model):
+def get_ini_model_params(model):
     pop_ids, events = ['A', 'B'], []
     if model in set(['DIV', 'IM_BA', 'IM_AB']):
         pop_ids += ['A_B']
@@ -149,94 +149,112 @@ def get_model_params(model):
         in itertools.combinations(pop_ids, 2)] + [','.join(pop_ids),]
     return pop_ids, pop_ids_sync, events
 
-def get_ini_parameter_string(task, events):
-    string = ['# Model parameters and their values/ranges:']
+def get_ini_parameter_list(task, events):
+    l = ['# Model parameters and their values/ranges:']
     if task == 'simulate':
-        string.append('# A) Fixed : VALUE')
-        string.append('# B) Range : MIN, MAX, STEPS, LIN|LOG')
+        l.append('# A) Fixed : VALUE')
+        l.append('# B) Range : MIN, MAX, STEPS, LIN|LOG')
     elif task == 'optimize':
-        string.append('# A) Fixed : VALUE')
-        string.append('# B) Range : MIN, MAX')
+        l.append('# A) Fixed : VALUE')
+        l.append('# B) Range : MIN, MAX')
     elif task == 'makegrid':
-        string.append('# A) Fixed : VALUE')
-        string.append('# B) Range : MIN, MAX, STEPS, LIN|LOG')
+        l.append('# A) Fixed : VALUE')
+        l.append('# B) Range : MIN, MAX, STEPS, LIN|LOG')
     else:
         raise ValueError(f"{task} is not a supported task.")  
     for event in events:
         event_type, event_name = event[:1], event[2:]
         if event_type == 'C':
-            string.append(f'# Effective population size of {event_name}')
-            string.append(f'Ne_{event_name} = ')
+            l.append(f'# Effective population size of {event_name}')
+            l.append(f'Ne_{event_name}')
         if event_type == 'M':
             source, sink = event_name.split("_")
-            string.append(f'# Migration rate (migrants/generation) from {source} to {sink} (backwards in time)')
-            string.append(f'me_{event_name} = ')
+            l.append(f'# Migration rate (migrants/generation) from {source} to {sink} (backwards in time)')
+            l.append(f'me_{event_name}')
         if event_type == 'J':
-            string.append(f'# Split time (in generations)')
-            string.append(f'T = ')
-    return string
+            l.append(f'# Split time (in generations)')
+            l.append(f'T')
+    return l
+
+def make_ini_configparser(version, task, model, label):
+    # make configparser
+    config = configparser.ConfigParser(allow_no_value=True)
+    config.optionxform = str # otherwise keys are lowercase
+    # get variables/strings
+    random_seed, precision = '19', '25'
+    pop_ids, pop_ids_sync, events = get_ini_model_params(model)
+    string_pop_ids = " | ".join(pop_ids)
+    string_pop_ids_sync = " | ".join(pop_ids_sync)
+    parameter_list = get_ini_parameter_list(task, events)
+    # main header
+    config.add_section('gimble')
+    config.set('gimble', 'version', version)
+    config.set('gimble', 'label', label)
+    config.set('gimble', 'task', task)
+    config.set('gimble', 'model', model)
+    config.set('gimble', 'random_seed', random_seed)
+    config.set('gimble', 'precision', precision)
+    # populations
+    config.add_section('populations')
+    config.set('populations', 'pop_ids', string_pop_ids)
+    config.set('populations', '# Link model to data in GimbleStore (see output of gimble info)')
+    config.set('populations', 'A', "")
+    config.set('populations', 'B', "")
+    config.set('populations', '# Pick a reference population: (%s)' % string_pop_ids)
+    config.set('populations', 'reference_pop', "")
+    config.set('populations', '# Simplify model by assuming equality of Ne\'s (optional): [%s]' % string_pop_ids_sync)
+    config.set('populations', 'sync_pop_sizes', "")
+    # k_max
+    config.add_section('k_max')
+    config.set('k_max', '# k_max sets limits for mutation-type cardinalities.')
+    config.set('k_max', '# Mutation-types beyond these are calculated as marginals')
+    config.set('k_max', 'm_1', '2    # hetB')
+    config.set('k_max', 'm_2', '2    # hetA')
+    config.set('k_max', 'm_3', '2    # hetAB')
+    config.set('k_max', 'm_4', '2    # fixed')
+    # simulate
+    if task == 'simulate':
+        config.add_section('simulate')
+        config.set('simulate', 'ploidy', '2')
+        config.set('simulate', '# Number of blocks to simulate')
+        config.set('simulate', 'blocks', "")
+        config.set('simulate', 'chunks', '1')
+        config.set('simulate', '# Number of replicates')
+        config.set('simulate', 'replicates', "")
+        config.set('simulate', '# Number of samples per population')
+        config.set('simulate', 'sample_size_A', '1')
+        config.set('simulate', 'sample_size_B', '1')
+        config.add_section('recombination')
+        config.set('recombination', '# Set recombination rate (optional)')
+        config.set('recombination', 'recombination_rate', "")
+        config.set('recombination', '# Set path to recombination map (optional)')
+        config.set('recombination', 'recombination_map', "")
+        config.set('recombination', '# Number of bins, cutoff, scale (required ONLY IF recombination map set)')
+        config.set('recombination', 'number_bins', "")
+        config.set('recombination', 'cutoff', "")
+        config.set('recombination', 'scale', "")
+    # mu
+    config.add_section('mu')
+    config.set('mu', '# mutation rate (in mutations/site/generation) (gridsearch: required)')
+    config.set('mu', 'mu', "")
+    # parameters
+    config.add_section('parameters')
+    for param in parameter_list:
+        if param.startswith("#"):
+            config.set('parameters', param)
+        else:
+            config.set('parameters', param, "")
+    return config
 
 def get_model_name(model_file):
     return model_file.rstrip('.tsv').split('/')[-1]
 
-def write_config(version=0.0, model=None, outfile=None):
-    pop_ids, pop_ids_sync, events = get_model_params(model)
-    config = configparser.ConfigParser(inline_comment_prefixes="#", allow_no_value=True)
-    config.optionxform = str # otherwise keys are lowercase
-    config['gimble'] = {'version': version, 'model': 'models/%s.tsv' % model, 'random_seed' : 19,
-        'precision': 165}
-    config.add_section('populations')
-    config.set('populations', "pop_ids", ", ".join(pop_ids))
-    config.set('populations', "# Link model to data in GimbleStore")
-    config.set('populations', "A", "")
-    config.set('populations', "B", "")
-    config.set('populations', "# Pick reference population : ( %s )" % " | ".join(pop_ids))
-    config.set('populations', 'reference_pop', "")
-    config.set('populations', "# [OPTIONAL] Simplify model by assuming equality of Ne's : [ %s ]" % " | ".join(pop_ids_sync))
-    config.set('populations', 'sync_pop_sizes', "")
-    config.add_section('k_max')
-    config.set('k_max', "# max dimensionsionality of bSFSs")
-    for mutype, comment in zip(MUTYPES, ['# hetB', '# hetA', '# hetAB', '# fixed']):
-        config.set('k_max', "%s" % (mutype), "2    %s" % comment)
-    config.add_section('simulations')
-    config.set('simulations', 'ploidy', '2')
-    config.set('simulations', "# Number of blocks to simulate")
-    config.set('simulations', 'blocks', "")
-    config.set('simulations', 'chunks', "1")
-    config.set('simulations', "# Number of replicates")
-    config.set('simulations', 'replicates', "")
-    config.set('simulations', 'sample_size_A', '1')
-    config.set('simulations', 'sample_size_B', '1')
-    config.set('simulations', "# Set recombination rate or provide path to recombination map (optional)")
-    config.set('simulations', 'recombination_rate', "")
-    config.set('simulations', 'recombination_map', "")
-    config.set('simulations', "# If recombination map is provide the number of bins and cutoff")
-    config.set('simulations', 'number_bins', "")
-    config.set('simulations', 'cutoff', "")
-    config.set('simulations', 'scale', "")
-    config.add_section('mu')
-    config.set('mu', '# mutation rate (in mutations/site/generation) (gridsearch: required)')
-    config.set('mu', 'mu', "")
-    config.set('mu', '# blocklength in bases (required, if no blocking has been done on BED file)')
-    config.set('mu', 'blocklength', "")
-    config.add_section('parameters')
-    config.set('parameters', "## param: floats")
-    config.set('parameters', "## param: min, [max, [n, (lin|log)]]")
-    for event in events:
-        if event.startswith("C_"):
-            config.set('parameters', '# Effective population size of %s' % event[2:])
-            config.set('parameters', 'Ne_%s' % event[2:], "")
-        if event.startswith("M_"):
-            config.set('parameters', '# Migration rate (in migrants/generation) from %s to %s (backwards in time)' % (event.split("_")[1], event.split("_")[2]))
-            config.set('parameters', 'me_%s' % event[2:], "")
-        if event.startswith("J_"):
-            config.set('parameters', "# Split time (in generations)")
-            config.set('parameters', 'T', "")    
-    #config.set('parameters', "# Scaled mutation rate (on the coalescence time scale) (optional)")
-    #config.set('parameters', 'theta', "")
+def write_config(version, model, task, label):
+    config = make_ini_configparser(version, task, model, label)
+    outfile = "gimble.%s.%s.%s.config.ini" % (task, model, label)
     with open(outfile, 'w') as fh:
         config.write(fh)
-    print("[+] Wrote INI file %r. Please fill in values before starting optimize/makegrid/gridsearch." % str(outfile))
+    print("[+] Wrote INI file %r. Please fill in values before starting optimize/makegrid/simulate." % str(outfile))
 
 def get_validator_error_string(validator_errors):
     # parameterObj file ...

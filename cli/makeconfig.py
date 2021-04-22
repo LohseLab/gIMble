@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gimbl makeconfig                      (-1|-2|-3|-4|-5) [-h|--help]
+"""usage: gimbl makeconfig          -l <STR> -t <STR> -m <INT> [-h|--help]
                                             
     [Options]
-        -o, --outprefix <STR>       Prefix to use for INI config file [default: gimble]
-        
         -l, --label <STR>           User specified label for analysis.
 
         -t, --task <STR>            Create config INI for a specific analysis (module)
@@ -15,7 +13,7 @@
                                     'makegrid': given a model, the module 'makegrid' will pre-calculate 
                                                   the probabilities of individual mutation configurations for
                                                   each of the parameter combinations specified in the grid. 
-                                                  Required for running 'gridsearch' module. 
+                                                  Required for running the 'gridsearch' module. 
                                     'simulate': given a model and parameters, the module 'simulate' will
                                                   generate data using msprime.
                             
@@ -30,7 +28,7 @@
                                     5 : IM_BA, IM model config file. 
                                         Migration from B to A. Third Ne for ancestral population (Ne_A_B) 
                     
-        -h --help                               show this
+        -h --help                   show this
         
 """
 
@@ -46,11 +44,18 @@
 
 '''
 
+import sys
 from docopt import docopt
 from timeit import default_timer as timer
 import lib.gimble
 
-MODELS = set(['--DIV', '--MIG_AB', '--MIG_BA', '--IM_AB', '--IM_BA'])
+MODELS_BY_INT = {
+    '1': 'DIV',
+    '2': 'MIG_AB',
+    '3': 'MIG_BA',
+    '4': 'IM_AB',
+    '5': 'IM_BA'}
+TASKS = set(['optimize', 'makegrid', 'simulate'])
 
 class ModelParameterObj(lib.gimble.ParameterObj):
     '''Sanitises command line arguments and stores parameters'''
@@ -58,13 +63,18 @@ class ModelParameterObj(lib.gimble.ParameterObj):
     def __init__(self, params, args):
         super().__init__(params)
         self.model = self._get_model(args)
-        self.outfile = self._get_outfile(args['--outprefix'])
+        self.task = self._get_task(args)
+        self.label = args['--label']
+
+    def _get_task(self, args):
+        if args['--task'] in TASKS:
+            return args['--task']
+        sys.exit('[X] Task must be one of the following: %s' % ", ".join(TASKS))
 
     def _get_model(self, args):
-        return [arg for arg, boolean in args.items() if boolean and arg in MODELS][0].replace('--', '')
-
-    def _get_outfile(self, outprefix):
-        return ".".join([outprefix, self.model, 'ini'])
+        if args['--model'] in MODELS_BY_INT:
+            return MODELS_BY_INT[args['--model']]
+        sys.exit('[X] Model must be one of the following: %s' % ", ".join(MODELS_BY_INT.keys()))
 
 def main(params):
     try:
@@ -74,7 +84,8 @@ def main(params):
         lib.gimble.write_config(
             version=parameterObj._VERSION,
             model=parameterObj.model,
-            outfile=parameterObj.outfile
+            task=parameterObj.task,
+            label=parameterObj.label
             )
         print("[*] Total runtime was %s" % (lib.gimble.format_time(timer() - start_time)))
     except KeyboardInterrupt:
