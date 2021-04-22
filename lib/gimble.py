@@ -215,9 +215,11 @@ def make_ini_configparser(version, task, model, label):
     # simulate
     if task == 'simulate':
         config.add_section('simulate')
+        config.set('simulate', '# Ploidy of organism')
         config.set('simulate', 'ploidy', '2')
-        config.set('simulate', '# Number of blocks to simulate')
+        config.set('simulate', '# Blocks')
         config.set('simulate', 'blocks', "")
+        config.set('simulate', 'block_length', "")
         config.set('simulate', 'chunks', '1')
         config.set('simulate', '# Number of replicates')
         config.set('simulate', 'replicates', "")
@@ -2186,6 +2188,7 @@ class Store(object):
             - stopping_criteria should be passed as argument
             - 
         '''
+        print("optimize new parameterObj.config :", parameterObj.config)
         if not self.has_stage(parameterObj.data_type):
             sys.exit("[X] gimbleStore has no %r." % parameterObj.data_type)
         label = parameterObj.label if hasattr(parameterObj, 'label') else parameterObj._get_unique_hash()
