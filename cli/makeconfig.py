@@ -33,6 +33,9 @@
 """
 
 '''
+
+[--label] : defines where results of an analysis get stored!
+
 [To do]
 - write documentation (no automated filling in)
 

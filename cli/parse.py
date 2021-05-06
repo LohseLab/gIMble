@@ -1,4 +1,4 @@
-"""usage: gimbl parse                    [-v <FILE> -b <FILE> -g <FILE> -s <FILE> -z <STR> -f -D -h]
+"""usage: gimble parse                    [-v <FILE> -b <FILE> -g <FILE> -s <FILE> -z <STR> -f -D -h]
 
     [Input]
         -g, --genome_f <FILE>            Gimble genome file (TSV) of sequence IDs/lengths for filtering BED file.
