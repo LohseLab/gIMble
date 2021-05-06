@@ -74,6 +74,40 @@ SIGNS = {
         'P': '%s%s%s' % (u"\u2502", " ", " "),              # '│   '
         'B': '%s%s%s' % (u"\u2500", u"\u2500",  u"\u2500")} # '───'
 
+class ReportObj(object):
+    '''Report class for making reports'''
+
+    def __init__(self, width=80):
+        self.width = width
+        self.out = []
+    
+    def add_line(self, prefix="[+]", branch="", left='', center='', right='', fill=' '):
+        '''
+        Writes line to Report Object
+        Lines is composed of {prefix} {branch} {left} {fill} {center} {fill} {right}
+        SIGNS = {'T': '├──', 'F': '└──', 'S': '    ', 'P': '│   ', 'B': '───'}
+        '''
+        start = "%s %s" % (prefix, "".join([SIGNS[b] for b in branch])) if branch else prefix
+        w = self.width - len(left) - len(right) - len(start) 
+        self.out.append("%s %s %s %s" % (start, left, (" %s " % center).center(w, fill) if center else fill * w, right))
+
+    def __add__(self, other):
+        if isinstance(other, ReportObj):
+            if self.width == other.width:
+                result = ReportObj(width=self.width)
+                result.out = self.out + other.out
+                return result
+            else:
+                raise ValueError("addition only supported for ReportObj of equal width")    
+        else:
+            raise ValueError("addition only supported for ReportObj's")
+
+    def __radd__(self, other):
+        return self.__add__(other)
+
+    def __repr__(self):
+        return "\n".join(self.out)
+
 # SIGNS = {'T': '├──', 'F': '└──', 'S': '    ', 'P': '│   ', 'B': '───'}
 META_TEMPLATE_BY_STAGE = {
             'seqs': {
@@ -135,21 +169,28 @@ META_TEMPLATE_BY_STAGE = {
 
 MUTYPES = ['m_1', 'm_2', 'm_3', 'm_4']
 
-def get_ini_model_params(model):
-    pop_ids, events = ['A', 'B'], []
+def get_ini_model_events(model, pop_ids):
+    events = []
     if model in set(['DIV', 'IM_BA', 'IM_AB']):
-        pop_ids += ['A_B']
         events += ['J_A_B']
     if model in set(['MIG_AB', 'IM_AB']):
         events += ['M_A_B']
     if model in set(['MIG_BA', 'IM_BA']):
         events += ['M_B_A']
     events = ['C_%s' % pop_id for pop_id in pop_ids] + events
-    pop_ids_sync = [",".join(combination) for combination 
-        in itertools.combinations(pop_ids, 2)] + [','.join(pop_ids),]
+    return events
+
+def get_ini_model_params(model):
+    pop_ids = ['A', 'B']
+    if model in set(['DIV', 'IM_BA', 'IM_AB']):
+        pop_ids += ['A_B']
+    pop_ids_sync = sorted(set([",".join(combination) for combination 
+        in itertools.combinations(pop_ids, 2)] + [','.join(pop_ids),]))
+    events = get_ini_model_events(model, pop_ids)
     return pop_ids, pop_ids_sync, events
 
 def get_ini_parameter_list(task, events):
+    # [parser.py]
     l = ['# Model parameters and their values/ranges:']
     if task == 'simulate':
         l.append('# A) Fixed : VALUE')
@@ -170,13 +211,14 @@ def get_ini_parameter_list(task, events):
         if event_type == 'M':
             source, sink = event_name.split("_")
             l.append(f'# Migration rate (migrants/generation) from {source} to {sink} (backwards in time)')
-            l.append(f'me_{event_name}')
+            l.append(f'me')
         if event_type == 'J':
             l.append(f'# Split time (in generations)')
             l.append(f'T')
     return l
 
 def make_ini_configparser(version, task, model, label):
+    # [parser.py]
     # make configparser
     config = configparser.ConfigParser(allow_no_value=True)
     config.optionxform = str # otherwise keys are lowercase
@@ -186,7 +228,7 @@ def make_ini_configparser(version, task, model, label):
     string_pop_ids = " | ".join(pop_ids)
     string_pop_ids_sync = " | ".join(pop_ids_sync)
     parameter_list = get_ini_parameter_list(task, events)
-    # main header
+    # gimble
     config.add_section('gimble')
     config.set('gimble', 'version', version)
     config.set('gimble', 'label', label)
@@ -195,16 +237,19 @@ def make_ini_configparser(version, task, model, label):
     config.set('gimble', 'random_seed', random_seed)
     config.set('gimble', 'precision', precision)
     # populations
-    config.add_section('populations')
-    config.set('populations', 'pop_ids', string_pop_ids)
-    config.set('populations', '# Link model to data in GimbleStore (see output of gimble info)')
-    config.set('populations', 'A', "")
-    config.set('populations', 'B', "")
-    config.set('populations', '# Pick a reference population: (%s)' % string_pop_ids)
-    config.set('populations', 'reference_pop', "")
-    config.set('populations', '# Simplify model by assuming equality of Ne\'s (optional): [%s]' % string_pop_ids_sync)
-    config.set('populations', 'sync_pop_sizes', "")
+    # do only makegrid and optimize need populations?
+    if task == 'makegrid' or task == 'optimize':
+        config.add_section('populations')
+        config.set('populations', 'pop_ids', string_pop_ids)
+        config.set('populations', '# Link model to data in GimbleStore (see output of gimble info)')
+        config.set('populations', 'A', "")
+        config.set('populations', 'B', "")
+        config.set('populations', '# Pick a reference population: %s' % string_pop_ids)
+        config.set('populations', 'reference_pop_id', "")
+        config.set('populations', '# Choose to simplify model by assuming equality of Ne\'s (optional): %s' % string_pop_ids_sync)
+        config.set('populations', 'sync_pop_ids', "")
     # k_max
+    # do all inferences need k_max?
     config.add_section('k_max')
     config.set('k_max', '# k_max sets limits for mutation-type cardinalities.')
     config.set('k_max', '# Mutation-types beyond these are calculated as marginals')
@@ -213,6 +258,7 @@ def make_ini_configparser(version, task, model, label):
     config.set('k_max', 'm_3', '2    # hetAB')
     config.set('k_max', 'm_4', '2    # fixed')
     # simulate
+    # is this all simulate needs?
     if task == 'simulate':
         config.add_section('simulate')
         config.set('simulate', '# Ploidy of organism')
@@ -236,8 +282,9 @@ def make_ini_configparser(version, task, model, label):
         config.set('recombination', 'cutoff', "")
         config.set('recombination', 'scale', "")
     # mu
-    config.add_section('mu')
-    config.set('mu', '# mutation rate (in mutations/site/generation) (gridsearch: required)')
+    config.add_section('mu') 
+    config.set('mu', '# mutation rate (in mutations/site/generation, required)')
+    # [To Do] figure out how to deal with 'no mutation-rate' ... no-scaling
     config.set('mu', 'mu', "")
     # parameters
     config.add_section('parameters')
@@ -256,16 +303,16 @@ def write_config(version, model, task, label):
     outfile = "gimble.%s.%s.%s.config.ini" % (task, model, label)
     with open(outfile, 'w') as fh:
         config.write(fh)
-    print("[+] Wrote INI file %r. Please fill in values before starting optimize/makegrid/simulate." % str(outfile))
+    print("[+] Wrote INI file %r. Please fill in values before starting %r." % (str(outfile), task))
 
 def get_validator_error_string(validator_errors):
     # parameterObj file ...
     out = []
     for section, errors in validator_errors.items():
-        out.append("Section %s ..." % section)
+        out.append("[X] In section %r" % section)
         for error_dict in errors:
             for parameter, values in error_dict.items():
-                out.append("[X] %s \t: %s ..." % (parameter, " ".join(values)))
+                out.append("[X] \t %s \t %s" % (parameter, " ".join(values)))
     return "\n".join(out)
 
 def DOL_to_LOD(DOL):
@@ -302,43 +349,9 @@ def _return_np_type(entries ,counts=True):
         else:
             return np.int8
 
-class ReportObj(object):
-    '''Report class for making reports'''
-
-    def __init__(self, width=80):
-        self.width = width
-        self.out = []
-    
-    def add_line(self, prefix="[+]", branch="", left='', center='', right='', fill=' '):
-        '''
-        Writes line to Report Object
-        Lines is composed of {prefix} {branch} {left} {fill} {center} {fill} {right}
-        SIGNS = {'T': '├──', 'F': '└──', 'S': '    ', 'P': '│   ', 'B': '───'}
-        '''
-        start = "%s %s" % (prefix, "".join([SIGNS[b] for b in branch])) if branch else prefix
-        w = self.width - len(left) - len(right) - len(start) 
-        self.out.append("%s %s %s %s" % (start, left, (" %s " % center).center(w, fill) if center else fill * w, right))
-
-    def __add__(self, other):
-        if isinstance(other, ReportObj):
-            if self.width == other.width:
-                result = ReportObj(width=self.width)
-                result.out = self.out + other.out
-                return result
-            else:
-                raise ValueError("addition only supported for ReportObj of equal width")    
-        else:
-            raise ValueError("addition only supported for ReportObj's")
-
-    def __radd__(self, other):
-        return self.__add__(other)
-
-    def __repr__(self):
-        return "\n".join(self.out)
-
-def check_sync_pop_value_consistency(config):
+def get_config_pops(config):
     # check for consistent values in sync_pops
-    Ne_sync_pops = ["Ne_%s" % _ for _ in config['populations']['sync_pop_sizes']]
+    Ne_sync_pops = ["Ne_%s" % _ for _ in config['populations']['sync_pop_ids']]
     for Ne_sync_pop in Ne_sync_pops[1:]:
         if not (config['parameters'][Ne_sync_pops[0]] == config['parameters'][Ne_sync_pop]):
             Ne_sync_pops_all = Ne_sync_pops
@@ -348,12 +361,20 @@ def check_sync_pop_value_consistency(config):
             sys.exit("[X] If sync'ing of %s is desired "
                 "please adjust parameters in INI file to have equal ranges."
                 "\n\t%s" % (Ne_sync_pops_all_string, parameter_string_list))
+    # make populations_by_letter
+    config['populations']['population_by_letter'] = {
+        'A': config['populations']['A'],
+        'B': config['populations']['B'],
+        }
     return config
 
-def parameters_to_arrays(config, module):
+def get_config_model_parameters(config, module):
     # Convert parameters to numpy arrays
     config['parameters_np'] = {}
     config['parameters_fixed'] = []
+    config['parameters_bounded'] = [] # only first sync'ed pop is added to bounded
+    config['parameters_gridded'] = []
+    coalescence_rates_seen = set()
     for parameter, values in config['parameters'].items():
         if len(values) == 1:
             config['parameters_fixed'].append(parameter)
@@ -362,10 +383,15 @@ def parameters_to_arrays(config, module):
             if module == 'makegrid':
                 sys.exit("[X] Module %r only supports FLOAT, or (MIN, MAX, STEPS, LIN|LOG) for parameters. Not %r" % (module, values))
             config['parameters_np'][parameter] = np.array(values)
+            coalescence_rate = config['events']['p_to_c'].get(parameter, None) # gets None if not Ne_* (i.e. me)
+            if not coalescence_rate in coalescence_rates_seen:
+                config['parameters_bounded'].append(parameter)
+                coalescence_rates_seen.add(coalescence_rate)
         elif len(values) == 4:
             if module == 'optimize':
                 sys.exit("[X] Module %r only supports FLOAT, or (MIN, MAX) for parameters. Not %r" % (module, values))
             value_min, value_max, value_num, value_scale = values
+            config['parameters_gridded'].append(parameter)
             if value_scale.startswith('lin'):
                 config['parameters_np'][parameter] = np.linspace(
                     value_min, value_max, num=value_num, endpoint=True, dtype=np.float64)
@@ -376,17 +402,30 @@ def parameters_to_arrays(config, module):
                 sys.exit("[X] Config: Scale should either be lin or log. Not %r." % value_scale)
         else:
             sys.exit("[X] Config: Parameters must be FLOAT, or (MIN, MAX), or (MIN, MAX, STEPS, LIN|LOG).") 
-    # Gertjan: 
-    # if len(reference_size)>0:
-    #    sys.exit(f"[X] Syncing pop sizes: set no value or the same value for Ne_{', Ne_'.join(to_be_synced)} as for Ne_{reference}")         
-    # if self._MODULE == 'optimize':
-    #   fixed_Nes = self._get_fixed_params(subgroup='Ne')
-    #   if len(fixed_Nes)>0:
-    #       if not f"Ne_{reference_pop}" in fixed_Nes:
-    #           sys.exit("[X] No. No. No. It would make much more sense to set a population with a fixed size as reference.")
     return config
 
-def kmax_to_maxk(config):
+def get_config_model_events(config):
+    pop_ids = config['populations']['pop_ids']
+    model = config['gimble']['model']
+    sync_pops = config['populations']['sync_pop_ids']
+    events = get_ini_model_events(model, pop_ids)
+    config['events'] = {}
+    config['events']['coalescence'] = []
+    config['events']['p_to_c'] = {}
+    for event in events:
+        if event.startswith('M'):
+            config['events']['migration'] = [tuple(pop_ids.index(pop_id) for pop_id in event.replace('M_', '').split('_'))]
+        if event.startswith('J'):
+            config['events']['exodus'] = [tuple(pop_ids.index(pop_id) for pop_id in event.replace('J_', '').split('_'))]
+        if event.startswith('C'):
+            pop_size = event.replace('C_', 'Ne_')
+            if event.replace('C_', '') in sync_pops:
+                event = 'C_s'
+            config['events']['coalescence'].append(event)
+            config['events']['p_to_c'][pop_size] = event
+    return config
+
+def get_config_kmax(config):
     try:
         #GB: sorting seems to be the way to go here
         #mutype_labels, max_k = zip(*sorted(config[k_max].items()))
@@ -403,51 +442,54 @@ def parameters_to_grid(config):
     config['parameters_grid'] = {k: np.array(v, dtype=np.float64) for k, v in zip(config['parameters_np'].keys(), rearranged_product)}
     return config
 
-def get_config(config_file, module):
+def load_config(config_file, module):
+    # does anything custom have to be done for 'simulations'?
     parser = configparser.ConfigParser(inline_comment_prefixes='#', allow_no_value=True)
     parser.optionxform = str # otherwise keys are lowercase
     parser.read(config_file)
     parsee = {s: dict(parser.items(s)) for s in parser.sections()}
-    schema = get_config_schema_new(module)
-    validator = NewCustomNormalizer(schema, module=module, purge_unknown=True)
+    schema = get_config_schema(module)
+    validator = ConfigCustomNormalizer(schema, module=module, purge_unknown=True)
     validator.validate(parsee)
     if not validator.validate(parsee):
         validator_error_string = get_validator_error_string(validator.errors)
-        sys.exit("[X] INI Config file format error(s) ...\n%s" % validator_error_string)
+        sys.exit("[X] Problems were encountered when parsing INI config file:\n%s" % validator_error_string)
     config = validator.normalized(parsee)
-    config = check_sync_pop_value_consistency(config)
-    config = kmax_to_maxk(config)
-    config = parameters_to_arrays(config, module)
-    config = parameters_to_grid(config)
+    config = get_config_pops(config)
+    config = get_config_kmax(config)
+    config = get_config_model_events(config)
+    config = get_config_model_parameters(config, module)
+    if module == 'makegrid':
+        config = parameters_to_grid(config)
     return config
 
-class NewCustomNormalizer(cerberus.Validator):
+class ConfigCustomNormalizer(cerberus.Validator):
     def __init__(self, *args, **kwargs):
-        super(NewCustomNormalizer, self).__init__(*args, **kwargs)
+        super(ConfigCustomNormalizer, self).__init__(*args, **kwargs)
         self.module = kwargs['module']
 
     def _normalize_coerce_pop_ids(self, value):
-        pop_ids = [v for v in value.replace(" ", "").split(",") if v]
+        pop_ids = [v for v in value.replace(" ", "").replace("|", ",").split(",") if v]
         return pop_ids if pop_ids else None
 
     def _normalize_coerce_reference_pop_id(self, value):
         if value in set(self.document['pop_ids']):
             return value
-        self._error('reference_pop', 
-            "invalid reference_pop: %r. Must be one of the following: %s" % (value, ", ".join(self.document['pop_ids'])))
+        self._error('reference_pop_id', 
+            "invalid reference_pop_id: %r. Must be one of the following: %s" % (value, ", ".join(self.document['pop_ids'])))
         return None
 
-    def _normalize_coerce_sync_pop_sizes(self, value):
+    def _normalize_coerce_sync_pop_ids(self, value):
         if value: 
-            sync_pop_ids = set(self._normalize_coerce_pop_ids(value))
+            sync_pop_ids = frozenset(self._normalize_coerce_pop_ids(value))
             if sync_pop_ids:
                 sync_pop_ids_valid_sets = set([frozenset(self._normalize_coerce_pop_ids(",".join(pops))) for pops in list(itertools.chain.from_iterable(
                     itertools.combinations(self.document['pop_ids'], r) for r in range(len(self.document['pop_ids'])+1)))[4:]])
                 if sync_pop_ids in sync_pop_ids_valid_sets:
                     return sorted(sync_pop_ids)
                 else:
-                    self._error('sync_pop_ids', 'invalid sync_pop_ids: %r. Must be one of the following: %s' % (value, ", ".join(sync_pop_ids_valid_sets)))
-                    return []
+                    sync_pop_ids_valid_strings = " or ".join([",".join(sorted(x)) for x in sync_pop_ids_valid_sets])
+                    self._error('sync_pop_ids', 'invalid sync_pop_ids: %r. Must be one of the following: %s' % (str(value), sync_pop_ids_valid_strings))
         return []
 
     def _normalize_coerce_float_or_list(self, value):
@@ -523,7 +565,7 @@ class NewCustomNormalizer(cerberus.Validator):
                 self._error(field, 'Must be a valid path to the recombination map. Not %r' % value)
 
 
-def get_config_schema_new(module):
+def get_config_schema(module):
     # [To Do] 
     # move to parameterObj file
     schema = {
@@ -531,7 +573,9 @@ def get_config_schema_new(module):
             'type': 'dict',
             'schema': {
                 'version': {'required': True, 'empty':False, 'type': 'string'},
-                'model': {'required': True, 'empty':False, 'type': 'string', 'coerce': 'path'},
+                'model': {'required': True, 'empty':False, 'type': 'string'},
+                'task': {'required': True, 'empty':False, 'type': 'string'},
+                'label': {'required': True, 'empty':False, 'type': 'string'},
                 'precision': {'required': True, 'empty':False, 'type': 'integer', 'coerce': int},
                 'random_seed': {'required': True, 'empty':False, 'type': 'integer', 'coerce': int}}},
         'populations': {
@@ -540,8 +584,8 @@ def get_config_schema_new(module):
                 'pop_ids': {'required': True, 'empty':False, 'type': 'list', 'coerce': 'pop_ids'},
                 'A': {'required':True, 'empty':True, 'type':'string'},
                 'B': {'required':True, 'empty':True, 'type':'string'},
-                'reference_pop': {'required':True, 'empty':False, 'type': 'string', 'coerce': 'reference_pop_id'},
-                'sync_pop_sizes': {'required':False, 'empty': True, 'type': 'list', 'coerce': 'sync_pop_sizes'},
+                'reference_pop_id': {'required':True, 'empty':False, 'type': 'string', 'coerce': 'reference_pop_id'},
+                'sync_pop_ids': {'required':False, 'empty': True, 'type': 'list', 'coerce': 'sync_pop_ids'},
                 }},
         'k_max': {
             'type': 'dict', 
@@ -549,8 +593,7 @@ def get_config_schema_new(module):
         'mu': {
             'type':'dict', 
             'schema':{
-                'mu': {'required': False, 'empty':True, 'type': 'float', 'coerce':float},
-                'blocklength': {'required': False, 'empty':True,'notNoneInt':True, 'coerce':'int_or_empty'}
+                'mu': {'required': True, 'empty':False, 'type': 'float', 'coerce':float},
                 }},
         'parameters': {
             'type': 'dict', 'required':True, 'empty':False, 
@@ -566,6 +609,7 @@ def get_config_schema_new(module):
             'schema': {
                 'ploidy': {'required':True,'empty':False, 'required':True, 'type':'integer', 'min':1, 'coerce':int},
                 'blocks': {'required':True, 'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+                'blocklength': {'required': False, 'empty':True, 'min':1, 'type': 'integer', 'coerce':int},
                 'chunks': {'required':True, 'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
                 'replicates': {'required':True,'empty': False, 'type': 'integer', 'min':1, 'coerce':int},
                 'sample_size_A': {'required':True,'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
@@ -576,12 +620,6 @@ def get_config_schema_new(module):
                 'cutoff': {'empty': True, 'notNoneFloat': True, 'coerce':'float_or_empty', 'min':0},
                 'scale': {'empty':True, 'type':'string', 'allowed':['lin', 'log']}
         }}
-        schema['mu'] = {
-            'type':'dict', 
-            'schema':{
-                'mu': {'required': True, 'empty':False, 'type': 'float', 'coerce':float},
-                'blocklength': {'required': False, 'empty':True, 'min':1, 'type': 'integer', 'coerce':int}
-                }}
     return schema
 
 def _dict_product(parameter_dict):
@@ -589,66 +627,66 @@ def _dict_product(parameter_dict):
     rearranged_product = list(zip(*cartesian_product))
     return {k: np.array(v, dtype=np.float64) for k, v in zip(parameter_dict.keys(), rearranged_product)}
 
-def get_config_schema(module):
-    # [To Do] 
-    # move to parameterObj file
-    schema = {
-        'gimble': {
-            'type': 'dict',
-            'schema': {
-                'version': {'required': True, 'empty':False, 'type': 'string'},
-                'model': {'required': True, 'empty':False, 'type': 'string'},
-                'precision': {'required': True, 'empty':False, 'type': 'integer', 'coerce': int},
-                'random_seed': {'required': True, 'empty':False, 'type': 'integer', 'coerce': int}}},
-        'populations': {
-            'required': True, 'type': 'dict', 
-            'schema': {
-                'A': {'required':True, 'empty':True, 'type':'string'},
-                'B': {'required':True, 'empty':True, 'type':'string'},
-                'pop_ids': {'required': True, 'empty':False, 'type': 'string'},
-                'reference_pop': {'required':True, 'empty':False, 'isPop':True},
-                'sync_pop_sizes': {'required':False, 'empty':True, 'isPopSync':True},
-                }},
-        'k_max': {
-            'type': 'dict', 
-            'valuesrules': {'required': True, 'empty':False, 'type': 'integer', 'min': 1, 'coerce':int}},
-        'mu': {
-            'type':'dict', 
-            'schema':{
-                'mu': {'required': False, 'empty':True, 'type': 'float', 'coerce':float},
-                'blocklength': {'required': False, 'empty':True,'notNoneInt':True, 'coerce':'int_or_empty'}
-                }},
-        'parameters': {
-            'type': 'dict', 'required':True, 'empty':False, 
-            'valuesrules': {'coerce':'float_or_list', 'notNone':True}
-        },
-        'simulations':{
-            'required':False, 'empty':True}
-        }
-    if module == 'simulate':
-        schema['simulations'] = {
-            'type': 'dict',
-            'required':True,
-            'schema': {
-                'ploidy': {'required':True,'empty':False, 'required':True, 'type':'integer', 'min':1, 'coerce':int},
-                'blocks': {'required':True, 'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
-                'chunks': {'required':True, 'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
-                'replicates': {'required':True,'empty': False, 'type': 'integer', 'min':1, 'coerce':int},
-                'sample_size_A': {'required':True,'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
-                'sample_size_B': {'required':True,'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
-                'recombination_rate': {'empty': True, 'notNoneFloat':True, 'coerce':'float_or_empty', 'min':0.0},
-                'recombination_map': {'empty': True, 'type': 'string', 'isPath':True, 'dependencies':['number_bins', 'cutoff', 'scale']},
-                'number_bins': {'empty': True, 'notNoneInt': True, 'coerce':'int_or_empty', 'min':1},
-                'cutoff': {'empty': True, 'notNoneFloat': True, 'coerce':'float_or_empty', 'min':0},
-                'scale': {'empty':True, 'type':'string', 'allowed':['lin', 'log']}
-        }}
-        schema['mu'] = {
-            'type':'dict', 
-            'schema':{
-                'mu': {'required': True, 'empty':False, 'type': 'float', 'coerce':float},
-                'blocklength': {'required': False, 'empty':True, 'min':1, 'type': 'integer', 'coerce':int}
-                }}
-    return schema
+#def get_config_schema_old(module):
+#    # [To Do] 
+#    # move to parameterObj file
+#    schema = {
+#        'gimble': {
+#            'type': 'dict',
+#            'schema': {
+#                'version': {'required': True, 'empty':False, 'type': 'string'},
+#                'model': {'required': True, 'empty':False, 'type': 'string'},
+#                'precision': {'required': True, 'empty':False, 'type': 'integer', 'coerce': int},
+#                'random_seed': {'required': True, 'empty':False, 'type': 'integer', 'coerce': int}}},
+#        'populations': {
+#            'required': True, 'type': 'dict', 
+#            'schema': {
+#                'A': {'required':True, 'empty':True, 'type':'string'},
+#                'B': {'required':True, 'empty':True, 'type':'string'},
+#                'pop_ids': {'required': True, 'empty':False, 'type': 'string'},
+#                'reference_pop': {'required':True, 'empty':False, 'isPop':True},
+#                'sync_pop_sizes': {'required':False, 'empty':True, 'isPopSync':True},
+#                }},
+#        'k_max': {
+#            'type': 'dict', 
+#            'valuesrules': {'required': True, 'empty':False, 'type': 'integer', 'min': 1, 'coerce':int}},
+#        'mu': {
+#            'type':'dict', 
+#            'schema':{
+#                'mu': {'required': False, 'empty':True, 'type': 'float', 'coerce':float},
+#                'blocklength': {'required': False, 'empty':True,'notNoneInt':True, 'coerce':'int_or_empty'}
+#                }},
+#        'parameters': {
+#            'type': 'dict', 'required':True, 'empty':False, 
+#            'valuesrules': {'coerce':'float_or_list', 'notNone':True}
+#        },
+#        'simulations':{
+#            'required':False, 'empty':True}
+#        }
+#    if module == 'simulate':
+#        schema['simulations'] = {
+#            'type': 'dict',
+#            'required':True,
+#            'schema': {
+#                'ploidy': {'required':True,'empty':False, 'required':True, 'type':'integer', 'min':1, 'coerce':int},
+#                'blocks': {'required':True, 'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+#                'chunks': {'required':True, 'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+#                'replicates': {'required':True,'empty': False, 'type': 'integer', 'min':1, 'coerce':int},
+#                'sample_size_A': {'required':True,'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+#                'sample_size_B': {'required':True,'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
+#                'recombination_rate': {'empty': True, 'notNoneFloat':True, 'coerce':'float_or_empty', 'min':0.0},
+#                'recombination_map': {'empty': True, 'type': 'string', 'isPath':True, 'dependencies':['number_bins', 'cutoff', 'scale']},
+#                'number_bins': {'empty': True, 'notNoneInt': True, 'coerce':'int_or_empty', 'min':1},
+#                'cutoff': {'empty': True, 'notNoneFloat': True, 'coerce':'float_or_empty', 'min':0},
+#                'scale': {'empty':True, 'type':'string', 'allowed':['lin', 'log']}
+#        }}
+#        schema['mu'] = {
+#            'type':'dict', 
+#            'schema':{
+#                'mu': {'required': True, 'empty':False, 'type': 'float', 'coerce':float},
+#                'blocklength': {'required': False, 'empty':True, 'min':1, 'type': 'integer', 'coerce':int}
+#                }}
+#    return schema
 
 def recursive_get_size(path):
     """Gets size in bytes of the given path, recursing into directories."""
@@ -1171,12 +1209,12 @@ def _optimize_to_csv(results, label, parameterObj, data_type='simulate'):
 
 def _optimize_scale_output(parameterObj, df):
     parameter_dict = df.to_dict(orient='list')
-    reference_pop = parameterObj.config['populations']['reference_pop']
+    reference_pop_id = parameterObj.config['populations']['reference_pop_id']
     block_length = parameterObj.config['mu']['blocklength']
     mu = parameterObj.config['mu']['mu']
     scaled_result = lib.math.scale_parameters(
         parameter_dict, 
-        reference_pop, 
+        reference_pop_id, 
         block_length, 
         mu
         )
@@ -1390,8 +1428,8 @@ class ParameterObj(object):
         print('config', config)
         print('valid_sync_pops', valid_sync_pops)
         syncing = config['populations']['sync_pop_sizes']
-        reference_pop = config['populations']['reference_pop']
-        print('reference_pop', reference_pop)
+        reference_pop_id = config['populations']['reference_pop_id']
+        print('reference_pop_id', reference_pop_id)
         print('syncing', syncing)
         if syncing:
             if len(syncing)>0:
@@ -1409,7 +1447,7 @@ class ParameterObj(object):
                 if self._MODULE == 'optimize':
                     fixed_Nes = self._get_fixed_params(subgroup='Ne')
                     if len(fixed_Nes)>0:
-                        if not f"Ne_{reference_pop}" in fixed_Nes:
+                        if not f"Ne_{reference_pop_id}" in fixed_Nes:
                             sys.exit("[X] No. No. No. It would make much more sense to set a population with a fixed size as reference.")
         print('reference', reference)
         print('to_be_synced', to_be_synced)
@@ -2181,14 +2219,13 @@ class Store(object):
                 label=f"{parameterObj.data_type}_{parameterObj._get_unique_hash()}"
                 )
 
-    def optimize(self, parameterObj):
+    def optimize_before(self, parameterObj):
         '''[To Do]
         rewrite
             - preflight
             - stopping_criteria should be passed as argument
             - 
         '''
-        print("optimize new parameterObj.config :", parameterObj.config)
         if not self.has_stage(parameterObj.data_type):
             sys.exit("[X] gimbleStore has no %r." % parameterObj.data_type)
         label = parameterObj.label if hasattr(parameterObj, 'label') else parameterObj._get_unique_hash()
@@ -2248,6 +2285,66 @@ class Store(object):
                 label=long_label
                 )
             _optimize_to_csv(result, long_label, parameterObj, 'blocks')
+
+    def _preflight_optimize(self, data_type, config, start_points, simulations_label, track_history):
+        if not self.has_stage(data_type):
+            sys.exit("[X] gimbleStore has no %r." % data_type)    
+        if data_type == 'simulations':
+            # block_length needs to be set here
+            data = self._get_sims_bsfs(simulations_label) # data is an iterator across parameter combos
+        else:
+            meta_blocks = self._get_meta('blocks')
+            config['block_length'] = meta_blocks['length']
+            data = tally_variation(
+                self._get_variation(
+                    data_type=data_type, 
+                    population_by_letter=config['populations']['population_by_letter'], 
+                    sample_sets="X"), 
+                form='bsfs', max_k=config['max_k'])
+        print('data', data)
+        config['start_points'] = start_points if data_type == 'blocks' else 1
+        config['track_history'] = False if data_type == 'simulations' else track_history
+        # bounds 
+        parameter_combinations_lowest = np.array([config['parameters_np'][k][0] for k in config['parameters_bounded']])
+        parameter_combinations_highest = np.array([config['parameters_np'][k][1] for k in config['parameters_bounded']])
+        #start from midpoint
+        pmid = np.mean(np.vstack((parameter_combinations_lowest, parameter_combinations_highest)), axis=0)
+        config['starting_points'] = [pmid,]
+        if start_points > 1:
+            np.random.seed(config['gimble']['random_seed'])
+            starting_points = np.random.uniform(low=parameter_combinations_lowest, high=parameter_combinations_highest, size=(start_points-1, len(config['parameters_bounded'])))
+            config['starting_points'] = np.vstack((pmid, starting_points))
+        # are parameter_combinations_lowest, parameter_combinations_highest needed?
+        #return (starting_points, parameter_combinations_lowest, parameter_combinations_highest)
+        return data, config
+
+    def optimize(self, data_type, config, num_cores, start_points, max_iterations, xtol_rel, ftol_rel, track_history, simulations_label):
+        data, config = self._preflight_optimize(data_type, config, start_points, simulations_label, track_history)
+        print('[+] Generating equations.')
+        gf = lib.math.config_to_gf(config)
+        gfEvaluatorObj = togimble.gfEvaluator(gf, config['max_k'], MUTYPES, config['gimble']['precision'], exclude=[(2,3),])
+        print('config', config)
+        if data_type=='simulate':
+            #data is an iterator over parameter_combination_name, parameter_combination_array
+            #each param_comb_array contains n replicates
+            all_results={}
+            for param_combo, replicates in data:
+                print(f"Optimising replicates {param_combo}")
+                result = lib.math.optimize_parameters(
+                    gfEvaluatorObj,
+                    replicates, 
+                    parameterObj, 
+                    trackHistory=False, 
+                    verbose=False, 
+                    label=simulations_label, 
+                    param_combo_name=param_combo
+                    )
+                all_results[param_combo] = result
+                long_label = f'{label}_{param_combo}' 
+                _optimize_to_csv(result, long_label, parameterObj, 'simulate')
+        else:
+            result = lib.math.optimize_parameters(gfEvaluatorObj, data, config, verbose=True)
+            _optimize_to_csv(result, label, parameterObj, 'blocks')
 
     def _set_stopping_criteria(self, data, parameterObj, label):
         set_by_user = True
@@ -2563,17 +2660,7 @@ class Store(object):
                     return np.array(self.data[f'sims/{label}/parameter_combination_0'], dtype=np.int32) 
                 else:
                     return self.data[f'sims/{label}'].arrays()
-            else:
-                sys.exit(f"[X] label should be one of {', '.join(self.data['sims'].group_keys())}")
-        else:
-            if len(self.data['sims']) == 1:
-                key=list(self.data['sims'].group_keys())[0]
-                if single:    
-                    return np.array(self.data[f'sims/{key}/parameter_combination_0'], dtype=np.int32) 
-                else:
-                    return self.data[f'sims/{key}'].arrays()
-            else:
-                sys.exit(f"[X] Specify label. Should be one of {', '.join(self.data['sims'].group_keys())}")
+        sys.exit(f"[X] Simulations label must be one of {', '.join(self.data['sims'].group_keys())}")
 
     def _count_groups(self, name):
         '''DRL: is this being used?'''

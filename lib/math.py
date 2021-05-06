@@ -170,7 +170,20 @@ def param_generator(pcentre, pmin, pmax, psamples, distr):
     else:
         raise ValueError('"distr" must be "linear"')
 
-def config_to_gf(model, mutype_labels, sync_pops=None):
+def config_to_gf(config):
+    sample_list = [(),('a','a'),('b','b')] #currently hard-coded
+    # config['events']['coalescence'] has same order as config['populations']['pop_ids']
+    # e.g. ['C_A', 'C_s', 'C_s'] if pop_ids = ['A', 'B', 'A_B'] and sync_pop_sizes = ['A_B', 'B']
+    coalescence_rates = [sage.all.var(rate) for rate in config['events']['coalescence']]
+    migration_rate = sage.all.var('M') if config['events']['migration'] else None
+    migration_direction = config['events']['migration'] if config['events']['migration'] else None
+    exodus_rate = sage.all.var('J') if config['events']['exodus'] else None
+    exodus_direction = config['events']['exodus'] if config['events']['exodus'] else None
+    mutype_labels = list(config['k_max'].keys())
+    gf = togimble.get_gf(sample_list, coalescence_rates, mutype_labels, migration_direction, migration_rate, exodus_direction, exodus_rate)
+    return gf
+
+def config_to_gf_before(model, mutype_labels, sync_pops=None):
     pop_ids, pop_ids_sync, events = lib.gimble.get_model_params(model)
     sample_list = [(),('a','a'),('b','b')] #currently hard-coded
     pop_mapping = ['A_B', 'A', 'B'] #pop_mapping: should be more general sorted list of pops
@@ -231,6 +244,30 @@ def calculate_inverse_laplace(params):
     equationObj.result = sage.all.RealField(precision)(equationObj.result)
     return equationObj
 """
+
+
+def run_single_optimize(p0, lower, upper, specified_objective_function, maxeval, xtol_rel, ftol_rel):
+    # [Gertjan] nlopt.LN_NELDERMEAD is faster and gives same result 
+    # no need for nlopt.LN_SBPLX
+    opt = nlopt.opt(nlopt.LN_NELDERMEAD, len(p0))
+    opt.set_lower_bounds(lower)
+    opt.set_upper_bounds(upper)
+    opt.set_max_objective(specified_objective_function)
+    opt.set_xtol_rel(xtol_rel)
+    if xtol_rel>0:
+        #assigning weights to address size difference between params
+        xtol_weights = 1/(len(p0) * p0)
+        opt.set_x_weights(xtol_weights)
+    opt.set_ftol_rel(ftol_rel)
+    opt.set_maxeval(maxeval)
+    optimum = opt.optimize(p0)
+    rdict = {}
+    rdict['lnCL'] = opt.last_optimum_value()
+    rdict['optimum'] = optimum
+    rdict['exitcode'] = opt.last_optimize_result()
+    
+    return rdict
+
 def calculate_composite_likelihood(ETPs, data):
     ETP_log = np.zeros(ETPs.shape, dtype=np.float64)
     np.log(ETPs, where=ETPs>0, out=ETP_log)
@@ -271,30 +308,79 @@ def objective_function(paramsToOptimize, grad, paramNames, fixedParams, mu, bloc
             '{:.2f}'.format(float(result)), 
             str(time[:-5]) if len(time) > 9 else str(time))) # rounding is hard ...
     return result
-
-def run_single_optimize(p0, lower, upper, specified_objective_function, maxeval, xtol_rel, ftol_rel):
-    # [Gertjan] nlopt.LN_NELDERMEAD is faster and gives same result 
-    # no need for nlopt.LN_SBPLX
-    opt = nlopt.opt(nlopt.LN_NELDERMEAD, len(p0))
-    opt.set_lower_bounds(lower)
-    opt.set_upper_bounds(upper)
-    opt.set_max_objective(specified_objective_function)
-    opt.set_xtol_rel(xtol_rel)
-    if xtol_rel>0:
-        #assigning weights to address size difference between params
-        xtol_weights = 1/(len(p0) * p0)
-        opt.set_x_weights(xtol_weights)
-    opt.set_ftol_rel(ftol_rel)
-    opt.set_maxeval(maxeval)
-    optimum = opt.optimize(p0)
-    rdict = {}
-    rdict['lnCL'] = opt.last_optimum_value()
-    rdict['optimum'] = optimum
-    rdict['exitcode'] = opt.last_optimize_result()
     
-    return rdict
+def optimize_parameters(gfEvaluatorObj, data, config, verbose=True):
+    trackHistoryPath = [[] for _ in range(parameterObj.numPoints)]
+    #specify the objective function to be optimized
+    reference_pop = config['populations']['reference_pop_id']
+    mu = parameterObj.config['mu']['mu']
+    block_length = parameterObj.config['mu']['blocklength']
+    specified_objective_function_list = [partial(
+                    objective_function,
+                    paramNames=boundary_names,
+                    fixedParams=fixedParams,
+                    mu=mu,
+                    block_length = block_length,
+                    reference_pop=reference_pop,
+                    gfEvaluatorObj=gfEvaluatorObj,
+                    data=data,
+                    verbose=verbose,
+                    path=sublist) for sublist in trackHistoryPath]
 
-def optimize_parameters(gfEvaluatorObj, data, parameterObj, trackHistory=True, verbose=False, label='', param_combo_name=''):
+    specified_objective_function_list = _optimize_specify_objective_function(
+        gfEvaluatorObj, 
+        parameterObj.data_type, 
+        trackHistoryPath, 
+        data, 
+        boundaryNames,
+        fixedParams, 
+        mu, 
+        block_length, 
+        reference_pop, 
+        verbose
+        )
+    
+    #print to screen
+    startdesc = "[+] Optimization starting for specified point."
+    if parameterObj.numPoints>1:
+        startdesc = f"[+] Optimization starting for specified point and {parameterObj.numPoints-1} random points."
+    if verbose:
+        print(startdesc)
+    #make log file for simulation replicates:
+    _init_optimize_log(boundaryNames, f'optimize_log_{label}_{param_combo_name}.tsv', parameterObj._CWD, meta=parameterObj._get_cmd())
+    
+    #parallelize over starting points or data points
+    allResults=[] 
+    if parameterObj.gridThreads <= 1:
+        with open(os.path.join(parameterObj._CWD, f'optimize_log_{label}_{param_combo_name}.tsv'), 'a') as log_file:
+            for idx, (startPos, specified_objective_function) in enumerate(tqdm(zip(itertools.cycle(starting_points), specified_objective_function_list), desc="progress", total=len(specified_objective_function_list),disable=verbose)):
+                single_run_result = run_single_optimize(startPos, parameter_combinations_lowest, parameter_combinations_highest, specified_objective_function, parameterObj.max_eval, parameterObj.xtol_rel, parameterObj.ftol_rel) 
+                allResults.append(single_run_result)
+                _optimize_log(single_run_result, idx, log_file)
+                #allResults.append(run_single_optimize(startPos, parameter_combinations_lowest, parameter_combinations_highest, specified_objective_function, parameterObj.max_eval, parameterObj.xtol_rel, parameterObj.ftol_rel))
+            
+    else:
+        #single_runs need to be specified before passing them to the pool
+        specified_run_list = _optimize_specify_run_list_(parameterObj, specified_objective_function_list, starting_points, parameter_combinations_lowest, parameter_combinations_highest)
+        with open(os.path.join(parameterObj._CWD, f'optimize_log_{label}_{param_combo_name}.tsv'), 'a') as log_file:
+            with concurrent.futures.ProcessPoolExecutor(max_workers=parameterObj.gridThreads) as outer_pool:
+                for idx, single_run in enumerate(tqdm(outer_pool.map(fp_map, specified_run_list), desc="progress", total=len(specified_run_list), disable=verbose)):
+                    _optimize_log(single_run, idx, log_file)
+                    allResults.append(single_run)
+
+    #process results found in allResults (final step including exit code), and trackHistoryPath (all steps) 
+    exitcodeDict = {
+                    1: 'optimum found', 
+                    2: 'stopvalue reached',
+                    3: 'tolerance on lnCL reached',
+                    4: 'tolerance on parameter vector reached',
+                    5: 'max number of evaluations reached',
+                    6: 'max computation time was reached'
+                }
+    result = _optimize_reshape_output(allResults, trackHistoryPath, boundaryNames, exitcodeDict, trackHistory, verbose)
+    return result
+
+def optimize_parameters_old(gfEvaluatorObj, data, parameterObj, trackHistory=True, verbose=False, label='', param_combo_name=''):
 
     fixedParams = parameterObj._get_fixed_params(as_dict=True) #adapt for new config parser
     boundaryNames = _optimize_get_boundary_names(parameterObj, fixedParams, data)
