@@ -273,6 +273,7 @@ def calculate_composite_likelihood(ETPs, data):
     np.log(ETPs, where=ETPs>0, out=ETP_log)
     return np.sum(ETP_log * data)
 
+# HOW DOES PATH work?
 def objective_function(paramsToOptimize, grad, paramNames, fixedParams, mu, block_length, reference_pop, gfEvaluatorObj, data, verbose=True, path=None):
     if grad.size:
         raise ValueError('no optimization with derivatives implemented')
@@ -290,6 +291,7 @@ def objective_function(paramsToOptimize, grad, paramNames, fixedParams, mu, bloc
     ETPs = gfEvaluatorObj.evaluate_gf(all_rates_scaled, all_rates_scaled[sage.all.SR.var('theta')])
     result = calculate_composite_likelihood(ETPs, data)
     
+    # can be array
     iteration_number = -1
     if isinstance(path, list):
         iteration_number = len(path)
@@ -308,13 +310,18 @@ def objective_function(paramsToOptimize, grad, paramNames, fixedParams, mu, bloc
             '{:.2f}'.format(float(result)), 
             str(time[:-5]) if len(time) > 9 else str(time))) # rounding is hard ...
     return result
-    
+
 def optimize_parameters(gfEvaluatorObj, data, config, verbose=True):
     trackHistoryPath = [[] for _ in range(parameterObj.numPoints)]
     #specify the objective function to be optimized
     reference_pop = config['populations']['reference_pop_id']
     mu = parameterObj.config['mu']['mu']
     block_length = parameterObj.config['mu']['blocklength']
+
+    # param_combo_name: 
+    
+    # objective function gets defined based on dimensionality of data
+    # call partial from here.
     specified_objective_function_list = [partial(
                     objective_function,
                     paramNames=boundary_names,
@@ -327,18 +334,18 @@ def optimize_parameters(gfEvaluatorObj, data, config, verbose=True):
                     verbose=verbose,
                     path=sublist) for sublist in trackHistoryPath]
 
-    specified_objective_function_list = _optimize_specify_objective_function(
-        gfEvaluatorObj, 
-        parameterObj.data_type, 
-        trackHistoryPath, 
-        data, 
-        boundaryNames,
-        fixedParams, 
-        mu, 
-        block_length, 
-        reference_pop, 
-        verbose
-        )
+    # specified_objective_function_list = _optimize_specify_objective_function(
+    #     gfEvaluatorObj, 
+    #     parameterObj.data_type, 
+    #     trackHistoryPath, 
+    #     data, 
+    #     boundaryNames,
+    #     fixedParams, 
+    #     mu, 
+    #     block_length, 
+    #     reference_pop, 
+    #     verbose
+    #     )
     
     #print to screen
     startdesc = "[+] Optimization starting for specified point."

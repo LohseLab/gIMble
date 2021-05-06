@@ -416,7 +416,7 @@ def get_config_model_events(config):
         if event.startswith('M'):
             config['events']['migration'] = [tuple(pop_ids.index(pop_id) for pop_id in event.replace('M_', '').split('_'))]
         if event.startswith('J'):
-            config['events']['exodus'] = [tuple(pop_ids.index(pop_id) for pop_id in event.replace('J_', '').split('_'))]
+            config['events']['exodus'] = [(1,2,0)]
         if event.startswith('C'):
             pop_size = event.replace('C_', 'Ne_')
             if event.replace('C_', '') in sync_pops:
@@ -2301,7 +2301,6 @@ class Store(object):
                     population_by_letter=config['populations']['population_by_letter'], 
                     sample_sets="X"), 
                 form='bsfs', max_k=config['max_k'])
-        print('data', data)
         config['start_points'] = start_points if data_type == 'blocks' else 1
         config['track_history'] = False if data_type == 'simulations' else track_history
         # bounds 
@@ -2323,7 +2322,7 @@ class Store(object):
         print('[+] Generating equations.')
         gf = lib.math.config_to_gf(config)
         gfEvaluatorObj = togimble.gfEvaluator(gf, config['max_k'], MUTYPES, config['gimble']['precision'], exclude=[(2,3),])
-        print('config', config)
+        # watch out for "param_combo, replicates in data"
         if data_type=='simulate':
             #data is an iterator over parameter_combination_name, parameter_combination_array
             #each param_comb_array contains n replicates
