@@ -33,9 +33,8 @@ import lib.gimble
 
 '''
 [To Do]
-- change --simID to --data_id
-    - blocks, windows, windowsblocks ?
-- document how tols are used
+- --start_points has to be removed
+- 
 
 - needs figuring out NLOPT
  - 1%, 0.1%, 0.01%, etc
@@ -48,14 +47,14 @@ class OptimizeParameterObj(lib.gimble.ParameterObj):
         self.zstore = self._get_path(args['--zarr_file'])
         self.data_type = self._get_datatype(args)
         self.config_file = self._get_path(args['--config_file'])
-        self.config = lib.gimble.load_config(self.config_file, self._MODULE)
         self.num_cores = self._get_int(args['--num_cores'])    # number of workers for independent processes
         self.start_points = self._get_int(args['--start_points'])
         self.max_iterations = self._get_int(args['--max_iterations'])
         self.xtol_rel = self._get_float(args['--xtol_rel'])
         self.ftol_rel = self._get_float(args['--ftol_rel'])
         self.track_history = args['--track']
-        self.simulations_label = None
+        self.simulations_label = None # filled in by OptimizeParameterObj._get_datatype()
+        self.config = lib.gimble.load_config(self.config_file, self._MODULE, self._CWD, self._VERSION)
 
     def _get_datatype(self, args):
         choices = [args['--blocks'], args['--windows'], args['--simulations']]
@@ -73,9 +72,7 @@ def main(params):
     try:
         start_time = timer()
         args = docopt(__doc__)
-        print(args)
         parameterObj = OptimizeParameterObj(params, args)
-        print('parameterObj.config', parameterObj.config)
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
         #gimbleStore.optimize_before(parameterObj)
         gimbleStore.optimize(

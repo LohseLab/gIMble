@@ -12,7 +12,7 @@ import pandas as pd
 import random
 import sys, os
 import sage.all
-
+import logging
 from functools import partial
 from functools import partialmethod
 from timeit import default_timer as timer
@@ -88,6 +88,16 @@ get_base_rate:
     - internal m_e = has to be used for grid 
 
 '''
+
+NLOPT_EXIT_CODES = {
+    1: 'optimum found', 
+    2: 'stopvalue reached',
+    3: 'tolerance on lnCL reached',
+    4: 'tolerance on parameter vector reached',
+    5: 'max number of evaluations reached',
+    6: 'max computation time was reached'
+    }
+
 @contextlib.contextmanager
 def poolcontext(*args, **kwargs):
     pool = multiprocessing.Pool(*args, **kwargs)
@@ -171,14 +181,14 @@ def param_generator(pcentre, pmin, pmax, psamples, distr):
         raise ValueError('"distr" must be "linear"')
 
 def config_to_gf(config):
-    sample_list = [(),('a','a'),('b','b')] #currently hard-coded
+    sample_list = [('a','a'),('b','b'),()] #currently hard-coded
     # config['events']['coalescence'] has same order as config['populations']['pop_ids']
     # e.g. ['C_A', 'C_s', 'C_s'] if pop_ids = ['A', 'B', 'A_B'] and sync_pop_sizes = ['A_B', 'B']
     coalescence_rates = [sage.all.var(rate) for rate in config['events']['coalescence']]
-    migration_rate = sage.all.var('M') if config['events']['migration'] else None
-    migration_direction = config['events']['migration'] if config['events']['migration'] else None
-    exodus_rate = sage.all.var('J') if config['events']['exodus'] else None
-    exodus_direction = config['events']['exodus'] if config['events']['exodus'] else None
+    migration_direction = config['events'].get('migration', None)
+    migration_rate = sage.all.var('M') if migration_direction else None
+    exodus_direction = config['events'].get('exodus', None)
+    exodus_rate = sage.all.var('J') if exodus_direction else None
     mutype_labels = list(config['k_max'].keys())
     gf = togimble.get_gf(sample_list, coalescence_rates, mutype_labels, migration_direction, migration_rate, exodus_direction, exodus_rate)
     return gf
@@ -247,8 +257,6 @@ def calculate_inverse_laplace(params):
 
 
 def run_single_optimize(p0, lower, upper, specified_objective_function, maxeval, xtol_rel, ftol_rel):
-    # [Gertjan] nlopt.LN_NELDERMEAD is faster and gives same result 
-    # no need for nlopt.LN_SBPLX
     opt = nlopt.opt(nlopt.LN_NELDERMEAD, len(p0))
     opt.set_lower_bounds(lower)
     opt.set_upper_bounds(upper)
@@ -265,7 +273,6 @@ def run_single_optimize(p0, lower, upper, specified_objective_function, maxeval,
     rdict['lnCL'] = opt.last_optimum_value()
     rdict['optimum'] = optimum
     rdict['exitcode'] = opt.last_optimize_result()
-    
     return rdict
 
 def calculate_composite_likelihood(ETPs, data):
@@ -278,7 +285,9 @@ def objective_function(paramsToOptimize, grad, paramNames, fixedParams, mu, bloc
     if grad.size:
         raise ValueError('no optimization with derivatives implemented')
     start_time = timer()
-    #scale parameters from generation scale to coalescence time scale
+    
+    # needs:
+    #
     params_to_optimize_unscaled = {k:v for k,v in zip(paramNames, paramsToOptimize)}
     all_rates_unscaled = {**params_to_optimize_unscaled, **fixedParams}
     all_rates_scaled = scale_single_gens_to_gimble_symbolic(
@@ -311,81 +320,109 @@ def objective_function(paramsToOptimize, grad, paramNames, fixedParams, mu, bloc
             str(time[:-5]) if len(time) > 9 else str(time))) # rounding is hard ...
     return result
 
-def optimize_parameters(gfEvaluatorObj, data, config, verbose=True):
-    trackHistoryPath = [[] for _ in range(parameterObj.numPoints)]
-    #specify the objective function to be optimized
-    reference_pop = config['populations']['reference_pop_id']
-    mu = parameterObj.config['mu']['mu']
-    block_length = parameterObj.config['mu']['blocklength']
+def get_scaled_values_by_symbol(values_bounded_unscaled_by_parameter, config):
+    # DRL 
+    reference_pop_id = config['populations']['reference_pop_id']
+    block_length = config['block_length']
+    mu = config['mu']['mu']
+    values_fixed_unscaled_by_parameter = {
+        k: config['parameters_np'][k][0] for k in config['parameters_fixed']}
+    values_unscaled_by_parameter = {
+        **values_bounded_unscaled_by_parameter, 
+        **values_fixed_unscaled_by_parameter}
+    ref_Ne = values_unscaled_by_parameter.get('Ne_%s' % reference_pop_id, None)
+    if not ref_Ne:
+        raise ValueError('ref_Ne not found in %s' % str(values_unscaled_by_parameter))
+    values_scaled_by_symbol = {}
+    scaling_factor = 2
+    values_scaled_by_symbol[sage.all.SR.var('theta')] = scaling_factor * sage.all.Rational(ref_Ne * mu * block_length)
+    for parameter, value in values_unscaled_by_parameter.items():
+        if parameter.startswith('Ne'):
+            symbol = sage.all.SR.var('C_%s' % parameter.lstrip('Ne_'))
+            value_scaled = sage.all.Rational(ref_Ne / value)
+        elif parameter == 'T':
+            symbol = sage.all.SR.var('T')
+            value_scaled = sage.all.Rational(value / (scaling_factor * ref_Ne))
+        elif parameter.startswith('m'):
+            symbol = sage.all.SR.var('M')
+            value_scaled = sage.all.Rational(scaling_factor*ref_Ne*value)
+        else:
+            raise ValueError('Unknown parameter %r with value %r' % (parameter, value))
+        values_scaled_by_symbol[symbol] = value_scaled
+    return values_scaled_by_symbol
 
-    # param_combo_name: 
-    
-    # objective function gets defined based on dimensionality of data
-    # call partial from here.
-    specified_objective_function_list = [partial(
-                    objective_function,
-                    paramNames=boundary_names,
-                    fixedParams=fixedParams,
-                    mu=mu,
-                    block_length = block_length,
-                    reference_pop=reference_pop,
+def optimize_function(values_bounded_unscaled, grad, config, gfEvaluatorObj, data, verbose, track_likelihoods, track_values_unscaled):
+    # DRL
+    start_time = timer()
+    values_bounded_unscaled_by_parameter = {
+        k: v for k, v in zip(config['parameters_bounded'], values_bounded_unscaled)}
+    values_scaled_by_symbol = get_scaled_values_by_symbol(values_bounded_unscaled_by_parameter, config)
+    ETPs = gfEvaluatorObj.evaluate_gf(values_scaled_by_symbol, values_scaled_by_symbol[sage.all.SR.var('theta')])
+    likelihood = calculate_composite_likelihood(ETPs, data)
+    track_likelihoods.append(likelihood)
+    track_values_unscaled.append(values_bounded_unscaled)
+    if verbose:
+        iteration = len(track_likelihoods)
+        elapsed = lib.gimble.format_time(timer() - start_time)
+        print("[+] i=%s -- {%s} -- L=%s -- %s" % (
+            str(iteration).ljust(4), 
+            " ".join(["%s=%s" % (k, '{:.2e}'.format(float(v))) for k, v in values_bounded_unscaled_by_parameter.items()]), 
+            '{:.2f}'.format(float(likelihood)), 
+            elapsed))
+    return likelihood
+
+def optimize_parameters(gfEvaluatorObj, data, config, verbose=True):
+    # DRL
+    #log_file = os.path.join(config['CWD'], "gimble.%s.%s.%s.log" % (
+    #    config['gimble']['task'], 
+    #    config['gimble']['model'], 
+    #    config['gimble']['label']))
+    #logging.basicConfig(
+    #    level=logging.DEBUG, 
+    #    format='%(asctime)s %(levelname)s %(message)s',
+    #    filename=log_file, 
+    #    filemode='w')
+    track_likelihoods = []
+    track_values_unscaled = []
+    optimize_function_list = [partial(
+                    optimize_function,
+                    config=config,
                     gfEvaluatorObj=gfEvaluatorObj,
                     data=data,
                     verbose=verbose,
-                    path=sublist) for sublist in trackHistoryPath]
-
-    # specified_objective_function_list = _optimize_specify_objective_function(
-    #     gfEvaluatorObj, 
-    #     parameterObj.data_type, 
-    #     trackHistoryPath, 
-    #     data, 
-    #     boundaryNames,
-    #     fixedParams, 
-    #     mu, 
-    #     block_length, 
-    #     reference_pop, 
-    #     verbose
-    #     )
-    
-    #print to screen
-    startdesc = "[+] Optimization starting for specified point."
-    if parameterObj.numPoints>1:
-        startdesc = f"[+] Optimization starting for specified point and {parameterObj.numPoints-1} random points."
-    if verbose:
-        print(startdesc)
-    #make log file for simulation replicates:
-    _init_optimize_log(boundaryNames, f'optimize_log_{label}_{param_combo_name}.tsv', parameterObj._CWD, meta=parameterObj._get_cmd())
-    
-    #parallelize over starting points or data points
-    allResults=[] 
-    if parameterObj.gridThreads <= 1:
-        with open(os.path.join(parameterObj._CWD, f'optimize_log_{label}_{param_combo_name}.tsv'), 'a') as log_file:
-            for idx, (startPos, specified_objective_function) in enumerate(tqdm(zip(itertools.cycle(starting_points), specified_objective_function_list), desc="progress", total=len(specified_objective_function_list),disable=verbose)):
-                single_run_result = run_single_optimize(startPos, parameter_combinations_lowest, parameter_combinations_highest, specified_objective_function, parameterObj.max_eval, parameterObj.xtol_rel, parameterObj.ftol_rel) 
-                allResults.append(single_run_result)
-                _optimize_log(single_run_result, idx, log_file)
-                #allResults.append(run_single_optimize(startPos, parameter_combinations_lowest, parameter_combinations_highest, specified_objective_function, parameterObj.max_eval, parameterObj.xtol_rel, parameterObj.ftol_rel))
-            
+                    track_likelihoods=track_likelihoods,
+                    track_values_unscaled=track_values_unscaled)]
+    nlopt_results = [] 
+    if config['num_cores'] <= 1:
+        for specified_objective_function in tqdm(optimize_function_list, desc="progress", total=len(optimize_function_list), disable=verbose):
+            single_run_result = run_single_optimize(
+                p0=config['starting_points'][0], # has to be changed if always only one startpoint 
+                lower=config['parameter_combinations_lowest'], 
+                upper=config['parameter_combinations_highest'], 
+                specified_objective_function=specified_objective_function, 
+                maxeval=config['max_iterations'], 
+                xtol_rel=config['xtol_rel'], 
+                ftol_rel=config['ftol_rel']) 
+            nlopt_results.append(single_run_result)
     else:
-        #single_runs need to be specified before passing them to the pool
-        specified_run_list = _optimize_specify_run_list_(parameterObj, specified_objective_function_list, starting_points, parameter_combinations_lowest, parameter_combinations_highest)
-        with open(os.path.join(parameterObj._CWD, f'optimize_log_{label}_{param_combo_name}.tsv'), 'a') as log_file:
-            with concurrent.futures.ProcessPoolExecutor(max_workers=parameterObj.gridThreads) as outer_pool:
-                for idx, single_run in enumerate(tqdm(outer_pool.map(fp_map, specified_run_list), desc="progress", total=len(specified_run_list), disable=verbose)):
-                    _optimize_log(single_run, idx, log_file)
-                    allResults.append(single_run)
-
-    #process results found in allResults (final step including exit code), and trackHistoryPath (all steps) 
-    exitcodeDict = {
-                    1: 'optimum found', 
-                    2: 'stopvalue reached',
-                    3: 'tolerance on lnCL reached',
-                    4: 'tolerance on parameter vector reached',
-                    5: 'max number of evaluations reached',
-                    6: 'max computation time was reached'
-                }
-    result = _optimize_reshape_output(allResults, trackHistoryPath, boundaryNames, exitcodeDict, trackHistory, verbose)
-    return result
+        # data has to be tested if it's an iterator
+        run_list=[partial(
+                run_single_optimize,
+                p0=config['starting_points'][0],
+                lower=config['parameter_combinations_lowest'],
+                upper=config['parameter_combinations_highest'],
+                specified_objective_function=specified_objective_function,
+                maxeval=config['max_iterations'],
+                xtol_rel=config['xtol_rel'],
+                ftol_rel=config['ftol_rel']
+                ) for specified_objective_function in optimize_function_list]
+        with concurrent.futures.ProcessPoolExecutor(max_workers=config['num_cores']) as outer_pool:
+            for idx, single_run in enumerate(tqdm(outer_pool.map(fp_map, run_list), desc="progress", total=len(run_list), disable=verbose)):
+                nlopt_results.append(single_run)
+    print(nlopt_results)
+    print(track_likelihoods)
+    print(track_values_unscaled)
+    return nlopt_results
 
 def optimize_parameters_old(gfEvaluatorObj, data, parameterObj, trackHistory=True, verbose=False, label='', param_combo_name=''):
 

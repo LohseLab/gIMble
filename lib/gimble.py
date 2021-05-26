@@ -8,7 +8,7 @@ import shutil
 import zarr
 import os
 import string
-import logging
+import loguru
 import collections
 import sys
 import warnings
@@ -223,7 +223,7 @@ def make_ini_configparser(version, task, model, label):
     config = configparser.ConfigParser(allow_no_value=True)
     config.optionxform = str # otherwise keys are lowercase
     # get variables/strings
-    random_seed, precision = '19', '25'
+    random_seed, precision = '19', '165'
     pop_ids, pop_ids_sync, events = get_ini_model_params(model)
     string_pop_ids = " | ".join(pop_ids)
     string_pop_ids_sync = " | ".join(pop_ids_sync)
@@ -261,6 +261,9 @@ def make_ini_configparser(version, task, model, label):
     # is this all simulate needs?
     if task == 'simulate':
         config.add_section('simulate')
+        config.set('simulate', 'pop_ids', string_pop_ids)
+        config.set('simulate', '# Pick a reference population: %s' % string_pop_ids)
+        config.set('simulate', 'reference_pop_id', "")
         config.set('simulate', '# Ploidy of organism')
         config.set('simulate', 'ploidy', '2')
         config.set('simulate', '# Blocks')
@@ -272,15 +275,14 @@ def make_ini_configparser(version, task, model, label):
         config.set('simulate', '# Number of samples per population')
         config.set('simulate', 'sample_size_A', '1')
         config.set('simulate', 'sample_size_B', '1')
-        config.add_section('recombination')
-        config.set('recombination', '# Set recombination rate (optional)')
-        config.set('recombination', 'recombination_rate', "")
-        config.set('recombination', '# Set path to recombination map (optional)')
-        config.set('recombination', 'recombination_map', "")
-        config.set('recombination', '# Number of bins, cutoff, scale (required ONLY IF recombination map set)')
-        config.set('recombination', 'number_bins', "")
-        config.set('recombination', 'cutoff', "")
-        config.set('recombination', 'scale', "")
+        config.set('simulate', '# Set recombination rate (optional)')
+        config.set('simulate', 'recombination_rate', "")
+        config.set('simulate', '# Set path to recombination map (optional)')
+        config.set('simulate', 'recombination_map', "")
+        config.set('simulate', '# Number of bins, cutoff, scale (required ONLY IF recombination map set)')
+        config.set('simulate', 'number_bins', "")
+        config.set('simulate', 'cutoff', "")
+        config.set('simulate', 'scale', "")
     # mu
     config.add_section('mu') 
     config.set('mu', '# mutation rate (in mutations/site/generation, required)')
@@ -350,6 +352,12 @@ def _return_np_type(entries ,counts=True):
             return np.int8
 
 def get_config_pops(config):
+    if config['gimble']['task'] == 'simulate':
+        # needs things relevant for sims
+        config['populations'] = {}
+        pop_ids, _, _ = get_ini_model_params(config['gimble']['model'])
+        config['populations']['pop_ids'] = pop_ids
+        return config
     # check for consistent values in sync_pops
     Ne_sync_pops = ["Ne_%s" % _ for _ in config['populations']['sync_pop_ids']]
     for Ne_sync_pop in Ne_sync_pops[1:]:
@@ -395,9 +403,18 @@ def get_config_model_parameters(config, module):
             if value_scale.startswith('lin'):
                 config['parameters_np'][parameter] = np.linspace(
                     value_min, value_max, num=value_num, endpoint=True, dtype=np.float64)
+                if not value_min == 0 and parameter == 'me':
+                    np.insert(config['parameters_np'][parameter], 0, 0)
             elif value_scale.startswith('log'):
-                config['parameters_np'][parameter] = np.logspace(
+                if value_min == 0:
+                    error_msg = ["[X] Min value for log-ranged parameter %r in config file can't be 0." % parameter]
+                    if parameter == 'me':
+                        error_msg.append("[X] Pick the smallest Non-zero number to include (Zero will be added automatically)")
+                    sys.exit("\n".join(error_msg))
+                config['parameters_np'][parameter] = np.geomspace(
                     value_min, value_max, num=value_num, endpoint=True, dtype=np.float64)
+                if parameter == 'me':
+                    config['parameters_np'][parameter] = np.insert(config['parameters_np'][parameter], 0, 0)
             else:
                 sys.exit("[X] Config: Scale should either be lin or log. Not %r." % value_scale)
         else:
@@ -407,7 +424,7 @@ def get_config_model_parameters(config, module):
 def get_config_model_events(config):
     pop_ids = config['populations']['pop_ids']
     model = config['gimble']['model']
-    sync_pops = config['populations']['sync_pop_ids']
+    sync_pops = config['populations'].get('sync_pop_ids', [])
     events = get_ini_model_events(model, pop_ids)
     config['events'] = {}
     config['events']['coalescence'] = []
@@ -416,7 +433,7 @@ def get_config_model_events(config):
         if event.startswith('M'):
             config['events']['migration'] = [tuple(pop_ids.index(pop_id) for pop_id in event.replace('M_', '').split('_'))]
         if event.startswith('J'):
-            config['events']['exodus'] = [(1,2,0)]
+            config['events']['exodus'] = [(0,1,2)] # populations are moving to the last element
         if event.startswith('C'):
             pop_size = event.replace('C_', 'Ne_')
             if event.replace('C_', '') in sync_pops:
@@ -442,25 +459,112 @@ def parameters_to_grid(config):
     config['parameters_grid'] = {k: np.array(v, dtype=np.float64) for k, v in zip(config['parameters_np'].keys(), rearranged_product)}
     return config
 
-def load_config(config_file, module):
+
+###################################################### FROM SIMULATE CLI
+
+def _set_recombination_rate(self):      
+    self.recombination_map = None
+    rmap_path = self.config["simulations"]["recombination_map"]
+    rec = self.config["simulations"]["recombination_rate"]
+    rec=0.0 if rec=='' else rec
+    if os.path.isfile(rmap_path):
+        if not self.sim_grid:
+            print("[-] A recombination map can only be used with the flag --sim_grid.")
+            print(f"[-] Simulate will continue using r={rec}") 
+            self.config["parameters"]["recombination"] = [rec,]
+            return [rec,]    
+        else:
+            rbins = self.config["simulations"]["number_bins"]
+            cutoff = self.config["simulations"]["cutoff"]
+            scale = self.config["simulations"]["scale"]
+            rbins = 10 if rbins=='' else rbins
+            scale = 'lin' if scale=='' else scale
+            cutoff = 90 if cutoff=='' else cutoff
+            self.recombination_map = self._parse_recombination_map(rmap_path, cutoff, rbins, scale)
+    else:
+        self.config["parameters"]["recombination"] = [rec,]
+        return [rec,]
+
+def _parse_recombination_map(self, path, cutoff, bins, scale):
+    #load bedfile
+    hapmap = pd.read_csv(path, sep='\t', 
+        names=['sequence', 'start', 'end', 'rec'], header=0)
+    #from cM/Mb to rec/bp
+    hapmap['rec_scaled'] = hapmap['rec']*1e-8
+    return self._make_bins(hapmap, scale, cutoff, bins)
+
+def _make_bins(self, df, scale, cutoff=90, bins=10):
+    clip_value = np.percentile(df['rec_scaled'], cutoff)
+    df['rec_clipped'] = df['rec_scaled'].clip(lower=None, upper=clip_value)
+    df['rec_clipped'].replace(0,np.nan,inplace=True)
+    start, stop =  df['rec_clipped'].min(), df['rec_clipped'].max()
+    #determine bins
+    if scale.lower() == "log":
+        start, stop = np.log10(start), np.log10(stop)
+        bin_edges = np.logspace(start, stop, num=bins+1)
+    elif scale.lower() == "lin": 
+        bin_edges = np.linspace(start, stop, num=bins+1)
+    else:
+        sys.exit("[X] Scale of recombination values to be simulated should either be LINEAR or LOG")
+    to_be_simulated  = [(bstop + bstart)/2 for bstart, bstop in zip(bin_edges[:-1],bin_edges[1:])]     
+    df['rec_bins'] = pd.cut(df['rec_clipped'], bins, labels=to_be_simulated).astype(float)
+    df['rec_bins'].replace(np.nan, 0.0, inplace=True)
+    return df[['sequence', 'start', 'end', 'rec_bins']]
+
+def _validate_recombination_map(self, store, df):
+    # check for consistency between window_coordinates and rec_map coordinates
+    df_store = store._get_window_coordinates()
+    df_to_test = df[['sequence', 'start', 'end']]
+    df_merge = df_to_test.merge(df_store, how='outer', on=['sequence', 'start', 'end'])
+    if df_store.shape != df_merge.shape:
+        sys.exit("[X] Recombination map coordinates do not match window coordinates. Use query to get window coordinates.")
+    return df_store.merge(df, on=['sequence', 'start', 'end'])
+
+######################################################
+
+def get_config_simulate(config):
+    # are chunks chromosomes?
+    if config['simulate']['chunks'] > 1:
+        if config['simulate']['chunks'] == 1:
+            sys.exit("[X] Can't split 1 block into %s chunks." % config['simulate']['chunks'])
+    # i don't get why this is needed
+    # config['simulate']['blocks'] //= config['simulate']['chunks']
+    # config['simulate']['replicates'] *= config['simulate']['chunks']
+    # interpopulation sample pairs
+    config['simulate']['comparisons'] = list(
+        itertools.product(
+            range(config['simulate']['sample_size_A']), 
+            range(config['simulate']['sample_size_A'], 
+                config['simulate']['sample_size_A'] + 
+                config['simulate']['sample_size_B'])))
+    return config
+
+def load_config(config_file, MODULE, CWD, VERSION):
     # does anything custom have to be done for 'simulations'?
     parser = configparser.ConfigParser(inline_comment_prefixes='#', allow_no_value=True)
     parser.optionxform = str # otherwise keys are lowercase
     parser.read(config_file)
     parsee = {s: dict(parser.items(s)) for s in parser.sections()}
-    schema = get_config_schema(module)
-    validator = ConfigCustomNormalizer(schema, module=module, purge_unknown=True)
+    schema = get_config_schema(MODULE)
+    validator = ConfigCustomNormalizer(schema, module=MODULE, purge_unknown=True)
     validator.validate(parsee)
     if not validator.validate(parsee):
+        #print(validator.errors)
         validator_error_string = get_validator_error_string(validator.errors)
         sys.exit("[X] Problems were encountered when parsing INI config file:\n%s" % validator_error_string)
     config = validator.normalized(parsee)
     config = get_config_pops(config)
     config = get_config_kmax(config)
     config = get_config_model_events(config)
-    config = get_config_model_parameters(config, module)
-    if module == 'makegrid':
+    config = get_config_model_parameters(config, MODULE)
+    if MODULE == 'simulate':
+        config = get_config_simulate(config)
+    if MODULE == 'makegrid':
         config = parameters_to_grid(config)
+    config['CWD'] = CWD
+    print('config', config)
+    if not VERSION == config['gimble']['version']:
+        print("[-] Version conflict:\n\tgimble %s\n\t config INI %s" % (VERSION, config['gimble']['version']))
     return config
 
 class ConfigCustomNormalizer(cerberus.Validator):
@@ -478,6 +582,12 @@ class ConfigCustomNormalizer(cerberus.Validator):
         self._error('reference_pop_id', 
             "invalid reference_pop_id: %r. Must be one of the following: %s" % (value, ", ".join(self.document['pop_ids'])))
         return None
+
+    def _normalize_coerce_int(self, value):
+        try:
+            return int(float(value))
+        except ValueError:
+            return None
 
     def _normalize_coerce_sync_pop_ids(self, value):
         if value: 
@@ -525,8 +635,8 @@ class ConfigCustomNormalizer(cerberus.Validator):
         return value
 
     def _normalize_coerce_path(self, value):
-        if value is None:
-            return None
+        if not value:
+            return ''
         _path = pathlib.Path(value).resolve()
         return str(_path)
         if not _path.exists():
@@ -568,8 +678,8 @@ class ConfigCustomNormalizer(cerberus.Validator):
 def get_config_schema(module):
     # [To Do] 
     # move to parameterObj file
-    schema = {
-        'gimble': {
+    schema = {}
+    schema['gimble'] = {
             'type': 'dict',
             'schema': {
                 'version': {'required': True, 'empty':False, 'type': 'string'},
@@ -577,8 +687,9 @@ def get_config_schema(module):
                 'task': {'required': True, 'empty':False, 'type': 'string'},
                 'label': {'required': True, 'empty':False, 'type': 'string'},
                 'precision': {'required': True, 'empty':False, 'type': 'integer', 'coerce': int},
-                'random_seed': {'required': True, 'empty':False, 'type': 'integer', 'coerce': int}}},
-        'populations': {
+                'random_seed': {'required': True, 'empty':False, 'type': 'integer', 'coerce': int}}}
+    if not module == 'simulate':
+        schema['populations'] = {
             'type': 'dict', 
             'schema': {
                 'pop_ids': {'required': True, 'empty':False, 'type': 'list', 'coerce': 'pop_ids'},
@@ -586,38 +697,33 @@ def get_config_schema(module):
                 'B': {'required':True, 'empty':True, 'type':'string'},
                 'reference_pop_id': {'required':True, 'empty':False, 'type': 'string', 'coerce': 'reference_pop_id'},
                 'sync_pop_ids': {'required':False, 'empty': True, 'type': 'list', 'coerce': 'sync_pop_ids'},
-                }},
-        'k_max': {
+                }}
+    schema['k_max'] = {
             'type': 'dict', 
-            'valuesrules': {'required': True, 'empty':False, 'type': 'integer', 'min': 1, 'coerce':int}},
-        'mu': {
+            'valuesrules': {'required': True, 'empty':False, 'type': 'integer', 'min': 1, 'coerce':int}}
+    schema['mu'] = {
             'type':'dict', 
             'schema':{
                 'mu': {'required': True, 'empty':False, 'type': 'float', 'coerce':float},
-                }},
-        'parameters': {
+                }}
+    schema['parameters'] = {
             'type': 'dict', 'required':True, 'empty':False, 
-            'valuesrules': {'coerce':'float_or_list', 'notNone':True}
-        },
-        'simulations':{
-            'required':False, 'empty':True}
-        }
+            'valuesrules': {'coerce':'float_or_list', 'notNone':True}}
     if module == 'simulate':
-        schema['simulations'] = {
+        schema['simulate'] = {
             'type': 'dict',
-            'required':True,
             'schema': {
-                'ploidy': {'required':True,'empty':False, 'required':True, 'type':'integer', 'min':1, 'coerce':int},
-                'blocks': {'required':True, 'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
-                'blocklength': {'required': False, 'empty':True, 'min':1, 'type': 'integer', 'coerce':int},
-                'chunks': {'required':True, 'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
-                'replicates': {'required':True,'empty': False, 'type': 'integer', 'min':1, 'coerce':int},
-                'sample_size_A': {'required':True,'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
-                'sample_size_B': {'required':True,'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
-                'recombination_rate': {'empty': True, 'notNoneFloat':True, 'coerce':'float_or_empty', 'min':0.0},
+                'ploidy': {'required':True,'empty': False, 'min': 1, 'coerce': int},
+                'blocks': {'required':True, 'empty': False, 'type': 'integer', 'min': 1, 'coerce': 'int'},
+                'block_length': {'required': False, 'empty':True, 'min': 1, 'type': 'integer', 'coerce':int},
+                'chunks': {'required':True, 'empty':False, 'type': 'integer', 'min': 1, 'coerce':int},
+                'replicates': {'required':True,'empty': False, 'type': 'integer', 'min': 1, 'coerce':int},
+                'sample_size_A': {'required':True,'empty':False, 'type': 'integer', 'min': 1, 'coerce':int},
+                'sample_size_B': {'required':True,'empty':False, 'type': 'integer', 'min': 1, 'coerce':int},
+                'recombination_rate': {'empty': True, 'notNoneFloat':True, 'coerce':'float_or_empty', 'min': 0.0},
                 'recombination_map': {'empty': True, 'type': 'string', 'coerce': 'path', 'dependencies':['number_bins', 'cutoff', 'scale']},
-                'number_bins': {'empty': True, 'notNoneInt': True, 'coerce':'int_or_empty', 'min':1},
-                'cutoff': {'empty': True, 'notNoneFloat': True, 'coerce':'float_or_empty', 'min':0},
+                'number_bins': {'empty': True, 'notNoneInt': True, 'coerce':'int_or_empty', 'min': 1},
+                'cutoff': {'empty': True, 'notNoneFloat': True, 'coerce':'float_or_empty', 'min': 0},
                 'scale': {'empty':True, 'type':'string', 'allowed':['lin', 'log']}
         }}
     return schema
@@ -626,67 +732,6 @@ def _dict_product(parameter_dict):
     cartesian_product = itertools.product(*parameter_dict.values())
     rearranged_product = list(zip(*cartesian_product))
     return {k: np.array(v, dtype=np.float64) for k, v in zip(parameter_dict.keys(), rearranged_product)}
-
-#def get_config_schema_old(module):
-#    # [To Do] 
-#    # move to parameterObj file
-#    schema = {
-#        'gimble': {
-#            'type': 'dict',
-#            'schema': {
-#                'version': {'required': True, 'empty':False, 'type': 'string'},
-#                'model': {'required': True, 'empty':False, 'type': 'string'},
-#                'precision': {'required': True, 'empty':False, 'type': 'integer', 'coerce': int},
-#                'random_seed': {'required': True, 'empty':False, 'type': 'integer', 'coerce': int}}},
-#        'populations': {
-#            'required': True, 'type': 'dict', 
-#            'schema': {
-#                'A': {'required':True, 'empty':True, 'type':'string'},
-#                'B': {'required':True, 'empty':True, 'type':'string'},
-#                'pop_ids': {'required': True, 'empty':False, 'type': 'string'},
-#                'reference_pop': {'required':True, 'empty':False, 'isPop':True},
-#                'sync_pop_sizes': {'required':False, 'empty':True, 'isPopSync':True},
-#                }},
-#        'k_max': {
-#            'type': 'dict', 
-#            'valuesrules': {'required': True, 'empty':False, 'type': 'integer', 'min': 1, 'coerce':int}},
-#        'mu': {
-#            'type':'dict', 
-#            'schema':{
-#                'mu': {'required': False, 'empty':True, 'type': 'float', 'coerce':float},
-#                'blocklength': {'required': False, 'empty':True,'notNoneInt':True, 'coerce':'int_or_empty'}
-#                }},
-#        'parameters': {
-#            'type': 'dict', 'required':True, 'empty':False, 
-#            'valuesrules': {'coerce':'float_or_list', 'notNone':True}
-#        },
-#        'simulations':{
-#            'required':False, 'empty':True}
-#        }
-#    if module == 'simulate':
-#        schema['simulations'] = {
-#            'type': 'dict',
-#            'required':True,
-#            'schema': {
-#                'ploidy': {'required':True,'empty':False, 'required':True, 'type':'integer', 'min':1, 'coerce':int},
-#                'blocks': {'required':True, 'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
-#                'chunks': {'required':True, 'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
-#                'replicates': {'required':True,'empty': False, 'type': 'integer', 'min':1, 'coerce':int},
-#                'sample_size_A': {'required':True,'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
-#                'sample_size_B': {'required':True,'empty':False, 'type': 'integer', 'min':1, 'coerce':int},
-#                'recombination_rate': {'empty': True, 'notNoneFloat':True, 'coerce':'float_or_empty', 'min':0.0},
-#                'recombination_map': {'empty': True, 'type': 'string', 'isPath':True, 'dependencies':['number_bins', 'cutoff', 'scale']},
-#                'number_bins': {'empty': True, 'notNoneInt': True, 'coerce':'int_or_empty', 'min':1},
-#                'cutoff': {'empty': True, 'notNoneFloat': True, 'coerce':'float_or_empty', 'min':0},
-#                'scale': {'empty':True, 'type':'string', 'allowed':['lin', 'log']}
-#        }}
-#        schema['mu'] = {
-#            'type':'dict', 
-#            'schema':{
-#                'mu': {'required': True, 'empty':False, 'type': 'float', 'coerce':float},
-#                'blocklength': {'required': False, 'empty':True, 'min':1, 'type': 'integer', 'coerce':int}
-#                }}
-#    return schema
 
 def recursive_get_size(path):
     """Gets size in bytes of the given path, recursing into directories."""
@@ -1244,7 +1289,7 @@ class CustomNormalizer(cerberus.Validator):
                     return None
             elif len(values) == 4:
                 valid_scales = set(['lin', 'log'])
-                if not values[-1].strip(' ') in valid_scales:
+                if not values[-1].strip(' ').lower() in valid_scales:
                     return None
                 try:
                     return [float(v) for v in values[:-2]] + [int(values[-2]), values[-1].strip(' ')]
@@ -1290,7 +1335,7 @@ class CustomNormalizer(cerberus.Validator):
         {'type':'boolean'}
         """
         if not value and notNone:
-            self._error(field, "Must be FLOAT, or (MIN, MAX), or (MIN, MAX, STEPS, LIN|LOG).")
+            self._error(field, "Must be FLOAT, or (MIN, MAX), or (MIN, MAX, STEPS, lin|log).")
 
     def _validate_isPop(self, isPop, field, value):
         """
@@ -1809,7 +1854,79 @@ class Store(object):
         print("[+] Window parameters = [-w %s -s %s]" % (window_size, window_step))
         self._make_windows(window_size, window_step, sample_sets='X')
 
-    def simulate(self, parameterObj):
+    def _preflight_simulate_old(self, parameterObj):
+        if 'sims' not in self.data.group_keys():
+            self._init_meta(overwrite=False, module='sims')
+        for group in self.data['sims'].group_keys():
+            if not bool(self.data[f'sims/{group}']):
+                del self.data[f'sims/{group}']
+        if parameterObj.label in self.data['sims'].group_keys():
+            sys.exit(f"[X] There already is a simulation run labeled {parameterObj.label}")
+        if parameterObj.sim_grid:
+            if isinstance(parameterObj.recombination_map, pd.DataFrame):
+                parameterObj.recombination_map = parameterObj._validate_recombination_map(self, parameterObj.recombination_map)
+            unique_hash = parameterObj._get_unique_hash(module='makegrid')
+            if not self._has_grid(unique_hash):
+                sys.exit("[X] Provided config file does not correspond to an existing grid.")
+
+    def _preflight_simulate(self, config):
+        # checking whether config['gimble']['label'] already exists
+        if config['gimble']['label'] in self.data['sims'].group_keys():
+            existing_sim_label_strings = [
+            ("%s [*]" % sim_label if sim_label == config['gimble']['label'] else sim_label) 
+                for sim_label in self.data['sims'].group_keys()]
+            message = "[X] The following simulation labels already exist in this gimbleStore:\n[X]\t%s" % (
+                "\n[X]\t".join(existing_sim_label_strings)) 
+            sys.exit(message)
+        
+        # have still to figure out how this gets tied in ...
+        # if parameterObj.sim_grid:
+        #     if isinstance(parameterObj.recombination_map, pd.DataFrame):
+        #         parameterObj.recombination_map = parameterObj._validate_recombination_map(self, parameterObj.recombination_map)
+        #     unique_hash = parameterObj._get_unique_hash(module='makegrid')
+        #     if not self._has_grid(unique_hash):
+        #         sys.exit("[X] Provided config file does not correspond to an existing grid.")
+        print('[+] Simulating %s replicate(s) of %s block(s) for %s parameter combinations' %
+            (config['simulate']['replicates'], config['simulate']['blocks'], config['simulate']['replicates']))
+        return config
+
+    def simulate(self, config, threads):
+        print("[#] Preflight...")
+        config = self._preflight_simulate(config)
+        print("[+] Checks passed.")
+        #determine name of sims/group
+        # self.data.require_group(f'sims/{parameterObj.label}')
+        # if parameterObj.sim_grid:
+        #    sim_configs = self._get_sim_grid(parameterObj)
+        #else:
+        #    sim_configs = lib.gimble.DOL_to_LOD(parameterObj.parameter_combinations)
+        
+        # adjust config to run_sims... (ideally not needed)
+        sim_configs = config['parameters']
+        global_info = {
+            'mu': config['mu']['mu'],
+            'ploidy': config['simulate']['ploidy'],
+            'sample_pop_ids': ['A', 'B'],
+            'sample_pop_sizes': [config['simulate'][f"sample_size_{pop_id}"] for pop_id in ['A', 'B']],
+            'blocklength': config['simulate']['block_length'],
+            'blocks': config['simulate']['blocks'],
+            'k_max': config['k_max'],
+            'chunks': config['simulate']['chunks'],
+            'replicates': config['simulate']['replicates']
+        }
+        
+        # data should only be saved after simulation ...
+        # self.data.require_group(f'sims/')
+        # gimbleStore.data[f'sims/{group_name}'].attrs.put(global_info)
+        # gimbleStore.data[f'sims/{group_name}'].attrs['fixed_param_grid'] = parameterObj.fixed_param_grid
+        # writing report
+        try:
+            print(self._get_sims_report(width=100, label=parameterObj.label))   
+        except UnicodeEncodeError:
+            print(self._get_sims_report(width=100, label=parameterObj.label).__repr__().encode('utf-8')) #temp fix for my environment
+        self.log_stage(parameterObj)
+
+    def simulate_old(self, parameterObj):
         print("[#] Preflight...")
         self._preflight_simulate(parameterObj)
         print("[+] Checks passed.")
@@ -2286,7 +2403,7 @@ class Store(object):
                 )
             _optimize_to_csv(result, long_label, parameterObj, 'blocks')
 
-    def _preflight_optimize(self, data_type, config, start_points, simulations_label, track_history):
+    def _preflight_optimize(self, data_type, config, start_points, simulations_label, track_history, num_cores, max_iterations, xtol_rel, ftol_rel):
         if not self.has_stage(data_type):
             sys.exit("[X] gimbleStore has no %r." % data_type)    
         if data_type == 'simulations':
@@ -2303,25 +2420,30 @@ class Store(object):
                 form='bsfs', max_k=config['max_k'])
         config['start_points'] = start_points if data_type == 'blocks' else 1
         config['track_history'] = False if data_type == 'simulations' else track_history
+        config['num_cores'] = num_cores
+        config['max_iterations'] = max_iterations
+        config['xtol_rel'] = xtol_rel
+        config['ftol_rel'] = ftol_rel
         # bounds 
-        parameter_combinations_lowest = np.array([config['parameters_np'][k][0] for k in config['parameters_bounded']])
-        parameter_combinations_highest = np.array([config['parameters_np'][k][1] for k in config['parameters_bounded']])
+        config['parameter_combinations_lowest'] = np.array([config['parameters_np'][k][0] for k in config['parameters_bounded']])
+        config['parameter_combinations_highest'] = np.array([config['parameters_np'][k][1] for k in config['parameters_bounded']])
         #start from midpoint
-        pmid = np.mean(np.vstack((parameter_combinations_lowest, parameter_combinations_highest)), axis=0)
+        pmid = np.mean(np.vstack((config['parameter_combinations_lowest'], config['parameter_combinations_highest'])), axis=0)
         config['starting_points'] = [pmid,]
         if start_points > 1:
             np.random.seed(config['gimble']['random_seed'])
-            starting_points = np.random.uniform(low=parameter_combinations_lowest, high=parameter_combinations_highest, size=(start_points-1, len(config['parameters_bounded'])))
+            starting_points = np.random.uniform(low=config['parameter_combinations_lowest'], high=config['parameter_combinations_highest'], size=(start_points-1, len(config['parameters_bounded'])))
             config['starting_points'] = np.vstack((pmid, starting_points))
         # are parameter_combinations_lowest, parameter_combinations_highest needed?
         #return (starting_points, parameter_combinations_lowest, parameter_combinations_highest)
         return data, config
 
     def optimize(self, data_type, config, num_cores, start_points, max_iterations, xtol_rel, ftol_rel, track_history, simulations_label):
-        data, config = self._preflight_optimize(data_type, config, start_points, simulations_label, track_history)
-        print('[+] Generating equations.')
+        data, config = self._preflight_optimize(data_type, config, start_points, simulations_label, track_history, num_cores, max_iterations, xtol_rel, ftol_rel)
+        print('[+] Generating equations...')
         gf = lib.math.config_to_gf(config)
         gfEvaluatorObj = togimble.gfEvaluator(gf, config['max_k'], MUTYPES, config['gimble']['precision'], exclude=[(2,3),])
+        print('[+] Equations for model %r have been generated.' % config['gimble']['model'])
         # watch out for "param_combo, replicates in data"
         if data_type=='simulate':
             #data is an iterator over parameter_combination_name, parameter_combination_array
@@ -2343,7 +2465,7 @@ class Store(object):
                 _optimize_to_csv(result, long_label, parameterObj, 'simulate')
         else:
             result = lib.math.optimize_parameters(gfEvaluatorObj, data, config, verbose=True)
-            _optimize_to_csv(result, label, parameterObj, 'blocks')
+            #_optimize_to_csv(result, label, parameterObj, 'blocks')
 
     def _set_stopping_criteria(self, data, parameterObj, label):
         set_by_user = True
@@ -2974,21 +3096,6 @@ class Store(object):
             self._wipe_stage('blocks')
             self._wipe_stage('windows')
             self._wipe_stage('bsfs')
-
-    def _preflight_simulate(self, parameterObj):
-        if 'sims' not in self.data.group_keys():
-            self._init_meta(overwrite=False, module='sims')
-        for group in self.data['sims'].group_keys():
-            if not bool(self.data[f'sims/{group}']):
-                del self.data[f'sims/{group}']
-        if parameterObj.label in self.data['sims'].group_keys():
-            sys.exit(f"[X] There already is a simulation run labeled {parameterObj.label}")
-        if parameterObj.sim_grid:
-            if isinstance(parameterObj.recombination_map, pd.DataFrame):
-                parameterObj.recombination_map = parameterObj._validate_recombination_map(self, parameterObj.recombination_map)
-            unique_hash = parameterObj._get_unique_hash(module='makegrid')
-            if not self._has_grid(unique_hash):
-                sys.exit("[X] Provided config file does not correspond to an existing grid.")
 
     def _get_interval_coordinates(self, seq_name=None, sample_set=None):
         if seq_name is None:

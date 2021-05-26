@@ -79,6 +79,7 @@ def compile_global_info(parameterObj):
 	global_info['sample_pop_sizes'] = [global_info[f'sample_size_{pop_id}'] for pop_id in global_info['sample_pop_ids']]
 	global_info['reference_pop'] = parameterObj.config['populations']['reference_pop']
 	#check if number of chunks is valid
+	# let's make blocks per chunk!
 	if global_info['chunks']>1:
 		if global_info['blocks']==1:
 			print(f"[-] Can't split 1 block into {global_info['chunks']} chunks. Simulation will continue without chunking.")
