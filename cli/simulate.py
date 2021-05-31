@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """usage: gIMble simulate                   [-z DIR | -o DIR] -c FILE [-t INT]
-                                            [(-g [--fixed STR])] [-h|--help]
+                                            [(-w STR [--fixed STR])] [-h|--help]
                                             
     Options:
         -h --help                                   show this
@@ -10,8 +10,8 @@
         -o, --outprefix DIR                         Prefix to make new zarr store
         -c, --config_file FILE                      Simulate config file (*.ini) 
         -t, --threads INT                           Threads [default: 1]
-        -g, --grid                                  
-        --fixed STR                                 Parameter to fix to global optimum
+        -w, --window_wise_bootstrap STR             Label of grid to perform window-wise parametric bootstrap on                 
+        --fixed STR                                 Parameter to fix to global optimum when performing window-wise parametric bootstrap
 """
 import pathlib
 import collections
@@ -48,7 +48,7 @@ class SimulateParameterObj(lib.gimble.ParameterObj):
         self.zstore = self._get_path(args["--zarr"])
         self.prefix = self._get_prefix(args["--outprefix"])
         self.threads = self._get_int(args["--threads"])
-        self.sim_grid = args["--grid"]
+        self.sim_grid = args["--window_wise_bootstrap"]
         self.config = lib.gimble.load_config(
             self.config_file, 
             self._MODULE, 
@@ -70,7 +70,8 @@ def main(params):
         #perform recmap checks
         gimble_store.simulate(
             config=parameterObj.config,
-            threads=parameterObj.threads, 
+            threads=parameterObj.threads,
+            command=parameterObj._get_cmd(), 
             )
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:

@@ -2,13 +2,14 @@ import itertools
 from tqdm import tqdm
 from lib.functions import plot_mutuple_barchart
 import allel
+import demes
 import numpy as np
 import pandas as pd
 import shutil
 import zarr
 import os
 import string
-import loguru
+#import loguru
 import collections
 import sys
 import warnings
@@ -238,14 +239,15 @@ def make_ini_configparser(version, task, model, label):
     config.set('gimble', 'precision', precision)
     # populations
     # do only makegrid and optimize need populations?
-    if task == 'makegrid' or task == 'optimize':
+    if task == 'makegrid' or task == 'optimize' or task == 'simulate':
         config.add_section('populations')
         config.set('populations', 'pop_ids', string_pop_ids)
-        config.set('populations', '# Link model to data in GimbleStore (see output of gimble info)')
-        config.set('populations', 'A', "")
-        config.set('populations', 'B', "")
-        config.set('populations', '# Pick a reference population: %s' % string_pop_ids)
-        config.set('populations', 'reference_pop_id', "")
+        if task != 'simulate': 
+            config.set('populations', '# Link model to data in GimbleStore (see output of gimble info)')
+            config.set('populations', 'A', "")
+            config.set('populations', 'B', "")
+            config.set('populations', '# Pick a reference population: %s' % string_pop_ids)
+            config.set('populations', 'reference_pop_id', "")
         config.set('populations', '# Choose to simplify model by assuming equality of Ne\'s (optional): %s' % string_pop_ids_sync)
         config.set('populations', 'sync_pop_ids', "")
     # k_max
@@ -261,9 +263,9 @@ def make_ini_configparser(version, task, model, label):
     # is this all simulate needs?
     if task == 'simulate':
         config.add_section('simulate')
-        config.set('simulate', 'pop_ids', string_pop_ids)
-        config.set('simulate', '# Pick a reference population: %s' % string_pop_ids)
-        config.set('simulate', 'reference_pop_id', "")
+        #config.set('simulate', 'pop_ids', string_pop_ids)
+        #config.set('simulate', '# Pick a reference population: %s' % string_pop_ids)
+        #config.set('simulate', 'reference_pop_id', "")
         config.set('simulate', '# Ploidy of organism')
         config.set('simulate', 'ploidy', '2')
         config.set('simulate', '# Blocks')
@@ -352,13 +354,7 @@ def _return_np_type(entries ,counts=True):
             return np.int8
 
 def get_config_pops(config):
-    if config['gimble']['task'] == 'simulate':
-        # needs things relevant for sims
-        config['populations'] = {}
-        pop_ids, _, _ = get_ini_model_params(config['gimble']['model'])
-        config['populations']['pop_ids'] = pop_ids
-        return config
-    # check for consistent values in sync_pops
+    #check for consistent values in sync_pops
     Ne_sync_pops = ["Ne_%s" % _ for _ in config['populations']['sync_pop_ids']]
     for Ne_sync_pop in Ne_sync_pops[1:]:
         if not (config['parameters'][Ne_sync_pops[0]] == config['parameters'][Ne_sync_pop]):
@@ -370,10 +366,11 @@ def get_config_pops(config):
                 "please adjust parameters in INI file to have equal ranges."
                 "\n\t%s" % (Ne_sync_pops_all_string, parameter_string_list))
     # make populations_by_letter
-    config['populations']['population_by_letter'] = {
-        'A': config['populations']['A'],
-        'B': config['populations']['B'],
-        }
+    if config['gimble']['task'] != 'simulate':
+        config['populations']['population_by_letter'] = {
+            'A': config['populations']['A'],
+            'B': config['populations']['B'],
+            }
     return config
 
 def get_config_model_parameters(config, module):
@@ -452,11 +449,22 @@ def get_config_kmax(config):
         sys.exit('[X] Config: No k-max value found for mutype %r ' % e.args[0])
     return config
 
-def parameters_to_grid(config):
-    cartesian_product = itertools.product(*config['parameters_np'].values())
+def expand_parameters(config):
+    #check syncing of pop sizes
+    if len(config['populations']['sync_pop_ids'])>0:
+        to_sync = [f'Ne_{pop}' for pop in config['populations']['sync_pop_ids'][1:]]
+        sync_to = f"Ne_{config['populations']['sync_pop_ids'][0]}"
+        parameters_np = {k:v for k,v in config['parameters_np'].items() if k not in to_sync}
+    else:
+        parameters_np = config['parameters_np']
+        to_sync, sync_to = None, None
+    cartesian_product = itertools.product(*parameters_np.values())
     rearranged_product = list(zip(*cartesian_product))
     config['parameters_grid_points'] = len(rearranged_product[0])
-    config['parameters_grid'] = {k: np.array(v, dtype=np.float64) for k, v in zip(config['parameters_np'].keys(), rearranged_product)}
+    config['parameters_expanded'] = {k: np.array(v, dtype=np.float64) for k, v in zip(parameters_np.keys(), rearranged_product)}
+    if to_sync:
+        for pop in to_sync:
+            config['parameters_expanded'][pop] = config['parameters_expanded'][sync_to]
     return config
 
 
@@ -523,13 +531,9 @@ def _validate_recombination_map(self, store, df):
 ######################################################
 
 def get_config_simulate(config):
-    # are chunks chromosomes?
-    if config['simulate']['chunks'] > 1:
-        if config['simulate']['chunks'] == 1:
-            sys.exit("[X] Can't split 1 block into %s chunks." % config['simulate']['chunks'])
-    # i don't get why this is needed
-    # config['simulate']['blocks'] //= config['simulate']['chunks']
-    # config['simulate']['replicates'] *= config['simulate']['chunks']
+    #deal with recombination:
+    if config['simulate']['recombination_rate'] == '':
+        config['simulate']['recombination_rate'] = 0.0
     # interpopulation sample pairs
     config['simulate']['comparisons'] = list(
         itertools.product(
@@ -559,13 +563,64 @@ def load_config(config_file, MODULE, CWD, VERSION):
     config = get_config_model_parameters(config, MODULE)
     if MODULE == 'simulate':
         config = get_config_simulate(config)
-    if MODULE == 'makegrid':
-        config = parameters_to_grid(config)
+    config = expand_parameters(config)
     config['CWD'] = CWD
     print('config', config)
     if not VERSION == config['gimble']['version']:
         print("[-] Version conflict:\n\tgimble %s\n\t config INI %s" % (VERSION, config['gimble']['version']))
     return config
+
+def config_to_demes_graph(config, idxs=None):
+    #using demes: all events are defined forwards in time!
+    if idxs==None:
+        idxs = range(config['parameters_grid_points'])
+    for idx in idxs:
+        b = demes.Builder(time_units='generations')
+        if 'exodus' in config['events']:
+            b.add_deme('A_B', epochs=[
+                dict(
+                    end_time=config['parameters_expanded']['T'][idx], 
+                    start_size=config['parameters_expanded']['Ne_A_B'][idx], 
+                    end_size=config['parameters_expanded']['Ne_A_B'][idx])
+                ]
+            )
+            b.add_deme('A', ancestors=['A_B'],defaults=
+                dict(epoch=dict(
+                    start_size=config['parameters_expanded']['Ne_A'][idx], 
+                    end_size=config['parameters_expanded']['Ne_A'][idx]))
+                )
+            b.add_deme('B', ancestors=['A_B'],defaults=
+                dict(epoch=dict(
+                    start_size=config['parameters_expanded']['Ne_B'][idx], 
+                    end_size=config['parameters_expanded']['Ne_B'][idx]))
+                )
+        else:
+            b.add_deme('A',defaults=
+                dict(epoch=dict(
+                    start_size=config['parameters_expanded']['Ne_A'][idx], 
+                    end_size=config['parameters_expanded']['Ne_A'][idx]))
+                )
+            b.add_deme('B',defaults=
+                dict(epoch=dict(
+                    start_size=config['parameters_expanded']['Ne_B'][idx], 
+                    end_size=config['parameters_expanded']['Ne_B'][idx]))
+                )
+        if 'migration' in config['events']:
+            for mig_event in config['events']['migration']:
+                destination, source = mig_event
+                b.add_migration(
+                    source=config['populations']['pop_ids'][source], 
+                    dest=config['populations']['pop_ids'][destination], 
+                    rate=config['parameters_expanded']['me'][idx])            
+        yield b.resolve()
+
+def config_to_demes_yaml(config, outputfile, idxs=None):
+    CWD = config['CWD']
+    outputstring = outputfile + '_{}.yaml'
+    graphs = config_to_demes_graph(config, idxs)
+    for idx, graph in enumerate(graphs):
+        with open(os.path.join(CWD, outputstring.format(str(idx))), 'w') as file:
+            demes.dump(graph, file, format='yaml')
 
 class ConfigCustomNormalizer(cerberus.Validator):
     def __init__(self, *args, **kwargs):
@@ -605,7 +660,7 @@ class ConfigCustomNormalizer(cerberus.Validator):
     def _normalize_coerce_float_or_list(self, value):
         values = value.strip('()[]').replace(' ', '').split(",")
         try:
-            if len(values) == 4 and values[-1] in set(['lin', 'log']):
+            if len(values) == 4 and values[-1] in set(['lin', 'log', 'LIN', 'LOG']):
                 return [float(values[0]), float(values[1]), int(values[2]), values[3]]
             elif len(values) == 2:
                 return [float(values[0]), float(values[1])]
@@ -696,6 +751,13 @@ def get_config_schema(module):
                 'A': {'required':True, 'empty':True, 'type':'string'},
                 'B': {'required':True, 'empty':True, 'type':'string'},
                 'reference_pop_id': {'required':True, 'empty':False, 'type': 'string', 'coerce': 'reference_pop_id'},
+                'sync_pop_ids': {'required':False, 'empty': True, 'type': 'list', 'coerce': 'sync_pop_ids'},
+                }}
+    else:
+        schema['populations'] = {
+            'type': 'dict', 
+            'schema': {
+                'pop_ids': {'required': True, 'empty':False, 'type': 'list', 'coerce': 'pop_ids'},
                 'sync_pop_ids': {'required':False, 'empty': True, 'type': 'list', 'coerce': 'sync_pop_ids'},
                 }}
     schema['k_max'] = {
@@ -1878,7 +1940,7 @@ class Store(object):
             message = "[X] The following simulation labels already exist in this gimbleStore:\n[X]\t%s" % (
                 "\n[X]\t".join(existing_sim_label_strings)) 
             sys.exit(message)
-        
+
         # have still to figure out how this gets tied in ...
         # if parameterObj.sim_grid:
         #     if isinstance(parameterObj.recombination_map, pd.DataFrame):
@@ -1887,44 +1949,52 @@ class Store(object):
         #     if not self._has_grid(unique_hash):
         #         sys.exit("[X] Provided config file does not correspond to an existing grid.")
         print('[+] Simulating %s replicate(s) of %s block(s) for %s parameter combinations' %
-            (config['simulate']['replicates'], config['simulate']['blocks'], config['simulate']['replicates']))
+            (config['simulate']['replicates'], config['simulate']['blocks'], config['parameters_grid_points']))
         return config
 
-    def simulate(self, config, threads):
+    def simulate(self, config, threads, command):
         print("[#] Preflight...")
         config = self._preflight_simulate(config)
         print("[+] Checks passed.")
-        #determine name of sims/group
-        # self.data.require_group(f'sims/{parameterObj.label}')
-        # if parameterObj.sim_grid:
-        #    sim_configs = self._get_sim_grid(parameterObj)
-        #else:
-        #    sim_configs = lib.gimble.DOL_to_LOD(parameterObj.parameter_combinations)
-        
         # adjust config to run_sims... (ideally not needed)
-        sim_configs = config['parameters']
-        global_info = {
-            'mu': config['mu']['mu'],
-            'ploidy': config['simulate']['ploidy'],
-            'sample_pop_ids': ['A', 'B'],
-            'sample_pop_sizes': [config['simulate'][f"sample_size_{pop_id}"] for pop_id in ['A', 'B']],
-            'blocklength': config['simulate']['block_length'],
-            'blocks': config['simulate']['blocks'],
-            'k_max': config['k_max'],
-            'chunks': config['simulate']['chunks'],
-            'replicates': config['simulate']['replicates']
-        }
+        demographies = lib.simulate.make_demographies(config)
+        seeds = np.random.randint(1, 2 ** 32, (config['parameters_grid_points'], config['simulate']['replicates'],2))   
+        replicates = config['simulate']['chunks'] * config['simulate']['replicates']
+        parameters_LOD = DOL_to_LOD(config['parameters_expanded'])
+        for idx, param_combo_result in enumerate(
+            lib.simulate.run_sims(
+                demographies, 
+                config['simulate']['recombination_rate'], 
+                config, 
+                replicates, 
+                seeds, 
+                threads
+                )
+            ):
+            self._set_sims(param_combo_result, config['gimble']['label'], seeds[idx], parameters_LOD[idx], idx)
+        #we need particular subset of details to be saved
+        global_info_ancestry = {**config['simulate'],**config['mu']}
+        global_info_ancestry['max_k'] = tuple([int(v) for v in config['max_k']])
+        global_info_ancestry['parameters_fixed'] = config['parameters_fixed']
+        self.data[f"sims/{config['gimble']['label']}"].attrs.put(global_info_ancestry)
         
-        # data should only be saved after simulation ...
-        # self.data.require_group(f'sims/')
-        # gimbleStore.data[f'sims/{group_name}'].attrs.put(global_info)
+        # needed for --grid flag check this
         # gimbleStore.data[f'sims/{group_name}'].attrs['fixed_param_grid'] = parameterObj.fixed_param_grid
+        
         # writing report
         try:
-            print(self._get_sims_report(width=100, label=parameterObj.label))   
+            print(self._get_sims_report(width=100, label=config['gimble']['label']))   
         except UnicodeEncodeError:
-            print(self._get_sims_report(width=100, label=parameterObj.label).__repr__().encode('utf-8')) #temp fix for my environment
-        self.log_stage(parameterObj)
+            print(self._get_sims_report(width=100, label=config['gimble']['label']).__repr__().encode('utf-8')) #temp fix for my environment
+        self.log_action('simulate', command)
+
+    def _set_sims(self, result, label, seeds, parameters, idx=0):
+        self.data.require_group(f'sims/{label}')
+        name = f"sims/{label}/parameter_combination_{idx}"
+        self.data.create_dataset(name, data=result, overwrite=True)
+        self.data[name].attrs.put(parameters)
+        self.data[name].attrs['ancestry_seeds'] = tuple([int(s) for s in seeds[:,0]]) 
+        self.data[name].attrs['mutation_seeds'] = tuple([int(s) for s in seeds[:,1]])
 
     def simulate_old(self, parameterObj):
         print("[#] Preflight...")
