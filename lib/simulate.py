@@ -7,7 +7,6 @@ import zarr
 import multiprocessing
 import contextlib
 from tqdm import tqdm
-from tqdm.auto import trange
 import itertools
 import lib.gimble
 import pandas as pd
@@ -88,9 +87,12 @@ def sim_worker(seed, recombination_rate, samples, demography, ploidy, sequence_l
 		discrete_genome=discrete, 
 		model=mutation_model
 		)
-	#make bsfs:
-	positions = np.array([site.position for site in ts.sites()])
 	num_samples = sum(samples.values())
+	#make bsfs:
+	if discrete:
+		positions = np.array([site.position for site in ts.sites()])
+	else:
+		positions, sequence_length = infinite_sites(ts, blocks, sequence_length)
 	genotype_matrix = get_genotypes(ts, ploidy, num_samples)
 	bsfs = generate_bsfs(genotype_matrix, positions, comparisons, max_k, blocks, sequence_length)
 	return bsfs
@@ -160,6 +162,16 @@ def generate_bsfs(genotype_matrix, positions, comparisons, max_k, blocks, total_
 	out[tuple(mutuples.T)] = counts
 	return out
 
+def infinite_sites(ts, blocks, total_length): 
+	positions = np.array([int(site.position) for site in ts.sites()])
+	new_positions = lib.gimble.fix_pos_array(positions)
+	if ts.num_sites>0 and new_positions[-1]>=total_length:
+		blocklength = int(np.ceil(new_positions[-1]/blocks))
+		total_length = blocks*blocklength
+	if ts.num_sites==0:
+		new_positions = [0,]
+	return (new_positions, total_length)
+
 def _combine_chunks(result_list, chunks):
 	if chunks>1:
 		return np.array([np.add.reduce(m) for m in np.split(result_list,list(range(0,len(result_list),chunks))[1:])])
@@ -169,7 +181,7 @@ def _combine_chunks(result_list, chunks):
 def get_genotypes(ts, ploidy, num_samples):
 	if ts.num_mutations == 0:
 		return np.zeros((1,num_samples, ploidy), dtype=np.uint8)
-	shape = (ts.num_mutations, num_samples, ploidy)
+	shape = (ts.num_sites, num_samples, ploidy)
 	return np.reshape(ts.genotype_matrix(), shape)
 
 def all_interpopulation_comparisons(*popsizes):
@@ -178,5 +190,5 @@ def all_interpopulation_comparisons(*popsizes):
 		raise ValueError("More than 2 population sizes were provided to simulate. We cannot cope with that just yet.")
 	return list(itertools.product(range(popA), range(popA, popA + popB)))
 
-def make_demographies(config):
-	return (msprime.Demography.from_demes(graph) for graph in lib.gimble.config_to_demes_graph(config))
+def make_demographies(graph_list):
+	return (msprime.Demography.from_demes(graph) for graph in lib.gimble.config_to_demes_graph(graph_list))

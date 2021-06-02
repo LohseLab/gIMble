@@ -10,7 +10,7 @@
         -o, --outprefix DIR                         Prefix to make new zarr store
         -c, --config_file FILE                      Simulate config file (*.ini) 
         -t, --threads INT                           Threads [default: 1]
-        -w, --window_wise_bootstrap STR             Label of grid to perform window-wise parametric bootstrap on                 
+        -w, --window_wise_bootstrap STR             Label of lncls grid to perform window-wise parametric bootstrap on                 
         --fixed STR                                 Parameter to fix to global optimum when performing window-wise parametric bootstrap
 """
 import pathlib
