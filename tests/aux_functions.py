@@ -135,6 +135,7 @@ def scatter_loglog(observed, expected, min_value, name, xlabel='gimble', ylabel=
     plt.clf()
 
 def sim_ETPs(global_info, sim_configs, n, blocks, chunks, replicates):
+        demography = next(make_demographies(config))
         threads = 1
         add_global_info = {
                             'blocks':blocks, 
@@ -146,6 +147,13 @@ def sim_ETPs(global_info, sim_configs, n, blocks, chunks, replicates):
         sim_global_info = {**global_info, **add_global_info}
         simmed_ETPs = lib.simulate.run_sims(sim_configs, sim_global_info, all_interpop_comparisons, chunks, threads, disable_tqdm=True)
         return simmed_ETPs
+
+def make_single_demography(config):
+    print(isinstance(config, dict))
+    print(config['parameters_grid_points'])
+    graph_list = lib.gimble.config_to_demes_graph(config, None)
+    #return graph_list[0]
+    return next(lib.simulate.make_demographies(graph_list))
 
 def downsample(A, N):
     distribution = [i for i, j in enumerate(A) for _ in range(j)]
