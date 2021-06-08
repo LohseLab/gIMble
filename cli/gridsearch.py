@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gimble gridsearch -z <FILE> -c <FILE> (-b | -w | --simID <STR>) [-f] [-h|--help]
+"""usage: gimble gridsearch -z <FILE> -g <STR> -o <STR> (-b | -w | -s <STR>) [-f] [-h|--help]
                                             
                                             
     Options:
         -h --help                                   show this
         
         -z, --zarr_file <FILE>                      Path to existing GimbleStore
-        -c, --config_file <FILE>                    Config file with model parameters (defines grid)
         -b, --blocks                                Using blocks
         -w, --windows                               Using windows
-        -f, --overwrite                             Overwrite lnCLs in GimbleStore
-        --simID <STR>                               Name of sim run in GimbleStore
+        -g, --grid_label <STR>                          Label of makegrid run in GimbleStore
+        -s, --simulation_label <STR>                    Label of simulate run in GimbleStore
+        -o, --output_label <STR>                        Label under which results get stored in GimbleStore
+        -f, --overwrite                             Overwrite results in GimbleStore
 
 """
 from timeit import default_timer as timer
@@ -37,8 +38,8 @@ class GridsearchParameterObj(lib.gimble.ParameterObj):
             return 'blocks'
         if args['--windows']:
             return 'windows'
-        if args['--simID']:
-            self.label = args['--simID']
+        if args['--simulation_label']:
+            self.label = args['--simulation_label']
             return 'simulate'
         return None
         

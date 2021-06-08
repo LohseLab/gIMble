@@ -12,13 +12,9 @@
 """
 
 '''
-[To Do]
-- remove --model_file
-- remove --outprefix
-- remove --inner/outer poll
-- change to new config parser
-- add --grid_id
-
+- Do we really want to allow entrypoint of workflow to be makegrid?
+    + as opposed to only simulate and parse?
+    + check for product of block_length and mutation rate
 '''
 from timeit import default_timer as timer
 from docopt import docopt
@@ -33,16 +29,14 @@ class MakeGridParameterObj(lib.gimble.ParameterObj):
         self.zstore = self._get_path(args["--zarr_file"])
         self.prefix = self._get_prefix(args["--outprefix"])
         self.config_file = self._get_path(args['--config_file'])
-        #self.model_file = self._get_path(args['--model_file'])
-        #self.threads, self.gridThreads = [self._get_int(t) for t in args["--threads"].split(',')]
-        #self.threads = self._get_int(args['--inner_pool']) #number of workers for a single set of equations to be solved
-        self.gridThreads = self._get_int(args['--numc']) #number of workers for independent processes
+        self.threads = self._get_int(args['--numc']) #number of workers for independent processes
         self.overwrite = args['--overwrite']
-        self.config = None
-        #self.config = lib.gimble.get_config(self.config_file, self._MODULE) 
-        self.old_parse_config(self.config_file)
+        self.config = lib.gimble.load_config(
+            self.config_file, 
+            self._MODULE, 
+            self._CWD, 
+            self._VERSION)
         print(self.config)
-        sys.exit()
 
 def main(params):
     try:
@@ -53,7 +47,11 @@ def main(params):
             path=parameterObj.zstore, 
             prefix=parameterObj.prefix, 
             create=(False if parameterObj.zstore else True))
-        gimbleStore.makegrid(parameterObj)
+        gimbleStore.makegrid(
+            config=parameterObj.config,
+            threads=parameterObj.threads,
+            overwrite=parameterObj.overwrite,
+            )
         print("[*] Total runtime was %s" % (lib.gimble.format_time(timer() - start_time)))
     except KeyboardInterrupt:
         print("\n[X] Interrupted by user after %s !\n" % (lib.gimble.format_time(timer() - start_time)))

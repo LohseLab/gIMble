@@ -290,6 +290,10 @@ def make_ini_configparser(version, task, model, label):
     config.set('mu', '# mutation rate (in mutations/site/generation, required)')
     # [To Do] figure out how to deal with 'no mutation-rate' ... no-scaling
     config.set('mu', 'mu', "")
+    config.set('mu', '# block_length')
+    config.set('mu', '# must be identical to block_length of the data one wants to analyse with grid')
+    config.set('mu', 'block_length', "")
+
     # parameters
     config.add_section('parameters')
     for param in parameter_list:
@@ -372,6 +376,20 @@ def get_config_pops(config):
             'B': config['populations']['B'],
             }
     return config
+
+def config_to_meta(config, module):
+    meta = {}
+    if module == 'makegrid':
+        meta = {k:list(v) for k,v in config['parameters_expanded'].items()}
+        meta['block_length'] = config['mu']['block_length']
+        meta['mu'] = config['mu']['mu']
+        meta['label'] = config['gimble']['label']
+        meta['model'] = config['gimble']['model']
+        meta['reference_pop_id'] = config['populations']['reference_pop_id']      
+        meta['sync_pop_ids'] = config['populations']['sync_pop_ids']
+    if module == 'gridsearch':
+        config_to_meta(config, 'gridsearch')
+    return meta
 
 def get_config_model_parameters(config, module):
     # Convert parameters to numpy arrays
@@ -763,7 +781,15 @@ def get_config_schema(module):
     schema['k_max'] = {
             'type': 'dict', 
             'valuesrules': {'required': True, 'empty':False, 'type': 'integer', 'min': 1, 'coerce':int}}
-    schema['mu'] = {
+    if module == 'makegrid':
+        schema['mu'] = {
+            'type':'dict', 
+            'schema':{
+                'mu': {'required': True, 'empty':False, 'type': 'float', 'coerce':float},
+                'block_length': {'required': True, 'empty': False, 'min': 1, 'coerce':int},
+                }}
+    else:
+        schema['mu'] = {
             'type':'dict', 
             'schema':{
                 'mu': {'required': True, 'empty':False, 'type': 'float', 'coerce':float},
@@ -2320,31 +2346,6 @@ class Store(object):
     #         df_fixed_param.to_csv(f'{label}_{name}_lnCL_dist.csv')
     #     return (df, df_fixed_param)
 
-    def _set_lncls(self, unique_hash, lncls, lncls_type='global', overwrite=False):
-        '''lncls_type := 'global' or 'windows'
-        '''
-        key = "%s/%s" % (unique_hash, lncls_type)
-        dataset = self.data['lncls'].create_dataset(key, data=lncls, overwrite=overwrite)
-
-    def _has_lncls(self, unique_hash, legacy=False):
-        path = "lncls/%s" % unique_hash if not legacy else "lncls/global/%s" % unique_hash
-        if path in self.data:
-            return True
-        return False
-
-    def _get_lncls(self, unique_hash):
-        if self._has_lncls(unique_hash):
-            key_global = "lncls/%s/global" % unique_hash
-            key_windows = "lncls/%s/windows" % unique_hash
-        elif self._has_lncls(unique_hash, legacy=True):
-            key_global = "lncls/global/%s" % unique_hash
-            key_windows = "lncls/windows/%s" % unique_hash
-        else:
-            sys.exit("[X] No lnCLs for this INI.")
-        lncls_global = np.array(self.data[key_global], dtype=np.float64)
-        lncls_windows = np.array(self.data[key_windows], dtype=np.float64)
-        return (lncls_global, lncls_windows)
-
     def old_optimize(self, parameterObj):
         print("optimize parameterObj.config :", parameterObj.config)
         if not self.has_stage(parameterObj.data_type):
@@ -2535,6 +2536,8 @@ class Store(object):
                 _optimize_to_csv(result, long_label, parameterObj, 'simulate')
         else:
             result = lib.math.optimize_parameters(gfEvaluatorObj, data, config, verbose=True)
+        # results get saved under config['gimble']['label'] 
+
             #_optimize_to_csv(result, label, parameterObj, 'blocks')
 
     def _set_stopping_criteria(self, data, parameterObj, label):
@@ -2604,74 +2607,81 @@ class Store(object):
         out[tuple(mutuples.T)]=counts
         return out    
 
-    def makegrid(self, parameterObj):
-        '''
-        1. checks whether grid exists
-        2. print gridpoint number
-        3. sets up equations
-        4. initiates model
-        5. calculates ETPs
-        6. sets_grid
+    def _preflight_makegrid(self, config, overwrite):
+        # checking whether config['gimble']['label'] already exists
+        if not overwrite and self._has_grid(config['gimble']['label']):
+            existing_grid_label_strings = [
+            ("%s [*]" % grid_label if grid_label == config['gimble']['label'] else grid_label) 
+                for grid_label in self.data['grids']]
+            message = "[X] The following grid labels already exist in this gimbleStore:\n[X]\t%s\n[X] Please specify '-f' to overwrite" % (
+                "\n[X]\t".join(existing_grid_label_strings)) 
+            sys.exit(message)
+        return config
 
-        '''
-        unique_hash = parameterObj._get_unique_hash()
-        if self._has_grid(unique_hash) and not parameterObj.overwrite:
-            sys.exit("[X] Grid for this config file already exists.")
-        number_grid_points = len(parameterObj.parameter_combinations[next(iter(parameterObj.parameter_combinations))])
-        print("[+] %s grid point combinations were provided." % number_grid_points)
-        model = get_model_name(parameterObj.config['gimble']['model'])
-        mutype_labels, max_k = zip(*sorted(parameterObj.config['k_max'].items()))
-        print('[+] Generating equations.')
-        sync_pops = parameterObj._get_pops_to_sync_short()
-        gf = lib.math.config_to_gf(model, mutype_labels, sync_pops)
-        gfEvaluatorObj = togimble.gfEvaluator(gf, max_k, mutype_labels, parameterObj.config['gimble']['precision'], exclude=[(2,3),])
-        """
-        equationSystem = lib.math.EquationSystemObj(
-            parameterObj.model_file, 
-            parameterObj.config['populations']['reference_pop'],
-            parameterObj.config['k_max'],
-            parameterObj.config['mu']['blocklength'],
-            parameterObj.config['mu']['mu'],
-            seed=parameterObj.config['gimble']['random_seed'],
-            module="makegrid",
-            threads=parameterObj.threads
-            )
-        #build the equations
-        equationSystem.initiate_model(sync_ref=parameterObj.reference, sync_targets=parameterObj.toBeSynced)
-        ETPs = equationSystem.calculate_all_ETPs(parameterObj.parameter_combinations, module=parameterObj._MODULE, threads=parameterObj.threads, gridThreads=parameterObj.gridThreads, verbose=False)
-        """
-        ETPs = lib.math.new_calculate_all_ETPs(
+    def makegrid(self, config, threads, overwrite):
+        # print(self.data.tree())
+        config = self._preflight_makegrid(config, overwrite)
+        print("[+] Grid of %s grid points will be prepared..." % config['parameters_grid_points'])
+        gf = lib.math.config_to_gf(config)
+        print('[+] Generating equations...')
+        gfEvaluatorObj = togimble.gfEvaluator(gf, config['max_k'], MUTYPES, config['gimble']['precision'], exclude=[(2,3),])
+        print('[+] Equations for model %r have been generated.' % config['gimble']['model'])
+        print(config['parameters_expanded'])
+        grid = lib.math.new_calculate_all_ETPs(
             gfEvaluatorObj, 
-            parameterObj.parameter_combinations, 
-            parameterObj.config['populations']['reference_pop'], 
-            parameterObj.config['mu']['blocklength'], 
-            parameterObj.config['mu']['mu'], 
-            processes=parameterObj.gridThreads, 
+            config['parameters_expanded'], 
+            config['populations']['reference_pop_id'], 
+            config['mu']['block_length'], 
+            config['mu']['mu'], 
+            processes=1, 
             verbose=False
             )
-        self._set_grid(unique_hash, ETPs, parameterObj.parameter_combinations, overwrite=parameterObj.overwrite)
+        # grid = np.zeros((
+        #     config['parameters_grid_points'], 
+        #     config['max_k'][0]+1,
+        #     config['max_k'][0]+1,
+        #     config['max_k'][0]+1,
+        #     config['max_k'][0]+1))
+        self._set_grid(grid, config, overwrite)
+        print("self._get_grid(grid)", self._get_grid(config['gimble']['label'])[1])
 
-    def _set_grid(self, unique_hash, ETPs, grid_labels, overwrite=False):
-        dataset = self.data['grids'].create_dataset(unique_hash, data=ETPs, overwrite=overwrite)
-        #dataset.attrs.put({idx:combo for idx, combo in enumerate(grid_labels)})
-        grid_labels = {k:list(v) for k,v in grid_labels.items()}
-        dataset.attrs.put(grid_labels) #using dict of list to save parameters
+    def _set_grid(self, grid, config, overwrite):
+        key = "grids/%s" % config['gimble']['label']
+        grid_meta = config_to_meta(config, 'makegrid')
+        dataset = self.data.create_dataset(key, data=grid, overwrite=overwrite)
+        dataset.attrs.put(grid_meta)
 
-    def _has_grid(self, unique_hash):
-        if f'grids/{unique_hash}' in self.data:
-            return True
-        return False
+    def _has_grid(self, label):
+        return ("grids/%s" % label in self.data)
 
-    def _get_grid(self, unique_hash):
-        '''
-        grid.shape = (gridpoints, m1_max+1, m2_max+1, m3_max+1, m4_max+1) 
-        '''
-        if f'grids/{unique_hash}' in self.data:
-            grid_meta = self.data[f'grids/{unique_hash}'].attrs.asdict()
-            grid = np.array(self.data[f'grids/{unique_hash}'], dtype=np.float64)
-            return (grid, grid_meta)
+    def _get_grid(self, label):
+        '''grid.shape = (gridpoints, m1_max+1, m2_max+1, m3_max+1, m4_max+1)'''
+        if self._has_grid(label):
+            key = "grids/%s" % label
         else:
-            sys.exit("[X] No grid for this INI.")
+            raise ValueError('[X] No grid found under label %r' % label)
+        grid_meta = self.data[key].attrs.asdict()
+        grid = np.array(self.data[key], dtype=np.float64)
+        return (grid, grid_meta)
+
+    def _set_lncls(self, lncls, lncls_type, config, overwrite=False):
+        '''lncls_type := 'global' or 'windows' or 'sims_label'''
+        key = "%s/%s" % (config['gimble']['label'], lncls_type)
+        lncls_meta = config_to_meta(config, 'gridsearch')
+        dataset = self.data['lncls'].create_dataset(key, data=lncls, overwrite=overwrite)
+        # grid_meta = {k:list(v) for k,v in config['parameters_expanded'].items()} ???
+        # dataset.attrs.put(grid_meta) #using dict of list to save parameters      ???
+
+    def _has_lncls(self, label, lncls_type):
+        return ("lncls/%s/%s" % (label, lncls_type) in self.data)
+
+    def _get_lncls(self, label, lncls_type):
+        if self._has_lncls(label, lncls_type):
+            key = "lncls/%s/%s" % (label, lncls_type)
+        else:
+            raise ValueError('[X] No lncls found for key %r' % key)
+        lncls = np.array(self.data[key], dtype=np.float64)
+        return lncls
 
     def _get_sim_grid(self, parameterObj):
         unique_hash = parameterObj._get_unique_hash(module='makegrid')
@@ -2734,6 +2744,52 @@ class Store(object):
         window_df = self._get_window_coordinates()
         window_df['param_idx'] = [old_to_new_idx[idx] for idx in local_winning_fixed_param_idx]
         return (grid_to_sim, window_df) 
+
+    def makegrid_old(self, parameterObj):
+        '''
+        1. checks whether grid exists
+        2. print gridpoint number
+        3. sets up equations
+        4. initiates model
+        5. calculates ETPs
+        6. sets_grid
+        '''
+        unique_hash = parameterObj._get_unique_hash()
+        if self._has_grid(unique_hash) and not parameterObj.overwrite:
+            sys.exit("[X] Grid for this config file already exists.")
+        number_grid_points = len(parameterObj.parameter_combinations[next(iter(parameterObj.parameter_combinations))])
+        print("[+] %s grid point combinations were provided." % number_grid_points)
+        model = get_model_name(parameterObj.config['gimble']['model'])
+        mutype_labels, max_k = zip(*sorted(parameterObj.config['k_max'].items()))
+        print('[+] Generating equations.')
+        sync_pops = parameterObj._get_pops_to_sync_short()
+        gf = lib.math.config_to_gf(model, mutype_labels, sync_pops)
+        gfEvaluatorObj = togimble.gfEvaluator(gf, max_k, mutype_labels, parameterObj.config['gimble']['precision'], exclude=[(2,3),])
+        """
+        equationSystem = lib.math.EquationSystemObj(
+            parameterObj.model_file, 
+            parameterObj.config['populations']['reference_pop'],
+            parameterObj.config['k_max'],
+            parameterObj.config['mu']['blocklength'],
+            parameterObj.config['mu']['mu'],
+            seed=parameterObj.config['gimble']['random_seed'],
+            module="makegrid",
+            threads=parameterObj.threads
+            )
+        #build the equations
+        equationSystem.initiate_model(sync_ref=parameterObj.reference, sync_targets=parameterObj.toBeSynced)
+        ETPs = equationSystem.calculate_all_ETPs(parameterObj.parameter_combinations, module=parameterObj._MODULE, threads=parameterObj.threads, gridThreads=parameterObj.gridThreads, verbose=False)
+        """
+        ETPs = lib.math.new_calculate_all_ETPs(
+            gfEvaluatorObj, 
+            parameterObj.parameter_combinations, 
+            parameterObj.config['populations']['reference_pop'], 
+            parameterObj.config['mu']['blocklength'], 
+            parameterObj.config['mu']['mu'], 
+            processes=parameterObj.gridThreads, 
+            verbose=False
+            )
+        self._set_grid(unique_hash, ETPs, parameterObj.parameter_combinations, overwrite=parameterObj.overwrite)
 
     def _get_window_coordinates(self):
         warnings.warn("lib.gimble._get_window_coordinates() is deprecated. Use lib.gimble._get_window_bed() ...", DeprecationWarning)

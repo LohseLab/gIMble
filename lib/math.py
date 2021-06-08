@@ -185,6 +185,7 @@ def config_to_gf(config):
     # config['events']['coalescence'] has same order as config['populations']['pop_ids']
     # e.g. ['C_A', 'C_s', 'C_s'] if pop_ids = ['A', 'B', 'A_B'] and sync_pop_sizes = ['A_B', 'B']
     coalescence_rates = [sage.all.var(rate) for rate in config['events']['coalescence']]
+    coalescence_rates = [sage.all.var(rate) for rate in ['C_A', 'C_B', 'C_A_B']]
     migration_direction = config['events'].get('migration', None)
     migration_rate = sage.all.var('M') if migration_direction else None
     exodus_direction = config['events'].get('exodus', None)
@@ -669,7 +670,12 @@ def new_calculate_all_ETPs(gfEvaluatorObj, parameter_combinations, reference_pop
     all_ETPs = []
     desc = f'[%] Calculating mutation configuration probabilities for {len(scaled_parameter_combinations)} gridpoints'
     if processes==1:
-        all_ETPs = [gfEvaluatorObj.evaluate_gf(parameter_combination, parameter_combination[sage.all.SR.var('theta')]) for parameter_combination in tqdm(scaled_parameter_combinations, desc=desc, ncols=100, disable=True)]
+        #for parameter_combination in tqdm(scaled_parameter_combinations, desc=desc, ncols=100, disable=True):
+        #    print(parameter_combination)
+        #    all_ETPs.append(gfEvaluatorObj.evaluate_gf(parameter_combination, parameter_combination[sage.all.SR.var('theta')])) 
+        all_ETPs = [
+            gfEvaluatorObj.evaluate_gf(parameter_combination, parameter_combination[sage.all.SR.var('theta')]) 
+                for parameter_combination in tqdm(scaled_parameter_combinations, desc=desc, ncols=100, disable=True)]
     else:
         args = ((param_combo, param_combo[sage.all.SR.var('theta')]) for param_combo in scaled_parameter_combinations)
         with multiprocessing.Pool(processes=processes) as pool:
