@@ -30,6 +30,17 @@
     T lower bound = 0
     T upper bound = dxy / (2 mu)
 
+- adjust write_config to change mu-section to theta
+    
+     ```
+        config.set('theta', '# theta = 4Ne*mu*block_length')
+        config.set('theta', '# mu = mutation rate in mutations/site/generation (required)')
+        # [To Do] figure out how to deal with 'no mutation-rate' ... no-scaling
+        config.set('theta', 'mu', "")
+        config.set('theta', '# block_length, must be identical to block_length of the data one wants to analyse with grid')
+        config.set('theta', 'block_length', "")
+    ```
+
 '''
 
 from docopt import docopt

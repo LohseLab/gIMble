@@ -367,8 +367,8 @@ def optimize_function(values_bounded_unscaled, grad, config, gfEvaluatorObj, dat
         elapsed = lib.gimble.format_time(timer() - start_time)
         print("[+] i=%s -- {%s} -- L=%s -- %s" % (
             str(iteration).ljust(4), 
-            " ".join(["%s=%s" % (k, '{:.2e}'.format(float(v))) for k, v in values_bounded_unscaled_by_parameter.items()]), 
-            '{:.2f}'.format(float(likelihood)), 
+            " ".join(["%s=%s" % (k, '{:.5e}'.format(float(v))) for k, v in values_bounded_unscaled_by_parameter.items()]), 
+            '{:.5f}'.format(float(likelihood)), 
             elapsed))
     return likelihood
 
@@ -420,10 +420,11 @@ def optimize_parameters(gfEvaluatorObj, data, config, verbose=True):
         with concurrent.futures.ProcessPoolExecutor(max_workers=config['num_cores']) as outer_pool:
             for idx, single_run in enumerate(tqdm(outer_pool.map(fp_map, run_list), desc="progress", total=len(run_list), disable=verbose)):
                 nlopt_results.append(single_run)
-    print(nlopt_results)
-    print(track_likelihoods)
-    print(track_values_unscaled)
-    return nlopt_results
+    # not sure whether this works when doing optimize on sim'ed data ...
+    
+    # one array with likelihoods + parameters should be the result
+    optimize_results_array = np.column_stack((track_likelihoods, track_values_unscaled))
+    return (nlopt_results, optimize_results_array)
 
 def optimize_parameters_old(gfEvaluatorObj, data, parameterObj, trackHistory=True, verbose=False, label='', param_combo_name=''):
 
