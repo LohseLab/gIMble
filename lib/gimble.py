@@ -2391,18 +2391,20 @@ class Store(object):
         optimize_meta['exitcodes'] = [exitcode['exitcode'] for exitcode in nlopt_results] 
         self._set_meta_and_data(config['key'], optimize_meta, optimize_results_array)
 
-    def _get_key(self, task=None, data_label=None, analysis_label=None):
+    def _get_key(self, task=None, data_label=None, analysis_label=None, replicate_label=None):
         '''
         task := ('makegrid', 'optimize', 'gridsearch')
         data_label := (sim_label, 'blocks', 'windows') 
         analysis_label := user-defined
         '''
-        if all([task, data_label, analysis_label]):
+        if all([task, data_label, analysis_label, replicate_label]):
+            return "%s/%s/%s/%s" % (task, data_label, analysis_label, replicate_label)
+        elif all([task, data_label, analysis_label]):
             return "%s/%s/%s" % (task, data_label, analysis_label)
         elif all([task, analysis_label]):
             return "%s/%s" % (task, analysis_label)
         else:
-            raise ValueError('[X] _get_key requires "task" and "analysis_label" (and "data_label")')
+            raise ValueError('[X] _get_key requires "task" and "analysis_label" (and "data_label", "replicate_label")')
 
     def _has_key(self, key):
         return (key in self.data)
