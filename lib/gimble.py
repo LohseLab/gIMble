@@ -337,25 +337,8 @@ def LOD_to_DOL(LOD):
     reshape_LOD = list(zip(*(d.values() for d in LOD)))
     return {k:np.array(v,dtype=np.float64) for k,v in zip(LOD[0].keys(),reshape_LOD)}
 
-def _return_np_type(entries ,counts=True):
-    if counts:
-        max_entry = np.max(entries) 
-        if max_entry>255:
-            if max_entry>65535:
-                return np.uint32
-            else:
-                return np.uint16
-        else:
-            return np.uint8
-    else:
-        max_entry = np.max(np.abs(entries)) 
-        if max_entry>127:
-            if max_entry>32767:
-                return np.int32
-            else:
-                return np.int16
-        else:
-            return np.int8
+def _return_np_type(x):
+    return np.min_scalar_type(np.sign(np.min(x)) * np.max(np.abs(x)))
 
 def get_config_pops(config):
     #check for consistent values in sync_pops
@@ -378,13 +361,14 @@ def get_config_pops(config):
     return config
 
 def config_to_meta(config, module):
-    '''Function extracts those fields from 'config' that are meant to be saved as ZARR meta, i.e
-        - key under which data/meta will be saved 
+    '''
+    - Function extracts those fields from 'config' that are meant to be saved as ZARR meta
+    - ZARR does not like np.int64 but float np.float64 is ok 
     '''
     meta = {}
     if module == 'makegrid':
         meta['key'] = config['key']
-        meta = {k:list(v) for k,v in config['parameters_expanded'].items()}
+        meta['grid_dict'] = {k:list(v) for k,v in config['parameters_expanded'].items()}
         meta['block_length'] = config['mu']['block_length']
         meta['mu'] = config['mu']['mu']
         meta['label'] = config['gimble']['label']
@@ -392,11 +376,16 @@ def config_to_meta(config, module):
         meta['reference_pop_id'] = config['populations']['reference_pop_id']      
         meta['sync_pop_ids'] = config['populations']['sync_pop_ids']
         meta['population_by_letter'] = config['populations']['population_by_letter']
-        meta['max_k'] = list(config['max_k'])
+        meta['max_k'] = list([float(k) for k in config['max_k']])
     if module == 'gridsearch':
-        meta['key'] = config['key']
-        #config_to_meta(config, 'gridsearch')
-        pass
+        meta['makegrid_key'] = config['makegrid_key']
+        meta['grid_dict'] = config['grid_dict']
+        meta['data_block_length'] = config['data_block_length']
+        meta['grid_block_length'] = config['grid_block_length'] 
+        meta['data_label'] = config['data_label']
+        meta['data_type'] = config['data_type']
+        meta['gridsearch_key_4D'] = config['gridsearch_key_4D']
+        meta['gridsearch_key_5D'] = config['gridsearch_key_5D']
     if module == 'optimize':
         meta['key'] = config['key']
         meta = {k:list(v) for k,v in config['parameters_expanded'].items()}
@@ -1304,10 +1293,8 @@ def tally_variation(variation, form='bsfs', max_k=None):
     try:
         mutuples_unique, counts = np.unique(mutuples, return_counts=True, axis=0)
         if form == 'bsfs':
-            #typing based on counts
             dtype = _return_np_type(counts)
-            out = np.zeros(tuple(max_k + 1), dtype)
-            #out = np.zeros((max_k + 1), np.uint64) # for having enough bins to place them
+            out = np.zeros(tuple(np.max(mutuples, axis=0) + 1), dtype) 
             out[tuple(mutuples_unique.T)] = counts
         elif form == 'tally':
             out = np.concatenate((counts.reshape(counts.shape[0], 1), mutuples_unique), axis=1)
@@ -1746,15 +1733,15 @@ def _gridsearch_sims_single(data, grids, fixed_param_grid, gridded_params, grid_
             df_fixed_param.to_csv(f'{label}_{name}_lnCL_dist.csv')
     return (df, df_fixed_param)
 
-def gridsearch_np(bsfs=None, grids=None):
-    '''returns 2d array of likelihoods of shape (windows, grids)'''
-    if grids is None or bsfs is None:
-        raise ValueError('gridsearch: needs grid and data')
-    grids_log = np.zeros(grids.shape)
-    np.log(grids, where=grids>0, out=grids_log)
-    if bsfs.ndim == 4:
-        return np.squeeze(np.apply_over_axes(np.sum, (bsfs * grids_log), axes=[-4,-3,-2,-1]))
-    return np.squeeze(np.apply_over_axes(np.sum, (bsfs[:, None] * grids_log), axes=[-4,-3,-2,-1]))
+def gridsearch_np(tally=None, grid=None):
+    '''returns 2d array of likelihoods of shape (windows, grid)'''
+    if grid is None or tally is None:
+        return None
+    grid_log = np.zeros(grid.shape)
+    np.log(grid, where=grid>0, out=grid_log)
+    if tally.ndim == 4:
+        return np.squeeze(np.apply_over_axes(np.sum, (tally * grid_log), axes=[-4,-3,-2,-1]))
+    return np.squeeze(np.apply_over_axes(np.sum, (tally[:, None] * grid_log), axes=[-4,-3,-2,-1]))
 
 class Store(object):
     # GIMBLE ... should be only class here (ideally)
@@ -1864,6 +1851,9 @@ class Store(object):
         seeds = np.random.randint(1, 2 ** 32, (config['parameters_grid_points'], config['simulate']['replicates'],2))   
         replicates = config['simulate']['chunks'] * config['simulate']['replicates']
         parameters_LOD = DOL_to_LOD(config['parameters_expanded'])
+        global_info_ancestry = {**config['simulate'],**config['mu']}
+        global_info_ancestry['max_k'] = tuple([int(v) for v in config['max_k']])
+        global_info_ancestry['parameters_fixed'] = config['parameters_fixed']
         for idx, param_combo_result in enumerate(
             lib.simulate.run_sims(
                 demographies, 
@@ -1874,11 +1864,8 @@ class Store(object):
                 threads
                 )
             ):
-            self._set_sims(param_combo_result, config['gimble']['label'], seeds[idx], parameters_LOD[idx], idx)
+            self._set_sims(global_info_ancestry, param_combo_result, config['gimble']['label'], seeds[idx], parameters_LOD[idx], idx)
         #we need particular subset of details to be saved
-        global_info_ancestry = {**config['simulate'],**config['mu']}
-        global_info_ancestry['max_k'] = tuple([int(v) for v in config['max_k']])
-        global_info_ancestry['parameters_fixed'] = config['parameters_fixed']
         self.data[f"sims/{config['gimble']['label']}"].attrs.put(global_info_ancestry)
         
         # needed for --grid flag check this
@@ -1891,13 +1878,14 @@ class Store(object):
             print(self._get_sims_report(width=100, label=config['gimble']['label']).__repr__().encode('utf-8')) #temp fix for my environment
         self.log_action('simulate', command)
 
-    def _set_sims(self, result, label, seeds, parameters, idx=0):
-        self.data.require_group(f'sims/{label}')
-        name = f"sims/{label}/parameter_combination_{idx}"
-        self.data.create_dataset(name, data=result, overwrite=True)
-        self.data[name].attrs.put(parameters)
-        self.data[name].attrs['ancestry_seeds'] = tuple([int(s) for s in seeds[:,0]]) 
-        self.data[name].attrs['mutation_seeds'] = tuple([int(s) for s in seeds[:,1]])
+    def _set_sims(self, global_info_ancestry, result, analysis_label, seeds, parameters, idx=0):
+        config = global_info_ancestry
+        #self.data.require_group(f'sims/{label}')
+        config['sim_key'] = self._get_key(task='simulate', analysis_label=analysis_label, parameter_label=idx)
+        config['ancestry_seeds'] = tuple([int(s) for s in seeds[:,0]]) 
+        config['mutation_seeds'] = tuple([int(s) for s in seeds[:,1]])
+        meta = config  #config_to_meta('simulate', config)
+        self._set_meta_and_data(meta=meta, data=result)
 
     def simulate_old(self, parameterObj):
         print("[#] Preflight...")
@@ -2105,36 +2093,45 @@ class Store(object):
     def gridsearch_preflight(self, data_label, grid_label, overwrite):
         config = {}
         # first deal with grid
-        grid_key = self._get_key(task='grid', analysis_label=grid_label)
-        grid = self._get_data(grid_key)
-        grid_meta = self._get_meta(grid_key)
-        print(grid_meta)
-
-        data_type = data_label if data_label in set(['blocks', 'windows']) else 'simulations'
-        if not self.has_stage(data_type):
-            sys.exit("[X] gimbleStore has no %r." % data_type)
+        config['makegrid_key'] = self._get_key(task='grid', analysis_label=grid_label)
+        grid = np.array(self._get_data(config['makegrid_key']), dtype=np.float64) # should be changed to call dtype as arg
+        grid_meta = self._get_meta(config['makegrid_key'])
+        config['grid_dict'] = grid_meta['grid_dict']
+        config['data_type'] = data_label if data_label in set(['blocks', 'windows']) else 'simulations'
+        if not self.has_stage(config['data_type']):
+            sys.exit("[X] gimbleStore has no %r." % config['data_type'])
+        config['gridsearch_key_4D'] = self._get_key(task='gridsearch', data_label=data_label, analysis_label=grid_label, mod_label='4D')
+        if not overwrite and self._has_key(config['gridsearch_key_4D']):
+            sys.exit("[X] Gridsearch results with grid label %r on data %r already exist. Use '-f' to replace." % (grid_label, data_label))
         # get data (this could be a separate function, also needed for gridsearch)
-        if data_type == 'simulations':
-            # block_length needs to be set here
+        # - data AND grid needs to be np.float64 (otherwise np.log does not work !!!)
+
+        if config['data_type'] == 'simulations':
+            # block_length needs to be checked
+            # should WARN that mutation_rate * block_length differs between sim and grid
             data = self._get_sims_bsfs(data_label) # data is an iterator across parameter combos
             config['data_label'] = data_label
-            meta_sims = self._get_meta('sims')
-            config['data_block_length'] = meta_sims['block_length'] # Does this exist?
+            config['data_block_length'] = self._get_meta('sims')['block_length'] # Does this exist?
+            tally_generator = data
+            tally_4D = None
+            config['gridsearch_key_4D']= None
+            tally_5D = None
+            config['gridsearch_key_5D'] = None
         else:
-            meta_blocks = self._get_meta('blocks')
-            config['data_block_length'] = meta_blocks['length']
-            config['data_label'] = data_type
+            config['data_block_length'] = self._get_meta('blocks')['length']
+            config['data_label'] = config['data_type']
             data = tally_variation(
-                self._get_variation(
-                    data_type=data_type, 
-                    population_by_letter=grid_meta['population_by_letter'],  # grid needs to be parsed first to know polarisation
-                    sample_sets="X"), 
-                form='bsfs', max_k=config['max_k'])
-        gridsearch_key = self._get_key(task='gridsearch', data_label=data_label, analysis_label=grid_label)
-        # error if key clash
-        if not overwrite and self._has_key(gridsearch_key):
-            sys.exit("[X] Gridsearch results with grid label %r on data %r already exist. Use '-f' to replace." % (grid_label, data_label))
-        config['gridsearch_key'] = gridsearch_key
+                self._get_variation(data_type=config['data_type'], population_by_letter=grid_meta['population_by_letter'], sample_sets="X"), 
+                form='bsfs', max_k=np.array(grid_meta['max_k'], dtype=np.int64))
+            if data.ndim == 4:
+                tally_4D = data
+                config['gridsearch_key_5D'] = None
+                tally_5D = None
+            if data.ndim == 5:
+                tally_4D = data.sum(axis=0)
+                config['gridsearch_key_5D'] = self._get_key(task='gridsearch', data_label=data_label, analysis_label=grid_label, mod_label='5D')
+                tally_5D = data
+            tally_generator = None
         config['grid_block_length'] = grid_meta['block_length']
         # checking whether block_length in data and grid are compatible
         if not config['data_block_length'] == config['grid_block_length']:
@@ -2144,81 +2141,38 @@ class Store(object):
                 grid_label, 
                 config['grid_block_length']
                 ))
-        return (config, data, grid)
+        return (config, tally_4D, tally_5D, tally_generator, grid)
+
+    def save_gridsearch(self, config, gridsearch_4D_result, gridsearch_5D_result, overwrite):
+        gridsearch_meta = config_to_meta(config, 'gridsearch')
+        self._set_meta_and_data(config['gridsearch_key_4D'], gridsearch_meta, gridsearch_4D_result)
+        if not gridsearch_5D_result is None:
+            self._set_meta_and_data(config['gridsearch_key_5D'], gridsearch_meta, gridsearch_5D_result)
+        print("[+] Saved gridsearch results.")
 
     def gridsearch(self, data_label, grid_label, overwrite):
-        '''grids.shape = (gridpoints, m1_max+1, m2_max+1, m3_max+1, m4_max+1)
-
-        [To Do] 
-        - DRL: let's refactor this once simulate-gridsearch is integrated into this function
-            - each data_type should declare lncls and best_idx, these are then used at the end of the function to print 
-        - DRL: ask Konrad whether bSFS or sum-wbSFS should be used in block-gridsearch 
         '''
-        print("[#] Gridsearching! ...")
-        # get grid
-        config, data, grid = self.gridsearch_preflight(data_label, grid_label, overwrite)
-        sys.exit()
-        if parameterObj.data_type == 'windows':
-            # [windows]
-            print('[+] Getting wbSFSs ...')
-            bsfs_windows_clipped = self.get_bsfs(
-                data_type='windows', 
-                population_by_letter=parameterObj.config['population_by_letter'], 
-                sample_sets='X', 
-                kmax_by_mutype=parameterObj.config['k_max'])
-            lncls_windows = gridsearch_np(bsfs=bsfs_windows_clipped, grids=grids)
-            self._set_lncls(unique_hash, lncls_windows, lncls_type='windows', overwrite=parameterObj.overwrite)
-            # gridsearch [global]
-            bsfs_windows_clipped_summed = sum_wbsfs(bsfs_windows_clipped)
-            lncls_global = gridsearch_np(bsfs=bsfs_windows_clipped_summed, grids=grids)
-            self._set_lncls(unique_hash, lncls_global, lncls_type='global', overwrite=parameterObj.overwrite)
-            best_idx = np.argmax(lncls_global, axis=0)
-            print('[+] Best grid point (based on bSFS within windows): %s' % lncls_global[best_idx])
-            #extract single best paramcombo
-            best_value = [v[best_idx] for v in grid_meta_dict.values()]
-            print('[+] \t %s' % "; ".join(["%s = %s" % (k, v) for k, v in zip(grid_meta_dict.keys(), best_value)]))
-            #print('[+] \t %s' % "; ".join(["%s = %s" % (k, v) for k, v in grid_meta_dict[str(best_idx)].items()]))
-            self._write_gridsearch_bed(parameterObj=parameterObj, lncls=lncls_windows, best_idx=best_idx, grid_meta_dict=grid_meta_dict)
-        elif parameterObj.data_type == 'simulate':
-            self._gridsearch_sims(parameterObj, grids, grid_meta_dict)
-        elif parameterObj.data_type == 'blocks':
-            # [blocks]
-            print('[+] Getting bSFSs ...')
-            bsfs_clipped = self.get_bsfs(
-                data_type='blocks', 
-                population_by_letter=parameterObj.config['population_by_letter'], 
-                sample_sets='X', 
-                kmax_by_mutype=parameterObj.config['k_max'])
-            lncls_blocks = gridsearch_np(bsfs=bsfs_clipped, grids=grids)
-            self._set_lncls(unique_hash, lncls_blocks, lncls_type='blocks', overwrite=parameterObj.overwrite)
-            best_idx = np.argmax(lncls_blocks, axis=0)
-            best_value = [v[best_idx] for v in grid_meta_dict.values()]
-            print('[+] Best grid point (based on bSFS): %s' % lncls_blocks[best_idx])
-            print('[+] \t %s' % "; ".join(["%s = %s" % (k, v) for k, v in zip(grid_meta_dict.keys(), best_value)]))
-            #print('[+] \t %s' % "; ".join(["%s = %s" % (k, v) for k, v in grid_meta_dict[str(best_idx)].items()]))
-            print('[+] Warning: gridsearch on bSFS is still experimental!')
+        # get tally and grid
+        # if 'blocks' : tally_4D = block tally 
+        #               tally_5D = None
+        # if 'windows': tally_4D = blocks in windows tally
+        #               tally_5D = windows tally
+        # if 'sims'   : tally_4D = blocks in replicates tally
+        #               tally_5D = replicates tally
+        '''
+        print("[+] Gathering data for gridsearch ...")
+        config, tally_4D, tally_5D, tally_generator, grid = self.gridsearch_preflight(data_label, grid_label, overwrite)
+        if tally_generator is None:
+            print("[+] Performing global gridsearch on data type %r ..." % (config['data_type']))
+            gridsearch_4D_result = gridsearch_np(tally=tally_4D, grid=grid)
+            gridsearch_4D_result_best_idx = np.argmax(gridsearch_4D_result, axis=0)
+            print('[+] \t Highest scoring gridpoint %s' % "; ".join(
+                ["%s = %s" % (parameter, values[gridsearch_4D_result_best_idx]) for parameter, values in config['grid_dict'].items()]))
+            gridsearch_5D_result = gridsearch_np(tally=tally_5D, grid=grid)
+            self.save_gridsearch(config, gridsearch_4D_result, gridsearch_5D_result, overwrite)
         else:
-            raise ValueError("Datatype other than windows, blocks or simulate was specified using gridsearch. Should have been caught earlier.")
-
-    # def _set_lncls(self, lncls, lncls_type, config, overwrite=False):
-    #     '''lncls_type := 'global' or 'windows' or 'sims_label'''
-    #     key = "%s/%s" % (config['gimble']['label'], lncls_type)
-    #     lncls_meta = config_to_meta(config, 'gridsearch')
-    #     dataset = self.data['lncls'].create_dataset(key, data=lncls, overwrite=overwrite)
-    #     dataset.attrs.put(lncls_meta)
-    #     # grid_meta = {k:list(v) for k,v in config['parameters_expanded'].items()} ???
-    #     # dataset.attrs.put(grid_meta) #using dict of list to save parameters      ???
-
-    # def _has_lncls(self, label, lncls_type):
-    #     return ("lncls/%s/%s" % (label, lncls_type) in self.data)
-
-    # def _get_lncls(self, label, lncls_type):
-    #     if self._has_lncls(label, lncls_type):
-    #         key = "lncls/%s/%s" % (label, lncls_type)
-    #     else:
-    #         raise ValueError('[X] No lncls found for key %r' % key)
-    #     lncls = np.array(self.data[key], dtype=np.float64)
-    #     return lncls
+            for x in tally_generator:
+                self.save_gridsearch(config, gridsearch_4D_result, gridsearch_5D_result, overwrite)
 
     def gridsearch_old(self, data_label, grid_label, overwrite=False):
         '''grids.shape = (gridpoints, m1_max+1, m2_max+1, m3_max+1, m4_max+1)
@@ -2391,20 +2345,20 @@ class Store(object):
         optimize_meta['exitcodes'] = [exitcode['exitcode'] for exitcode in nlopt_results] 
         self._set_meta_and_data(config['key'], optimize_meta, optimize_results_array)
 
-    def _get_key(self, task=None, data_label=None, analysis_label=None, replicate_label=None):
-        '''
-        task := ('makegrid', 'optimize', 'gridsearch')
-        data_label := (sim_label, 'blocks', 'windows') 
-        analysis_label := user-defined
-        '''
-        if all([task, data_label, analysis_label, replicate_label]):
-            return "%s/%s/%s/%s" % (task, data_label, analysis_label, replicate_label)
-        elif all([task, data_label, analysis_label]):
-            return "%s/%s/%s" % (task, data_label, analysis_label)
-        elif all([task, analysis_label]):
+    def _get_key(self, task=None, data_label=None, analysis_label=None, parameter_label=None, mod_label=None):
+        if task == 'simulation':
+            return "%s/%s/%s" % (task, analysis_label, parameter_label)
+        if task == 'grid':
             return "%s/%s" % (task, analysis_label)
-        else:
-            raise ValueError('[X] _get_key requires "task" and "analysis_label" (and "data_label", "replicate_label")')
+        if task == 'optimize':
+            if parameter_label:
+                return "%s/%s/%s/%s" % (task, data_label, analysis_label, parameter_label)
+            return "%s/%s/%s/%s" % (task, data_label, analysis_label, parameter_label)
+        if task == 'gridsearch':
+            if parameter_label:
+                return "%s/%s/%s/%s/%s" % (task, data_label, parameter_label, analysis_label, mod_label)
+            return "%s/%s/%s/%s" % (task, data_label, analysis_label, mod_label)
+        return None
 
     def _has_key(self, key):
         return (key in self.data)
@@ -2413,9 +2367,16 @@ class Store(object):
         self.data.create_dataset(key, data=array, overwrite=True)
         self.data[key].attrs.put(meta)
         
-    def _get_data(self, key):
+    def _get_data(self, key, dtype=None):
         if self._has_key(key):
-            return self.data[key]
+            data = self.data[key]
+            if dtype is None:
+                return self.data[key]
+            else:    
+                if np.can_cast(data.dtype, dtype):
+                    return self.data[key]
+                else:
+                    raise ValueError("Can't cast %r to %r" % (data.dtype, dtype))
         return None
 
     def _get_meta(self, key):
@@ -2501,13 +2462,15 @@ class Store(object):
         # print(self.data.tree())
         config = self._preflight_makegrid(config, overwrite)
         print("[+] Grid of %s grid points will be prepared..." % config['parameters_grid_points'])
+        print(config)
         gf = lib.math.config_to_gf(config)
         print('[+] Generating equations...')
         gfEvaluatorObj = togimble.gfEvaluator(gf, config['max_k'], MUTYPES, config['gimble']['precision'], exclude=[(2,3),])
         print('[+] Equations for model %r have been generated.' % config['gimble']['model'])
         print(config['parameters_expanded'])
-        #print("self._get_grid(grid)", self._get_grid(config['gimble']['label']))
         #sys.exit(1)
+        #print('[++++] HACK not generating new grid for debug convenience ...')
+        #grid = self._get_data(config['key'])
         grid = lib.math.new_calculate_all_ETPs(
             gfEvaluatorObj, 
             config['parameters_expanded'], 
