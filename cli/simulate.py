@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """usage: gIMble simulate                   [-z DIR | -o DIR] -c FILE [-t INT]
-                                            [(-w STR [--fixed STR])] [-h|--help]
+                                            [(-w STR [--fixed STR])] [-f] [-h|--help]
                                             
     Options:
         -h --help                                   show this
@@ -10,20 +10,15 @@
         -o, --outprefix DIR                         Prefix to make new zarr store
         -c, --config_file FILE                      Simulate config file (*.ini) 
         -t, --threads INT                           Threads [default: 1]
+        -f, --overwrite                             Overwrite results in GimbleStore
         -w, --window_wise_bootstrap STR             Label of lncls grid to perform window-wise parametric bootstrap on                 
         --fixed STR                                 Parameter to fix to global optimum when performing window-wise parametric bootstrap
 """
-import pathlib
-import collections
+
 from timeit import default_timer as timer
 from docopt import docopt
-import sys, os
 import lib.gimble
 import lib.simulate
-import numpy as np
-import zarr
-import pandas as pd
-import itertools
 
 '''
 # why are these needed?
@@ -49,6 +44,7 @@ class SimulateParameterObj(lib.gimble.ParameterObj):
         self.prefix = self._get_prefix(args["--outprefix"])
         self.threads = self._get_int(args["--threads"])
         self.sim_grid = args["--window_wise_bootstrap"]
+        self.overwrite = args['--overwrite']
         self.config = lib.gimble.load_config(
             self.config_file, 
             self._MODULE, 
@@ -59,7 +55,6 @@ def main(params):
     try:
         start_time = timer()
         args = docopt(__doc__)
-        print(args)
         parameterObj = SimulateParameterObj(params, args)
         if parameterObj.zstore:
             gimble_store = lib.gimble.Store(path=parameterObj.zstore)
@@ -71,7 +66,7 @@ def main(params):
         gimble_store.simulate(
             config=parameterObj.config,
             threads=parameterObj.threads,
-            command=parameterObj._get_cmd(), 
+            overwrite=parameterObj.overwrite
             )
         print("[*] Total runtime: %.3fs" % (timer() - start_time))
     except KeyboardInterrupt:

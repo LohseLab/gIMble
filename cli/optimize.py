@@ -8,7 +8,7 @@ usage: gimble optimize                  -z FILE -c FILE (--blocks [-p INT] | -s 
 
     Data
         -z, --zarr_file FILE                        ZARR datastore
-        -d, --blocks                                Optimize based on blocks 
+        -b, --blocks                                Optimize based on blocks 
         -w, --windows                               Optimize based on windows (TBD)
         -s, --simulations LABEL                     Optimize based on simulations
 
