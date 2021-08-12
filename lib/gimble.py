@@ -110,63 +110,66 @@ class ReportObj(object):
         return "\n".join(self.out)
 
 # SIGNS = {'T': '├──', 'F': '└──', 'S': '    ', 'P': '│   ', 'B': '───'}
-META_TEMPLATE_BY_STAGE = {
-            'seqs': {
-                'vcf_f': None, 
-                'sample_f': None, 
-                'genome_f': None, 
-                'bed_f': None,
-                'seq_names': [], 
-                'seq_lengths': [], 
-                'seq_n50': 0,
-                'samples': [], 
-                'populations': [], 
-                'population_ids': [], 
-                'spacing' : 16,
-                'sample_sets': [],
-                'sample_sets_intra_A': [],
-                'sample_sets_intra_B': [],
-                'sample_sets_inter': [],
-                'population_by_sample': {},
-                'population_by_letter': {},
-                'variants_counts': [], 
-                'variants_idx_by_sample': {}, 
-                'variants_counts_hom_ref': [],
-                'variants_counts_hom_alt': [],
-                'variants_counts_het': [],
-                'variants_counts_missing': [],
-                'intervals_count': 0, 
-                'intervals_span': 0, 
-                'intervals_span_sample': [],
-                'intervals_idx_by_sample': {},
-                'mutypes_count': 4},
-            'blocks': {    
-                'length': 0, 
-                'span': 0, 
-                'gap_run': 0,
-                'max_missing': 0, 
-                'max_multiallelic': 0, 
-                'count_by_sample_set_idx': {},
-                'count_raw_by_sample_set_idx': {},
 
-                'maxk_by_mutype': {},
-            },
-            'windows' : {
-                'size': 0, 
-                'step': 0, 
-                'count': 0,
-            },
-            'sims': {
-            },
-            'lncls': {
-            },
-            'grids': {
-            },
-            'bsfs': {
-                'blocks' : {},
-                'windows' : {},
-            }
-        }
+SPACING = 16
+
+#META_TEMPLATE_BY_STAGE = {
+#            'seqs': {
+#                'vcf_f': None, 
+#                'sample_f': None, 
+#                'genome_f': None, 
+#                'bed_f': None,
+#                'seq_names': [], 
+#                'seq_lengths': [], 
+#                'seq_n50': 0,
+#                'samples': [], 
+#                'populations': [], 
+#                'population_ids': [], 
+#                'spacing' : 16,
+#                'sample_sets': [],
+#                'sample_sets_intra_A': [],
+#                'sample_sets_intra_B': [],
+#                'sample_sets_inter': [],
+#                'population_by_sample': {},
+#                'population_by_letter': {},
+#                'variants_counts': [], 
+#                'variants_idx_by_sample': {}, 
+#                'variants_counts_hom_ref': [],
+#                'variants_counts_hom_alt': [],
+#                'variants_counts_het': [],
+#                'variants_counts_missing': [],
+#                'intervals_count': 0, 
+#                'intervals_span': 0, 
+#                'intervals_span_sample': [],
+#                'intervals_idx_by_sample': {},
+#                'mutypes_count': 4},
+#            'blocks': {    
+#                'length': 0, 
+#                'span': 0, 
+#                'gap_run': 0,
+#                'max_missing': 0, 
+#                'max_multiallelic': 0, 
+#                'count_by_sample_set_idx': {},
+#                'count_raw_by_sample_set_idx': {},
+#
+#                'maxk_by_mutype': {},
+#            },
+#            'windows' : {
+#                'size': 0, 
+#                'step': 0, 
+#                'count': 0,
+#            },
+#            # 'sims': {
+#            # },
+#            # 'lncls': {
+#            # },
+#            # 'grids': {
+#            # },
+#            'bsfs': {
+#                'blocks' : {},
+#                'windows' : {},
+#            }
+#        }
 
 MUTYPES = ['m_1', 'm_2', 'm_3', 'm_4']
 
@@ -239,7 +242,7 @@ def make_ini_configparser(version, task, model, label):
     config.set('gimble', 'precision', precision)
     # populations
     # do only makegrid and optimize need populations?
-    if task == 'makegrid' or task == 'optimize' or task == 'simulate':
+    if task == 'makegrid' or task == 'optimize':
         config.add_section('populations')
         config.set('populations', 'pop_ids', string_pop_ids)
         if task != 'simulate': 
@@ -263,9 +266,9 @@ def make_ini_configparser(version, task, model, label):
     # is this all simulate needs?
     if task == 'simulate':
         config.add_section('simulate')
-        #config.set('simulate', 'pop_ids', string_pop_ids)
-        #config.set('simulate', '# Pick a reference population: %s' % string_pop_ids)
-        #config.set('simulate', 'reference_pop_id', "")
+        config.set('simulate', 'pop_ids', string_pop_ids)
+        config.set('simulate', '# Pick a reference population: %s' % string_pop_ids)
+        config.set('simulate', 'reference_pop_id', "")
         config.set('simulate', '# Ploidy of organism')
         config.set('simulate', 'ploidy', '2')
         config.set('simulate', '# Blocks')
@@ -290,9 +293,10 @@ def make_ini_configparser(version, task, model, label):
     config.set('mu', '# mutation rate (in mutations/site/generation, required)')
     # [To Do] figure out how to deal with 'no mutation-rate' ... no-scaling
     config.set('mu', 'mu', "")
-    config.set('mu', '# block_length')
-    config.set('mu', '# must be identical to block_length of the data one wants to analyse with grid')
-    config.set('mu', 'block_length', "")
+    if not task == 'simulate':
+        config.set('mu', '# block_length')
+        config.set('mu', '# must be identical to block_length of the data one wants to analyse with grid')
+        config.set('mu', 'block_length', "")
 
     # parameters
     config.add_section('parameters')
@@ -360,13 +364,28 @@ def get_config_pops(config):
             }
     return config
 
-def config_to_meta(config, module):
+def config_to_meta(config, task):
     '''
     - Function extracts those fields from 'config' that are meant to be saved as ZARR meta
     - ZARR does not like np.int64 but float np.float64 is ok 
     '''
     meta = {}
-    if module == 'makegrid':
+
+    if task == 'simulate':
+        meta['max_idx'] = config['idx']
+        meta['max_k'] = tuple([int(v) for v in config['max_k']])
+        meta['replicates'] = config['replicates']
+        meta['parameters_LOD'] = config['parameters_LOD']
+        meta['parameters'] = config['parameters']
+    if task == 'simulate_instance':
+        meta['max_k'] = tuple([int(v) for v in config['max_k']])
+        meta['idx'] = config['idx']
+        meta['ancestry_seeds'] = tuple([int(s) for s in config['seeds'][config['idx']][:,0]]) 
+        meta['mutation_seeds'] = tuple([int(s) for s in config['seeds'][config['idx']][:,1]])
+        meta['replicates'] = config['replicates']
+        meta['parameters_LOD'] = config['parameters_LOD']
+        meta['parameters'] = config['parameters']
+    if task == 'makegrid':
         meta['key'] = config['key']
         meta['grid_dict'] = {k:list(v) for k,v in config['parameters_expanded'].items()}
         meta['block_length'] = config['mu']['block_length']
@@ -377,16 +396,19 @@ def config_to_meta(config, module):
         meta['sync_pop_ids'] = config['populations']['sync_pop_ids']
         meta['population_by_letter'] = config['populations']['population_by_letter']
         meta['max_k'] = list([float(k) for k in config['max_k']])
-    if module == 'gridsearch':
+    if task == 'gridsearch':
         meta['makegrid_key'] = config['makegrid_key']
+        meta['data_key'] = config['data_key']
+        meta['gridsearch_key'] = config['gridsearch_key']
         meta['grid_dict'] = config['grid_dict']
         meta['data_block_length'] = config['data_block_length']
         meta['grid_block_length'] = config['grid_block_length'] 
         meta['data_label'] = config['data_label']
         meta['data_type'] = config['data_type']
-        meta['gridsearch_key_4D'] = config['gridsearch_key_4D']
-        meta['gridsearch_key_5D'] = config['gridsearch_key_5D']
-    if module == 'optimize':
+        meta['gridsearch_key_4D'] = config.get('gridsearch_key_4D', None)
+        meta['gridsearch_key_5D'] = config.get('gridsearch_key_5D', None)
+        meta['gridsearch_instance_keys'] = config['gridsearch_key_generator'] if 'gridsearch_key_generator' in config else None
+    if task == 'optimize':
         meta['key'] = config['key']
         meta = {k:list(v) for k,v in config['parameters_expanded'].items()}
         meta['block_length'] = config['block_length']
@@ -785,6 +807,7 @@ def get_config_schema(module):
             'type': 'dict', 
             'schema': {
                 'pop_ids': {'required': True, 'empty':False, 'type': 'list', 'coerce': 'pop_ids'},
+                'reference_pop_id': {'required':True, 'empty':False, 'type': 'string', 'coerce': 'reference_pop_id'},
                 'sync_pop_ids': {'required':False, 'empty': True, 'type': 'list', 'coerce': 'sync_pop_ids'},
                 }}
     schema['k_max'] = {
@@ -917,7 +940,7 @@ def parse_intervals(bed_f, target_sequences, target_samples):
     target_samples_in_df = ordered_intersect(a=samples_in_df, b=target_samples, order='a')
     target_samples_not_in_df = set(target_samples).difference(set(target_samples_in_df))
     if target_samples_not_in_df:
-         sys.exit("[X] Samples is SAMPLE_FILE not found in BED_FILE: %s" % ", ".join(list(target_samples_not_in_df)))
+         sys.exit("[X] Samples in SAMPLE_FILE not found in BED_FILE: %s" % ", ".join(list(target_samples_not_in_df)))
     non_target_samples_in_df = set(target_samples).difference(set(samples_in_df))
     intervals_df = intervals_df.drop(non_target_samples_in_df, axis=1)
     # Add length column
@@ -1737,6 +1760,7 @@ def gridsearch_np(tally=None, grid=None):
     '''returns 2d array of likelihoods of shape (windows, grid)'''
     if grid is None or tally is None:
         return None
+    tally = tally if isinstance(tally, np.ndarray) else np.array(tally)
     grid_log = np.zeros(grid.shape)
     np.log(grid, where=grid>0, out=grid_log)
     if tally.ndim == 4:
@@ -1744,24 +1768,16 @@ def gridsearch_np(tally=None, grid=None):
     return np.squeeze(np.apply_over_axes(np.sum, (tally[:, None] * grid_log), axes=[-4,-3,-2,-1]))
 
 class Store(object):
-    # GIMBLE ... should be only class here (ideally)
     def __init__(self, prefix=None, path=None, create=False, overwrite=False):
         self.prefix = prefix if not prefix is None else str(pathlib.Path(path).resolve().stem)
         self.path = path if not path is None else "%s.z" % prefix
         self.data = self._init_store(create, overwrite)
-        if create:
-            self._init_meta(overwrite=overwrite)
 
     def tree(self):
         print(self.data.tree())
     
     def log_action(self, module, command):
         self.data.attrs[module] = command
-
-    def log_stage(self, parameterObj):
-        warnings.warn("lib.gimble.log_stage() is deprecated. Use lib.gimble.log_action()...", DeprecationWarning)
-        '''only remembers last command per module'''
-        self.data.attrs[parameterObj._MODULE] = parameterObj._get_cmd()
     
     def get_stage(self, stage):
         return self.data.attrs[stage]
@@ -1773,23 +1789,157 @@ class Store(object):
         print("[#] Preparing store...")
         self._init_meta(overwrite=True)
 
-    def setup_debug(self, parameterObj):
-        print("[#] Preparing store...")
-        self._init_meta(overwrite=True)
-        self._set_bsfs(parameterObj)
-        # inference can be done on ETP-counts
-
-    def parse(self, genome_f=None, sample_f=None, bed_f=None, vcf_f=None):
-        print("[#] Preparing store...")
-        self._init_meta(overwrite=True)
+    def measure(self, genome_f=None, sample_f=None, bed_f=None, vcf_f=None):
+        #measure_key = self._get_key(task='measure')
+        #self._set_meta(measure_key)
+        measure_key = "seqs/"
+        self._set_meta(measure_key)
         print("[#] Processing GENOME_FILE %r." % genome_f)
-        self._set_sequences(genome_f)
+        self._read_sequences(measure_key, genome_f)
         print("[#] Processing SAMPLE_FILE %r." % sample_f)
-        self._set_samples(sample_f)
+        self._read_samples(measure_key, sample_f)
         print("[#] Processing BED_FILE %r." % bed_f)
-        self._make_intervals(bed_f)
+        self._read_intervals(measure_key, bed_f)
         print("[#] Processing VCF_FILE %r." % vcf_f)
-        self._set_variants(vcf_f)
+        self._read_variants(measure_key, vcf_f)
+        print(self.data.tree())
+
+    def _read_sequences(self, measure_key, genome_f):
+        sequences_df = parse_csv(
+            csv_f=genome_f, 
+            sep="\t", 
+            usecols=[0,1], 
+            dtype={'sequence_id': 'category', 'sequence_length': 'int64'}, 
+            header=None)
+        #meta = self._get_meta(measure_key)
+        meta = self._get_meta('seqs')
+        meta['seq_names'] = sequences_df['sequence_id'].to_list()
+        meta['seq_lengths'] = sequences_df['sequence_length'].to_list()
+        meta['seq_n50'] = get_n50_from_lengths(meta['seq_lengths'])
+        meta['genome_f'] = genome_f
+
+    def _read_samples(self, measure_key, sample_f):
+        samples_df = parse_csv(
+            csv_f=sample_f, 
+            sep=",", 
+            usecols=[0,1], 
+            dtype={'samples': 'object', 'populations': 'category'}, 
+            header=None)
+        #meta = self._get_meta(measure_key)
+        meta = self._get_meta('seqs')
+        meta['samples'] = samples_df['samples'].to_list()
+        meta['populations'] = samples_df['populations'].to_list()
+        meta['population_ids'] = sorted(set(samples_df['populations'].to_list()))
+        meta['population_by_letter'] = {letter: population_id for population_id, letter in zip(meta['population_ids'], string.ascii_uppercase)}
+        meta['population_by_sample'] = {sample: population for sample, population in zip(meta['samples'], meta['populations'])}
+        meta['sample_sets'] = [
+            tuple(sorted(x, key=(meta['population_by_sample'].get if meta['population_by_sample'][x[0]] != meta['population_by_sample'][x[1]] else None))) 
+                for x in itertools.combinations(meta['population_by_sample'].keys(), 2)]
+        meta['sample_sets_inter'] = [
+            False if len(set([meta['population_by_sample'][sample] for sample in sample_set])) == 1 else True 
+                for sample_set in meta['sample_sets']]
+        meta['sample_sets_intra_A'] = [
+            all([meta['population_by_sample'][sample] == meta['population_ids'][0] for sample in sample_set]) for sample_set in meta['sample_sets']]
+        meta['sample_sets_intra_B'] = [
+            all([meta['population_by_sample'][sample] == meta['population_ids'][1] for sample in sample_set]) for sample_set in meta['sample_sets']]
+        meta['sample_f'] = sample_f
+        # ---> reports
+        #longest_sample_string = max([len(", ".join(sample_set)) for sample_set in meta['sample_sets']]) + 2
+        #meta['spacing'] = longest_sample_string if longest_sample_string > meta['spacing'] else meta['spacing']
+
+    def _read_variants(self, measure_key, vcf_f):
+        meta = self._get_meta(measure_key)
+        seq_names = meta['seq_names']
+        samples = meta['samples']
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            gt_key, pos_key, sample_key = 'calldata/GT', 'variants/POS', 'samples'
+            samples_gt_order = allel.read_vcf(vcf_f, fields=[sample_key])[sample_key]
+            query_samples = ordered_intersect(a=samples_gt_order, b=samples, order='a')
+            # Check if all samples were found
+            if set(query_samples) != set(samples):
+                sys.exit("[X] The following samples in SAMPLE_FILE were not found in VCF_FILE: %s" % (
+                    ", ".join(list(set(samples).difference(set(query_samples))))
+                    ))
+            # Set up counts arrays
+            count_shape = (len(meta['seq_names']), len(query_samples))
+            count_records = np.zeros(count_shape[0], dtype=np.int64)
+            count_called = np.zeros(count_shape, dtype=np.int64)
+            count_hom_ref = np.zeros(count_shape, dtype=np.int64)
+            count_hom_alt = np.zeros(count_shape, dtype=np.int64)
+            count_het = np.zeros(count_shape, dtype=np.int64)
+            count_missing = np.zeros(count_shape, dtype=np.int64)
+            for idx, seq_name in tqdm(enumerate(seq_names), total=len(seq_names), desc="[%] Reading variants", ncols=100):
+                vcf_data = allel.read_vcf(vcf_f, region=seq_name, samples=query_samples, fields=[gt_key, pos_key])
+                if vcf_data:
+                    # genotypes
+                    gt_matrix_raw = vcf_data[gt_key]
+                    # counts
+                    intervals = self._get_interval_coordinates(seq_name=seq_name)
+                    sites = intervals_to_sites(intervals)
+                    if sites is not None:
+                        # positions in VCF
+                        pos_array_raw = check_unique_pos((vcf_data[pos_key] - 1)) # port to BED (0-based) coordinates
+                        # intersection of VCF and BED intervals
+                        interval_mask = np.isin(pos_array_raw, sites, assume_unique=True)
+                        gt_matrix = gt_matrix_raw[interval_mask]
+                        count_records[idx] = gt_matrix.shape[0]
+                        pos_array = pos_array_raw[interval_mask]
+                        sa_genotype_matrix = allel.GenotypeArray(gt_matrix)
+                        count_called[idx,:] = sa_genotype_matrix.count_called(axis=0)
+                        count_hom_ref[idx,:] = sa_genotype_matrix.count_hom_ref(axis=0)
+                        count_hom_alt[idx,:] = sa_genotype_matrix.count_hom_alt(axis=0)
+                        count_het[idx,:] = sa_genotype_matrix.count_het(axis=0)
+                        count_missing[idx,:] = sa_genotype_matrix.count_missing(axis=0)
+                        self._save_variants(seq_name, pos_array, gt_matrix)        
+            meta['variants_idx_by_sample'] = {query_sample: idx for idx, query_sample in enumerate(query_samples)}
+        meta['vcf_f'] = vcf_f
+        meta['variants_counts'] = int(np.sum(count_records)) # ZARR JSON encoder does not like numpy dtypes
+        meta['variants_counts_called'] = [int(x) for x in np.sum(count_called, axis=0)] # ZARR JSON encoder does not like numpy dtypes
+        meta['variants_counts_hom_ref'] = [int(x) for x in np.sum(count_hom_ref, axis=0)] # ZARR JSON encoder does not like numpy dtypes
+        meta['variants_counts_hom_alt'] = [int(x) for x in np.sum(count_hom_alt, axis=0)] # ZARR JSON encoder does not like numpy dtypes
+        meta['variants_counts_het'] = [int(x) for x in np.sum(count_het, axis=0)] # ZARR JSON encoder does not like numpy dtypes
+        meta['variants_counts_missing'] = [int(x) for x in np.sum(count_missing, axis=0)] # ZARR JSON encoder does not like numpy dtypes
+        # QC plots 
+
+    def _save_variants(self, sequence, pos_array, gt_matrix):
+        self.data.create_dataset("seqs/%s/variants/pos" % sequence, data=pos_array, dtype=np.int64)
+        self.data.create_dataset("seqs/%s/variants/matrix" % sequence, data=gt_matrix, dtype=np.int64)
+
+    def _save_variants_meta(self):
+        pass
+
+    def _read_intervals(self, measure_key, bed_f):
+        meta = self._get_meta(measure_key)
+        target_sequences, target_samples = set(meta['seq_names']), set(meta['samples'])
+        intervals_df = parse_intervals(bed_f, target_sequences, target_samples)
+        valid_sequences = intervals_df['sequence'].unique() 
+        intervals_idx_by_sample = {sample: idx for idx, sample in enumerate(intervals_df.columns[3:-1])}
+        intervals_count = len(intervals_df.index)
+        intervals_span = int(intervals_df['length'].sum())
+        count_bases_samples = np.zeros((len(valid_sequences), len(target_samples)), dtype=np.int64)
+        for idx, (sequence, _df) in tqdm(enumerate(intervals_df.groupby(['sequence'], observed=True)), total=len(valid_sequences), desc="[%] Reading intervals", ncols=100):
+            interval_matrix = _df[target_samples].to_numpy()
+            starts = _df['start'].to_numpy()
+            ends = _df['end'].to_numpy()
+            #interval_matrix_key = self._get_key(task='measure', data_label=intervals, seq_label=sequence,)
+            self._set_intervals(sequence, interval_matrix, starts, ends)
+            length_matrix = interval_matrix * _df['length'].to_numpy().reshape(-1, 1)
+            count_bases_samples[idx,:] = np.sum(length_matrix, axis=0)
+        self._set_intervals_meta(bed_f, intervals_idx_by_sample, count_bases_samples, intervals_count, intervals_span)
+
+    def _set_intervals(self, sequence, interval_matrix, starts, ends):
+        self.data.create_dataset("seqs/%s/intervals/matrix" % sequence, data=interval_matrix)
+        self.data.create_dataset("seqs/%s/intervals/starts" % sequence, data=starts)
+        self.data.create_dataset("seqs/%s/intervals/ends" % sequence, data=ends)
+
+    def _set_intervals_meta(self, bed_f, intervals_idx_by_sample, count_bases_samples, intervals_count, intervals_span):
+        meta_intervals = self._get_meta('seqs')
+        meta_intervals['bed_f'] = bed_f
+        meta_intervals['intervals_idx_by_sample'] = intervals_idx_by_sample
+        meta_intervals['intervals_span_sample'] = [int(x) for x in np.sum(count_bases_samples, axis=0)] # JSON encoder does not like numpy dtypes   
+        meta_intervals['intervals_count'] = intervals_count
+        meta_intervals['intervals_span'] = intervals_span
 
     def blocks(self, block_length=64, block_span=128, block_max_multiallelic=3, block_max_missing=3, overwrite=False):
         self._preflight_blocks(overwrite=overwrite)
@@ -1820,16 +1970,12 @@ class Store(object):
             if not self._has_grid(unique_hash):
                 sys.exit("[X] Provided config file does not correspond to an existing grid.")
 
-    def _preflight_simulate(self, config):
-        print(config)
-        # This has to be checked ...
-        if config['gimble']['label'] in self.data['sims'].group_keys():
-            existing_sim_label_strings = [
-            ("%s [*]" % sim_label if sim_label == config['gimble']['label'] else sim_label) 
-                for sim_label in self.data['sims'].group_keys()]
-            message = "[X] The following simulation labels already exist in this gimbleStore:\n[X]\t%s" % (
-                "\n[X]\t".join(existing_sim_label_strings)) 
-            sys.exit(message)
+    def _preflight_simulate(self, config, overwrite):
+        config['simulate_key'] = self._get_key(task='simulate', analysis_label=config['gimble']['label'])
+        if not overwrite and self._has_key(config['simulate_key']):
+            sys.exit("[X] Simulated results with label %r already exist. Use '-f' to overwrite or change analysis label in the INI file." % 
+                (config['simulate_key']))
+        # here we should have all check/computations of sim_grid/etc...
 
         # have still to figure out how this gets tied in ...
         # if parameterObj.sim_grid:
@@ -1838,74 +1984,72 @@ class Store(object):
         #     unique_hash = parameterObj._get_unique_hash(module='makegrid')
         #     if not self._has_grid(unique_hash):
         #         sys.exit("[X] Provided config file does not correspond to an existing grid.")
-        print('[+] Simulating %s replicate(s) of %s block(s) for %s parameter combinations' %
-            (config['simulate']['replicates'], config['simulate']['blocks'], config['parameters_grid_points']))
+        
+        config['demographies'] = lib.simulate.make_demographies(config)
+        config['seeds'] = np.random.randint(1, 2 ** 32, (config['parameters_grid_points'], config['simulate']['replicates'], 2))   
+        config['replicates'] = config['simulate']['chunks'] * config['simulate']['replicates']
+        config['parameters_LOD'] = DOL_to_LOD(config['parameters_expanded'])
+        config['parameters'] = {**config['simulate'],**config['mu']}
         return config
 
-    def simulate(self, config, threads, command):
+    def simulate(self, config, threads, overwrite):
         print("[#] Preflight...")
-        config = self._preflight_simulate(config)
-        print("[+] Checks passed.")
-        # adjust config to run_sims... (ideally not needed)
-        demographies = lib.simulate.make_demographies(config)
-        seeds = np.random.randint(1, 2 ** 32, (config['parameters_grid_points'], config['simulate']['replicates'],2))   
-        replicates = config['simulate']['chunks'] * config['simulate']['replicates']
-        parameters_LOD = DOL_to_LOD(config['parameters_expanded'])
-        global_info_ancestry = {**config['simulate'],**config['mu']}
-        global_info_ancestry['max_k'] = tuple([int(v) for v in config['max_k']])
-        global_info_ancestry['parameters_fixed'] = config['parameters_fixed']
-        for idx, param_combo_result in enumerate(
+        config = self._preflight_simulate(config, overwrite)
+        print('[+] Simulating %s replicate(s) of %s block(s) for %s parameter combinations' %
+            (config['simulate']['replicates'], config['simulate']['blocks'], config['parameters_grid_points']))
+        for idx, simulation_instance in enumerate(
             lib.simulate.run_sims(
-                demographies, 
+                config['demographies'], 
                 config['simulate']['recombination_rate'], 
                 config, 
-                replicates, 
-                seeds, 
+                config['replicates'], 
+                config['seeds'], 
                 threads
                 )
             ):
-            self._set_sims(global_info_ancestry, param_combo_result, config['gimble']['label'], seeds[idx], parameters_LOD[idx], idx)
+            self._save_simulation_instance(config, simulation_instance, idx)
+        self._save_simulation_meta(config)
         #we need particular subset of details to be saved
-        self.data[f"sims/{config['gimble']['label']}"].attrs.put(global_info_ancestry)
+        #self.data[f"sims/{config['gimble']['label']}"].attrs.put(global_info_ancestry)
         
         # needed for --grid flag check this
         # gimbleStore.data[f'sims/{group_name}'].attrs['fixed_param_grid'] = parameterObj.fixed_param_grid
         
-        # writing report
-        try:
-            print(self._get_sims_report(width=100, label=config['gimble']['label']))   
-        except UnicodeEncodeError:
-            print(self._get_sims_report(width=100, label=config['gimble']['label']).__repr__().encode('utf-8')) #temp fix for my environment
-        self.log_action('simulate', command)
+        # writing report (has to be fixed/should be part of info)
+        # try:
+        #     print(self._get_sims_report(width=100, label=config['gimble']['label']))   
+        # except UnicodeEncodeError:
+        #     print(self._get_sims_report(width=100, label=config['gimble']['label']).__repr__().encode('utf-8')) #temp fix for my environment
 
-    def _set_sims(self, global_info_ancestry, result, analysis_label, seeds, parameters, idx=0):
-        config = global_info_ancestry
-        #self.data.require_group(f'sims/{label}')
-        config['sim_key'] = self._get_key(task='simulate', analysis_label=analysis_label, parameter_label=idx)
-        config['ancestry_seeds'] = tuple([int(s) for s in seeds[:,0]]) 
-        config['mutation_seeds'] = tuple([int(s) for s in seeds[:,1]])
-        meta = config  #config_to_meta('simulate', config)
-        self._set_meta_and_data(meta=meta, data=result)
+    def _save_simulation_meta(self, config):
+        meta = config_to_meta(config, 'simulate')
+        self._set_meta(config['simulate_key'], meta)
 
-    def simulate_old(self, parameterObj):
-        print("[#] Preflight...")
-        self._preflight_simulate(parameterObj)
-        print("[+] Checks passed.")
-        #determine name of sims/group
-        if not parameterObj.label:
-            run_count = self._return_group_last_integer('sims')
-            parameterObj.label = f"run_{run_count}"
-        self.data.require_group(f'sims/{parameterObj.label}')
-        if parameterObj.sim_grid:
-            sim_configs = self._get_sim_grid(parameterObj)
-        else:
-            sim_configs = lib.gimble.DOL_to_LOD(parameterObj.parameter_combinations)
-        lib.simulate.simulate_parameterObj(sim_configs, parameterObj, self)
-        try:
-            print(self._get_sims_report(width=100, label=parameterObj.label))   
-        except UnicodeEncodeError:
-            print(self._get_sims_report(width=100, label=parameterObj.label).__repr__().encode('utf-8')) #temp fix for my environment
-        self.log_stage(parameterObj)
+    def _save_simulation_instance(self, config, simulation_instance, idx):
+        simulation_instance_key = self._get_key(task='simulate', analysis_label=config['gimble']['label'], parameter_label=idx)
+        config['idx'] = idx
+        meta = config_to_meta(config, 'simulate_instance')
+        self._set_meta_and_data(simulation_instance_key, meta, simulation_instance)
+
+    # def simulate_old(self, parameterObj):
+    #     print("[#] Preflight...")
+    #     self._preflight_simulate(parameterObj)
+    #     print("[+] Checks passed.")
+    #     #determine name of sims/group
+    #     if not parameterObj.label:
+    #         run_count = self._return_group_last_integer('sims')
+    #         parameterObj.label = f"run_{run_count}"
+    #     self.data.require_group(f'sims/{parameterObj.label}')
+    #     if parameterObj.sim_grid:
+    #         sim_configs = self._get_sim_grid(parameterObj)
+    #     else:
+    #         sim_configs = lib.gimble.DOL_to_LOD(parameterObj.parameter_combinations)
+    #     lib.simulate.simulate_parameterObj(sim_configs, parameterObj, self)
+    #     try:
+    #         print(self._get_sims_report(width=100, label=parameterObj.label))   
+    #     except UnicodeEncodeError:
+    #         print(self._get_sims_report(width=100, label=parameterObj.label).__repr__().encode('utf-8')) #temp fix for my environment
+    #     self.log_stage(parameterObj)
 
     def query(self, version, data_type, data_format, max_k):
         self._preflight_query(data_type, data_format)
@@ -2093,45 +2237,41 @@ class Store(object):
     def gridsearch_preflight(self, data_label, grid_label, overwrite):
         config = {}
         # first deal with grid
-        config['makegrid_key'] = self._get_key(task='grid', analysis_label=grid_label)
+        config['makegrid_key'] = self._get_key(task='makegrid', analysis_label=grid_label)
         grid = np.array(self._get_data(config['makegrid_key']), dtype=np.float64) # should be changed to call dtype as arg
         grid_meta = self._get_meta(config['makegrid_key'])
         config['grid_dict'] = grid_meta['grid_dict']
         config['data_type'] = data_label if data_label in set(['blocks', 'windows']) else 'simulations'
-        if not self.has_stage(config['data_type']):
+        config['data_key'] = self._get_key(task='simulate', analysis_label=data_label) if config['data_type'] == 'simulations' else config['data_type']
+        if not self._has_key(config['data_key']):
             sys.exit("[X] gimbleStore has no %r." % config['data_type'])
-        config['gridsearch_key_4D'] = self._get_key(task='gridsearch', data_label=data_label, analysis_label=grid_label, mod_label='4D')
+
+        config['gridsearch_key'] = self._get_key(task='gridsearch', data_label=data_label, analysis_label=grid_label)
         if not overwrite and self._has_key(config['gridsearch_key_4D']):
             sys.exit("[X] Gridsearch results with grid label %r on data %r already exist. Use '-f' to replace." % (grid_label, data_label))
-        # get data (this could be a separate function, also needed for gridsearch)
-        # - data AND grid needs to be np.float64 (otherwise np.log does not work !!!)
-
+        tally_4D, tally_5D, tally_generator = None, None, None
         if config['data_type'] == 'simulations':
-            # block_length needs to be checked
-            # should WARN that mutation_rate * block_length differs between sim and grid
-            data = self._get_sims_bsfs(data_label) # data is an iterator across parameter combos
-            config['data_label'] = data_label
-            config['data_block_length'] = self._get_meta('sims')['block_length'] # Does this exist?
-            tally_generator = data
-            tally_4D = None
-            config['gridsearch_key_4D']= None
-            tally_5D = None
-            config['gridsearch_key_5D'] = None
+            tally_generator = self._get_sims_bsfs(config['data_key'])
+            simulations_meta = self._get_meta(config['data_key'])
+            config['data_label'] = config['data_key']
+            config['data_block_length'] = simulations_meta['parameters']['block_length']
+            config['gridsearch_key_generator'] = [self._get_key(task='gridsearch', data_label=data_label, analysis_label=grid_label, parameter_label=idx) for idx in range(simulations_meta['max_idx'] + 1)]
         else:
+            '''tally generator would be nice for measured data
+                BUT has to work with kmax (pops, etc) since blocks/windows are generated without kmax. Sims are.
+            '''
             config['data_block_length'] = self._get_meta('blocks')['length']
             config['data_label'] = config['data_type']
             data = tally_variation(
                 self._get_variation(data_type=config['data_type'], population_by_letter=grid_meta['population_by_letter'], sample_sets="X"), 
                 form='bsfs', max_k=np.array(grid_meta['max_k'], dtype=np.int64))
+            config['gridsearch_key_4D'] = self._get_key(task='gridsearch', data_label=data_label, analysis_label=grid_label, mod_label='4D')
             if data.ndim == 4:
                 tally_4D = data
-                config['gridsearch_key_5D'] = None
-                tally_5D = None
             if data.ndim == 5:
                 tally_4D = data.sum(axis=0)
                 config['gridsearch_key_5D'] = self._get_key(task='gridsearch', data_label=data_label, analysis_label=grid_label, mod_label='5D')
                 tally_5D = data
-            tally_generator = None
         config['grid_block_length'] = grid_meta['block_length']
         # checking whether block_length in data and grid are compatible
         if not config['data_block_length'] == config['grid_block_length']:
@@ -2143,23 +2283,7 @@ class Store(object):
                 ))
         return (config, tally_4D, tally_5D, tally_generator, grid)
 
-    def save_gridsearch(self, config, gridsearch_4D_result, gridsearch_5D_result, overwrite):
-        gridsearch_meta = config_to_meta(config, 'gridsearch')
-        self._set_meta_and_data(config['gridsearch_key_4D'], gridsearch_meta, gridsearch_4D_result)
-        if not gridsearch_5D_result is None:
-            self._set_meta_and_data(config['gridsearch_key_5D'], gridsearch_meta, gridsearch_5D_result)
-        print("[+] Saved gridsearch results.")
-
     def gridsearch(self, data_label, grid_label, overwrite):
-        '''
-        # get tally and grid
-        # if 'blocks' : tally_4D = block tally 
-        #               tally_5D = None
-        # if 'windows': tally_4D = blocks in windows tally
-        #               tally_5D = windows tally
-        # if 'sims'   : tally_4D = blocks in replicates tally
-        #               tally_5D = replicates tally
-        '''
         print("[+] Gathering data for gridsearch ...")
         config, tally_4D, tally_5D, tally_generator, grid = self.gridsearch_preflight(data_label, grid_label, overwrite)
         if tally_generator is None:
@@ -2169,64 +2293,76 @@ class Store(object):
             print('[+] \t Highest scoring gridpoint %s' % "; ".join(
                 ["%s = %s" % (parameter, values[gridsearch_4D_result_best_idx]) for parameter, values in config['grid_dict'].items()]))
             gridsearch_5D_result = gridsearch_np(tally=tally_5D, grid=grid)
-            self.save_gridsearch(config, gridsearch_4D_result, gridsearch_5D_result, overwrite)
+            self.save_gridsearch(config, gridsearch_4D_result, gridsearch_5D_result)
         else:
-            for x in tally_generator:
-                self.save_gridsearch(config, gridsearch_4D_result, gridsearch_5D_result, overwrite)
+            for key, (idx, tally) in zip(config['gridsearch_key_generator'], tally_generator):
+                gridsearch_instance_result = gridsearch_np(tally=tally, grid=grid)
+                self._set_data(key, gridsearch_instance_result)
+            gridsearch_meta = config_to_meta(config, 'gridsearch')    
+            self._set_meta(gridsearch_meta['gridsearch_key'], gridsearch_meta)
+        
+    def save_gridsearch(self, config, gridsearch_4D_result, gridsearch_5D_result):
+        gridsearch_meta = config_to_meta(config, 'gridsearch')
+        self._set_meta_and_data(config['gridsearch_key_4D'], gridsearch_meta, gridsearch_4D_result)
+        if not gridsearch_5D_result is None:
+            self._set_meta_and_data(config['gridsearch_key_5D'], gridsearch_meta, gridsearch_5D_result)
+        print("[+] Saved gridsearch results.")
 
-    def gridsearch_old(self, data_label, grid_label, overwrite=False):
-        '''grids.shape = (gridpoints, m1_max+1, m2_max+1, m3_max+1, m4_max+1)
 
-        [To Do] 
-        - DRL: let's refactor this once simulate-gridsearch is integrated into this function
-            - each data_type should declare lncls and best_idx, these are then used at the end of the function to print 
-        - DRL: ask Konrad whether bSFS or sum-wbSFS should be used in block-gridsearch 
-        '''
-        print("[#] Gridsearching ...")
-        # get grid
-        unique_hash, params = parameterObj._get_unique_hash(return_dict=True)
-        grids, grid_meta_dict = self._get_grid(unique_hash)
-        if parameterObj.data_type == 'windows':
-            # [windows]
-            print('[+] Getting wbSFSs ...')
-            bsfs_windows_clipped = self.get_bsfs(
-                data_type='windows', 
-                population_by_letter=parameterObj.config['population_by_letter'], 
-                sample_sets='X', 
-                kmax_by_mutype=parameterObj.config['k_max'])
-            lncls_windows = gridsearch_np(bsfs=bsfs_windows_clipped, grids=grids)
-            self._set_lncls(unique_hash, lncls_windows, lncls_type='windows', overwrite=parameterObj.overwrite)
-            # gridsearch [global]
-            bsfs_windows_clipped_summed = sum_wbsfs(bsfs_windows_clipped)
-            lncls_global = gridsearch_np(bsfs=bsfs_windows_clipped_summed, grids=grids)
-            self._set_lncls(unique_hash, lncls_global, lncls_type='global', overwrite=parameterObj.overwrite)
-            best_idx = np.argmax(lncls_global, axis=0)
-            print('[+] Best grid point (based on bSFS within windows): %s' % lncls_global[best_idx])
-            #extract single best paramcombo
-            best_value = [v[best_idx] for v in grid_meta_dict.values()]
-            print('[+] \t %s' % "; ".join(["%s = %s" % (k, v) for k, v in zip(grid_meta_dict.keys(), best_value)]))
-            #print('[+] \t %s' % "; ".join(["%s = %s" % (k, v) for k, v in grid_meta_dict[str(best_idx)].items()]))
-            self._write_gridsearch_bed(parameterObj=parameterObj, lncls=lncls_windows, best_idx=best_idx, grid_meta_dict=grid_meta_dict)
-        elif parameterObj.data_type == 'simulate':
-            self._gridsearch_sims(parameterObj, grids, grid_meta_dict)
-        elif parameterObj.data_type == 'blocks':
-            # [blocks]
-            print('[+] Getting bSFSs ...')
-            bsfs_clipped = self.get_bsfs(
-                data_type='blocks', 
-                population_by_letter=parameterObj.config['population_by_letter'], 
-                sample_sets='X', 
-                kmax_by_mutype=parameterObj.config['k_max'])
-            lncls_blocks = gridsearch_np(bsfs=bsfs_clipped, grids=grids)
-            self._set_lncls(unique_hash, lncls_blocks, lncls_type='blocks', overwrite=parameterObj.overwrite)
-            best_idx = np.argmax(lncls_blocks, axis=0)
-            best_value = [v[best_idx] for v in grid_meta_dict.values()]
-            print('[+] Best grid point (based on bSFS): %s' % lncls_blocks[best_idx])
-            print('[+] \t %s' % "; ".join(["%s = %s" % (k, v) for k, v in zip(grid_meta_dict.keys(), best_value)]))
-            #print('[+] \t %s' % "; ".join(["%s = %s" % (k, v) for k, v in grid_meta_dict[str(best_idx)].items()]))
-            print('[+] Warning: gridsearch on bSFS is still experimental!')
-        else:
-            raise ValueError("Datatype other than windows, blocks or simulate was specified using gridsearch. Should have been caught earlier.")
+
+    # def gridsearch_old(self, data_label, grid_label, overwrite=False):
+    #     '''grids.shape = (gridpoints, m1_max+1, m2_max+1, m3_max+1, m4_max+1)
+
+    #     [To Do] 
+    #     - DRL: let's refactor this once simulate-gridsearch is integrated into this function
+    #         - each data_type should declare lncls and best_idx, these are then used at the end of the function to print 
+    #     - DRL: ask Konrad whether bSFS or sum-wbSFS should be used in block-gridsearch 
+    #     '''
+    #     print("[#] Gridsearching ...")
+    #     # get grid
+    #     unique_hash, params = parameterObj._get_unique_hash(return_dict=True)
+    #     grids, grid_meta_dict = self._get_grid(unique_hash)
+    #     if parameterObj.data_type == 'windows':
+    #         # [windows]
+    #         print('[+] Getting wbSFSs ...')
+    #         bsfs_windows_clipped = self.get_bsfs(
+    #             data_type='windows', 
+    #             population_by_letter=parameterObj.config['population_by_letter'], 
+    #             sample_sets='X', 
+    #             kmax_by_mutype=parameterObj.config['k_max'])
+    #         lncls_windows = gridsearch_np(bsfs=bsfs_windows_clipped, grids=grids)
+    #         self._set_lncls(unique_hash, lncls_windows, lncls_type='windows', overwrite=parameterObj.overwrite)
+    #         # gridsearch [global]
+    #         bsfs_windows_clipped_summed = sum_wbsfs(bsfs_windows_clipped)
+    #         lncls_global = gridsearch_np(bsfs=bsfs_windows_clipped_summed, grids=grids)
+    #         self._set_lncls(unique_hash, lncls_global, lncls_type='global', overwrite=parameterObj.overwrite)
+    #         best_idx = np.argmax(lncls_global, axis=0)
+    #         print('[+] Best grid point (based on bSFS within windows): %s' % lncls_global[best_idx])
+    #         #extract single best paramcombo
+    #         best_value = [v[best_idx] for v in grid_meta_dict.values()]
+    #         print('[+] \t %s' % "; ".join(["%s = %s" % (k, v) for k, v in zip(grid_meta_dict.keys(), best_value)]))
+    #         #print('[+] \t %s' % "; ".join(["%s = %s" % (k, v) for k, v in grid_meta_dict[str(best_idx)].items()]))
+    #         self._write_gridsearch_bed(parameterObj=parameterObj, lncls=lncls_windows, best_idx=best_idx, grid_meta_dict=grid_meta_dict)
+    #     elif parameterObj.data_type == 'simulate':
+    #         self._gridsearch_sims(parameterObj, grids, grid_meta_dict)
+    #     elif parameterObj.data_type == 'blocks':
+    #         # [blocks]
+    #         print('[+] Getting bSFSs ...')
+    #         bsfs_clipped = self.get_bsfs(
+    #             data_type='blocks', 
+    #             population_by_letter=parameterObj.config['population_by_letter'], 
+    #             sample_sets='X', 
+    #             kmax_by_mutype=parameterObj.config['k_max'])
+    #         lncls_blocks = gridsearch_np(bsfs=bsfs_clipped, grids=grids)
+    #         self._set_lncls(unique_hash, lncls_blocks, lncls_type='blocks', overwrite=parameterObj.overwrite)
+    #         best_idx = np.argmax(lncls_blocks, axis=0)
+    #         best_value = [v[best_idx] for v in grid_meta_dict.values()]
+    #         print('[+] Best grid point (based on bSFS): %s' % lncls_blocks[best_idx])
+    #         print('[+] \t %s' % "; ".join(["%s = %s" % (k, v) for k, v in zip(grid_meta_dict.keys(), best_value)]))
+    #         #print('[+] \t %s' % "; ".join(["%s = %s" % (k, v) for k, v in grid_meta_dict[str(best_idx)].items()]))
+    #         print('[+] Warning: gridsearch on bSFS is still experimental!')
+    #     else:
+    #         raise ValueError("Datatype other than windows, blocks or simulate was specified using gridsearch. Should have been caught earlier.")
 
 
     def _gridsearch_sims(self, parameterObj, grids, grid_meta_dict):
@@ -2268,12 +2404,15 @@ class Store(object):
 
     def _preflight_optimize(self, data_type, config, start_points, simulations_label, track_history, num_cores, max_iterations, xtol_rel, ftol_rel, overwrite):
         # Error if no stage
-        if not self.has_stage(data_type):
-            sys.exit("[X] gimbleStore has no %r." % data_type)
+        config['data_key'] = self._get_key(task='simulate', analysis_label=simulations_label) if data_type == 'simulations' else data_type
+        if not self._has_key(config['data_key']):
+            sys.exit("[X] gimbleStore has no %r." % config['data_key'])
         # get data (this could be a separate function, also needed for gridsearch)
         if data_type == 'simulations':
             # block_length needs to be set here
-            data = self._get_sims_bsfs(simulations_label) # data is an iterator across parameter combos
+            data = self._get_sims_bsfs(config['data_key']) # data is an iterator across parameter combos
+            meta_simulations = self._get_meta(config['data_key'])
+            config['block_length'] = meta_simulations['parameters']['block_length']
             config['data_label'] = simulations_label
         else:
             meta_blocks = self._get_meta('blocks')
@@ -2308,6 +2447,7 @@ class Store(object):
             config['starting_points'] = np.vstack((pmid, starting_points))
         # are parameter_combinations_lowest, parameter_combinations_highest needed?
         #return (starting_points, parameter_combinations_lowest, parameter_combinations_highest)
+        print('config', config)
         return (data, config)
 
     def optimize(self, data_type, config, num_cores, start_points, max_iterations, xtol_rel, ftol_rel, track_history, simulations_label, overwrite):
@@ -2317,7 +2457,8 @@ class Store(object):
         gfEvaluatorObj = togimble.gfEvaluator(gf, config['max_k'], MUTYPES, config['gimble']['precision'], exclude=[(2,3),])
         print('[+] Equations for model %r have been generated. Starting optimization ...' % config['gimble']['model'])
         # watch out for "param_combo, replicates in data"
-        if data_type=='simulate':
+
+        if data_type=='simulations':
             #data is an iterator over parameter_combination_name, parameter_combination_array
             #each param_comb_array contains n replicates
             all_results={}
@@ -2345,28 +2486,47 @@ class Store(object):
         optimize_meta['exitcodes'] = [exitcode['exitcode'] for exitcode in nlopt_results] 
         self._set_meta_and_data(config['key'], optimize_meta, optimize_results_array)
 
-    def _get_key(self, task=None, data_label=None, analysis_label=None, parameter_label=None, mod_label=None):
-        if task == 'simulation':
-            return "%s/%s/%s" % (task, analysis_label, parameter_label)
-        if task == 'grid':
+    def _get_key(self, task=None, data_label=None, analysis_label=None, parameter_label=None, mod_label=None, seq_label=None):
+        if task == 'measure':
+            if data_label is not None and seq_label is not None and mod_label is not None:
+                return "%s/%s/%s/%s" % (task, data_label, seq_label, mod_label)
+            return "%s/" % (task) 
+        if task == 'blocks' or task == 'windows':
+            if seq_label is not None:
+                return "%s/%s" % (task, seq_label)
+            return "%s/" % (task)
+        if task == 'simulate':
+            if parameter_label is not None:
+                return "%s/%s/%s" % (task, analysis_label, parameter_label)
+            return "%s/%s" % (task, analysis_label) 
+        if task == 'makegrid':
             return "%s/%s" % (task, analysis_label)
         if task == 'optimize':
-            if parameter_label:
+            if parameter_label is not None:
                 return "%s/%s/%s/%s" % (task, data_label, analysis_label, parameter_label)
             return "%s/%s/%s/%s" % (task, data_label, analysis_label, parameter_label)
         if task == 'gridsearch':
-            if parameter_label:
-                return "%s/%s/%s/%s/%s" % (task, data_label, parameter_label, analysis_label, mod_label)
-            return "%s/%s/%s/%s" % (task, data_label, analysis_label, mod_label)
+            if parameter_label is not None:
+                return "%s/%s/%s/%s" % (task, data_label, analysis_label, parameter_label)
+            if mod_label is not None:
+                return "%s/%s/%s/%s" % (task, data_label, analysis_label, mod_label)
+            return "%s/%s/%s" % (task, data_label, analysis_label)
         return None
 
     def _has_key(self, key):
         return (key in self.data)
 
+    def _set_data(self, key, array):
+        self.data.create_dataset(key, data=array, overwrite=True)
+
     def _set_meta_and_data(self, key, meta, array):
         self.data.create_dataset(key, data=array, overwrite=True)
         self.data[key].attrs.put(meta)
-        
+    
+    def _del_data_and_meta(self, key):
+        if self._has_key(key):
+            del self.data[key]
+
     def _get_data(self, key, dtype=None):
         if self._has_key(key):
             data = self.data[key]
@@ -2381,8 +2541,12 @@ class Store(object):
 
     def _get_meta(self, key):
         if self._has_key(key):
-            return self.data[key].attrs.asdict()
+            return self.data[key].attrs
         return None
+
+    def _set_meta(self, key, meta={}):
+        self.data.require_group(key)
+        self.data[key].attrs.put(meta)
 
     def _set_stopping_criteria(self, data, parameterObj, label):
         set_by_user = True
@@ -2452,7 +2616,7 @@ class Store(object):
         return out    
 
     def _preflight_makegrid(self, config, overwrite):
-        key = self._get_key(task='grid', analysis_label=config['gimble']['label'])
+        key = self._get_key(task='makegrid', analysis_label=config['gimble']['label'])
         if not overwrite and self._has_key(key):
             sys.exit("[X] Grid with label %r already exist. Change the label in the config file or use '--force'" % config['gimble']['label'])
         config['key'] = key
@@ -2462,15 +2626,10 @@ class Store(object):
         # print(self.data.tree())
         config = self._preflight_makegrid(config, overwrite)
         print("[+] Grid of %s grid points will be prepared..." % config['parameters_grid_points'])
-        print(config)
         gf = lib.math.config_to_gf(config)
         print('[+] Generating equations...')
         gfEvaluatorObj = togimble.gfEvaluator(gf, config['max_k'], MUTYPES, config['gimble']['precision'], exclude=[(2,3),])
         print('[+] Equations for model %r have been generated.' % config['gimble']['model'])
-        print(config['parameters_expanded'])
-        #sys.exit(1)
-        #print('[++++] HACK not generating new grid for debug convenience ...')
-        #grid = self._get_data(config['key'])
         grid = lib.math.new_calculate_all_ETPs(
             gfEvaluatorObj, 
             config['parameters_expanded'], 
@@ -2656,19 +2815,10 @@ class Store(object):
             variation = variation.reshape(-1, variation.shape[-1])
         return variation
 
-    def _get_sims_bsfs(self, label, single=False):
-        #returns an iterator over parameter_combinations: (name, array) 
-        if label:
-            if label in self.data['sims']:
-                if single:
-                    return np.array(self.data[f'sims/{label}/parameter_combination_0'], dtype=np.int32) 
-                else:
-                    return self.data[f'sims/{label}'].arrays()
-        sys.exit(f"[X] Simulations label must be one of {', '.join(self.data['sims'].group_keys())}")
-
-    def _count_groups(self, name):
-        '''DRL: is this being used?'''
-        return len(list(self.data[name]))
+    def _get_sims_bsfs(self, key):
+        if self._has_key(key):
+            return self.data[key].arrays()
+        return None
 
     def _init_store(self, create, overwrite):
         if create:
@@ -2683,26 +2833,6 @@ class Store(object):
             return zarr.open(str(self.path), mode='w')
         #print("[+] Loading GStore from %r" % self.path)
         return zarr.open(str(self.path), mode='r+')
-    
-    # def _get_meta(self, stage):
-    #     if stage in self.data:
-    #         return self.data[stage].attrs
-    #     return None
-
-    def _wipe_stage(self, stage):
-        if stage in self.data:
-            self.data.create_group(stage, overwrite=True)
-            self.data[stage].attrs.put(copy.deepcopy(META_TEMPLATE_BY_STAGE[stage]))
-        if stage in self.data.attrs:
-            del self.data.attrs[stage]
-
-    def _init_meta(self, overwrite=False):
-        '''
-        groups get overwritten, templates are applied via copy.deepcopy 
-        '''
-        for stage, meta_template in META_TEMPLATE_BY_STAGE.items():
-            self.data.require_group(stage, overwrite=overwrite)
-            self.data[stage].attrs.put(copy.deepcopy(META_TEMPLATE_BY_STAGE[stage]))
 
     def _return_group_last_integer(self, name):
         try:
@@ -2713,158 +2843,6 @@ class Store(object):
             return max(all_groups)+1
         else:
             return 0
-
-    def _set_sequences(self, genome_f):
-        '''needs to be split in 
-        - parse
-        - set
-        - set_meta
-        '''
-        meta = self._get_meta('seqs')
-        sequences_df = parse_csv(
-            csv_f=genome_f, 
-            sep="\t", 
-            usecols=[0,1], 
-            dtype={'sequence_id': 'category', 'sequence_length': 'int64'}, 
-            header=None)
-        meta['seq_names'] = sequences_df['sequence_id'].to_list()
-        meta['seq_lengths'] = sequences_df['sequence_length'].to_list()
-        meta['seq_n50'] = get_n50_from_lengths(meta['seq_lengths'])
-        for sequence_id in meta['seq_names']:
-            self.data.create_group('seqs/%s/' % sequence_id)
-        meta['genome_f'] = genome_f
-
-    def _set_samples(self, sample_f):
-        '''needs to be split in 
-        - parse
-        - set
-        - set_meta
-        '''
-        meta = self._get_meta('seqs')
-        samples_df = parse_csv(
-            csv_f=sample_f, 
-            sep=",", 
-            usecols=[0,1], 
-            dtype={'samples': 'object', 'populations': 'category'}, 
-            header=None)
-        meta['samples'] = samples_df['samples'].to_list()
-        meta['populations'] = samples_df['populations'].to_list()
-        meta['population_ids'] = sorted(set(samples_df['populations'].to_list()))
-        meta['population_by_letter'] = {letter: population_id for population_id, letter in zip(meta['population_ids'], string.ascii_uppercase)}
-        meta['population_by_sample'] = {sample: population for sample, population in zip(meta['samples'], meta['populations'])}
-        meta['sample_sets'] = [
-            tuple(sorted(x, key=(meta['population_by_sample'].get if meta['population_by_sample'][x[0]] != meta['population_by_sample'][x[1]] else None))) 
-                for x in itertools.combinations(meta['population_by_sample'].keys(), 2)]
-        longest_sample_string = max([len(", ".join(sample_set)) for sample_set in meta['sample_sets']]) + 2
-        meta['spacing'] = longest_sample_string if longest_sample_string > meta['spacing'] else meta['spacing']
-        meta['sample_sets_inter'] = [
-            False if len(set([meta['population_by_sample'][sample] for sample in sample_set])) == 1 else True 
-                for sample_set in meta['sample_sets']]
-        meta['sample_sets_intra_A'] = [
-            all([meta['population_by_sample'][sample] == meta['population_ids'][0] for sample in sample_set]) for sample_set in meta['sample_sets']]
-        meta['sample_sets_intra_B'] = [
-            all([meta['population_by_sample'][sample] == meta['population_ids'][1] for sample in sample_set]) for sample_set in meta['sample_sets']]
-        meta['sample_f'] = sample_f
-
-    def _set_variants(self, vcf_f):
-        '''needs to be split in 
-        - make
-        - parse
-        - set
-        - set_meta
-        '''
-        meta = self._get_meta('seqs')
-        seq_names = meta['seq_names']
-        samples = meta['samples']
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            gt_key, pos_key, sample_key = 'calldata/GT', 'variants/POS', 'samples'
-            samples_gt_order = allel.read_vcf(vcf_f, fields=[sample_key])[sample_key]
-            query_samples = ordered_intersect(a=samples_gt_order, b=samples, order='a')
-            # Check if all samples were found
-            if set(query_samples) != set(samples):
-                sys.exit("[X] The following samples in SAMPLE_FILE were not found in VCF_FILE: %s" % (
-                    ", ".join(list(set(samples).difference(set(query_samples))))
-                    ))
-            # Set up counts arrays
-            count_shape = (len(meta['seq_names']), len(query_samples))
-            count_records = np.zeros(count_shape[0], dtype=np.int64)
-            count_called = np.zeros(count_shape, dtype=np.int64)
-            count_hom_ref = np.zeros(count_shape, dtype=np.int64)
-            count_hom_alt = np.zeros(count_shape, dtype=np.int64)
-            count_het = np.zeros(count_shape, dtype=np.int64)
-            count_missing = np.zeros(count_shape, dtype=np.int64)
-            for idx, seq_name in tqdm(enumerate(seq_names), total=len(seq_names), desc="[%] Reading variants", ncols=100):
-                vcf_data = allel.read_vcf(vcf_f, region=seq_name, samples=query_samples, fields=[gt_key, pos_key])
-                if vcf_data:
-                    # genotypes
-                    gt_matrix_raw = vcf_data[gt_key]
-                    # counts
-                    intervals = self._get_interval_coordinates(seq_name=seq_name)
-                    sites = intervals_to_sites(intervals)
-                    if sites is not None:
-                        # positions in VCF
-                        pos_array_raw = check_unique_pos((vcf_data[pos_key] - 1)) # port to BED (0-based) coordinates
-                        # intersection of VCF and BED intervals
-                        interval_mask = np.isin(pos_array_raw, sites, assume_unique=True)
-                        gt_matrix = gt_matrix_raw[interval_mask]
-                        count_records[idx] = gt_matrix.shape[0]
-                        pos_array = pos_array_raw[interval_mask]
-                        sa_genotype_matrix = allel.GenotypeArray(gt_matrix)
-                        count_called[idx,:] = sa_genotype_matrix.count_called(axis=0)
-                        count_hom_ref[idx,:] = sa_genotype_matrix.count_hom_ref(axis=0)
-                        count_hom_alt[idx,:] = sa_genotype_matrix.count_hom_alt(axis=0)
-                        count_het[idx,:] = sa_genotype_matrix.count_het(axis=0)
-                        count_missing[idx,:] = sa_genotype_matrix.count_missing(axis=0)
-                        self._save_variants(seq_name, pos_array, gt_matrix)        
-            meta['variants_idx_by_sample'] = {query_sample: idx for idx, query_sample in enumerate(query_samples)}
-        meta['vcf_f'] = vcf_f
-        meta['variants_counts'] = int(np.sum(count_records)) # ZARR JSON encoder does not like numpy dtypes
-        meta['variants_counts_called'] = [int(x) for x in np.sum(count_called, axis=0)] # ZARR JSON encoder does not like numpy dtypes
-        meta['variants_counts_hom_ref'] = [int(x) for x in np.sum(count_hom_ref, axis=0)] # ZARR JSON encoder does not like numpy dtypes
-        meta['variants_counts_hom_alt'] = [int(x) for x in np.sum(count_hom_alt, axis=0)] # ZARR JSON encoder does not like numpy dtypes
-        meta['variants_counts_het'] = [int(x) for x in np.sum(count_het, axis=0)] # ZARR JSON encoder does not like numpy dtypes
-        meta['variants_counts_missing'] = [int(x) for x in np.sum(count_missing, axis=0)] # ZARR JSON encoder does not like numpy dtypes
-        # QC plots 
-
-    def _save_variants(self, sequence, pos_array, gt_matrix):
-        self.data.create_dataset("seqs/%s/variants/pos" % sequence, data=pos_array, dtype=np.int64)
-        self.data.create_dataset("seqs/%s/variants/matrix" % sequence, data=gt_matrix, dtype=np.int64)
-
-    def _save_variants_meta(self):
-        pass
-
-    def _make_intervals(self, bed_f):
-        meta = self._get_meta('seqs')
-        target_sequences, target_samples = set(meta['seq_names']), set(meta['samples'])
-        # intervals_df := [sequence, start, end, ...samples..., length]
-        intervals_df = parse_intervals(bed_f, target_sequences, target_samples)
-        valid_sequences = intervals_df['sequence'].unique() 
-        intervals_idx_by_sample = {sample: idx for idx, sample in enumerate(intervals_df.columns[3:-1])}
-        intervals_count = len(intervals_df.index)
-        intervals_span = int(intervals_df['length'].sum())
-        count_bases_samples = np.zeros((len(valid_sequences), len(target_samples)), dtype=np.int64)
-        for idx, (sequence, _df) in tqdm(enumerate(intervals_df.groupby(['sequence'], observed=True)), total=len(valid_sequences), desc="[%] Reading intervals", ncols=100):
-            interval_matrix = _df[target_samples].to_numpy()
-            starts = _df['start'].to_numpy()
-            ends = _df['end'].to_numpy()
-            self._set_intervals(sequence, interval_matrix, starts, ends)
-            length_matrix = interval_matrix * _df['length'].to_numpy().reshape(-1, 1)
-            count_bases_samples[idx,:] = np.sum(length_matrix, axis=0)
-        self._set_intervals_meta(bed_f, intervals_idx_by_sample, count_bases_samples, intervals_count, intervals_span)
-
-    def _set_intervals(self, sequence, interval_matrix, starts, ends):
-        self.data.create_dataset("seqs/%s/intervals/matrix" % sequence, data=interval_matrix)
-        self.data.create_dataset("seqs/%s/intervals/starts" % sequence, data=starts)
-        self.data.create_dataset("seqs/%s/intervals/ends" % sequence, data=ends)
-
-    def _set_intervals_meta(self, bed_f, intervals_idx_by_sample, count_bases_samples, intervals_count, intervals_span):
-        meta_intervals = self._get_meta('seqs')
-        meta_intervals['bed_f'] = bed_f
-        meta_intervals['intervals_idx_by_sample'] = intervals_idx_by_sample
-        meta_intervals['intervals_span_sample'] = [int(x) for x in np.sum(count_bases_samples, axis=0)] # JSON encoder does not like numpy dtypes   
-        meta_intervals['intervals_count'] = intervals_count
-        meta_intervals['intervals_span'] = intervals_span
 
     def _plot_intervals(self):
         # [needs fixing]
@@ -2969,8 +2947,8 @@ class Store(object):
             self._wipe_stage('windows')
     
     def _preflight_blocks(self, overwrite=False):
-        if not self.has_stage('parse'):
-            sys.exit("[X] GStore %r has no data. Please run 'gimble parse'." % self.path)
+        if not self.has_stage('measure'):
+            sys.exit("[X] GStore %r has no data. Please run 'gimble measure'." % self.path)
         if self.has_stage('blocks'):
             if not overwrite:
                 sys.exit("[X] GStore %r already contains blocks.\n[X] These blocks => %r\n[X] Please specify '--force' to overwrite." % (self.path, self.get_stage('blocks')))
@@ -3328,6 +3306,7 @@ class Store(object):
         return reportObj
 
     def _get_sims_report(self, width, label):
+        simulate_key = self._get_key(task='simulate', analysis_label=label)
         meta_sims = self._get_meta('sims')
         reportObj = ReportObj(width=width)
         reportObj.add_line(prefix="[+]", left='[', center='Sims', right=']', fill='=')
@@ -3420,146 +3399,146 @@ class Store(object):
                 return True
         return False
 
-    def get_bsfs(self, data_type=None, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None, label=None):
-        warnings.warn("lib.gimble.get_bsfs() is deprecated. ...", DeprecationWarning)
-        """main method for accessing bsfs
+    # def get_bsfs(self, data_type=None, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None, label=None):
+    #     warnings.warn("lib.gimble.get_bsfs() is deprecated. ...", DeprecationWarning)
+    #     """main method for accessing bsfs
         
-        unique hash-keys have to be made based on defining parameters of bsfs, which varies by data_type.         
-        """
-        params = {k: v for k, v in locals().items() if not k == 'self'}
-        params_blocks = ['length', 'span', 'max_missing', 'max_multiallelic']
-        params_windows = ['size', 'step']
-        data_type_bws = set(['blocks', 'windows', 'windows_sum'])
-        data_type_ws = set(['windows', 'windows_sum'])
-        if data_type in data_type_bws:
-            meta_blocks = self._get_meta('blocks')
-            assert meta_blocks['count'] > 0, sys.exit('[X] No blocks found.')
-            for key in params_blocks:
-                params[key] = meta_blocks[key]
-        if data_type in data_type_ws:
-            meta_windows = self._get_meta('windows')
-            assert meta_windows['count'] > 0, sys.exit('[X] No windows found.')
-            for key in params_windows:
-                params[key] = meta_windows[key]
-        elif data_type == 'simulate':
-            bsfs = self._get_sims_bsfs(label)
-            return bsfs
-        unique_hash = get_hash_from_dict(params)
-        bsfs_data_key = 'bsfs/%s/%s' % (data_type, unique_hash)
-        if bsfs_data_key in self.data: 
-            # bsfs exists
-            return np.array(self.data[bsfs_data_key], dtype=np.int64)
-        if data_type == 'blocks':
-            bsfs = self._get_block_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
-        elif data_type == 'windows':
-            bsfs = self._get_window_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
-        elif data_type == 'windows_sum':
-            bsfs = sum_wbsfs(self._get_window_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype))
-        elif data_type == 'sims':
-            raise ValueError("Error in sequence of if/else statements for get_bsfs with simulate.")
-        else:
-            raise ValueError("data_type must be 'blocks', 'windows', or 'windows_sum")
-        if np.any(bsfs):
-            meta_bsfs = self._get_meta('bsfs')
-            meta_bsfs[unique_hash] = str(params)
-            self.data.create_dataset(bsfs_data_key, data=bsfs, overwrite=True)
-        return bsfs
+    #     unique hash-keys have to be made based on defining parameters of bsfs, which varies by data_type.         
+    #     """
+    #     params = {k: v for k, v in locals().items() if not k == 'self'}
+    #     params_blocks = ['length', 'span', 'max_missing', 'max_multiallelic']
+    #     params_windows = ['size', 'step']
+    #     data_type_bws = set(['blocks', 'windows', 'windows_sum'])
+    #     data_type_ws = set(['windows', 'windows_sum'])
+    #     if data_type in data_type_bws:
+    #         meta_blocks = self._get_meta('blocks')
+    #         assert meta_blocks['count'] > 0, sys.exit('[X] No blocks found.')
+    #         for key in params_blocks:
+    #             params[key] = meta_blocks[key]
+    #     if data_type in data_type_ws:
+    #         meta_windows = self._get_meta('windows')
+    #         assert meta_windows['count'] > 0, sys.exit('[X] No windows found.')
+    #         for key in params_windows:
+    #             params[key] = meta_windows[key]
+    #     elif data_type == 'simulate':
+    #         bsfs = self._get_sims_bsfs(label)
+    #         return bsfs
+    #     unique_hash = get_hash_from_dict(params)
+    #     bsfs_data_key = 'bsfs/%s/%s' % (data_type, unique_hash)
+    #     if bsfs_data_key in self.data: 
+    #         # bsfs exists
+    #         return np.array(self.data[bsfs_data_key], dtype=np.int64)
+    #     if data_type == 'blocks':
+    #         bsfs = self._get_block_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
+    #     elif data_type == 'windows':
+    #         bsfs = self._get_window_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype)
+    #     elif data_type == 'windows_sum':
+    #         bsfs = sum_wbsfs(self._get_window_bsfs(sample_sets=sample_sets, population_by_letter=population_by_letter, kmax_by_mutype=kmax_by_mutype))
+    #     elif data_type == 'sims':
+    #         raise ValueError("Error in sequence of if/else statements for get_bsfs with simulate.")
+    #     else:
+    #         raise ValueError("data_type must be 'blocks', 'windows', or 'windows_sum")
+    #     if np.any(bsfs):
+    #         meta_bsfs = self._get_meta('bsfs')
+    #         meta_bsfs[unique_hash] = str(params)
+    #         self.data.create_dataset(bsfs_data_key, data=bsfs, overwrite=True)
+    #     return bsfs
 
-    def _get_block_bsfs(self, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None):
-        warnings.warn("lib.gimble._get_block_bsfs() is deprecated. ...", DeprecationWarning)
-        """Returns bsfs_array of 4 dimensions.
+    # def _get_block_bsfs(self, sequences=None, sample_sets=None, population_by_letter=None, kmax_by_mutype=None):
+    #     warnings.warn("lib.gimble._get_block_bsfs() is deprecated. ...", DeprecationWarning)
+    #     """Returns bsfs_array of 4 dimensions.
 
-        Parameters 
-        ----------
-        sequences : list of strings or None
-            If supplied, bSFSs are based only on variation on those sequences
+    #     Parameters 
+    #     ----------
+    #     sequences : list of strings or None
+    #         If supplied, bSFSs are based only on variation on those sequences
         
-        sample_sets : string or None
-                None - all sample_sets (default)
-                'X' - inter-population sample_sets
-                'A' - intra-population sample_sets of population A
-                'B' - intra-population sample_sets of population B 
-            If supplied, bSFSs are based only on variation of those sample_sets
+    #     sample_sets : string or None
+    #             None - all sample_sets (default)
+    #             'X' - inter-population sample_sets
+    #             'A' - intra-population sample_sets of population A
+    #             'B' - intra-population sample_sets of population B 
+    #         If supplied, bSFSs are based only on variation of those sample_sets
         
-        population_by_letter : dict (string -> string) or None
-            Mapping of population IDs to population letter in model (from INI file).
+    #     population_by_letter : dict (string -> string) or None
+    #         Mapping of population IDs to population letter in model (from INI file).
 
-        kmax : dict (string -> int) or None
-            Mapping of kmax values to mutypes.
+    #     kmax : dict (string -> int) or None
+    #         Mapping of kmax values to mutypes.
 
-        Returns
-        -------
-        out : ndarray, int, ndim (mutypes)
+    #     Returns
+    #     -------
+    #     out : ndarray, int, ndim (mutypes)
 
-        """
-        sample_set_idxs = self._get_sample_set_idxs(query=sample_sets)
-        sequences = self._validate_seq_names(sequences)
-        invert_population_flag = self._get_invert_population_flag(population_by_letter)
-        max_k = np.array(list(kmax_by_mutype.values())) + 1 if kmax_by_mutype else None 
-        variations = []
-        for seq_name in sequences: 
-            for sample_set_idx in sample_set_idxs:
-                variation_key = 'blocks/%s/%s/variation' % (seq_name, sample_set_idx)
-                if variation_key in self.data:
-                    variations.append(np.array(self.data[variation_key], dtype=np.int64))
-        if not variations:
-            return None
-        variation = np.concatenate(variations, axis=0) # concatenate is faster than offset-indexes
-        if invert_population_flag:
-            variation[:, [0, 1]] = variation[:, [1, 0]]
-        # count mutuples (clipping at k_max, if supplied)
-        mutuples, counts = np.unique(np.clip(variation, 0, max_k), return_counts=True, axis=0)
-        # define out based on max values for each column
-        out = np.zeros(tuple(np.max(mutuples, axis=0) + 1), np.int64)
-        # assign values
-        out[tuple(mutuples.T)] = counts
-        return out
+    #     """
+    #     sample_set_idxs = self._get_sample_set_idxs(query=sample_sets)
+    #     sequences = self._validate_seq_names(sequences)
+    #     invert_population_flag = self._get_invert_population_flag(population_by_letter)
+    #     max_k = np.array(list(kmax_by_mutype.values())) + 1 if kmax_by_mutype else None 
+    #     variations = []
+    #     for seq_name in sequences: 
+    #         for sample_set_idx in sample_set_idxs:
+    #             variation_key = 'blocks/%s/%s/variation' % (seq_name, sample_set_idx)
+    #             if variation_key in self.data:
+    #                 variations.append(np.array(self.data[variation_key], dtype=np.int64))
+    #     if not variations:
+    #         return None
+    #     variation = np.concatenate(variations, axis=0) # concatenate is faster than offset-indexes
+    #     if invert_population_flag:
+    #         variation[:, [0, 1]] = variation[:, [1, 0]]
+    #     # count mutuples (clipping at k_max, if supplied)
+    #     mutuples, counts = np.unique(np.clip(variation, 0, max_k), return_counts=True, axis=0)
+    #     # define out based on max values for each column
+    #     out = np.zeros(tuple(np.max(mutuples, axis=0) + 1), np.int64)
+    #     # assign values
+    #     out[tuple(mutuples.T)] = counts
+    #     return out
 
-    def _get_window_bsfs(self, sample_sets='X', sequences=None, population_by_letter=None, kmax_by_mutype=None):
-        """Return bsfs_array of 5 dimensions (fifth dimension is the window-idx across ALL sequences in sequences).
-        [ToDo] Ideally this should work with regions, as in CHR:START-STOP.
-        [ToDo] put in sample set context (error if not samples set).
+    # def _get_window_bsfs(self, sample_sets='X', sequences=None, population_by_letter=None, kmax_by_mutype=None):
+    #     """Return bsfs_array of 5 dimensions (fifth dimension is the window-idx across ALL sequences in sequences).
+    #     [ToDo] Ideally this should work with regions, as in CHR:START-STOP.
+    #     [ToDo] put in sample set context (error if not samples set).
     
-        Parameters 
-        ----------
-        sequences : list of strings or None
-            Only make bSFS based on variation on these sequences seq_names.
+    #     Parameters 
+    #     ----------
+    #     sequences : list of strings or None
+    #         Only make bSFS based on variation on these sequences seq_names.
 
-        population_by_letter : dict (string -> string) or None
-            Mapping of population IDs to population letter in model (from INI file).
+    #     population_by_letter : dict (string -> string) or None
+    #         Mapping of population IDs to population letter in model (from INI file).
 
-        kmax : dict (string -> int) or None
-            Mapping of kmax values to mutypes.
+    #     kmax : dict (string -> int) or None
+    #         Mapping of kmax values to mutypes.
         
-        Returns
-        -------
-        bsfs : (dask) ndarray, int, ndim (1 + mutypes). First dimension is window idx. 
-        """
-        warnings.warn("lib.gimble._get_window_bsfs() is deprecated. ...", DeprecationWarning)
-        sequences = self._validate_seq_names(sequences)
-        invert_population_flag = self._get_invert_population_flag(population_by_letter)
-        max_k = np.array(list(kmax_by_mutype.values())) + 1 if kmax_by_mutype else None 
-        variations = []
-        for seq_name in tqdm(sequences, total=len(sequences), desc="[%] Querying data ", ncols=100):
-            variation = np.array(self.data["windows/%s/variation" % seq_name], dtype=np.uint16)
-            variations.append(variation)
-        variation = np.concatenate(variations, axis=0)
-        if invert_population_flag:
-            variation[:,:,[0, 1]] = variation[:,:,[1, 0]]
-        mutuples, counts = np.unique(variation, return_counts=True, axis=0)
-        bsfs = variation.reshape((variation.shape[0] * variation.shape[1], variation.shape[2]))
-        index = np.repeat(np.arange(variation.shape[0]), variation.shape[1]).reshape(variation.shape[0] * variation.shape[1], 1)
-        mutuples, counts = np.unique(
-            np.concatenate([index, np.clip(bsfs, 0, max_k)], axis=-1).reshape(-1, bsfs.shape[-1] + 1),
-            return_counts=True, axis=0)
-        # define out based on max values for each column
-        try:
-            out = np.zeros(tuple(np.max(mutuples, axis=0) + 1), np.uint16) # set to np.uint16 [0..65535]
-        except MemoryError as e:
-            sys.exit('[+] Gimble ran out of memory. %s' % str(e))
-        # assign values
-        out[tuple(mutuples.T)] = counts
-        return out
+    #     Returns
+    #     -------
+    #     bsfs : (dask) ndarray, int, ndim (1 + mutypes). First dimension is window idx. 
+    #     """
+    #     warnings.warn("lib.gimble._get_window_bsfs() is deprecated. ...", DeprecationWarning)
+    #     sequences = self._validate_seq_names(sequences)
+    #     invert_population_flag = self._get_invert_population_flag(population_by_letter)
+    #     max_k = np.array(list(kmax_by_mutype.values())) + 1 if kmax_by_mutype else None 
+    #     variations = []
+    #     for seq_name in tqdm(sequences, total=len(sequences), desc="[%] Querying data ", ncols=100):
+    #         variation = np.array(self.data["windows/%s/variation" % seq_name], dtype=np.uint16)
+    #         variations.append(variation)
+    #     variation = np.concatenate(variations, axis=0)
+    #     if invert_population_flag:
+    #         variation[:,:,[0, 1]] = variation[:,:,[1, 0]]
+    #     mutuples, counts = np.unique(variation, return_counts=True, axis=0)
+    #     bsfs = variation.reshape((variation.shape[0] * variation.shape[1], variation.shape[2]))
+    #     index = np.repeat(np.arange(variation.shape[0]), variation.shape[1]).reshape(variation.shape[0] * variation.shape[1], 1)
+    #     mutuples, counts = np.unique(
+    #         np.concatenate([index, np.clip(bsfs, 0, max_k)], axis=-1).reshape(-1, bsfs.shape[-1] + 1),
+    #         return_counts=True, axis=0)
+    #     # define out based on max values for each column
+    #     try:
+    #         out = np.zeros(tuple(np.max(mutuples, axis=0) + 1), np.uint16) # set to np.uint16 [0..65535]
+    #     except MemoryError as e:
+    #         sys.exit('[+] Gimble ran out of memory. %s' % str(e))
+    #     # assign values
+    #     out[tuple(mutuples.T)] = counts
+    #     return out
 
 def calculate_bsfs_marginality(bsfs_2d, kmax_by_mutype=None):
     if not kmax_by_mutype:

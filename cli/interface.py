@@ -1,19 +1,21 @@
 """
-Usage: gimbl <module> [<args>...] [-D -V -h]
+Usage: gimbl <module> [<args>...] [-V -h]
 
   [Modules]
-    parse                                Parse variation data into DataStore
-    blocks                               Generate blocks from data in DataStore 
-    windows                              Generate windows from blocks in DataStore (requires blocks)
+    measure                              Measure variation in files and parse into DataStore
+      blocks                             Generate blocks from measured data in DataStore (requires 'measure')
+      windows                            Generate windows from blocks in DataStore (requires 'blocks')
     
-    info                                 Print information about DataStore
-    query                                Extract information from DataStore
+    makeconfig                           Build config file for simulate or inference (optimize/makegrid/gridsearch)
+
+    simulate                             Simulate data for DataStore using msprime 
     
-    makeconfig                           Build config file for inference
-    simulate                             Simulate data 
     optimize                             Perform global parameter optimisation 
     makegrid                             Precalculate grid'ed inference 
     gridsearch                           Search windows using grid
+
+    info                                 Print information about DataStore
+    query                                Extract information from DataStore
 
     preprocess                           Preprocess input files
     partitioncds                         Partition CDS sites in BED file by degeneracy in sample GTs 
@@ -21,13 +23,12 @@ Usage: gimbl <module> [<args>...] [-D -V -h]
 
   [Options]
     -h, --help                           Show this screen.
-    -D, --debug                          Print debug information.
     -V, --version                        Show version.
 
   [Dependencies] 
     
     ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-    | $  conda install bedtools bcftools samtools vcflib mosdepth pysam numpy docopt tqdm pandas tabulate zarr scikit-allel parallel more-itertools networkx giac sagelib matplotlib msprime networkx pygraphviz sympy cerberus maxima -c conda-forge -c bioconda |
+    | $ conda install bedtools bcftools samtools vcflib mosdepth pysam numpy docopt tqdm pandas tabulate zarr scikit-allel parallel more-itertools networkx giac sagelib matplotlib msprime networkx pygraphviz sympy cerberus maxima -c conda-forge -c bioconda |
     ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 """
 
@@ -51,9 +52,9 @@ def main(gimble_dir):
             'debug': True if '--debug' in args['<args>'] or '-D' in args['<args>'] else False,
             'version': version
         }
-        if args['<module>'] == 'parse':
-            import cli.parse as parse
-            parse.main(params)
+        if args['<module>'] == 'measure':
+            import cli.measure as measure
+            measure.main(params)
         elif args['<module>'] == 'preprocess':
             import cli.preprocess as preprocess
             preprocess.main(params)
@@ -72,9 +73,6 @@ def main(gimble_dir):
         elif args['<module>'] == 'windows':
             import cli.windows as windows
             windows.main(params)
-        #elif args['<module>'] == 'model':
-        #    import cli.model as model
-        #    model.main(params)
         elif args['<module>'] == 'makeconfig':
             import cli.makeconfig as makeconfig
             makeconfig.main(params)

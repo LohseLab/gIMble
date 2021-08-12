@@ -359,6 +359,7 @@ def optimize_function(values_bounded_unscaled, grad, config, gfEvaluatorObj, dat
         k: v for k, v in zip(config['parameters_bounded'], values_bounded_unscaled)}
     values_scaled_by_symbol = get_scaled_values_by_symbol(values_bounded_unscaled_by_parameter, config)
     ETPs = gfEvaluatorObj.evaluate_gf(values_scaled_by_symbol, values_scaled_by_symbol[sage.all.SR.var('theta')])
+    print('data', data)
     likelihood = calculate_composite_likelihood(ETPs, data)
     track_likelihoods.append(likelihood)
     track_values_unscaled.append(values_bounded_unscaled)
@@ -426,68 +427,68 @@ def optimize_parameters(gfEvaluatorObj, data, config, verbose=True):
     optimize_results_array = np.column_stack((track_likelihoods, track_values_unscaled))
     return (nlopt_results, optimize_results_array)
 
-def optimize_parameters_old(gfEvaluatorObj, data, parameterObj, trackHistory=True, verbose=False, label='', param_combo_name=''):
+# def optimize_parameters_old(gfEvaluatorObj, data, parameterObj, trackHistory=True, verbose=False, label='', param_combo_name=''):
 
-    fixedParams = parameterObj._get_fixed_params(as_dict=True) #adapt for new config parser
-    boundaryNames = _optimize_get_boundary_names(parameterObj, fixedParams, data)
-    starting_points, parameter_combinations_lowest, parameter_combinations_highest = _optimize_get_boundaries(parameterObj.parameter_combinations, boundaryNames, parameterObj.numPoints)
-    trackHistoryPath = [[] for _ in range(parameterObj.numPoints)]
-    #specify the objective function to be optimized
-    reference_pop = parameterObj.config['populations']['reference_pop']
-    mu = parameterObj.config['mu']['mu']
-    block_length = parameterObj.config['mu']['blocklength']
-    specified_objective_function_list = _optimize_specify_objective_function(
-        gfEvaluatorObj, 
-        parameterObj.data_type, 
-        trackHistoryPath, 
-        data, 
-        boundaryNames,
-        fixedParams, 
-        mu, 
-        block_length, 
-        reference_pop, 
-        verbose
-        )
+#     fixedParams = parameterObj._get_fixed_params(as_dict=True) #adapt for new config parser
+#     boundaryNames = _optimize_get_boundary_names(parameterObj, fixedParams, data)
+#     starting_points, parameter_combinations_lowest, parameter_combinations_highest = _optimize_get_boundaries(parameterObj.parameter_combinations, boundaryNames, parameterObj.numPoints)
+#     trackHistoryPath = [[] for _ in range(parameterObj.numPoints)]
+#     #specify the objective function to be optimized
+#     reference_pop = parameterObj.config['populations']['reference_pop']
+#     mu = parameterObj.config['mu']['mu']
+#     block_length = parameterObj.config['mu']['blocklength']
+#     specified_objective_function_list = _optimize_specify_objective_function(
+#         gfEvaluatorObj, 
+#         parameterObj.data_type, 
+#         trackHistoryPath, 
+#         data, 
+#         boundaryNames,
+#         fixedParams, 
+#         mu, 
+#         block_length, 
+#         reference_pop, 
+#         verbose
+#         )
     
-    #print to screen
-    startdesc = "[+] Optimization starting for specified point."
-    if parameterObj.numPoints>1:
-        startdesc = f"[+] Optimization starting for specified point and {parameterObj.numPoints-1} random points."
-    if verbose:
-        print(startdesc)
-    #make log file for simulation replicates:
-    _init_optimize_log(boundaryNames, f'optimize_log_{label}_{param_combo_name}.tsv', parameterObj._CWD, meta=parameterObj._get_cmd())
+#     #print to screen
+#     startdesc = "[+] Optimization starting for specified point."
+#     if parameterObj.numPoints>1:
+#         startdesc = f"[+] Optimization starting for specified point and {parameterObj.numPoints-1} random points."
+#     if verbose:
+#         print(startdesc)
+#     #make log file for simulation replicates:
+#     _init_optimize_log(boundaryNames, f'optimize_log_{label}_{param_combo_name}.tsv', parameterObj._CWD, meta=parameterObj._get_cmd())
     
-    #parallelize over starting points or data points
-    allResults=[] 
-    if parameterObj.gridThreads <= 1:
-        with open(os.path.join(parameterObj._CWD, f'optimize_log_{label}_{param_combo_name}.tsv'), 'a') as log_file:
-            for idx, (startPos, specified_objective_function) in enumerate(tqdm(zip(itertools.cycle(starting_points), specified_objective_function_list), desc="progress", total=len(specified_objective_function_list),disable=verbose)):
-                single_run_result = run_single_optimize(startPos, parameter_combinations_lowest, parameter_combinations_highest, specified_objective_function, parameterObj.max_eval, parameterObj.xtol_rel, parameterObj.ftol_rel) 
-                allResults.append(single_run_result)
-                _optimize_log(single_run_result, idx, log_file)
-                #allResults.append(run_single_optimize(startPos, parameter_combinations_lowest, parameter_combinations_highest, specified_objective_function, parameterObj.max_eval, parameterObj.xtol_rel, parameterObj.ftol_rel))
+#     #parallelize over starting points or data points
+#     allResults=[] 
+#     if parameterObj.gridThreads <= 1:
+#         with open(os.path.join(parameterObj._CWD, f'optimize_log_{label}_{param_combo_name}.tsv'), 'a') as log_file:
+#             for idx, (startPos, specified_objective_function) in enumerate(tqdm(zip(itertools.cycle(starting_points), specified_objective_function_list), desc="progress", total=len(specified_objective_function_list),disable=verbose)):
+#                 single_run_result = run_single_optimize(startPos, parameter_combinations_lowest, parameter_combinations_highest, specified_objective_function, parameterObj.max_eval, parameterObj.xtol_rel, parameterObj.ftol_rel) 
+#                 allResults.append(single_run_result)
+#                 _optimize_log(single_run_result, idx, log_file)
+#                 #allResults.append(run_single_optimize(startPos, parameter_combinations_lowest, parameter_combinations_highest, specified_objective_function, parameterObj.max_eval, parameterObj.xtol_rel, parameterObj.ftol_rel))
             
-    else:
-        #single_runs need to be specified before passing them to the pool
-        specified_run_list = _optimize_specify_run_list_(parameterObj, specified_objective_function_list, starting_points, parameter_combinations_lowest, parameter_combinations_highest)
-        with open(os.path.join(parameterObj._CWD, f'optimize_log_{label}_{param_combo_name}.tsv'), 'a') as log_file:
-            with concurrent.futures.ProcessPoolExecutor(max_workers=parameterObj.gridThreads) as outer_pool:
-                for idx, single_run in enumerate(tqdm(outer_pool.map(fp_map, specified_run_list), desc="progress", total=len(specified_run_list), disable=verbose)):
-                    _optimize_log(single_run, idx, log_file)
-                    allResults.append(single_run)
+#     else:
+#         #single_runs need to be specified before passing them to the pool
+#         specified_run_list = _optimize_specify_run_list_(parameterObj, specified_objective_function_list, starting_points, parameter_combinations_lowest, parameter_combinations_highest)
+#         with open(os.path.join(parameterObj._CWD, f'optimize_log_{label}_{param_combo_name}.tsv'), 'a') as log_file:
+#             with concurrent.futures.ProcessPoolExecutor(max_workers=parameterObj.gridThreads) as outer_pool:
+#                 for idx, single_run in enumerate(tqdm(outer_pool.map(fp_map, specified_run_list), desc="progress", total=len(specified_run_list), disable=verbose)):
+#                     _optimize_log(single_run, idx, log_file)
+#                     allResults.append(single_run)
 
-    #process results found in allResults (final step including exit code), and trackHistoryPath (all steps) 
-    exitcodeDict = {
-                    1: 'optimum found', 
-                    2: 'stopvalue reached',
-                    3: 'tolerance on lnCL reached',
-                    4: 'tolerance on parameter vector reached',
-                    5: 'max number of evaluations reached',
-                    6: 'max computation time was reached'
-                }
-    result = _optimize_reshape_output(allResults, trackHistoryPath, boundaryNames, exitcodeDict, trackHistory, verbose)
-    return result
+#     #process results found in allResults (final step including exit code), and trackHistoryPath (all steps) 
+#     exitcodeDict = {
+#                     1: 'optimum found', 
+#                     2: 'stopvalue reached',
+#                     3: 'tolerance on lnCL reached',
+#                     4: 'tolerance on parameter vector reached',
+#                     5: 'max number of evaluations reached',
+#                     6: 'max computation time was reached'
+#                 }
+#     result = _optimize_reshape_output(allResults, trackHistoryPath, boundaryNames, exitcodeDict, trackHistory, verbose)
+#     return result
 
 def _optimize_get_boundary_names(parameterObj, fixedParams, data):
     syncing_to, to_be_synced = parameterObj._get_pops_to_sync_short()

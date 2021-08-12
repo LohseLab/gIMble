@@ -1,4 +1,4 @@
-"""usage: gimble parse                    [-v <FILE> -b <FILE> -g <FILE> -s <FILE> -z <STR> -f -D -h]
+"""usage: gimble measure                 -v <FILE> -b <FILE> -g <FILE> -s <FILE> [-z <STR> -f -h]
 
     [Input]
         -g, --genome_f <FILE>            Gimble genome file (TSV) of sequence IDs/lengths for filtering BED file.
@@ -9,7 +9,6 @@
     [Options]
         -z, --zarr <STR>                 Prefix to use for ZARR store [default: gimble]
         -f, --force                      Force overwrite if GimbleStore already exists.
-        -D, --debug                      Show debugging information
 
         -h --help                        Show this
     
@@ -51,7 +50,7 @@ def main(params):
         args = docopt(__doc__)
         parameterObj = ParseParameterObj(params, args)
         gimbleStore = lib.gimble.Store(prefix=parameterObj.outprefix, create=True, overwrite=parameterObj.overwrite)
-        gimbleStore.parse(
+        gimbleStore.measure(
             genome_f=parameterObj.genome_f, 
             sample_f=parameterObj.sample_f, 
             bed_f=parameterObj.bed_f, 
