@@ -288,6 +288,10 @@ def make_ini_configparser(version, task, model, label):
         config.set('simulate', 'number_bins', "")
         config.set('simulate', 'cutoff', "")
         config.set('simulate', 'scale', "")
+        config.add_section('gridbased')
+        config.set('gridbased', 'grid_label', "")
+        config.set('gridbased', '# Parameter to fix to global optimum when performing window-wise parametric bootstrap (optional).')
+        config.set('gridbased', 'fixed_parameter', "")
     # mu
     config.add_section('mu') 
     config.set('mu', '# mutation rate (in mutations/site/generation, required)')
@@ -345,17 +349,6 @@ def _return_np_type(x):
     return np.min_scalar_type(np.sign(np.min(x)) * np.max(np.abs(x)))
 
 def get_config_pops(config):
-    #check for consistent values in sync_pops
-    Ne_sync_pops = ["Ne_%s" % _ for _ in config['populations']['sync_pop_ids']]
-    for Ne_sync_pop in Ne_sync_pops[1:]:
-        if not (config['parameters'][Ne_sync_pops[0]] == config['parameters'][Ne_sync_pop]):
-            Ne_sync_pops_all = Ne_sync_pops
-            Ne_sync_pops_all_string = ", ".join(Ne_sync_pops_all)
-            parameter_string_list = "\n\t".join([
-                "%s\t= %s" % (Ne, config['parameters'][Ne]) for Ne in Ne_sync_pops_all])
-            sys.exit("[X] If sync'ing of %s is desired "
-                "please adjust parameters in INI file to have equal ranges."
-                "\n\t%s" % (Ne_sync_pops_all_string, parameter_string_list))
     # make populations_by_letter
     if config['gimble']['task'] != 'simulate':
         config['populations']['population_by_letter'] = {
@@ -465,10 +458,9 @@ def get_config_model_parameters(config, module):
     return config
 
 def get_config_model_events(config):
-    _config_section = 'simulate' if config['gimble']['task'] == 'simulate' else 'populations'
-    pop_ids = config[_config_section]['pop_ids']
+    pop_ids = config['populations']['pop_ids']
     model = config['gimble']['model']
-    sync_pops = config[_config_section].get('sync_pop_ids', [])
+    sync_pops = config['populations'].get('sync_pop_ids', [])
     events = get_ini_model_events(model, pop_ids)
     config['events'] = {}
     config['events']['coalescence'] = []
@@ -497,11 +489,13 @@ def get_config_kmax(config):
     return config
 
 def expand_parameters(config):
-    #check syncing of pop sizes
-    # would one ever want to sync when doing simulations?
     if 'populations' in config and len(config['populations']['sync_pop_ids'])>0:
         to_sync = [f'Ne_{pop}' for pop in config['populations']['sync_pop_ids'][1:]]
         sync_to = f"Ne_{config['populations']['sync_pop_ids'][0]}"
+        for pop in to_sync:
+            if not(config['parameters'][sync_to]==config['parameters'][pop]):
+                sys.exit(f"[X] If sync'ing of {', '.to_sync} to {sync_to} is desired "
+                "please adjust parameters in INI file to have equal ranges.")    
         parameters_np = {k:v for k,v in config['parameters_np'].items() if k not in to_sync}
     else:
         parameters_np = config['parameters_np']
@@ -518,38 +512,38 @@ def expand_parameters(config):
 
 ###################################################### FROM SIMULATE CLI
 
-def _set_recombination_rate(self):      
-    self.recombination_map = None
-    rmap_path = self.config["simulations"]["recombination_map"]
-    rec = self.config["simulations"]["recombination_rate"]
+def _set_recombination_rate(config):      
+    parameterObj.recombination_map = None
+    rmap_path = parameterObj.config["simulations"]["recombination_map"]
+    rec = parameterObj.config["simulations"]["recombination_rate"]
     rec=0.0 if rec=='' else rec
     if os.path.isfile(rmap_path):
-        if not self.sim_grid:
+        if not parameterObj.sim_grid:
             print("[-] A recombination map can only be used with the flag --sim_grid.")
             print(f"[-] Simulate will continue using r={rec}") 
-            self.config["parameters"]["recombination"] = [rec,]
+            parameterObj.config["parameters"]["recombination"] = [rec,]
             return [rec,]    
         else:
-            rbins = self.config["simulations"]["number_bins"]
-            cutoff = self.config["simulations"]["cutoff"]
-            scale = self.config["simulations"]["scale"]
+            rbins = parameterObj.config["simulations"]["number_bins"]
+            cutoff = parameterObj.config["simulations"]["cutoff"]
+            scale = parameterObj.config["simulations"]["scale"]
             rbins = 10 if rbins=='' else rbins
             scale = 'lin' if scale=='' else scale
             cutoff = 90 if cutoff=='' else cutoff
-            self.recombination_map = self._parse_recombination_map(rmap_path, cutoff, rbins, scale)
+            parameterObj.recombination_map = _parse_recombination_map(rmap_path, cutoff, rbins, scale)
     else:
-        self.config["parameters"]["recombination"] = [rec,]
+        parameterObj.config["parameters"]["recombination"] = [rec,]
         return [rec,]
 
-def _parse_recombination_map(self, path, cutoff, bins, scale):
+def _parse_recombination_map(path, cutoff, bins, scale):
     #load bedfile
     hapmap = pd.read_csv(path, sep='\t', 
         names=['sequence', 'start', 'end', 'rec'], header=0)
     #from cM/Mb to rec/bp
     hapmap['rec_scaled'] = hapmap['rec']*1e-8
-    return self._make_bins(hapmap, scale, cutoff, bins)
+    return _make_bins(hapmap, scale, cutoff, bins)
 
-def _make_bins(self, df, scale, cutoff=90, bins=10):
+def _make_bins(df, scale, cutoff=90, bins=10):
     clip_value = np.percentile(df['rec_scaled'], cutoff)
     df['rec_clipped'] = df['rec_scaled'].clip(lower=None, upper=clip_value)
     df['rec_clipped'].replace(0,np.nan,inplace=True)
@@ -567,7 +561,7 @@ def _make_bins(self, df, scale, cutoff=90, bins=10):
     df['rec_bins'].replace(np.nan, 0.0, inplace=True)
     return df[['sequence', 'start', 'end', 'rec_bins']]
 
-def _validate_recombination_map(self, store, df):
+def _validate_recombination_map(store, df):
     # check for consistency between window_coordinates and rec_map coordinates
     df_store = store._get_window_coordinates()
     df_to_test = df[['sequence', 'start', 'end']]
@@ -579,9 +573,6 @@ def _validate_recombination_map(self, store, df):
 ######################################################
 
 def get_config_simulate(config):
-    #deal with recombination:
-    if config['simulate']['recombination_rate'] == '':
-        config['simulate']['recombination_rate'] = 0.0
     # interpopulation sample pairs
     config['simulate']['comparisons'] = list(
         itertools.product(
@@ -589,6 +580,14 @@ def get_config_simulate(config):
             range(config['simulate']['sample_size_A'], 
                 config['simulate']['sample_size_A'] + 
                 config['simulate']['sample_size_B'])))
+
+    if isinstance(config['simulate']['recombination_rate'], str):
+                config['simulate']['recombination_rate'] = 0.0
+
+    fixed_parameter = config['gridbased']['fixed_parameter'].strip()
+    if fixed_parameter!='':
+        if fixed_parameter not in config['parameters']:
+            sys.exit('[X] Gridbased fixed_parameter should be one of the model parameters.')
     return config
 
 def load_config(config_file, MODULE, CWD, VERSION):
@@ -604,14 +603,15 @@ def load_config(config_file, MODULE, CWD, VERSION):
         validator_error_string = get_validator_error_string(validator.errors)
         sys.exit("[X] Problems were encountered when parsing INI config file:\n%s" % validator_error_string)
     config = validator.normalized(parsee)
-    if not MODULE == 'simulate':
-        config = get_config_pops(config)
+    config = get_config_pops(config)
     config = get_config_kmax(config)
     config = get_config_model_events(config)
     config = get_config_model_parameters(config, MODULE)
+    config = expand_parameters(config)
     if MODULE == 'simulate':
         config = get_config_simulate(config)
-    config = expand_parameters(config)
+    print(config)
+    sys.exit()
     config['CWD'] = CWD
     for k, v in config.items():
         print(k, '\t', v)
@@ -833,8 +833,6 @@ def get_config_schema(module):
         schema['simulate'] = {
             'type': 'dict',
             'schema': {
-                'pop_ids': {'required': True, 'empty':False, 'type': 'list', 'coerce': 'pop_ids'},
-                'reference_pop_id': {'required':True, 'empty':False, 'type': 'string', 'coerce': 'reference_pop_id'},
                 'ploidy': {'required':True,'empty': False, 'min': 1, 'coerce': int},
                 'blocks': {'required':True, 'empty': False, 'type': 'integer', 'min': 1, 'coerce': 'int'},
                 'block_length': {'required': True, 'empty':False, 'min': 1, 'type': 'integer', 'coerce': int},
@@ -845,13 +843,14 @@ def get_config_schema(module):
                 'recombination_rate': {'empty': True, 'notNoneFloat':True, 'coerce':'float_or_empty', 'min': 0.0},
                 'recombination_map': {'empty': True, 'type': 'string', 'coerce': 'path', 'dependencies':['number_bins', 'cutoff', 'scale']},
                 'number_bins': {'empty': True, 'notNoneInt': True, 'coerce':'int_or_empty', 'min': 1},
-                'cutoff': {'empty': True, 'notNoneFloat': True, 'coerce':'float_or_empty', 'min': 0},
+                'cutoff': {'empty': True, 'notNoneFloat': True, 'coerce':'float_or_empty', 'min': 0.0},
                 'scale': {'empty':True, 'type':'string', 'allowed':['lin', 'log']}
         }}
         schema['gridbased'] = {
             'type': 'dict',
             'schema': {
-                'grid_label': {'required': False, 'empty':True,'type': 'string'}
+                'grid_label': {'required': False, 'empty':True,'type': 'string'},
+                'fixed_parameter': {'required': False, 'empty':True,'type': 'string'}
             }
         }
     return schema
@@ -1654,7 +1653,34 @@ def get_slice_grid_meta_idxs(grid_meta_dict=None, lncls=None, fixed_parameter=No
         return results
     return np.argmax(lncls, axis=1)
 
-def _get_sim_grid(grid_meta_dict, lncls_global, lncls_windows, fixed_param_grid, rec, window_coordinates=None):
+def _get_sim_grid_config(config, window_coordinates, lncls_global, lncls_windows, fixed_param_grid=None):
+    rec, rec_map = None, None
+    if config['simulate']['recombination_map'].strip()!='':
+        rbins = config["simulations"]["number_bins"]
+        cutoff = config["simulations"]["cutoff"]
+        scale = config["simulations"]["scale"]
+        rbins = 10 if rbins=='' else rbins
+        scale = 'lin' if scale=='' else scale
+        cutoff = 90 if cutoff=='' else cutoff
+        #recmap with seq, start, end, rec_bin_value
+        rec_map = _parse_recombination_map(path, cutoff, bins, scale)
+        print("[-] Currently recombination map does not get validated.")
+        print("[-] Map could have different coordinates than the windows.")
+        #_validate_recombination_map(rec_map, window_coordinates)
+    else:
+        rec = config['simulations']['recombination_rate'] 
+    
+    grid_to_sim, r, window_df = _get_sim_grid(grid_meta_dict, lncls_global, lncls_windows, fixed_param_grid, rec, rec_map)
+    if rec_map!=None:
+        assert len(grid_to_sim)==len(r), "Length of grid to sim and r not equal."
+    #ready to overwrite config: 
+    config['parameters_expanded'] = grid_to_sim
+    config['simulations']['recombination_rate'] = r
+    config['parameters_grid_points'] = len(grid_to_sim)
+    #do we remove entries in config that no longer make sense: parameters_np, ... ?
+    return config
+
+def _get_sim_grid(grid_meta_dict, lncls_global, lncls_windows, fixed_param_grid, rec=None, rec_map=None, window_coordinates=None):
     #lncls global should be based on w_bsfs !
     global_winning_fixed_param_idx = np.argmax(lncls_global)
     #get optimal parametercombo given background for fixed parameter
@@ -1669,12 +1695,13 @@ def _get_sim_grid(grid_meta_dict, lncls_global, lncls_windows, fixed_param_grid,
         global_winning_fixed_param_value = None
         local_winning_fixed_param_idx = get_slice_grid_meta_idxs(lncls=lncls_windows)
     
-    if isinstance(rec, pd.DataFrame):
+    if isinstance(rec_map, pd.DataFrame):
         assert(rec.shape[0]==len(local_winning_fixed_param_idx)), "Index recmap and windows not matching. Should have been caught."
-        grid_to_sim, window_df = _get_sim_grid_with_rec_map(rec, local_winning_fixed_param_idx, grid_meta_dict)
+        grid_to_sim, r_to_sim, window_df = _get_sim_grid_with_rec_map(rec, local_winning_fixed_param_idx, grid_meta_dict)
+        return (grid_to_sim, r_to_sim, window_df)
     else:
         grid_to_sim, window_df = _get_sim_grid_fixed_rec(rec, local_winning_fixed_param_idx, grid_meta_dict, window_coordinates)
-    return (grid_to_sim, window_df)
+        return (grid_to_sim, rec, window_df)
         
 def _get_sim_grid_output_df(parameterObj, grid_to_sim, window_df):
     param_df = pd.DataFrame(grid_to_sim)
@@ -1690,27 +1717,35 @@ def _get_sim_grid_with_rec_map(rec_map, local_winning_fixed_param_idx, grid_meta
     param_for_window = [tuple(window) for window in param_for_window]
     unique, param_combo_idxs = np.unique(param_for_window, return_inverse=True, axis=0)
     rec_map['param_with_rec_idx'] = param_combo_idxs
-    grid_to_sim = []
+    r_to_sim, unique_idxs = list(), list()
     for r, idx in unique:
-        #param_dict = copy.deepcopy(grid_meta_dict[str(int(idx))])
-        param_dict = {k:v for k,v in zip(grid_meta_dict.keys(),list(zip(*grid_meta_dict.values()))[int(idx)])}
-        param_dict['recombination'] = r
-        grid_to_sim.append(param_dict)
+        unique_idxs.append(idx)
+        r_to_sim.append(r)
+    
+    grid_to_sim = {k:grid_meta_dict[k][unique_idxs] for k in grid_meta_dict.keys()}
+    #grid_to_sim = []
+    #for r, idx in unique:
+    #    #param_dict = copy.deepcopy(grid_meta_dict[str(int(idx))])
+    #    param_dict = {k:v for k,v in zip(grid_meta_dict.keys(),list(zip(*grid_meta_dict.values()))[int(idx)])}
+    #    param_dict['recombination'] = r
+    #    grid_to_sim.append(param_dict)
     window_df = rec_map[['sequence', 'start', 'end', 'param_with_rec_idx']]
-    return (grid_to_sim, window_df)
+    return (grid_to_sim, r_to_sim, window_df)
 
 def _get_sim_grid_fixed_rec(rec_rate, local_winning_fixed_param_idx, grid_meta_dict, window_coordinates):
     param_combo_idxs = np.unique(local_winning_fixed_param_idx)
-    #rec_rate = parameterObj.config["parameters"]["recombination"][0]
-    grid_to_sim=[]
-    old_to_new_idx = {} #dict to translate old idx to new in grid_to_sim
-    for new_idx, old_idx in enumerate(param_combo_idxs):
-        old_to_new_idx[old_idx] = new_idx
-        #param_dict = copy.deepcopy(grid_meta_dict[str(int(old_idx))])
-        param_dict = {k:v for k,v in zip(grid_meta_dict.keys(),list(zip(*grid_meta_dict.values()))[int(old_idx)])}
-        param_dict['recombination'] = rec_rate
-        grid_to_sim.append(param_dict)
-    #window_df = self._get_window_coordinates()
+    grid_to_sim = {k:grid_meta_dict[k][param_combo_idxs] for k in grid_meta_dict.keys()}
+    old_to_new_idx = {old_idx:new_idx for new_idx, old_idx in enumerate(param_combo_idxs)}
+    
+    #grid_to_sim=[]
+    #old_to_new_idx = {} #dict to translate old idx to new in grid_to_sim
+    #for new_idx, old_idx in enumerate(param_combo_idxs):
+    #    old_to_new_idx[old_idx] = new_idx
+    #    #param_dict = copy.deepcopy(grid_meta_dict[str(int(old_idx))])
+    #    param_dict = {k:v for k,v in zip(grid_meta_dict.keys(),list(zip(*grid_meta_dict.values()))[int(old_idx)])}
+    #    param_dict['recombination'] = rec_rate
+    #    grid_to_sim.append(param_dict)
+    
     window_df = window_coordinates.copy()
     window_df['param_idx'] = [old_to_new_idx[idx] for idx in local_winning_fixed_param_idx]
     return (grid_to_sim, window_df)
@@ -1977,19 +2012,21 @@ class Store(object):
                 (config['simulate_key']))
         # here we should have all check/computations of sim_grid/etc...
 
-        # have still to figure out how this gets tied in ...
-        # if parameterObj.sim_grid:
-        #     if isinstance(parameterObj.recombination_map, pd.DataFrame):
-        #         parameterObj.recombination_map = parameterObj._validate_recombination_map(self, parameterObj.recombination_map)
-        #     unique_hash = parameterObj._get_unique_hash(module='makegrid')
-        #     if not self._has_grid(unique_hash):
-        #         sys.exit("[X] Provided config file does not correspond to an existing grid.")
+        #deal with grid_label:
+        if config['gridbased']['grid_label'].strip()!='':
+            #check whether grid_label exists
+            key = self._get_key(task='grid', analysis_label=config['gridbased']['gridlabel'])
+            if not self._has_key(key):
+                sys.exit("[X] Provided grid label does not correspond to an existing grid.")
+            else:
+                #set recombination (map)
+                #overwrite all parameters in parameters_expanded
+                lncls_global, lncls_windows = store._get_lncls(key)
+                fixed_parameter = config['gridbased']['fixed_parameter'] if config['gridbased']['fixed_parameter']!='' else None 
+                config = _get_sim_grid_config(config, window_coordinates, lncls_global, lncls_windows, fixed_param_grid)
         
-        config['demographies'] = lib.simulate.make_demographies(config)
-        config['seeds'] = np.random.randint(1, 2 ** 32, (config['parameters_grid_points'], config['simulate']['replicates'], 2))   
-        config['replicates'] = config['simulate']['chunks'] * config['simulate']['replicates']
-        config['parameters_LOD'] = DOL_to_LOD(config['parameters_expanded'])
-        config['parameters'] = {**config['simulate'],**config['mu']}
+        print('[+] Simulating %s replicate(s) of %s block(s) for %s parameter combinations' %
+            (config['simulate']['replicates'], config['simulate']['blocks'], config['parameters_grid_points']))
         return config
 
     def simulate(self, config, threads, overwrite):
