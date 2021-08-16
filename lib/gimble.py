@@ -370,14 +370,19 @@ def config_to_meta(config, task):
         meta['replicates'] = config['replicates']
         meta['parameters_LOD'] = config['parameters_LOD']
         meta['parameters'] = config['parameters']
+        if config['gridbased']['grid_label']!="":
+            meta['grid_label'] = config['gridbased']['grid_label']
+            meta['window_param_idx'] = tuple(int(i) for i in config['window_param_idx'])
     if task == 'simulate_instance':
         meta['max_k'] = tuple([int(v) for v in config['max_k']])
         meta['idx'] = config['idx']
         meta['ancestry_seeds'] = tuple([int(s) for s in config['seeds'][config['idx']][:,0]]) 
         meta['mutation_seeds'] = tuple([int(s) for s in config['seeds'][config['idx']][:,1]])
         meta['replicates'] = config['replicates']
-        meta['parameters_LOD'] = config['parameters_LOD']
-        meta['parameters'] = config['parameters']
+        meta['parameters_LOD'] = config['parameters_LOD'][config['idx']]
+        meta['parameters'] = {k:v for k,v in config['parameters'].items()}
+        if not(isinstance(config['parameters']['recombination_rate'], float) or isinstance(config['parameters']['recombination_rate'], int)):
+            meta['parameters']['recombination_rate'] = config['parameters']['recombination_rate'][config['idx']]
     if task == 'makegrid':
         meta['key'] = config['key']
         meta['grid_dict'] = {k:list(v) for k,v in config['parameters_expanded'].items()}
