@@ -1,5 +1,6 @@
 import copy
 import collections
+import traceback
 import contextlib
 import concurrent.futures
 import datetime
@@ -7,17 +8,19 @@ import itertools
 import math
 import multiprocessing
 import nlopt
+import types
 import numpy as np
 import pandas as pd
 import random
 import sys, os
 import sage.all
 import logging
+import functools
 from functools import partial
 from functools import partialmethod
 from timeit import default_timer as timer
 from tqdm import tqdm
-
+import tempfile
 import lib.gimble
 from lib.GeneratingFunction.gf import togimble
 
@@ -89,14 +92,28 @@ get_base_rate:
 
 '''
 
-NLOPT_EXIT_CODES = {
-    1: 'optimum found', 
-    2: 'stopvalue reached',
-    3: 'tolerance on lnCL reached',
-    4: 'tolerance on parameter vector reached',
-    5: 'max number of evaluations reached',
-    6: 'max computation time was reached'
-    }
+#NLOPT_EXIT_CODES = {
+#    1: 'optimum found', 
+#    2: 'stopvalue reached',
+#    3: 'tolerance on lnCL reached',
+#    4: 'tolerance on parameter vector reached',
+#    5: 'max number of evaluations reached',
+#    6: 'max computation time was reached'
+#    }
+
+NLOPT_EXIT_CODE = {
+     1: 'NLOPT_SUCCESS',
+     2: 'NLOPT_STOPVAL_REACHED',
+     3: 'NLOPT_FTOL_REACHED',
+     4: 'NLOPT_XTOL_REACHED',
+     5: 'NLOPT_MAXEVAL_REACHED',
+     6: 'NLOPT_MAXTIME_REACHED',
+     -1: 'NLOPT_FAILURE',
+     -2: 'NLOPT_INVALID_ARGS',
+     -3: 'NLOPT_OUT_OF_MEMORY',
+     -4: 'NLOPT_ROUNDOFF_LIMITED',
+     -5: 'NLOPT_FORCED_STOP'
+}
 
 @contextlib.contextmanager
 def poolcontext(*args, **kwargs):
@@ -194,34 +211,34 @@ def config_to_gf(config):
     gf = togimble.get_gf(sample_list, coalescence_rates, mutype_labels, migration_direction, migration_rate, exodus_direction, exodus_rate)
     return gf
 
-def config_to_gf_before(model, mutype_labels, sync_pops=None):
-    pop_ids, pop_ids_sync, events = lib.gimble.get_model_params(model)
-    sample_list = [(),('a','a'),('b','b')] #currently hard-coded
-    pop_mapping = ['A_B', 'A', 'B'] #pop_mapping: should be more general sorted list of pops
-    coalescence_rates = [sage.all.var(f'C_{pop}') for pop in pop_mapping]
-    if sync_pops:
-        syncing_to, to_be_synced = sync_pops
-        syncing_to_idx = pop_mapping.index(syncing_to)
-        for pop_to_sync in to_be_synced:
-            coalescence_rates[pop_mapping.index(pop_to_sync)] = coalescence_rates[syncing_to_idx]
-    migration_events = [event for event in events if event.startswith('M')]
-    exodus_events = [event for event in events if event.startswith('J')]
-    if len(migration_events)>0:
-        migration_rate = sage.all.var('M')
-        migration_direction = [tuple(pop_mapping.index(pop) for pop in mig.lstrip('M_').split('_')) for mig in migration_events]
-        #migration_direction = [(1,2)] if migration_events[0] == 'M_A_B' else [(2,1)]
-    else:
-        migration_rate, migration_direction = None, None
-    if len(exodus_events)>0:
-        exodus_rate = sage.all.var('J')
-        exodus_source = [[pop_mapping.index(pop) for pop in exodus.lstrip('J_').split('_')] for exodus in exodus_events] 
-        exodus_dest = [[pop_mapping.index(exodus.lstrip('J_'))] for exodus in exodus_events]
-        exodus_direction = [tuple(srce + dest) for srce, dest in zip(exodus_source, exodus_dest)]
-        #exodus_direction = [(1,2,0)]
-    else:
-        exodus_rate, exodus_direction = None, None
-    gf = togimble.get_gf(sample_list, coalescence_rates, mutype_labels, migration_direction, migration_rate, exodus_direction, exodus_rate)
-    return gf
+# def config_to_gf_before(model, mutype_labels, sync_pops=None):
+#     pop_ids, pop_ids_sync, events = lib.gimble.get_model_params(model)
+#     sample_list = [(),('a','a'),('b','b')] #currently hard-coded
+#     pop_mapping = ['A_B', 'A', 'B'] #pop_mapping: should be more general sorted list of pops
+#     coalescence_rates = [sage.all.var(f'C_{pop}') for pop in pop_mapping]
+#     if sync_pops:
+#         syncing_to, to_be_synced = sync_pops
+#         syncing_to_idx = pop_mapping.index(syncing_to)
+#         for pop_to_sync in to_be_synced:
+#             coalescence_rates[pop_mapping.index(pop_to_sync)] = coalescence_rates[syncing_to_idx]
+#     migration_events = [event for event in events if event.startswith('M')]
+#     exodus_events = [event for event in events if event.startswith('J')]
+#     if len(migration_events)>0:
+#         migration_rate = sage.all.var('M')
+#         migration_direction = [tuple(pop_mapping.index(pop) for pop in mig.lstrip('M_').split('_')) for mig in migration_events]
+#         #migration_direction = [(1,2)] if migration_events[0] == 'M_A_B' else [(2,1)]
+#     else:
+#         migration_rate, migration_direction = None, None
+#     if len(exodus_events)>0:
+#         exodus_rate = sage.all.var('J')
+#         exodus_source = [[pop_mapping.index(pop) for pop in exodus.lstrip('J_').split('_')] for exodus in exodus_events] 
+#         exodus_dest = [[pop_mapping.index(exodus.lstrip('J_'))] for exodus in exodus_events]
+#         exodus_direction = [tuple(srce + dest) for srce, dest in zip(exodus_source, exodus_dest)]
+#         #exodus_direction = [(1,2,0)]
+#     else:
+#         exodus_rate, exodus_direction = None, None
+#     gf = togimble.get_gf(sample_list, coalescence_rates, mutype_labels, migration_direction, migration_rate, exodus_direction, exodus_rate)
+#     return gf
 """
 def calculate_inverse_laplace(params):
     '''
@@ -257,175 +274,411 @@ def calculate_inverse_laplace(params):
 """
 
 
-def run_single_optimize(p0, lower, upper, specified_objective_function, maxeval, xtol_rel, ftol_rel):
-    opt = nlopt.opt(nlopt.LN_NELDERMEAD, len(p0))
-    opt.set_lower_bounds(lower)
-    opt.set_upper_bounds(upper)
-    opt.set_max_objective(specified_objective_function)
-    opt.set_xtol_rel(xtol_rel)
-    if xtol_rel>0:
-        #assigning weights to address size difference between params
-        xtol_weights = 1/(len(p0) * p0)
-        opt.set_x_weights(xtol_weights)
-    opt.set_ftol_rel(ftol_rel)
-    opt.set_maxeval(maxeval)
-    optimum = opt.optimize(p0)
-    rdict = {}
-    rdict['lnCL'] = opt.last_optimum_value()
-    rdict['optimum'] = optimum
-    rdict['exitcode'] = opt.last_optimize_result()
-    return rdict
+# def run_single_optimize(p0, lower, upper, specified_objective_function, maxeval, xtol_rel, ftol_rel):
+#     '''
+#     performs optimization based on:
+#         p0, lower, upper, maxeval, xtol_rel, ftol_rel
+#     with function 
+#         specified_objective_function
+#     => rewritten as optimization_instance
 
-def calculate_composite_likelihood(ETPs, data):
-    ETP_log = np.zeros(ETPs.shape, dtype=np.float64)
-    np.log(ETPs, where=ETPs>0, out=ETP_log)
-    return np.sum(ETP_log * data)
+#     '''
+#     print('# run_single_optimize()')
+#     print('p0', type(p0), p0)
+#     print('lower', type(lower), lower)
+#     print('upper', type(upper), upper)
+#     print('specified_objective_function', type(specified_objective_function))
+#     print('maxeval', type(maxeval), maxeval)
+#     print('xtol_rel', type(xtol_rel), xtol_rel)
+#     print('ftol_rel', type(ftol_rel), ftol_rel)
+#     opt = nlopt.opt(nlopt.LN_NELDERMEAD, len(p0))
+#     opt.set_lower_bounds(lower)
+#     opt.set_upper_bounds(upper)
+#     opt.set_max_objective(specified_objective_function)
+#     opt.set_xtol_rel(xtol_rel)
+#     if xtol_rel>0:
+#         #assigning weights to address size difference between params
+#         xtol_weights = 1/(len(p0) * p0)
+#         opt.set_x_weights(xtol_weights)
+#     opt.set_ftol_rel(ftol_rel)
+#     opt.set_maxeval(maxeval)
+#     optimum = opt.optimize(p0)
+#     rdict = {}
+#     rdict['lnCL'] = opt.last_optimum_value()
+#     rdict['optimum'] = optimum
+#     rdict['exitcode'] = opt.last_optimize_result()
+#     return rdict
 
-# HOW DOES PATH work?
-def objective_function(paramsToOptimize, grad, paramNames, fixedParams, mu, block_length, reference_pop, gfEvaluatorObj, data, verbose=True, path=None):
-    if grad.size:
-        raise ValueError('no optimization with derivatives implemented')
-    start_time = timer()
+# # HOW DOES PATH work?
+# def objective_function(paramsToOptimize, grad, paramNames, fixedParams, mu, block_length, reference_pop, gfEvaluatorObj, data, verbose=True, path=None):
+#     if grad.size:
+#         raise ValueError('no optimization with derivatives implemented')
+#     start_time = timer()
     
-    # needs:
-    #
-    params_to_optimize_unscaled = {k:v for k,v in zip(paramNames, paramsToOptimize)}
-    all_rates_unscaled = {**params_to_optimize_unscaled, **fixedParams}
-    all_rates_scaled = scale_single_gens_to_gimble_symbolic(
-        all_rates_unscaled, 
-        reference_pop, 
-        block_length, 
-        mu
-        )
+#     # needs:
+#     #
+#     params_to_optimize_unscaled = {k:v for k,v in zip(paramNames, paramsToOptimize)}
+#     all_rates_unscaled = {**params_to_optimize_unscaled, **fixedParams}
+#     all_rates_scaled = scale_single_gens_to_gimble_symbolic(
+#         all_rates_unscaled, 
+#         reference_pop, 
+#         block_length, 
+#         mu
+#         )
 
-    ETPs = gfEvaluatorObj.evaluate_gf(all_rates_scaled, all_rates_scaled[sage.all.SR.var('theta')])
-    result = calculate_composite_likelihood(ETPs, data)
+#     ETPs = gfEvaluatorObj.evaluate_gf(all_rates_scaled, all_rates_scaled[sage.all.SR.var('theta')])
+#     result = calculate_composite_likelihood(ETPs, data)
     
-    # can be array
-    iteration_number = -1
-    if isinstance(path, list):
-        iteration_number = len(path)
-        toSave = np.append(paramsToOptimize, (result, iteration_number))
-        path.append(toSave)
+#     # can be array
+#     iteration_number = -1
+#     if isinstance(path, list):
+#         iteration_number = len(path)
+#         toSave = np.append(paramsToOptimize, (result, iteration_number))
+#         path.append(toSave)
     
-    if verbose:
-        #scale coalescence time scale: 
-        #all_rates_coal_scaled = scale_single_gimble_to_coal(parameter_dict)
-        # generation time scaled
-        # for time use lib.gimble.format_time(seconds)
-        time = str(datetime.timedelta(seconds=round(timer()-start_time, 1)))
-        print("[+] i=%s -- {%s} -- L=%s -- %s" % (
-            str(iteration_number).ljust(4), 
-            " ".join(["%s=%s" % (k, '{:.2e}'.format(float(v))) for k, v in params_to_optimize_unscaled.items()]), 
-            '{:.2f}'.format(float(result)), 
-            str(time[:-5]) if len(time) > 9 else str(time))) # rounding is hard ...
-    return result
+#     if verbose:
+#         #scale coalescence time scale: 
+#         #all_rates_coal_scaled = scale_single_gimble_to_coal(parameter_dict)
+#         # generation time scaled
+#         # for time use lib.gimble.format_time(seconds)
+#         time = str(datetime.timedelta(seconds=round(timer()-start_time, 1)))
+#         print("[+] i=%s -- {%s} -- L=%s -- %s" % (
+#             str(iteration_number).ljust(4), 
+#             " ".join(["%s=%s" % (k, '{:.2e}'.format(float(v))) for k, v in params_to_optimize_unscaled.items()]), 
+#             '{:.2f}'.format(float(result)), 
+#             str(time[:-5]) if len(time) > 9 else str(time))) # rounding is hard ...
+#     return result
 
-def get_scaled_values_by_symbol(values_bounded_unscaled_by_parameter, config):
-    # DRL 
-    reference_pop_id = config['populations']['reference_pop_id']
+#def get_scaled_values_by_symbol(values_bounded_unscaled_by_parameter, config):
+#    # DRL 
+#    reference_pop_id = config['populations']['reference_pop_id']
+#    block_length = config['block_length']
+#    mu = config['mu']['mu']
+#    values_fixed_unscaled_by_parameter = {
+#        k: config['parameters_np'][k][0] for k in config['parameters_fixed']}
+#    values_unscaled_by_parameter = {
+#        **values_bounded_unscaled_by_parameter, 
+#        **values_fixed_unscaled_by_parameter}
+#    ref_Ne = values_unscaled_by_parameter.get('Ne_%s' % reference_pop_id, None)
+#    if not ref_Ne:
+#        raise ValueError('ref_Ne not found in %s' % str(values_unscaled_by_parameter))
+#    values_scaled_by_symbol = {}
+#    scaling_factor = 2
+#    values_scaled_by_symbol[sage.all.SR.var('theta')] = scaling_factor * sage.all.Rational(ref_Ne * mu * block_length)
+#    for parameter, value in values_unscaled_by_parameter.items():
+#        if parameter.startswith('Ne'):
+#            symbol = sage.all.SR.var('C_%s' % parameter.lstrip('Ne_'))
+#            value_scaled = sage.all.Rational(ref_Ne / value)
+#        elif parameter == 'T':
+#            symbol = sage.all.SR.var('T')
+#            value_scaled = sage.all.Rational(value / (scaling_factor * ref_Ne))
+#        elif parameter.startswith('m'):
+#            symbol = sage.all.SR.var('M')
+#            value_scaled = sage.all.Rational(scaling_factor*ref_Ne*value)
+#        else:
+#            raise ValueError('Unknown parameter %r with value %r' % (parameter, value))
+#        values_scaled_by_symbol[symbol] = value_scaled
+#    return values_scaled_by_symbol
+
+#def optimize_function(values_bounded_unscaled, grad, config, gfEvaluatorObj, data, verbose, track_likelihoods, track_values_unscaled):
+#    '''
+#    Tasks:
+#    - scales values in config['parameters_bounded'] 
+#    - ETPs = gfEvaluatorObj.evaluate_gf(values_scaled_by_symbol, values_scaled_by_symbol[sage.all.SR.var('theta')])
+#    - likelihood = ETPs * data
+#    - return likelihood
+#    '''
+#    # DRL
+#    print('# optimize_function()')
+#    print('locals', locals())
+#    start_time = timer()
+#    values_bounded_unscaled_by_parameter = {
+#        k: v for k, v in zip(config['parameters_bounded'], values_bounded_unscaled)}
+#    print('values_bounded_unscaled_by_parameter', values_bounded_unscaled_by_parameter)
+#    values_scaled_by_symbol = get_scaled_values_by_symbol(values_bounded_unscaled_by_parameter, config)
+#    print('values_scaled_by_symbol', values_scaled_by_symbol)
+#    ETPs = gfEvaluatorObj.evaluate_gf(values_scaled_by_symbol, values_scaled_by_symbol[sage.all.SR.var('theta')])
+#    likelihood = calculate_composite_likelihood(ETPs, data)
+#    track_likelihoods.append(likelihood)
+#    track_values_unscaled.append(values_bounded_unscaled)
+#    if verbose:
+#        iteration = len(track_likelihoods)
+#        elapsed = lib.gimble.format_time(timer() - start_time)
+#        print("[+] i=%s -- {%s} -- L=%s -- %s" % (
+#            str(iteration).ljust(4), 
+#            " ".join(["%s=%s" % (k, '{:.5e}'.format(float(v))) for k, v in values_bounded_unscaled_by_parameter.items()]), 
+#            '{:.5f}'.format(float(likelihood)), 
+#            elapsed))
+#    return likelihood
+
+def scale_nlopt_values(nlopt_values, config):
     block_length = config['block_length']
     mu = config['mu']['mu']
-    values_fixed_unscaled_by_parameter = {
-        k: config['parameters_np'][k][0] for k in config['parameters_fixed']}
-    values_unscaled_by_parameter = {
-        **values_bounded_unscaled_by_parameter, 
-        **values_fixed_unscaled_by_parameter}
-    ref_Ne = values_unscaled_by_parameter.get('Ne_%s' % reference_pop_id, None)
+    nlopt_values_by_parameter = {k: v for k, v in zip(config['parameters_bounded'], nlopt_values)}      # unscaled
+    fixed_values_by_parameter = {k: config['parameters_np'][k][0] for k in config['parameters_fixed']}
+    unscaled_values_by_parameter = {**nlopt_values_by_parameter, **fixed_values_by_parameter}
+    ref_Ne = unscaled_values_by_parameter.get('Ne_%s' % config['populations']['reference_pop_id'], None)
     if not ref_Ne:
-        raise ValueError('ref_Ne not found in %s' % str(values_unscaled_by_parameter))
-    values_scaled_by_symbol = {}
-    scaling_factor = 2
-    values_scaled_by_symbol[sage.all.SR.var('theta')] = scaling_factor * sage.all.Rational(ref_Ne * mu * block_length)
-    for parameter, value in values_unscaled_by_parameter.items():
+        raise ValueError('ref_Ne not found in %s' % str(unscaled_values_by_parameter))
+    scaled_values_by_symbol = {}
+    scaled_values_by_parameter = {}
+    SCALING_FACTOR = 2
+    scaled_values_by_symbol[sage.all.SR.var('theta')] = SCALING_FACTOR * sage.all.Rational(ref_Ne * mu * block_length)
+    for parameter, value in unscaled_values_by_parameter.items():
         if parameter.startswith('Ne'):
             symbol = sage.all.SR.var('C_%s' % parameter.lstrip('Ne_'))
             value_scaled = sage.all.Rational(ref_Ne / value)
         elif parameter == 'T':
             symbol = sage.all.SR.var('T')
-            value_scaled = sage.all.Rational(value / (scaling_factor * ref_Ne))
+            value_scaled = sage.all.Rational(value / (SCALING_FACTOR * ref_Ne))
         elif parameter.startswith('m'):
             symbol = sage.all.SR.var('M')
-            value_scaled = sage.all.Rational(scaling_factor*ref_Ne*value)
+            value_scaled = sage.all.Rational(SCALING_FACTOR*ref_Ne*value)
         else:
             raise ValueError('Unknown parameter %r with value %r' % (parameter, value))
-        values_scaled_by_symbol[symbol] = value_scaled
-    return values_scaled_by_symbol
+        scaled_values_by_symbol[symbol] = value_scaled
+        scaled_values_by_parameter[parameter] = value_scaled
+    return (scaled_values_by_symbol, scaled_values_by_parameter, unscaled_values_by_parameter, block_length)
 
-def optimize_function(values_bounded_unscaled, grad, config, gfEvaluatorObj, data, verbose, track_likelihoods, track_values_unscaled):
-    # DRL
+def calculate_composite_likelihood(ETPs, data):
+    assert ETPs.shape == data.shape, "[X] Incompatible shapes in calculate_composite_likelihood(): ETPs (%s) vs data (%s)" % (ETPs.shape, data.shape)
+    ETP_log = np.zeros(ETPs.shape, dtype=np.float64)
+    np.log(ETPs, where=ETPs>0, out=ETP_log)
+    return np.sum(ETP_log * data)
+
+def likelihood_function(nlopt_values, grad, gfEvaluatorObj, dataset, dataset_idx, config, nlopt_iterations, verbose):
+    global NLOPT_LOG_QUEUE
     start_time = timer()
-    values_bounded_unscaled_by_parameter = {
-        k: v for k, v in zip(config['parameters_bounded'], values_bounded_unscaled)}
-    values_scaled_by_symbol = get_scaled_values_by_symbol(values_bounded_unscaled_by_parameter, config)
-    ETPs = gfEvaluatorObj.evaluate_gf(values_scaled_by_symbol, values_scaled_by_symbol[sage.all.SR.var('theta')])
-    print('data', data)
-    likelihood = calculate_composite_likelihood(ETPs, data)
-    track_likelihoods.append(likelihood)
-    track_values_unscaled.append(values_bounded_unscaled)
+    nlopt_traceback = None
+    nlopt_iterations[dataset_idx] += 1 
+    scaled_values_by_symbol, scaled_values_by_parameter, unscaled_values_by_parameter, block_length = scale_nlopt_values(nlopt_values, config)
+    try:
+        ETPs = gfEvaluatorObj.evaluate_gf(scaled_values_by_symbol, scaled_values_by_symbol[sage.all.SR.var('theta')])
+        likelihood = calculate_composite_likelihood(ETPs, dataset)
+    except Exception as exception:
+        '''
+        additional column with: 
+            - exit code if finished
+            - traceback
+            - OK
+        remove sys.exit()
+
+        ADD filename as argument for nlopt so that it can be printed
+        
+        '''
+        nlopt_log_iteration_tuple = get_nlopt_log_iteration_tuple(dataset_idx, nlopt_iterations[dataset_idx], block_length, 'N/A', scaled_values_by_parameter, unscaled_values_by_parameter)
+        nlopt_traceback = traceback.format_exc()
+        NLOPT_LOG_QUEUE.put((nlopt_log_iteration_tuple, nlopt_traceback))
+        sys.exit('[X] Something went wrong. Check the log file %r' % nlopt_log.name)
+    nlopt_log_iteration_tuple = get_nlopt_log_iteration_tuple(dataset_idx, nlopt_iterations[dataset_idx], block_length, likelihood, scaled_values_by_parameter, unscaled_values_by_parameter)
+    NLOPT_LOG_QUEUE.put((nlopt_log_iteration_tuple, nlopt_traceback))
     if verbose:
-        iteration = len(track_likelihoods)
         elapsed = lib.gimble.format_time(timer() - start_time)
-        print("[+] i=%s -- {%s} -- L=%s -- %s" % (
-            str(iteration).ljust(4), 
-            " ".join(["%s=%s" % (k, '{:.5e}'.format(float(v))) for k, v in values_bounded_unscaled_by_parameter.items()]), 
-            '{:.5f}'.format(float(likelihood)), 
-            elapsed))
+        print_nlopt_line(dataset_idx, nlopt_iterations[dataset_idx], likelihood, unscaled_values_by_parameter, elapsed)
     return likelihood
 
-def optimize_parameters(gfEvaluatorObj, data, config, verbose=True):
-    # DRL
-    #log_file = os.path.join(config['CWD'], "gimble.%s.%s.%s.log" % (
-    #    config['gimble']['task'], 
-    #    config['gimble']['model'], 
-    #    config['gimble']['label']))
-    #logging.basicConfig(
-    #    level=logging.DEBUG, 
-    #    format='%(asctime)s %(levelname)s %(message)s',
-    #    filename=log_file, 
-    #    filemode='w')
-    track_likelihoods = []
-    track_values_unscaled = []
-    optimize_function_list = [partial(
-                    optimize_function,
-                    config=config,
-                    gfEvaluatorObj=gfEvaluatorObj,
-                    data=data,
-                    verbose=verbose,
-                    track_likelihoods=track_likelihoods,
-                    track_values_unscaled=track_values_unscaled)]
-    nlopt_results = [] 
-    if config['num_cores'] <= 1:
-        for specified_objective_function in tqdm(optimize_function_list, desc="progress", total=len(optimize_function_list), disable=verbose):
-            single_run_result = run_single_optimize(
-                p0=config['starting_points'][0], # has to be changed if always only one startpoint 
-                lower=config['parameter_combinations_lowest'], 
-                upper=config['parameter_combinations_highest'], 
-                specified_objective_function=specified_objective_function, 
-                maxeval=config['max_iterations'], 
-                xtol_rel=config['xtol_rel'], 
-                ftol_rel=config['ftol_rel']) 
-            nlopt_results.append(single_run_result)
+def get_nlopt_log_iteration_tuple(dataset_idx, iteration, block_length, likelihood, scaled_values_by_parameter, unscaled_values_by_parameter):
+    nlopt_log_iteration = [dataset_idx, iteration, block_length, likelihood]
+    for parameter, scaled_value in scaled_values_by_parameter.items():
+        nlopt_log_iteration.append(scaled_value) 
+    for parameter, unscaled_value in unscaled_values_by_parameter.items():
+        nlopt_log_iteration.append(unscaled_value) 
+    return tuple(nlopt_log_iteration)
+
+def print_nlopt_line(dataset_idx, iteration, likelihood, unscaled_values_by_parameter, elapsed):
+    print("[+] data_idx=%s i=%s -- {%s} -- L=%s -- %s" % (dataset_idx, str(iteration).ljust(4), 
+        " ".join(["%s=%s" % (k, '{:.5e}'.format(float(v))) for k, v in unscaled_values_by_parameter.items()]), 
+        '{:.5f}'.format(float(likelihood)), elapsed))
+
+def nlopt_call(args):
+    nlopt_params, dataset_idx, likelihood_function = args
+    num_optimization_parameters = len(nlopt_params['start_point'])
+    opt = nlopt.opt(nlopt.LN_NELDERMEAD, num_optimization_parameters)
+    opt.set_lower_bounds(nlopt_params['lower_bound'])
+    opt.set_upper_bounds(nlopt_params['upper_bound'])
+    opt.set_max_objective(likelihood_function)
+    opt.set_xtol_rel(nlopt_params['xtol_rel'])
+    if nlopt_params['xtol_rel'] > 0:
+        # assigning weights to address size difference between params
+        xtol_weights = 1/(len(nlopt_params['start_point']) * nlopt_params['start_point'])
+        opt.set_x_weights(xtol_weights)
+    opt.set_ftol_rel(nlopt_params['ftol_rel'])
+    opt.set_maxeval(nlopt_params['maxeval'])
+    optimum = opt.optimize(nlopt_params['start_point'])
+    return {
+        'dataset_idx': dataset_idx,
+        'nlopt_optimum': opt.last_optimum_value(),
+        'nlopt_values': optimum,
+        'nlopt_status': NLOPT_EXIT_CODE[opt.last_optimize_result()]}
+
+def get_nlopt_log_fn(data_idx, config):
+    nlopt_log_header = ["dataset_idx", 'iteration', 'block_length', 'likelihood']
+    nlopt_log_header += ['%s_unscaled' % parameter for parameter in config['parameters_bounded'] + config['parameters_fixed']]
+    nlopt_log_header += ['%s_scaled' % parameter for parameter in config['parameters_bounded'] + config['parameters_fixed']]
+    nlopt_log_fn = "gimble.optimize.%s.%s.%s.log" % (config['gimble']['label'], data_idx, datetime.datetime.now().strftime("%Y%m%d_%H%M%S"))
+    print("[+] Trajectories of optimization(s) are written to %r" % nlopt_log_fn)
+    with open(nlopt_log_fn, 'w') as nlopt_log_fh:
+        nlopt_log_fh.write("%s\n" % ",".join(nlopt_log_header)), nlopt_log_fh.flush()
+    return (nlopt_log_fn, nlopt_log_header)
+
+NLOPT_LOG_QUEUE = multiprocessing.Queue()
+NLOPT_LOG_ITERATIONS_MANAGER = multiprocessing.Manager()
+
+def nlopt_logger(nlopt_log_fn, nlopt_log_iterations):
+    global NLOPT_LOG_QUEUE
+    with open(nlopt_log_fn, 'a') as nlopt_log_fh:
+        while 1:
+            (nlopt_log_iteration_tuple, nlopt_traceback) = NLOPT_LOG_QUEUE.get()
+            if nlopt_log_iteration_tuple is None:
+                break
+            nlopt_log_iterations.append(nlopt_log_iteration_tuple)
+            nlopt_log_fh.write("%s\n" % ",".join(map(str, nlopt_log_iteration_tuple)))
+            if nlopt_traceback: # this needs to be checked!
+                nlopt_log_fh.write(nlopt_traceback)        
+            nlopt_log_fh.flush()
+
+def get_nlopt_args(gfEvaluatorObj, dataset, config):
+    print("[+] Preparing likelihood functions for optimization...")
+    nlopt_params = {
+        'start_point': config['start_point'],
+        'lower_bound': config['parameter_combinations_lowest'],
+        'upper_bound': config['parameter_combinations_highest'],
+        'maxeval': config['max_iterations'],
+        'xtol_rel': config['xtol_rel'],
+        'ftol_rel': config['ftol_rel']}
+    if dataset.ndim == 5:
+        nlopt_iterations = np.zeros(dataset.shape[0], dtype=np.uint16)
+        return [(nlopt_params, i, functools.partial(likelihood_function, gfEvaluatorObj=gfEvaluatorObj, dataset=dataset[i],
+                    dataset_idx=i, config=config, nlopt_iterations=nlopt_iterations, verbose=True)) for i in range(dataset.shape[0])]
     else:
-        # data has to be tested if it's an iterator
-        run_list=[partial(
-                run_single_optimize,
-                p0=config['starting_points'][0],
-                lower=config['parameter_combinations_lowest'],
-                upper=config['parameter_combinations_highest'],
-                specified_objective_function=specified_objective_function,
-                maxeval=config['max_iterations'],
-                xtol_rel=config['xtol_rel'],
-                ftol_rel=config['ftol_rel']
-                ) for specified_objective_function in optimize_function_list]
-        with concurrent.futures.ProcessPoolExecutor(max_workers=config['num_cores']) as outer_pool:
-            for idx, single_run in enumerate(tqdm(outer_pool.map(fp_map, run_list), desc="progress", total=len(run_list), disable=verbose)):
-                nlopt_results.append(single_run)
-    # not sure whether this works when doing optimize on sim'ed data ...
-    
-    # one array with likelihoods + parameters should be the result
-    optimize_results_array = np.column_stack((track_likelihoods, track_values_unscaled))
-    return (nlopt_results, optimize_results_array)
+        nlopt_iterations = np.zeros(1, dtype=np.uint16)
+        return [(nlopt_params, 0, functools.partial(likelihood_function, gfEvaluatorObj=gfEvaluatorObj, dataset=dataset, 
+                    dataset_idx=0, config=config, nlopt_iterations=nlopt_iterations, verbose=True))]
+
+# def get_nlopt_args_all_together(gfEvaluatorObj, data, config):
+#     '''do we want this?'''
+#     print("[+] Preparing likelihood functions for optimization...")
+#     nlopt_params = {
+#         'start_point': config['start_point'],
+#         'lower_bound': config['parameter_combinations_lowest'],
+#         'upper_bound': config['parameter_combinations_highest'],
+#         'maxeval': config['max_iterations'],
+#         'xtol_rel': config['xtol_rel'],
+#         'ftol_rel': config['ftol_rel']}
+#     if isinstance(data, types.GeneratorType):
+#         for dataset_idx, dataset in data: # i.e. parameter_combination
+#             if dataset.ndim == 5: 
+#                 nlopt_iterations = np.zeros(dataset.shape[0], dtype=np.uint16)
+#                 return [(nlopt_params, i, functools.partial(likelihood_function, gfEvaluatorObj=gfEvaluatorObj, dataset=dataset[i],
+#                             dataset_idx=i, config=config, nlopt_iterations=nlopt_iterations, verbose=True)) for i in range(dataset.shape[0])]
+#             else:
+#                 nlopt_iterations = np.zeros(1, dtype=np.uint16)
+#                 return [(nlopt_params, 0, functools.partial(likelihood_function, gfEvaluatorObj=gfEvaluatorObj, dataset=dataset, 
+#                             dataset_idx=0, config=config, nlopt_iterations=nlopt_iterations, verbose=True))]
+
+def optimize(gfEvaluatorObj, data_idx, data, config, verbose=True):
+    # Setup nlopt_log
+    nlopt_log_fn, nlopt_log_header = get_nlopt_log_fn(data_idx, config)
+    nlopt_log_iteration_tuples = NLOPT_LOG_ITERATIONS_MANAGER.list()
+    nlopt_log_process = multiprocessing.Process(target=nlopt_logger, args=(nlopt_log_fn, nlopt_log_iteration_tuples))
+    nlopt_log_process.start()
+    # Prepare args for nlopt
+    nlopt_args = get_nlopt_args(gfEvaluatorObj, data, config)
+    nlopt_results = []
+    # Start optimize
+    if config['num_cores'] <= 1:
+        for nlopt_arg in tqdm(nlopt_args, desc="progress", total=len(nlopt_args), disable=verbose):
+            nlopt_result = nlopt_call(nlopt_arg)
+            nlopt_results.append(nlopt_result)
+    else:
+        with poolcontext(processes=config['num_cores']) as pool:
+            with tqdm(nlopt_args, total=len(nlopt_args), desc="[%] ", disable=verbose) as pbar:
+                for nlopt_result in pool.imap_unordered(nlopt_call, nlopt_args):
+                    nlopt_results.append(nlopt_result)
+                    pbar.update()
+    # clean up logger
+    NLOPT_LOG_QUEUE.put((None, None))
+    nlopt_log_process.join()
+    # sanitize results
+    optimize_result = get_optimize_result(config, nlopt_results, nlopt_log_header, nlopt_log_iteration_tuples)
+    return optimize_result
+
+def get_optimize_result(config, nlopt_results, nlopt_log_header, nlopt_log_iteration_tuples):
+    # optimize results are done by dataset, i.e. blocks or windows or replicates
+    optimize_result = {
+        'nlopt_log_iteration_header': nlopt_log_header,
+        'nlopt_log_iteration_array' : np.asarray(nlopt_log_iteration_tuples),
+        'dataset_count': len(nlopt_results),
+        'nlopt_values_by_dataset_idx': {},
+        'nlopt_optimum_by_dataset_idx': {},
+        'nlopt_status_by_dataset_idx': {}}
+    for nlopt_result in nlopt_results:
+        dataset_idx = nlopt_result['dataset_idx']
+        nlopt_values = {parameter: value for parameter, value in zip(config['parameters_bounded'], nlopt_result['nlopt_values'])}
+        fixed_values = {parameter: config['parameters_np'][parameter][0] for parameter in config['parameters_fixed']}
+        optimize_result['nlopt_values_by_dataset_idx'][dataset_idx] = {**nlopt_values, **fixed_values}
+        optimize_result['nlopt_optimum_by_dataset_idx'][dataset_idx] = nlopt_result['nlopt_optimum']
+        optimize_result['nlopt_status_by_dataset_idx'][dataset_idx] = nlopt_result['nlopt_status']
+    return optimize_result
+
+#def optimize_parameters(gfEvaluatorObj, data, config, verbose=True):
+#    print('# optimize_parameters()')
+#    print('### gfEvaluatorObj', type(gfEvaluatorObj), gfEvaluatorObj)
+#    print('### data', data.shape)
+#    print('### config', type(config), config)
+#    print('### verbose', type(verbose), verbose)
+#    # DRL
+#    #log_file = os.path.join(config['CWD'], "gimble.%s.%s.%s.log" % (
+#    #    config['gimble']['task'], 
+#    #    config['gimble']['model'], 
+#    #    config['gimble']['label']))
+#    #logging.basicConfig(
+#    #    level=logging.DEBUG, 
+#    #    format='%(asctime)s %(levelname)s %(message)s',
+#    #    filename=log_file, 
+#    #    filemode='w')
+#    track_likelihoods = []
+#    track_values_unscaled = []
+#    optimize_function_list = [partial(
+#                    optimize_function,
+#                    config=config,
+#                    gfEvaluatorObj=gfEvaluatorObj,
+#                    data=data,
+#                    verbose=verbose,
+#                    track_likelihoods=track_likelihoods,
+#                    track_values_unscaled=track_values_unscaled)]
+#    nlopt_results = [] 
+#    if config['num_cores'] <= 1:
+#        for specified_objective_function in tqdm(optimize_function_list, desc="progress", total=len(optimize_function_list), disable=verbose):
+#            single_run_result = run_single_optimize(
+#                p0=config['start_point'], # has to be changed if always only one startpoint 
+#                lower=config['parameter_combinations_lowest'], 
+#                upper=config['parameter_combinations_highest'], 
+#                specified_objective_function=specified_objective_function, 
+#                maxeval=config['max_iterations'], 
+#                xtol_rel=config['xtol_rel'], 
+#                ftol_rel=config['ftol_rel']) 
+#            nlopt_results.append(single_run_result)
+#    else:
+#        # data has to be tested if it's an iterator
+#        run_list=[partial(
+#                run_single_optimize,
+#                p0=config['start_point'],
+#                lower=config['parameter_combinations_lowest'],
+#                upper=config['parameter_combinations_highest'],
+#                specified_objective_function=specified_objective_function,
+#                maxeval=config['max_iterations'],
+#                xtol_rel=config['xtol_rel'],
+#                ftol_rel=config['ftol_rel']
+#                ) for specified_objective_function in optimize_function_list]
+#        with concurrent.futures.ProcessPoolExecutor(max_workers=config['num_cores']) as outer_pool:
+#            for idx, single_run in enumerate(tqdm(outer_pool.map(fp_map, run_list), desc="progress", total=len(run_list), disable=verbose)):
+#                nlopt_results.append(single_run)
+#    # not sure whether this works when doing optimize on sim'ed data ...
+#    
+#    # one array with likelihoods + parameters should be the result
+#    optimize_results_array = np.column_stack((track_likelihoods, track_values_unscaled))
+#    return (nlopt_results, optimize_results_array)
 
 # def optimize_parameters_old(gfEvaluatorObj, data, parameterObj, trackHistory=True, verbose=False, label='', param_combo_name=''):
 
@@ -490,69 +743,69 @@ def optimize_parameters(gfEvaluatorObj, data, config, verbose=True):
 #     result = _optimize_reshape_output(allResults, trackHistoryPath, boundaryNames, exitcodeDict, trackHistory, verbose)
 #     return result
 
-def _optimize_get_boundary_names(parameterObj, fixedParams, data):
-    syncing_to, to_be_synced = parameterObj._get_pops_to_sync_short()
-    boundaryNames = [k for k in parameterObj.config['parameters'].keys() if not (k=='mu' or k in fixedParams or k in to_be_synced)]
-    if len(boundaryNames) == 0:
-        sys.exit("[X] No boundaries specified.")
-    return boundaryNames
+# def _optimize_get_boundary_names(parameterObj, fixedParams, data):
+#     syncing_to, to_be_synced = parameterObj._get_pops_to_sync_short()
+#     boundaryNames = [k for k in parameterObj.config['parameters'].keys() if not (k=='mu' or k in fixedParams or k in to_be_synced)]
+#     if len(boundaryNames) == 0:
+#         sys.exit("[X] No boundaries specified.")
+#     return boundaryNames
     
-def _optimize_get_boundaries(parameter_combinations, boundary_names, numPoints):
-    parameter_combinations_lowest = np.array([parameter_combinations[k][0] for k in boundary_names])
-    parameter_combinations_highest = np.array([parameter_combinations[k][1] for k in boundary_names])
-    #start from midpoint
-    pmid = np.mean(np.vstack((parameter_combinations_lowest, parameter_combinations_highest)), axis=0)
-    if numPoints > 1:
-        #np.random.seed(self.seed)
-        starting_points = np.random.uniform(low=parameter_combinations_lowest, high=parameter_combinations_highest, size=(numPoints-1, len(boundary_names)))
-        starting_points = np.vstack((pmid,starting_points))
-    else:
-        starting_points = [pmid,]
+# def _optimize_get_boundaries(parameter_combinations, boundary_names, numPoints):
+#     parameter_combinations_lowest = np.array([parameter_combinations[k][0] for k in boundary_names])
+#     parameter_combinations_highest = np.array([parameter_combinations[k][1] for k in boundary_names])
+#     #start from midpoint
+#     pmid = np.mean(np.vstack((parameter_combinations_lowest, parameter_combinations_highest)), axis=0)
+#     if numPoints > 1:
+#         #np.random.seed(self.seed)
+#         starting_points = np.random.uniform(low=parameter_combinations_lowest, high=parameter_combinations_highest, size=(numPoints-1, len(boundary_names)))
+#         starting_points = np.vstack((pmid,starting_points))
+#     else:
+#         starting_points = [pmid,]
 
-    return (starting_points, parameter_combinations_lowest, parameter_combinations_highest)
+#     return (starting_points, parameter_combinations_lowest, parameter_combinations_highest)
     
-def _optimize_specify_objective_function(gfEvaluatorObj, data_type, trackHistoryPath, data, boundary_names, fixedParams, mu, block_length, reference_pop, verbose):
-    if data_type=='simulate':
-        specified_objective_function_list = [partial(
-                objective_function,
-                paramNames=boundary_names,
-                fixedParams=fixedParams,
-                mu=mu,
-                block_length = block_length,
-                reference_pop=reference_pop,
-                gfEvaluatorObj=gfEvaluatorObj,
-                data=bsfs,
-                verbose=verbose,
-                path=None) for bsfs in data]
+# def _optimize_specify_objective_function(gfEvaluatorObj, data_type, trackHistoryPath, data, boundary_names, fixedParams, mu, block_length, reference_pop, verbose):
+#     if data_type=='simulate':
+#         specified_objective_function_list = [partial(
+#                 objective_function,
+#                 paramNames=boundary_names,
+#                 fixedParams=fixedParams,
+#                 mu=mu,
+#                 block_length = block_length,
+#                 reference_pop=reference_pop,
+#                 gfEvaluatorObj=gfEvaluatorObj,
+#                 data=bsfs,
+#                 verbose=verbose,
+#                 path=None) for bsfs in data]
     
-    elif data_type=='blocks':
-        specified_objective_function_list = [partial(
-                    objective_function,
-                    paramNames=boundary_names,
-                    fixedParams=fixedParams,
-                    mu=mu,
-                    block_length = block_length,
-                    reference_pop=reference_pop,
-                    gfEvaluatorObj=gfEvaluatorObj,
-                    data=data,
-                    verbose=verbose,
-                    path=sublist) for sublist in trackHistoryPath]
-    else:
-        raise ValueError("Only blocks and sims have been implemented so far.")
-    return specified_objective_function_list
+#     elif data_type=='blocks':
+#         specified_objective_function_list = [partial(
+#                     objective_function,
+#                     paramNames=boundary_names,
+#                     fixedParams=fixedParams,
+#                     mu=mu,
+#                     block_length = block_length,
+#                     reference_pop=reference_pop,
+#                     gfEvaluatorObj=gfEvaluatorObj,
+#                     data=data,
+#                     verbose=verbose,
+#                     path=sublist) for sublist in trackHistoryPath]
+#     else:
+#         raise ValueError("Only blocks and sims have been implemented so far.")
+#     return specified_objective_function_list
     
-def _optimize_specify_run_list_(parameterObj, specified_objective_function_list, starting_points, parameter_combinations_lowest, parameter_combinations_highest):
-    specified_run_list=[partial(
-                run_single_optimize,
-                p0=p0,
-                lower=parameter_combinations_lowest,
-                upper=parameter_combinations_highest,
-                specified_objective_function=specified_objective_function,
-                maxeval=parameterObj.max_eval,
-                xtol_rel=parameterObj.xtol_rel,
-                ftol_rel=parameterObj.ftol_rel
-                ) for p0, specified_objective_function in zip(itertools.cycle(starting_points), specified_objective_function_list)]
-    return specified_run_list
+# def _optimize_specify_run_list_(parameterObj, specified_objective_function_list, starting_points, parameter_combinations_lowest, parameter_combinations_highest):
+#     specified_run_list=[partial(
+#                 run_single_optimize,
+#                 p0=p0,
+#                 lower=parameter_combinations_lowest,
+#                 upper=parameter_combinations_highest,
+#                 specified_objective_function=specified_objective_function,
+#                 maxeval=parameterObj.max_eval,
+#                 xtol_rel=parameterObj.xtol_rel,
+#                 ftol_rel=parameterObj.ftol_rel
+#                 ) for p0, specified_objective_function in zip(itertools.cycle(starting_points), specified_objective_function_list)]
+#     return specified_run_list
     
 def _optimize_reshape_output(raw_output, trackHistoryPath, boundary_names, exitcodeDict, trackHistory, verbose):
     #raw_output is list of dicts with {"lnCL":value, "optimum":list, "exitcode":value}
@@ -584,7 +837,6 @@ def _optimize_log(single_run, identifier, log_file):
     print('\t'.join(single_run_string), file=log_file)
 
 def fp_map(f, *args):
-    #used with pool.map(fp_map, function_list, arg_list1, arg_list2,...)
     return f(*args)
 
 def scale_single_gens_to_gimble_symbolic(parameter_dict, reference_pop, block_length, mu):
