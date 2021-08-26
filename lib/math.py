@@ -1,26 +1,18 @@
-import copy
-import collections
 import traceback
 import contextlib
-import concurrent.futures
 import datetime
 import itertools
-import math
 import multiprocessing
 import nlopt
-import types
 import numpy as np
 import pandas as pd
-import random
 import sys, os
 import sage.all
-import logging
 import functools
 from functools import partial
 from functools import partialmethod
 from timeit import default_timer as timer
 from tqdm import tqdm
-import tempfile
 import lib.gimble
 from lib.GeneratingFunction.gf import togimble
 
@@ -467,30 +459,27 @@ def likelihood_function(nlopt_values, grad, gfEvaluatorObj, dataset, dataset_idx
         
         '''
         nlopt_log_iteration_tuple = get_nlopt_log_iteration_tuple(dataset_idx, nlopt_iterations[dataset_idx], block_length, 'N/A', scaled_values_by_parameter, unscaled_values_by_parameter)
-        nlopt_traceback = traceback.format_exc()
+        nlopt_traceback = traceback.format_exc(exception)
         NLOPT_LOG_QUEUE.put((nlopt_log_iteration_tuple, nlopt_traceback))
-        sys.exit('[X] Something went wrong. Check the log file %r' % nlopt_log.name)
     nlopt_log_iteration_tuple = get_nlopt_log_iteration_tuple(dataset_idx, nlopt_iterations[dataset_idx], block_length, likelihood, scaled_values_by_parameter, unscaled_values_by_parameter)
     NLOPT_LOG_QUEUE.put((nlopt_log_iteration_tuple, nlopt_traceback))
-    if verbose:
-        elapsed = lib.gimble.format_time(timer() - start_time)
-        print_nlopt_line(dataset_idx, nlopt_iterations[dataset_idx], likelihood, unscaled_values_by_parameter, elapsed)
+    #if verbose:
+    #    elapsed = lib.gimble.format_time(timer() - start_time)
+    #    #process_idx = multiprocessing.current_process()._identity
+    #    #print_nlopt_line(dataset_idx, nlopt_iterations[dataset_idx], likelihood, unscaled_values_by_parameter, elapsed, process_idx)
+    #    print_nlopt_line(dataset_idx, nlopt_iterations[dataset_idx], likelihood, unscaled_values_by_parameter, elapsed)
     return likelihood
 
 def get_nlopt_log_iteration_tuple(dataset_idx, iteration, block_length, likelihood, scaled_values_by_parameter, unscaled_values_by_parameter):
     nlopt_log_iteration = [dataset_idx, iteration, block_length, likelihood]
     for parameter, scaled_value in scaled_values_by_parameter.items():
-        nlopt_log_iteration.append(scaled_value) 
+        nlopt_log_iteration.append(float(scaled_value)) 
     for parameter, unscaled_value in unscaled_values_by_parameter.items():
-        nlopt_log_iteration.append(unscaled_value) 
+        nlopt_log_iteration.append(float(unscaled_value)) 
     return tuple(nlopt_log_iteration)
 
-def print_nlopt_line(dataset_idx, iteration, likelihood, unscaled_values_by_parameter, elapsed):
-    print("[+] data_idx=%s i=%s -- {%s} -- L=%s -- %s" % (dataset_idx, str(iteration).ljust(4), 
-        " ".join(["%s=%s" % (k, '{:.5e}'.format(float(v))) for k, v in unscaled_values_by_parameter.items()]), 
-        '{:.5f}'.format(float(likelihood)), elapsed))
-
 def nlopt_call(args):
+    global NLOPT_LOG_QUEUE
     nlopt_params, dataset_idx, likelihood_function = args
     num_optimization_parameters = len(nlopt_params['start_point'])
     opt = nlopt.opt(nlopt.LN_NELDERMEAD, num_optimization_parameters)
@@ -505,11 +494,13 @@ def nlopt_call(args):
     opt.set_ftol_rel(nlopt_params['ftol_rel'])
     opt.set_maxeval(nlopt_params['maxeval'])
     optimum = opt.optimize(nlopt_params['start_point'])
-    return {
+    nlopt_result = {
         'dataset_idx': dataset_idx,
         'nlopt_optimum': opt.last_optimum_value(),
         'nlopt_values': optimum,
         'nlopt_status': NLOPT_EXIT_CODE[opt.last_optimize_result()]}
+    NLOPT_LOG_QUEUE.put(nlopt_result)
+    return nlopt_result
 
 def get_nlopt_log_fn(data_idx, config):
     nlopt_log_header = ["dataset_idx", 'iteration', 'block_length', 'likelihood']
@@ -524,18 +515,45 @@ def get_nlopt_log_fn(data_idx, config):
 NLOPT_LOG_QUEUE = multiprocessing.Queue()
 NLOPT_LOG_ITERATIONS_MANAGER = multiprocessing.Manager()
 
-def nlopt_logger(nlopt_log_fn, nlopt_log_iterations):
+def nlopt_logger(nlopt_log_fn, nlopt_log_header, nlopt_log_iterations, nlopt_call_count):
     global NLOPT_LOG_QUEUE
+    pbar = tqdm(desc="[%] Progress", total=nlopt_call_count, position=0)
     with open(nlopt_log_fn, 'a') as nlopt_log_fh:
         while 1:
-            (nlopt_log_iteration_tuple, nlopt_traceback) = NLOPT_LOG_QUEUE.get()
-            if nlopt_log_iteration_tuple is None:
-                break
-            nlopt_log_iterations.append(nlopt_log_iteration_tuple)
-            nlopt_log_fh.write("%s\n" % ",".join(map(str, nlopt_log_iteration_tuple)))
-            if nlopt_traceback: # this needs to be checked!
-                nlopt_log_fh.write(nlopt_traceback)        
-            nlopt_log_fh.flush()
+            msg = NLOPT_LOG_QUEUE.get()
+            if isinstance(msg, dict):
+                # received from nlopt_call() upon finished optimization
+                pbar.write(format_nlopt_result(msg)) 
+                pbar.update()
+            if isinstance(msg, tuple):
+                # received from likelihood_function() after each iteration (with traceback if failed)
+                if msg[0] is None:
+                    pbar.update()
+                    break
+                else:
+                    # iteration array
+                    nlopt_log_iterations.append(msg[0])
+                    # log file
+                    nlopt_log_fh.write("%s\n" % ",".join(map(str, msg[0])))
+                    nlopt_log_fh.flush()
+                    # progress bar
+                    nlopt_log_iteration_values_by_key = {k: v for k, v in zip(nlopt_log_header, msg[0])}
+                    pbar.write(format_nlopt_log_iteration_values(nlopt_log_iteration_values_by_key))
+                    if msg[1]: # this needs to be checked!
+                        nlopt_log_fh.write(msg[1])
+                        sys.exit('[X] Something went wrong. Check the log file %r' % nlopt_log_fn)
+
+def format_nlopt_result(result_dict):
+    return "[+] data_idx=%s --------- [%s]" % (
+        int(result_dict['dataset_idx']),
+        result_dict['nlopt_status'])
+
+def format_nlopt_log_iteration_values(nlopt_log_iteration_values_by_key):
+    return "[+] data_idx=%s i=%s -- {%s} -- L=%s" % (
+        int(nlopt_log_iteration_values_by_key['dataset_idx']),
+        str(int(nlopt_log_iteration_values_by_key['iteration'])).ljust(4),
+        " ".join(["%s=%s" % (k.replace('_unscaled', ''), '{:.5e}'.format(float(v))) for k, v in nlopt_log_iteration_values_by_key.items() if k.endswith("unscaled")]),
+        '{:.5f}'.format(float(nlopt_log_iteration_values_by_key['likelihood'])))
 
 def get_nlopt_args(gfEvaluatorObj, dataset, config):
     print("[+] Preparing likelihood functions for optimization...")
@@ -555,47 +573,23 @@ def get_nlopt_args(gfEvaluatorObj, dataset, config):
         return [(nlopt_params, 0, functools.partial(likelihood_function, gfEvaluatorObj=gfEvaluatorObj, dataset=dataset, 
                     dataset_idx=0, config=config, nlopt_iterations=nlopt_iterations, verbose=True))]
 
-# def get_nlopt_args_all_together(gfEvaluatorObj, data, config):
-#     '''do we want this?'''
-#     print("[+] Preparing likelihood functions for optimization...")
-#     nlopt_params = {
-#         'start_point': config['start_point'],
-#         'lower_bound': config['parameter_combinations_lowest'],
-#         'upper_bound': config['parameter_combinations_highest'],
-#         'maxeval': config['max_iterations'],
-#         'xtol_rel': config['xtol_rel'],
-#         'ftol_rel': config['ftol_rel']}
-#     if isinstance(data, types.GeneratorType):
-#         for dataset_idx, dataset in data: # i.e. parameter_combination
-#             if dataset.ndim == 5: 
-#                 nlopt_iterations = np.zeros(dataset.shape[0], dtype=np.uint16)
-#                 return [(nlopt_params, i, functools.partial(likelihood_function, gfEvaluatorObj=gfEvaluatorObj, dataset=dataset[i],
-#                             dataset_idx=i, config=config, nlopt_iterations=nlopt_iterations, verbose=True)) for i in range(dataset.shape[0])]
-#             else:
-#                 nlopt_iterations = np.zeros(1, dtype=np.uint16)
-#                 return [(nlopt_params, 0, functools.partial(likelihood_function, gfEvaluatorObj=gfEvaluatorObj, dataset=dataset, 
-#                             dataset_idx=0, config=config, nlopt_iterations=nlopt_iterations, verbose=True))]
 
-def optimize(gfEvaluatorObj, data_idx, data, config, verbose=True):
-    # Setup nlopt_log
-    nlopt_log_fn, nlopt_log_header = get_nlopt_log_fn(data_idx, config)
-    nlopt_log_iteration_tuples = NLOPT_LOG_ITERATIONS_MANAGER.list()
-    nlopt_log_process = multiprocessing.Process(target=nlopt_logger, args=(nlopt_log_fn, nlopt_log_iteration_tuples))
-    nlopt_log_process.start()
+def optimize(gfEvaluatorObj, data_idx, data, config):
     # Prepare args for nlopt
     nlopt_args = get_nlopt_args(gfEvaluatorObj, data, config)
     nlopt_results = []
-    # Start optimize
+    # Setup nlopt_logger/tqdm
+    nlopt_log_fn, nlopt_log_header = get_nlopt_log_fn(data_idx, config)
+    nlopt_log_iteration_tuples = NLOPT_LOG_ITERATIONS_MANAGER.list()
+    nlopt_log_process = multiprocessing.Process(target=nlopt_logger, args=(nlopt_log_fn, nlopt_log_header, nlopt_log_iteration_tuples, len(nlopt_args)))
+    nlopt_log_process.start()
     if config['num_cores'] <= 1:
-        for nlopt_arg in tqdm(nlopt_args, desc="progress", total=len(nlopt_args), disable=verbose):
-            nlopt_result = nlopt_call(nlopt_arg)
-            nlopt_results.append(nlopt_result)
+        for nlopt_arg in nlopt_args:
+            nlopt_results.append(nlopt_call(nlopt_arg))
     else:
         with poolcontext(processes=config['num_cores']) as pool:
-            with tqdm(nlopt_args, total=len(nlopt_args), desc="[%] ", disable=verbose) as pbar:
-                for nlopt_result in pool.imap_unordered(nlopt_call, nlopt_args):
-                    nlopt_results.append(nlopt_result)
-                    pbar.update()
+            for nlopt_result in pool.imap_unordered(nlopt_call, nlopt_args):
+                nlopt_results.append(nlopt_result)
     # clean up logger
     NLOPT_LOG_QUEUE.put((None, None))
     nlopt_log_process.join()
@@ -893,7 +887,7 @@ def scale_parameters(parameter_dict, reference_pop, block_length, mu, input_scal
                 elif parameter=='T':
                     rdict['T'] = [float(scaling_factor*t*ref) for t,ref in zip(values, reference_values)]
                 elif parameter=='M':
-                    rdict['m'] = [float(M/(scaling_factor*ref)) for M,ref in zip(parameter_values, reference_values)]
+                    rdict['m'] = [float(M/(scaling_factor*ref)) for M,ref in zip(values, reference_values)]
                 else:
                     pass
         else:

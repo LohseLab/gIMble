@@ -6,7 +6,7 @@ usage: gimble optimize                  -z FILE -c FILE -d STR
                                         [--xtol FLOAT --ftol FLOAT -i INT] [-n INT] [-p STR]
                                         [-f] [-h|--help]
 
-    -z, --zarr_file FILE                            ZARR datastore
+    -z, --zarr_file FILE                            ZARR Datastore
     -c, --config_file FILE                          INI config file
     -d, --data_label STR                            Data to use for optimiziation of model parameters
                                                         - 'blocks' : tally of all blocks in ZARR store (requires 'blocks' data)

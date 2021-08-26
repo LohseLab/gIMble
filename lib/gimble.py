@@ -2266,11 +2266,7 @@ class Store(object):
         gf = lib.math.config_to_gf(config)
         gfEvaluatorObj = togimble.gfEvaluator(gf, config['max_k'], MUTYPES, config['gimble']['precision'], exclude=[(2,3),])
         print('[+] GeneratingFunctions for model %r have been generated.' % config['gimble']['model'])
-        '''
-        progressbar for all but blocks, single sims
-        '''
         for data_idx, dataset in data:
-            print('data_idx', data_idx, dataset.shape)
             optimize_result = lib.math.optimize(gfEvaluatorObj, data_idx, dataset, config)
             self.save_optimize(data_idx, config, optimize_result, overwrite)     
 
