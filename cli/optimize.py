@@ -2,19 +2,17 @@
 # -*- coding: utf-8 -*-
 
 """
-usage: gimble optimize                  -z FILE -c FILE -d STR 
+usage: gimble optimize                  -z FILE -c FILE (-s STR | -t STR) 
                                         [--xtol FLOAT --ftol FLOAT -i INT] [-n INT] [-p STR]
                                         [-f] [-h|--help]
 
     -z, --zarr_file FILE                            ZARR Datastore
     -c, --config_file FILE                          INI config file
-    -d, --data_label STR                            Data to use for optimiziation of model parameters
-                                                        - 'blocks' : tally of all blocks in ZARR store (requires 'blocks' data)
-                                                        - 'windows' : tally of all blocks in windows in ZARR store (requires 'windows' data)
-                                                        - label of simulation run in ZARR store (requires 'simulate' data)
+    -s, --sim_label STR                             Label of simulation run in ZARR store (requires 'simulate' data)
+    -t, --tally_label STR                           Label of tally in ZARR store (requires 'tally' data)
 
     Stopping criteria of optimization
-        -i, --max_iterations INT                    Maximum number of iterations to perform when optimizing [default: 100]
+        -i, --max_iterations INT                    Maximum number of iterations to perform when optimizing, deactivate with 0 [default: 100]
         --xtol FLOAT                                Relative tolerance on norm of vector of optimisation parameters
                                                         Float between 0 and 1, deactivate with -1 [default: -1.0]
         --ftol FLOAT                                Relative tolerance on lnCL 
@@ -49,7 +47,8 @@ class OptimizeParameterObj(lib.gimble.ParameterObj):
     def __init__(self, params, args):
         super().__init__(params)
         self.zstore = self._get_path(args['--zarr_file'])
-        self.data_label = args['--data_label']
+        self.sim_label = args['--sim_label']
+        self.tally_label = args['--tally_label']
         self.config_file = self._get_path(args['--config_file'])
 
         self.max_iterations = self._get_int(args['--max_iterations'])
@@ -76,7 +75,8 @@ def main(params):
         #gimbleStore.optimize_before(parameterObj)
         gimbleStore.optimize(
             config=parameterObj.config,
-            data_label=parameterObj.data_label,
+            sim_label=parameterObj.sim_label,
+            tally_label=parameterObj.tally_label,
             num_cores=parameterObj.num_cores,
             start_point=parameterObj.start_point,
             max_iterations=parameterObj.max_iterations,

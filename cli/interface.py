@@ -2,22 +2,22 @@
 Usage: gimbl <module> [<args>...] [-V -h]
 
   [Modules]
+    
+    preprocess                           Preprocess input files 
     measure                              Measure variation in files and parse into DataStore
-      blocks                             Generate blocks from measured data in DataStore (requires 'measure')
-      windows                            Generate windows from blocks in DataStore (requires 'blocks')
+    blocks                               Generate blocks from measured data in DataStore (requires 'measure')
+    windows                              Generate windows from blocks in DataStore (requires 'blocks')
+    tally                                Tally variation in blocks or windows for inference
+
+    simulate                             Simulate data for DataStore for inference  
     
     makeconfig                           Build config file for simulate or inference (optimize/makegrid/gridsearch)
-
-    simulate                             Simulate data for DataStore using msprime 
-    
     optimize                             Perform global parameter optimisation 
     makegrid                             Precalculate grid'ed inference 
     gridsearch                           Search windows using grid
 
     info                                 Print information about DataStore
     query                                Extract information from DataStore
-
-    preprocess                           Preprocess input files
     partitioncds                         Partition CDS sites in BED file by degeneracy in sample GTs 
     plotbed                              Plot BED file [TBR]
 
@@ -67,6 +67,9 @@ def main(gimble_dir):
         elif args['<module>'] == 'query':
             import cli.query as query
             query.main(params)
+        elif args['<module>'] == 'tally':
+            import cli.tally as tally
+            tally.main(params)
         elif args['<module>'] == 'blocks':
             import cli.blocks as blocks
             blocks.main(params)
