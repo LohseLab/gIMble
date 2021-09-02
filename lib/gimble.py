@@ -364,7 +364,7 @@ def get_config_model_parameters(config, module):
     config['parameters_fixed'] = []
     config['parameters_bounded'] = [] # only first sync'ed pop is added to bounded
     config['parameters_gridded'] = []
-    coalescence_rates_seen = set()
+    sync_flag = False # only allows one sync'ed pop 
     for parameter, values in config['parameters'].items():
         if len(values) == 1:
             config['parameters_fixed'].append(parameter)
@@ -372,11 +372,20 @@ def get_config_model_parameters(config, module):
         elif len(values) == 2:
             if module == 'makegrid':
                 sys.exit("[X] Module %r only supports FLOAT, or (MIN, MAX, STEPS, LIN|LOG) for parameters. Not %r" % (module, values))
-            config['parameters_np'][parameter] = np.array(values)
-            coalescence_rate = config['events']['p_to_c'].get(parameter, None) # gets None if not Ne_* (i.e. me)
-            if not coalescence_rate in coalescence_rates_seen:
+            if parameter.startswith('Ne'):
+                pop_id = parameter.replace("Ne_", "")
+                if pop_id in config['populations']['sync_pop_ids']:
+                    if not sync_flag:
+                        parameter_sync = 'Ne_s'
+                        config['parameters_bounded'].append(parameter_sync)    
+                        config['parameters_np'][parameter_sync] = np.array(values)
+                        sync_flag = True
+                else:
+                    config['parameters_bounded'].append(parameter)
+                    config['parameters_np'][parameter] = np.array(values)
+            else:
                 config['parameters_bounded'].append(parameter)
-                coalescence_rates_seen.add(coalescence_rate)
+                config['parameters_np'][parameter] = np.array(values)
         elif len(values) == 4:
             if module == 'optimize':
                 sys.exit("[X] Module %r only supports FLOAT, or (MIN, MAX) for parameters. Not %r" % (module, values))
@@ -401,6 +410,7 @@ def get_config_model_parameters(config, module):
                 sys.exit("[X] Config: Scale should either be lin or log. Not %r." % value_scale)
         else:
             sys.exit("[X] Config: Parameters must be FLOAT, or (MIN, MAX), or (MIN, MAX, STEPS, LIN|LOG).") 
+    #print('Config',config)
     return config
 
 def get_config_model_events(config):
@@ -410,18 +420,18 @@ def get_config_model_events(config):
     events = get_ini_model_events(model, pop_ids)
     config['events'] = {}
     config['events']['coalescence'] = []
-    config['events']['p_to_c'] = {}
+    #config['events']['p_to_c'] = {}
     for event in events:
         if event.startswith('M'):
             config['events']['migration'] = [tuple(pop_ids.index(pop_id) for pop_id in event.replace('M_', '').split('_'))]
         if event.startswith('J'):
             config['events']['exodus'] = [(0,1,2)] # populations are moving to the last element
         if event.startswith('C'):
-            pop_size = event.replace('C_', 'Ne_')
+            #pop_size = event.replace('C_', 'Ne_')
             if event.replace('C_', '') in sync_pops:
                 event = 'C_s'
             config['events']['coalescence'].append(event)
-            config['events']['p_to_c'][pop_size] = event
+        #    config['events']['p_to_c'][pop_size] = event
     return config
 
 def get_config_kmax(config):
@@ -486,7 +496,6 @@ def load_config(config_file, MODULE, CWD, VERSION):
     config = get_config_kmax(config)
     config = get_config_model_events(config)
     config = get_config_model_parameters(config, MODULE)
-    config = expand_parameters(config)
     if MODULE == 'simulate':
         config = get_config_simulate(config)
     if MODULE == 'makegrid':

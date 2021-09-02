@@ -404,9 +404,16 @@ def calculate_inverse_laplace(params):
 #    return likelihood
 
 def scale_nlopt_values(nlopt_values, config):
+    #print('config', config)
     block_length = config['block_length']
     mu = config['mu']['mu']
     nlopt_values_by_parameter = {k: v for k, v in zip(config['parameters_bounded'], nlopt_values)}      # unscaled
+    # inject sync'ed Ne's
+    if 'Ne_s' in nlopt_values_by_parameter:
+        sync_pop_value = nlopt_values_by_parameter['Ne_s']
+        for pop_id in config['populations']['sync_pop_ids']:
+            nlopt_values_by_parameter['Ne_%s' % pop_id] = sync_pop_value
+        del nlopt_values_by_parameter['Ne_s']
     fixed_values_by_parameter = {k: config['parameters_np'][k][0] for k in config['parameters_fixed']}
     unscaled_values_by_parameter = {**nlopt_values_by_parameter, **fixed_values_by_parameter}
     ref_Ne = unscaled_values_by_parameter.get('Ne_%s' % config['populations']['reference_pop_id'], None)
@@ -425,7 +432,7 @@ def scale_nlopt_values(nlopt_values, config):
             value_scaled = sage.all.Rational(value / (SCALING_FACTOR * ref_Ne))
         elif parameter.startswith('m'):
             symbol = sage.all.SR.var('M')
-            value_scaled = sage.all.Rational(SCALING_FACTOR*ref_Ne*value)
+            value_scaled = sage.all.Rational(SCALING_FACTOR * ref_Ne * value)
         else:
             raise ValueError('Unknown parameter %r with value %r' % (parameter, value))
         scaled_values_by_symbol[symbol] = value_scaled
@@ -440,7 +447,6 @@ def calculate_composite_likelihood(ETPs, data):
 
 def likelihood_function(nlopt_values, grad, gfEvaluatorObj, dataset, dataset_idx, config, nlopt_iterations, verbose):
     global NLOPT_LOG_QUEUE
-    start_time = timer()
     nlopt_traceback = None
     nlopt_iterations[dataset_idx] += 1 
     scaled_values_by_symbol, scaled_values_by_parameter, unscaled_values_by_parameter, block_length = scale_nlopt_values(nlopt_values, config)
@@ -448,16 +454,6 @@ def likelihood_function(nlopt_values, grad, gfEvaluatorObj, dataset, dataset_idx
         ETPs = gfEvaluatorObj.evaluate_gf(scaled_values_by_symbol, scaled_values_by_symbol[sage.all.SR.var('theta')])
         likelihood = calculate_composite_likelihood(ETPs, dataset)
     except Exception as exception:
-        '''
-        additional column with: 
-            - exit code if finished
-            - traceback
-            - OK
-        remove sys.exit()
-
-        ADD filename as argument for nlopt so that it can be printed
-        
-        '''
         nlopt_log_iteration_tuple = get_nlopt_log_iteration_tuple(dataset_idx, nlopt_iterations[dataset_idx], block_length, 'N/A', scaled_values_by_parameter, unscaled_values_by_parameter)
         nlopt_traceback = traceback.format_exc(exception)
         NLOPT_LOG_QUEUE.put((nlopt_log_iteration_tuple, nlopt_traceback))
@@ -575,6 +571,7 @@ def get_nlopt_args(gfEvaluatorObj, dataset, config):
 
 
 def optimize(gfEvaluatorObj, data_idx, data, config):
+    print(config)
     # Prepare args for nlopt
     nlopt_args = get_nlopt_args(gfEvaluatorObj, data, config)
     nlopt_results = []
