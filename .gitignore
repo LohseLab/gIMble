@@ -27,7 +27,6 @@ dist/
 downloads/
 eggs/
 .eggs/
-input/
 lib64/
 parts/
 sdist/
@@ -46,7 +45,6 @@ MANIFEST
 
 .notes
 .simulation
-.test
 .data
 data
 lib
@@ -239,5 +237,3 @@ test3.z/
 test5.z/
 
 test4.z/
-
-*.ini

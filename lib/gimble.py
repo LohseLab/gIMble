@@ -3,6 +3,7 @@ from tqdm import tqdm
 from lib.functions import plot_mutuple_barchart
 import allel
 import demes
+import ast
 import numpy as np
 import pandas as pd
 import shutil
@@ -299,10 +300,22 @@ def get_config_pops(config):
 def config_to_meta(config, task):
     '''
     - Function extracts those fields from 'config' that are meant to be saved as ZARR meta
-    - ZARR does not like np.int64 but float np.float64 is ok 
+    - ZARR does not like np.int64 but np.float64 is ok 
     '''
     meta = {}
-
+    if task == 'tally':
+        meta['data_key'] = config['data_key']
+        meta['data_source'] = config['data_source']
+        meta['data_type'] = config['data_type']
+        meta['tally_key'] = config['tally_key']
+        meta['max_k'] = tuple([int(v) for v in config['max_k']])
+        meta['sample_sets'] = config['sample_sets']
+        meta['sequences'] = config['sequences']
+        meta['genome_file'] = config['genome_file']
+        meta['blocks'] = config['blocks']
+        meta['windows'] = config['windows']
+        meta['marginality'] = config['marginality']
+        meta['block_length'] = config['block_length']
     if task == 'simulate':
         meta['max_idx'] = config['idx']
         meta['max_k'] = tuple([int(v) for v in config['max_k']])
@@ -414,9 +427,11 @@ def get_config_model_parameters(config, module):
     return config
 
 def get_config_model_events(config):
-    pop_ids = config['populations']['pop_ids']
+    print(config)
+    pop_path = 'simulate' if config['gimble']['task'] == 'simulate' else 'populations'
+    pop_ids = config[pop_path]['pop_ids']
     model = config['gimble']['model']
-    sync_pops = config['populations'].get('sync_pop_ids', [])
+    sync_pops = config[pop_path].get('sync_pop_ids', [])
     events = get_ini_model_events(model, pop_ids)
     config['events'] = {}
     config['events']['coalescence'] = []
@@ -498,7 +513,7 @@ def load_config(config_file, MODULE, CWD, VERSION):
     config = get_config_model_parameters(config, MODULE)
     if MODULE == 'simulate':
         config = get_config_simulate(config)
-    if MODULE == 'makegrid':
+    if MODULE == 'makegrid' or MODULE == 'simulate':
         config = expand_parameters(config)
     config['CWD'] = CWD
     #for k, v in config.items():
@@ -509,6 +524,7 @@ def load_config(config_file, MODULE, CWD, VERSION):
 
 def config_to_demes_graph(config, idxs=None):
     #using demes: all events are defined forwards in time!
+    pop_path = 'simulate' if config['gimble']['task'] == 'simulate' else 'populations'
     if idxs==None:
         idxs = range(config['parameters_grid_points'])
     for idx in idxs:
@@ -546,8 +562,8 @@ def config_to_demes_graph(config, idxs=None):
             for mig_event in config['events']['migration']:
                 destination, source = mig_event
                 b.add_migration(
-                    source=config['populations']['pop_ids'][source], 
-                    dest=config['populations']['pop_ids'][destination], 
+                    source=config[pop_path]['pop_ids'][source], 
+                    dest=config[pop_path]['pop_ids'][destination], 
                     rate=config['parameters_expanded']['me'][idx])            
         yield b.resolve()
 
@@ -720,6 +736,8 @@ def get_config_schema(module):
         schema['simulate'] = {
             'type': 'dict',
             'schema': {
+                'pop_ids': {'required': True, 'empty':False, 'type': 'list', 'coerce': 'pop_ids'},
+                'sync_pop_ids': {'required':False, 'empty': True, 'type': 'list', 'coerce': 'sync_pop_ids'},
                 'ploidy': {'required':True,'empty': False, 'min': 1, 'coerce': int},
                 'blocks': {'required':True, 'empty': False, 'type': 'integer', 'min': 1, 'coerce': 'int'},
                 'block_length': {'required': True, 'empty':False, 'min': 1, 'type': 'integer', 'coerce': int},
@@ -1199,11 +1217,15 @@ def tally_variation(variation, form='bsfs', max_k=None):
         sys.exit('[X] tally_variation() ran out of memory. Try specifying lower k-max values. %s.' % str(e))
     return out
 
-def calculate_marginality(tally, max_k=None):
-    # [GIMBLE] 
+def calculate_marginality_of_variation(data, max_k=None):
+    '''to be run on variation arrays of ndim = 2 or 3'''
+    assert (
+        data.shape[-1] == 4 and 
+            (data.ndim == 3 or data.ndim == 2)), '[X] data.ndim must be 2 or 3, data.shape[-1] must be 4'
     if max_k is None:
-        return format_percentage(0.0)
-    return format_percentage(np.sum(tally[np.any((max_k - tally[:,1:]) < 0, axis=1), 0]) / np.sum(tally[:,0]))
+        return 0.0
+    is_above_max_k = np.any((data- max_k) > 0, axis=-1)
+    return np.sum(is_above_max_k) / is_above_max_k.flatten().shape[0]
 
 def ordered_intersect(a=[], b=[], order='a'):
     # [GIMBLE] unless used somewhere else
@@ -1349,6 +1371,17 @@ class ParameterObj(object):
             if subgroup:
                 fixedParams = {k:v for k,v in fixedParams.items() if k.startswith(subgroup)}
             return fixedParams
+
+    def _get_max_k(self, kmax_string):
+        #mutypes = ['m_1', 'm_2', 'm_3', 'm_4']
+        error = "[X] Invalid k-max string (must be a list of 4 integers)"
+        if kmax_string == None:
+            return None
+        try:
+            kmax = np.array(ast.literal_eval(kmax_string))
+            return kmax if kmax.shape == (4,) else sys.exit(error)
+        except ValueError:
+            sys.exit(error) 
 
     def _get_path(self, infile, path=False):
         if infile is None:
@@ -1867,7 +1900,7 @@ class Store(object):
         if not overwrite and self._has_key(config['simulate_key']):
             sys.exit("[X] Simulated results with label %r already exist. Use '-f' to overwrite or change analysis label in the INI file." % 
                 (config['simulate_key']))
-
+        print('config', config)
         #deal with grid_label:
         if config['gridbased']['grid_label'].strip()!='':
             #check whether grid_label exists
@@ -1886,7 +1919,7 @@ class Store(object):
                 fixed_param_grid = config['gridbased']['fixed_parameter'] if config['gridbased']['fixed_parameter']!='' else None
                 config = _get_sim_grid_config(config, lncls_global, lncls_windows, meta_5D, window_info, fixed_param_grid)
         config['demographies'] = lib.simulate.make_demographies(config)
-        config['seeds'] = np.random.randint(1, 2 ** 32, (config['parameters_grid_points'], config['simulate']['replicates'], 2))   
+        config['seeds'] = np.random.randint(1, 2 ** 32, (config.get('parameters_grid_points', 1), config['simulate']['replicates'], 2))   
         config['replicates'] = config['simulate']['chunks'] * config['simulate']['replicates']
         config['parameters_LOD'] = DOL_to_LOD(config['parameters_expanded'])
         config['parameters'] = {**config['simulate'],**config['mu']}
@@ -1957,7 +1990,7 @@ class Store(object):
             raise ValueError("Invalid data type %s" % data_type) 
         print("[#] Getting variation tally for %s ..." % data_type)
         variation_tally = tally_variation(self._get_variation(data_type=data_type, sample_sets='X', sequences=sequences, population_by_letter=population_by_letter), form='tally', max_k=max_k)
-        variation_tally_marginality = calculate_marginality(variation_tally, max_k=max_k) # float, proportion of data summarised at that kmax_by_mutype
+        variation_tally_marginality = calculate_marginality(variation_tally, max_k=max_k) 
         print('[+] Proportion of data in marginals (w/ kmax = %s) = %s' % (max_k if max_k is None else list(max_k), variation_tally_marginality))
         tally_filename = self.get_tally_filename(
             data_type=data_type,
@@ -2139,9 +2172,6 @@ class Store(object):
             config['data_block_length'] = simulations_meta['parameters']['block_length']
             config['gridsearch_keys'] = [self._get_key(task='gridsearch', data_label=data_label, analysis_label=grid_label, parameter_label=idx) for idx in range(simulations_meta['max_idx'] + 1)]
         else:
-            '''tally generator would be nice for measured data
-                BUT has to work with kmax (pops, etc) since blocks/windows are generated without kmax. Sims are.
-            '''
             config['data_block_length'] = self._get_meta('blocks')['length']
             config['data_label'] = config['data_type']
             data = tally_variation(
@@ -2227,33 +2257,7 @@ class Store(object):
             print('\t'.join(f'{fixed_param_grid}_{i}' if i !=fixed_param_grid_value_idx else f'{fixed_param_grid}_background' for i in range(len(unique_values_fixed_param))))
             print('\t'.join("{:.3e}".format(value) for value in unique_values_fixed_param))
 
-    def _preflight_optimize(self, config, data_label, num_cores, start_point, max_iterations, xtol_rel, ftol_rel, overwrite):
-        # Error if no data
-        config['data_key'] = data_label if data_label in ['blocks', 'windows'] else self._get_key(task='simulate', analysis_label=data_label) 
-        if not self._has_key(config['data_key']):
-            sys.exit("[X] gimbleStore has no %r." % config['data_key'])
-        # Error if results clash
-        config['optimize_key'] = self._get_key(task='optimize', data_label=data_label, analysis_label=config['gimble']['label'])
-        if not overwrite and self._has_key(config['optimize_key']):
-            sys.exit("[X] Analysis with label %r on data %r already exist. Change the label in the config file or use '--force'" % (config['gimble']['label'], data_label))
-        # get data (this could be a separate function, also needed for gridsearch)
-        if data_label in ['blocks', 'windows']:
-            meta_blocks = self._get_meta('blocks')
-            config['block_length'] = meta_blocks['length']
-            config['data_label'] = data_label
-            data = ((0, tally_variation(
-                self._get_variation(
-                    data_type=data_label, 
-                    population_by_letter=config['populations']['population_by_letter'], 
-                    sample_sets="X"), 
-                    form='bsfs', max_k=config['max_k'])) for _ in (0,))
-            config['optimize_keys'] = [self._get_key(task='optimize', data_label=config['data_label'], analysis_label=config['gimble']['label'], parameter_label=idx) for idx in range(1)]
-        else:
-            data = self._get_sims_bsfs(config['data_key']) # data is an iterator across parameter combos
-            simulations_meta = self._get_meta(config['data_key'])
-            config['block_length'] = simulations_meta['parameters']['block_length']
-            config['data_label'] = data_label
-            config['optimize_keys'] = [self._get_key(task='optimize', data_label=config['data_label'], analysis_label=config['gimble']['label'], parameter_label=idx) for idx in range(simulations_meta['max_idx'] + 1)]
+    def _preflight_optimize(self, config, sim_label, tally_label, num_cores, start_point, max_iterations, xtol_rel, ftol_rel, overwrite):
         config['num_cores'] = num_cores
         config['max_iterations'] = max_iterations
         config['xtol_rel'] = xtol_rel
@@ -2261,6 +2265,30 @@ class Store(object):
         # bounds 
         config['parameter_combinations_lowest'] = np.array([config['parameters_np'][k][0] for k in config['parameters_bounded']])
         config['parameter_combinations_highest'] = np.array([config['parameters_np'][k][1] for k in config['parameters_bounded']])
+        # Error if no data
+        config['data_source'] = 'sims' if sim_label else 'meas'
+        config['data_label'] = sim_label or tally_label
+        if sim_label:
+            config['data_key'] = self._get_key(task='simulate', analysis_label=config['data_label'])
+        if tally_label:
+            config['data_key'] = self._get_key(task='tally', data_label=config['data_label'])
+        if not self._has_key(config['data_key']):
+            sys.exit("[X] gimbleStore has no %r." % config['data_key'])
+        # Error if results clash
+        config['optimize_key'] = self._get_key(task='optimize', data_label=config['data_label'], analysis_label=config['gimble']['label'])
+        if not overwrite and self._has_key(config['optimize_key']):
+            sys.exit("[X] Analysis with label %r on data %r already exist. Change the label in the config file or use '--force'" % (config['gimble']['label'], config['data_label']))
+        # get data (this could be a separate function, also needed for gridsearch)
+        if config['data_source'] == 'meas':
+            data = ((0, self._get_data(config['data_key'])) for _ in (0,))
+            meta = self._get_meta(config['data_key'])
+            config['block_length'] = meta['block_length']
+            config['optimize_keys'] = [self._get_key(task='optimize', data_label=config['data_label'], analysis_label=config['gimble']['label'], parameter_label=idx) for idx in range(1)]
+        else:
+            data = self._get_sims_bsfs(config['data_key']) # data is an iterator across parameter combos
+            meta = self._get_meta(config['data_key'])
+            config['block_length'] = meta['parameters']['block_length']
+            config['optimize_keys'] = [self._get_key(task='optimize', data_label=config['data_label'], analysis_label=config['gimble']['label'], parameter_label=idx) for idx in range(meta['max_idx'] + 1)]
         # start point
         if start_point == 'midpoint':
             config['start_point'] = np.mean(np.vstack((config['parameter_combinations_lowest'], config['parameter_combinations_highest'])), axis=0)
@@ -2269,15 +2297,16 @@ class Store(object):
             config['start_point'] = np.random.uniform(low=config['parameter_combinations_lowest'], high=config['parameter_combinations_highest'])
         return (data, config)
 
-    def optimize(self, config, data_label, num_cores, start_point, max_iterations, xtol_rel, ftol_rel, overwrite):
-        data, config = self._preflight_optimize(config, data_label, num_cores, start_point, max_iterations, xtol_rel, ftol_rel, overwrite)
+    def optimize(self, config, sim_label, tally_label, num_cores, start_point, max_iterations, xtol_rel, ftol_rel, overwrite):
+        data, config = self._preflight_optimize(config, sim_label, tally_label, num_cores, start_point, max_iterations, xtol_rel, ftol_rel, overwrite)
         print('[+] Constructing GeneratingFunction...')
         gf = lib.math.config_to_gf(config)
         gfEvaluatorObj = togimble.gfEvaluator(gf, config['max_k'], MUTYPES, config['gimble']['precision'], exclude=[(2,3),])
         print('[+] GeneratingFunctions for model %r have been generated.' % config['gimble']['model'])
         for data_idx, dataset in data:
             optimize_result = lib.math.optimize(gfEvaluatorObj, data_idx, dataset, config)
-            self.save_optimize(data_idx, config, optimize_result, overwrite)     
+            self.save_optimize(data_idx, config, optimize_result, overwrite)
+        print("[+] Optimization results saved under label %r" % config['data_label'])   
 
     def save_optimize(self, data_idx, config, optimize_result, overwrite):
         data_idx = int(data_idx)
@@ -2293,7 +2322,68 @@ class Store(object):
             optimize_meta['nlopt_exit_codes'].append(optimize_result['nlopt_status_by_dataset_idx'][dataset_idx])
         self._set_meta_and_data(optimize_key, optimize_meta, optimize_result['nlopt_log_iteration_array'])
 
+    def _preflight_tally(self, data_source, data_label, max_k, sample_sets, sequence_ids, genome_file, overwrite):
+        config = {
+            'data_key': 'windows' if data_source == 'windowsum' else data_source,
+            'data_source': data_source,
+            'data_type': 'windows' if data_source == 'windowsum' else data_source,
+            'data_label': data_label,
+            'tally_key': self._get_key(task='tally', data_label=data_label),
+            'max_k': max_k,
+            'sample_sets': sample_sets,
+            'sequences': sequence_ids,
+            'genome_file': genome_file,
+            'blocks': 0,
+            'windows': 0,
+            'marginalty': '0.0%',
+            'block_length': 0
+            }
+        # check data is there
+        if not self._has_key(config['data_key']):
+            sys.exit("[X] gimbleStore has no %r." % config['data_key'])
+        config['block_length'] = self._get_meta('blocks')['length'] # needs fixing if multiple block-datasets
+        # check tally key
+        if not overwrite and self._has_key(config['tally_key']):
+            sys.exit("[X] Tally with data_label %r already exist. Change the label or use '--overwrite'" % (data_label))
+        # sort out sequences (this could be prettier)
+        config['sequences'] = list(self._get_meta('blocks')['count_by_sequence'].keys()) if config['sequences'] is None else [_ for _ in config['sequences'].split(",") if _]
+        if config['genome_file']:
+            try:
+                df = parse_csv(csv_f=config['genome_file'], sep="\t", usecols=[0], dtype={'sequence_id': 'category'}, header=None)
+                config['sequences'] = [item for sublist in df.values.tolist() for item in sublist] 
+            except:
+                sys.exit("[X] Could not parse %r. Should be list of sequence names." % config['genome_file'])
+        return config
+        
+    def tally(self, data_source, data_label, max_k, sample_sets, sequence_ids, genome_file, overwrite):
+        config = self._preflight_tally(data_source, data_label, max_k, sample_sets, sequence_ids, genome_file, overwrite)
+        print("[+] Retrieving variation data ... ")
+        variation = self._get_variation(data_type=config['data_type'], sample_sets=config['sample_sets'], sequences=config['sequences'], progress=True) 
+        config['windows'] = variation.shape[0] if variation.ndim == 3 else 0
+        config['blocks'] = (variation.shape[0] * variation.shape[1]) if variation.ndim == 3 else variation.shape[0]
+        config['marginality'] = format_percentage(calculate_marginality_of_variation(variation, max_k=config['max_k']))
+        if config['data_type'] == 'blocks':
+            print("[+] Found %s blocks on %s sequence(s)." % (
+                format_count(config['blocks']), format_count(len(config['sequences'])))) 
+        else:
+            print("[+] Found %s blocks in %s windows (%s blocks per window) on %s sequence(s)." % (
+                format_count(config['blocks']), format_count(config['windows']), format_count(variation.shape[1]), format_count(len(config['sequences'])))) 
+        print('[+] Percentage of blocks treated as marginals (w/ kmax = %s) = %s' % (config['max_k'], config['marginality']))
+        print("[+] Tally'ing variation data ... ")
+        if config['data_type'] == 'windowsum':
+            variation = variation.reshape(-1, variation.shape[-1])
+        variation_tally = tally_variation(variation, form='bsfs', max_k=config['max_k'])
+        self.save_tally(config, variation_tally)
+
+    def save_tally(self, config, tally):
+        tally_key = config['tally_key'] 
+        tally_meta = config_to_meta(config, 'tally')
+        self._set_meta_and_data(tally_key, tally_meta, tally)
+        print("[+] Tally saved under label %r (and ready for inference)." % config['data_label'])
+
     def _get_key(self, task=None, data_label=None, analysis_label=None, parameter_label=None, mod_label=None, seq_label=None):
+        if task == 'tally':
+            return "tally/%s" % data_label
         if task == 'measure':
             if data_label is not None and seq_label is not None and mod_label is not None:
                 return "%s/%s/%s/%s" % (task, data_label, seq_label, mod_label)
@@ -2453,14 +2543,13 @@ class Store(object):
         self._set_meta_and_data(config['key'], grid_meta, grid)
 
     def _validate_seq_names(self, sequences=None):
-        """Returns valid seq_names in sequences or raises ValueError."""
+        """Returns valid seq_names in sequences or exits."""
         meta = self._get_meta('seqs')
         if sequences is None:
             return meta['seq_names']
         if set(sequences).issubset(set(meta['seq_names'])):
             return sequences
-        else:
-            raise ValueError("%s not a subset of %s" % (sequences, meta['seq_names']))
+        sys.exit("[X] Sequence(s) %r not a subset of sequence(s) %r in ZARR store" % (", ".join(sequences), ", ".join(meta['seq_names'])))
 
     def _get_sample_set_idxs(self, query='X'):
         """Returns list of sample_set_idxs.
@@ -2490,7 +2579,7 @@ class Store(object):
         else:
             raise ValueError("'query' must be 'X', 'A', 'B', or None")
 
-    def _get_variation(self, data_type=None, sample_sets='X', sequences=None, population_by_letter=None):
+    def _get_variation(self, data_type=None, sample_sets='X', sequences=None, population_by_letter=None, progress=False):
         """Returns variation array of 2 (blocks) or 3 (windows) dimensions.
         
         Parameters 
@@ -2506,8 +2595,6 @@ class Store(object):
             If supplied, array is based only on those sequences
         population_by_letter : dict (string -> string) or None
             Mapping of population IDs to population letter in model (from INI file)
-        kmax : dict (string -> int) or None
-            Mapping of kmax values to mutypes.
 
         Returns
         -------
@@ -2517,17 +2604,17 @@ class Store(object):
         sequences = self._validate_seq_names(sequences)
         if population_by_letter:
             assert (set(population_by_letter.values()) == set(meta['population_by_letter'].values())), 'population_by_letter %r does not equal populations in ZARR store (%r)' % (population_by_letter, meta['population_by_letter'])
+        keys = []
         if data_type == 'blocks':
             sample_set_idxs = self._get_sample_set_idxs(query=sample_sets)
             keys = ['blocks/%s/%s/variation' % (seq_name, sample_set_idx) 
                 for seq_name, sample_set_idx in list(itertools.product(sequences, sample_set_idxs))]
-        elif data_type == 'windows' or data_type == 'windows_sum':
+        elif data_type == 'windows':
             keys = ['windows/%s/variation' % (seq_name) for seq_name in sequences]
         else:
             raise ValueError("Invalid datatype: %s" % data_type)
         variations = []
-        # needs progress bar + info re tally'ing
-        for key in keys:
+        for key in tqdm(keys, total=len(keys), desc="[%] Preparing data...", ncols=100, unit_scale=True, disable=(not progress)):
             variations.append(np.array(self.data[key], dtype=np.int64))
         variation = np.concatenate(variations, axis=0)
         polarise_true = (
@@ -2535,8 +2622,6 @@ class Store(object):
             (population_by_letter['B'] == meta['population_by_letter']['A'])) if population_by_letter else False
         if polarise_true:
             variation[..., [0, 1]] = variation[..., [1, 0]]
-        if data_type == 'windows_sum':
-            variation = variation.reshape(-1, variation.shape[-1])
         return variation
 
     def _get_sims_bsfs(self, key):
