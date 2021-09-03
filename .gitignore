@@ -13,7 +13,6 @@ test.*
 .test/
 .output
 data/
-output
 
 # C extensions
 *.so
@@ -237,3 +236,7 @@ test3.z/
 test5.z/
 
 test4.z/
+
+.gimblelibjunk/
+
+blessed_configs/

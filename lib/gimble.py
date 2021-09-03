@@ -427,7 +427,6 @@ def get_config_model_parameters(config, module):
     return config
 
 def get_config_model_events(config):
-    print(config)
     pop_path = 'simulate' if config['gimble']['task'] == 'simulate' else 'populations'
     pop_ids = config[pop_path]['pop_ids']
     model = config['gimble']['model']
@@ -492,13 +491,22 @@ def get_config_simulate(config):
     if fixed_parameter!='':
         if fixed_parameter not in config['parameters']:
             sys.exit('[X] Gridbased fixed_parameter should be one of the model parameters.')
+    config['demographies'] = lib.simulate.make_demographies(config)
+    config['seeds'] = np.random.randint(1, 2 ** 32, (config.get('parameters_grid_points', 1), config['simulate']['replicates'], 2))   
+    config['replicates'] = config['simulate']['chunks'] * config['simulate']['replicates']
+    config['parameters_LOD'] = DOL_to_LOD(config['parameters_expanded'])
+    config['parameters'] = {**config['simulate'],**config['mu']} # is this necessary?
     return config
 
-def load_config(config_file, MODULE, CWD, VERSION):
+def load_config(config_file, MODULE=None, CWD=None, VERSION=None):
     parser = configparser.ConfigParser(inline_comment_prefixes='#', allow_no_value=True)
     parser.optionxform = str # otherwise keys are lowercase
     parser.read(config_file)
     parsee = {s: dict(parser.items(s)) for s in parser.sections()}
+    # BEGIN fallback if executed from tests
+    MODULE = parsee['gimble']['task'] if MODULE is None else MODULE
+    VERSION = parsee['gimble']['version'] if VERSION is None else VERSION
+    # END fallback if executed from tests
     schema = get_config_schema(MODULE)
     validator = ConfigCustomNormalizer(schema, module=MODULE, purge_unknown=True)
     validator.validate(parsee)
@@ -511,10 +519,10 @@ def load_config(config_file, MODULE, CWD, VERSION):
     config = get_config_kmax(config)
     config = get_config_model_events(config)
     config = get_config_model_parameters(config, MODULE)
-    if MODULE == 'simulate':
-        config = get_config_simulate(config)
     if MODULE == 'makegrid' or MODULE == 'simulate':
         config = expand_parameters(config)
+    if MODULE == 'simulate':
+        config = get_config_simulate(config)
     config['CWD'] = CWD
     #for k, v in config.items():
     #    print(k, '\t', v)
@@ -738,6 +746,7 @@ def get_config_schema(module):
             'schema': {
                 'pop_ids': {'required': True, 'empty':False, 'type': 'list', 'coerce': 'pop_ids'},
                 'sync_pop_ids': {'required':False, 'empty': True, 'type': 'list', 'coerce': 'sync_pop_ids'},
+                'reference_pop_id': {'required':True, 'empty':False, 'type': 'string', 'coerce': 'reference_pop_id'},
                 'ploidy': {'required':True,'empty': False, 'min': 1, 'coerce': int},
                 'blocks': {'required':True, 'empty': False, 'type': 'integer', 'min': 1, 'coerce': 'int'},
                 'block_length': {'required': True, 'empty':False, 'min': 1, 'type': 'integer', 'coerce': int},
@@ -1918,12 +1927,6 @@ class Store(object):
                 lncls_windows = self._get_data(key_5D)
                 fixed_param_grid = config['gridbased']['fixed_parameter'] if config['gridbased']['fixed_parameter']!='' else None
                 config = _get_sim_grid_config(config, lncls_global, lncls_windows, meta_5D, window_info, fixed_param_grid)
-        config['demographies'] = lib.simulate.make_demographies(config)
-        config['seeds'] = np.random.randint(1, 2 ** 32, (config.get('parameters_grid_points', 1), config['simulate']['replicates'], 2))   
-        config['replicates'] = config['simulate']['chunks'] * config['simulate']['replicates']
-        config['parameters_LOD'] = DOL_to_LOD(config['parameters_expanded'])
-        config['parameters'] = {**config['simulate'],**config['mu']}
-
         print('[+] Simulating %s replicate(s) of %s block(s) for %s parameter combinations' %
             (config['simulate']['replicates'], config['simulate']['blocks'], config['parameters_grid_points']))
         return config

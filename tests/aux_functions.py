@@ -2,10 +2,16 @@ import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 matplotlib.use("Agg")
-import scipy.stats as stats
+import scipy.stats
 import os
-
+import collections
+import pathlib
 import lib.simulate
+
+def get_test_config_file(task=None, model=None, label=None):
+    if all([task, model, label]):
+        return str(pathlib.Path.cwd() / pathlib.Path('tests/input/gimble.%s.%s.%s.config.ini' % (task, model, label)))
+    return None
 
 def sim_combi_gt_matrix(p=2, s=2, alleles=[0, 1]):
     '''
@@ -75,15 +81,13 @@ def chisquare(observed, expected, p_th=0.05, recombination=False, all_sims=False
         assert np.all(obs[exp == 0] == 0), "chisquare error: at least one cell with expected frequency 0 has observed values"
     #bin all values with counts smaller than 5
     binning_idxs = np.digitize(exp, np.array([5]), right=True)
-    exp_smaller = np.sum(exp[binning_idxs==0])
-    obs_smaller = np.sum(obs[binning_idxs==0])
     exp_binned = exp[binning_idxs==1]
     obs_binned = obs[binning_idxs==1]
     not_zeros = exp_binned > 0
     if sum(not_zeros)<1:
         assert False #expected probabilities are all 0
     else:
-        chisq = stats.chisquare(obs_binned[not_zeros], exp_binned[not_zeros])
+        chisq = scipy.stats.chisquare(obs_binned[not_zeros], exp_binned[not_zeros])
         print("chisquare value:", chisq)
         print("exp", exp_binned)
         print("obs", obs_binned)
@@ -101,7 +105,7 @@ def chisquare_contingency(observed1, observed2, p_th=0.05):
         obs_all_binned = all_obs[:,binning_across_cols==False]
     else:
         obs_all_binned = np.hstack((all_obs[:,binning_across_cols==False], obs_all_smaller.reshape((2,1))))
-    chi2, p, dof, ex = stats.chi2_contingency(obs_all_binned)
+    chi2, p, dof, ex = scipy.stats.chi2_contingency(obs_all_binned)
     print("chisquare value:", p)
     print("obs_all_binned")
     assert p>p_th
@@ -135,18 +139,17 @@ def scatter_loglog(observed, expected, min_value, name, xlabel='gimble', ylabel=
     plt.clf()
 
 def sim_ETPs(global_info, sim_configs, n, blocks, chunks, replicates):
-        demography = next(make_demographies(config))
-        threads = 1
-        add_global_info = {
-                            'blocks':blocks, 
-                            'chunks':chunks, 
-                            'sample_pop_sizes':[n for _ in global_info['sample_pop_ids']],
-                            'replicates':replicates
-                            }
-        all_interpop_comparisons = lib.simulate.all_interpopulation_comparisons(*add_global_info['sample_pop_sizes'])
-        sim_global_info = {**global_info, **add_global_info}
-        simmed_ETPs = lib.simulate.run_sims(sim_configs, sim_global_info, all_interpop_comparisons, chunks, threads, disable_tqdm=True)
-        return simmed_ETPs
+    threads = 1
+    add_global_info = {
+                        'blocks':blocks, 
+                        'chunks':chunks, 
+                        'sample_pop_sizes':[n for _ in global_info['sample_pop_ids']],
+                        'replicates':replicates
+                        }
+    all_interpop_comparisons = lib.simulate.all_interpopulation_comparisons(*add_global_info['sample_pop_sizes'])
+    sim_global_info = {**global_info, **add_global_info}
+    simmed_ETPs = lib.simulate.run_sims(sim_configs, sim_global_info, all_interpop_comparisons, chunks, threads, disable_tqdm=True)
+    return simmed_ETPs
 
 def make_single_demography(config):
     print(isinstance(config, dict))
@@ -157,5 +160,5 @@ def make_single_demography(config):
 
 def downsample(A, N):
     distribution = [i for i, j in enumerate(A) for _ in range(j)]
-    sample = Counter(random.sample(distribution, N))
+    sample = collections.Counter(random.sample(distribution, N))
     return [sample[i] for i in range(len(A))]
