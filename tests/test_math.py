@@ -1,8 +1,6 @@
 import itertools
 import numpy as np
 import pytest
-import sage.all
-
 import lib.math
 import lib.gimble
 import lib.simulate
@@ -10,84 +8,46 @@ import tests.aux_functions as af
 
 from lib.GeneratingFunction.gf import togimble
 
-#ini files translated to the necessary parameters to test ETPs
-all_configs = {
-	'IM_AB': {
-		"global_info" : {
-					'model_file':"models/IM_AB.tsv",
-					'mu':3e-9, 
-					'ploidy': 2, 
-					'sample_pop_ids': ['A','B'], 
-					'blocklength': 64,
-					'k_max': {'m_1':2, 'm_2':2, 'm_3':2, 'm_4':2},
-					'reference_pop': 'A_B'
-					},
-		"sim_configs": [{'Ne_A': 1.3e6 , 'Ne_B': 6e5, 'Ne_A_B': 1.5e6, 'T': 1e7, 'me_A_B':7e-7, 'recombination':0}]
-		},
-	'DIV' : {
-		"global_info" : {
-					'model_file':"models/DIV.tsv",
-					'mu':3e-9, 
-					'ploidy': 2, 
-					'sample_pop_ids': ['A','B'], 
-					'blocklength': 64,
-					'k_max': {'m_1':2, 'm_2':2, 'm_3':2, 'm_4':2},
-					'reference_pop': 'A_B'
-					},
-		"sim_configs": [{'Ne_A': 1.3e6 , 'Ne_B': 6e5, 'Ne_A_B': 1.5e6, 'T': 1e7, 'recombination':0}]
-		},
-	'MIG_BA' : {
-		"global_info" : {
-					'model_file':"models/MIG_BA.tsv",
-					'mu':3e-9, 
-					'ploidy': 2, 
-					'sample_pop_ids': ['A','B'], 
-					'blocklength': 64,
-					'k_max': {'m_1':2, 'm_2':2, 'm_3':2, 'm_4':2},
-					'reference_pop': 'A'
-					},
-		"sim_configs": [{'Ne_A': 1.3e6 , 'Ne_B': 6e5, 'me_B_A':7e-7, 'recombination':0}]
-		}
-	}
-
-@pytest.fixture(scope='class')
-def config(request):
-	yield request.param
-
 @pytest.mark.ETPs
-@pytest.mark.parametrize('config', ['IM_AB', 'DIV', 'MIG_BA'], indirect=True, scope='class')
+@pytest.mark.parametrize('config_file', [
+	af.get_test_config_file(task='simulate', model='DIV', label='test_ETPs_1'),
+	af.get_test_config_file(task='simulate', model='MIG_BA', label='test_ETPs_2'),
+	af.get_test_config_file(task='simulate', model='IM_AB', label='test_ETPs_3')
+	], scope='class')
 class Test_ETPs:
 
 	@pytest.fixture(scope='class')
 	def gimble_ETPs(self):
-		def _gimble_ETPs(global_info, sim_configs):
-			model = lib.gimble.get_model_name(global_info['model_file'])
-			mutype_labels, max_k = zip(*sorted(global_info['k_max'].items()))
-			gf = lib.math.config_to_gf(model, mutype_labels)
-			gfEvaluatorObj = togimble.gfEvaluator(gf, max_k, mutype_labels)
-			parameter_combinations = lib.gimble.LOD_to_DOL(sim_configs)
+		def _gimble_ETPs(config):
+			gf = lib.math.config_to_gf(config)
+			gfEvaluatorObj = togimble.gfEvaluator(gf, config['max_k'], lib.gimble.MUTYPES, config['gimble']['precision'], exclude=[(2,3),])
 			ETPs = lib.math.new_calculate_all_ETPs(
-				gfEvaluatorObj,
-				parameter_combinations,
-				global_info['reference_pop'],
-				global_info['blocklength'],
-				global_info['mu']
+				gfEvaluatorObj, 
+				config['parameters_expanded'], 
+				config['simulate']['reference_pop_id'], 
+				config['simulate']['block_length'], 
+				config['mu']['mu'], 
+				processes=1, 
+				verbose=False
 				)
 			return ETPs
 		return _gimble_ETPs
 
-	def test_ETPs_model(self, gimble_ETPs, config, cmd_plot):
-		#simmed_ETPs = sim_ETPs(**all_configs[config])
-		simmed_ETPs = af.sim_ETPs(**all_configs[config], n=1, blocks=1, chunks=1, replicates=1000)
-		gimbled_ETPs = gimble_ETPs(**all_configs[config])
+	def test_ETPs_model(self, gimble_ETPs, config_file, cmd_plot=True):
+		'''
+		aux_functions.sim_ETPs(config) -> not needed, call lib.simulate.runsims directly
+		'''
+		config = lib.gimble.load_config(config_file)
+		simmed_ETPs = lib.simulate.run_sims(config['demographies'], config['simulate']['recombination_rate'], config, config['replicates'], config['seeds'], 1)
+		gimbled_ETPs = gimble_ETPs(config)
 		for idx, (gimble_combo, sim_combo) in enumerate(zip(gimbled_ETPs, simmed_ETPs)):
-			summed_combo=np.sum(sim_combo,axis=0)
+			summed_combo=np.sum(sim_combo, axis=0)
 			total_reps = np.sum(summed_combo)
-			freqs_simmed_ETPs = summed_combo/total_reps
-			counts_gimble_ETPs = gimble_combo*total_reps
+			freqs_simmed_ETPs = summed_combo / total_reps
+			counts_gimble_ETPs = gimble_combo * total_reps
 			assert summed_combo.shape == gimble_combo.shape
 			if cmd_plot:
-				af.scatter_loglog(freqs_simmed_ETPs, gimble_combo, -np.log(1/total_reps), f'{config}_rep{idx}')
+				af.scatter_loglog(freqs_simmed_ETPs, gimble_combo, -np.log(1 / total_reps), '%s_rep%s' % (config['gimble']['model'], idx))
 			af.chisquare(summed_combo, counts_gimble_ETPs)
 
 @pytest.mark.chunks

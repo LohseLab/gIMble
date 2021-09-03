@@ -13,7 +13,6 @@ test.*
 .test/
 .output
 data/
-output
 
 # C extensions
 *.so

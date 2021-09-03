@@ -190,5 +190,5 @@ def all_interpopulation_comparisons(*popsizes):
 		raise ValueError("More than 2 population sizes were provided to simulate. We cannot cope with that just yet.")
 	return list(itertools.product(range(popA), range(popA, popA + popB)))
 
-def make_demographies(graph_list):
-	return (msprime.Demography.from_demes(graph) for graph in lib.gimble.config_to_demes_graph(graph_list))
+def make_demographies(config):
+	return (msprime.Demography.from_demes(graph) for graph in lib.gimble.config_to_demes_graph(config))
