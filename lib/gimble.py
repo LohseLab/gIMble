@@ -237,7 +237,7 @@ def make_ini_configparser(version, task, model, label):
     config.set('mu', '# mutation rate (in mutations/site/generation, required)')
     # [To Do] figure out how to deal with 'no mutation-rate' ... no-scaling
     config.set('mu', 'mu', "")
-    if not task == 'simulate':
+    if not task == 'simulate' or not task == 'optimize':
         config.set('mu', '# block_length')
         config.set('mu', '# must be identical to block_length of the data one wants to analyse with grid')
         config.set('mu', 'block_length', "")
@@ -475,6 +475,12 @@ def expand_parameters(config):
             config['parameters_expanded'][pop] = config['parameters_expanded'][sync_to]
     return config
 
+def get_config_optimize(config):
+    # bounds 
+    config['parameter_combinations_lowest'] = np.array([config['parameters_np'][k][0] for k in config['parameters_bounded']])
+    config['parameter_combinations_highest'] = np.array([config['parameters_np'][k][1] for k in config['parameters_bounded']])
+    return config
+    
 def get_config_simulate(config):
     # interpopulation sample pairs
     config['simulate']['comparisons'] = list(
@@ -519,10 +525,13 @@ def load_config(config_file, MODULE=None, CWD=None, VERSION=None):
     config = get_config_kmax(config)
     config = get_config_model_events(config)
     config = get_config_model_parameters(config, MODULE)
-    if MODULE == 'makegrid' or MODULE == 'simulate':
-        config = expand_parameters(config)
+    #if MODULE == 'makegrid' or MODULE == 'simulate':
+    #    config = expand_parameters(config)
+    config = expand_parameters(config) # needed for testing
     if MODULE == 'simulate':
         config = get_config_simulate(config)
+    if MODULE == 'optimize':
+        config = get_config_optimize(config)
     config['CWD'] = CWD
     #for k, v in config.items():
     #    print(k, '\t', v)
@@ -2265,9 +2274,6 @@ class Store(object):
         config['max_iterations'] = max_iterations
         config['xtol_rel'] = xtol_rel
         config['ftol_rel'] = ftol_rel
-        # bounds 
-        config['parameter_combinations_lowest'] = np.array([config['parameters_np'][k][0] for k in config['parameters_bounded']])
-        config['parameter_combinations_highest'] = np.array([config['parameters_np'][k][1] for k in config['parameters_bounded']])
         # Error if no data
         config['data_source'] = 'sims' if sim_label else 'meas'
         config['data_label'] = sim_label or tally_label

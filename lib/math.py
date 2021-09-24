@@ -571,7 +571,6 @@ def get_nlopt_args(gfEvaluatorObj, dataset, config):
 
 
 def optimize(gfEvaluatorObj, data_idx, data, config):
-    print(config)
     # Prepare args for nlopt
     nlopt_args = get_nlopt_args(gfEvaluatorObj, data, config)
     nlopt_results = []
