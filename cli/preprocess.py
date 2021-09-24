@@ -15,10 +15,7 @@
 
 from timeit import default_timer as timer
 from docopt import docopt
-#import lib.gimblelog
 import lib.gimble
-import os
-
 import numpy as np
 import tempfile
 import pathlib
@@ -156,7 +153,10 @@ def get_multi_callable_f(parameterObj):
         write_df(bed_callable_df, out_f=bed_callable_f, sep='\t', header=False, status=False)
         read_group_ids.append(read_group_id)
         bed_callable_fs.append(str(bed_callable_f))
-    cmd = f"bedtools multiinter -i {' '.join(bed_callable_fs)} -names {' '.join(read_group_ids)} | cut -f1-5 > {parameterObj.bed_multi_callable_file}"
+    if len(read_group_ids) == 1:
+        cmd = f"cut -f1-5 {bed_callable_fs[0]} > {parameterObj.bed_multi_callable_file}"
+    else:
+        cmd = f"bedtools multiinter -i {' '.join(bed_callable_fs)} -names {' '.join(read_group_ids)} | cut -f1-5 > {parameterObj.bed_multi_callable_file}"
     _stdout, _stderr = run_command(cmd)
     parameterObj.commands.append(cmd)
     return parameterObj
@@ -170,7 +170,7 @@ def process_vcf_f(parameterObj):
     sample_id_intersection = set(vcf_sample_ids).intersection(bam_sample_ids)
     if not sample_id_intersection:
         sys.exit('[X] Sample ID mismatch\n[X] BAM files : %s\n[X] VCF files : %s\n' % (bam_sample_ids, vcf_sample_ids))
-    sample_id_dict = {sample_id: "" for sample_id in sorted(sample_id_intersection)} 
+    #sample_id_dict = {sample_id: "" for sample_id in sorted(sample_id_intersection)} 
     sample_df = pd.DataFrame(sorted(sample_id_intersection))
     write_df(sample_df, out_f=parameterObj.gimble_sample_file, sep=',', header=False)
     print("[+] Process variants (this might take a while)...")
