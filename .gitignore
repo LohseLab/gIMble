@@ -240,3 +240,5 @@ test4.z/
 .gimblelibjunk/
 
 blessed_configs/
+
+tests/output/
