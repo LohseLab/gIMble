@@ -521,6 +521,7 @@ def load_config(config_file, MODULE=None, CWD=None, VERSION=None):
         validator_error_string = get_validator_error_string(validator.errors)
         sys.exit("[X] Problems were encountered when parsing INI config file:\n%s" % validator_error_string)
     config = validator.normalized(parsee)
+    np.random.seed(config['gimble']['random_seed'])
     config = get_config_pops(config)
     config = get_config_kmax(config)
     config = get_config_model_events(config)
@@ -984,7 +985,7 @@ def fix_pos_array(pos_array):
     De-duplicates array by shifting values forward until there aren't any collisions
     '''
     # get boolean array for first and subsequent duplicates (True) (required sorted) 
-    idxs = np.insert((np.diff(pos_array)==0).astype(np.bool), 0, False)
+    idxs = np.insert((np.diff(pos_array)==0).astype(bool), 0, False)
     if np.any(idxs): 
         # if there are duplicates, get new values by incrementing by one
         new_values = pos_array[idxs]+1
@@ -2302,7 +2303,7 @@ class Store(object):
         if start_point == 'midpoint':
             config['start_point'] = np.mean(np.vstack((config['parameter_combinations_lowest'], config['parameter_combinations_highest'])), axis=0)
         if start_point == 'random':
-            np.random.seed(config['gimble']['random_seed'])
+            #np.random.seed(config['gimble']['random_seed'])
             config['start_point'] = np.random.uniform(low=config['parameter_combinations_lowest'], high=config['parameter_combinations_highest'])
         return (data, config)
 

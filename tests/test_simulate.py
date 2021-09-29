@@ -28,13 +28,18 @@ class Test_sim:
                 },
             'events' : {
                 'exodus' : [(0,1,2),],
-                'migration' : [(1,0),],
+                'migration' : [(1,0),]
+                },
+            'gimble' : {
+                'task':'test'
+                }
             }
-        }
+        
         demography = next(lib.gimble.config_to_demes_graph(config, idxs=[0,]))
         demography = msprime.Demography.from_demes(demography)
         replicates = 500
-        seeds = np.random.randint(1, 2 ** 32, (replicates, 2))
+        rng = np.random.RandomState(seed=21)
+        seeds = rng.randint(low=1, high=2 ** 32, size=(replicates, 2))
         recombination_rate = 0.0
         samples = {'A':1, 'B':1}
         ploidy = 2

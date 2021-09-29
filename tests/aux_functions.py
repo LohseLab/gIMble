@@ -13,6 +13,10 @@ def get_test_config_file(task=None, model=None, label=None):
         return str(pathlib.Path.cwd() / pathlib.Path('tests/input/gimble.%s.%s.%s.config.ini' % (task, model, label)))
     return None
 
+def get_numpy_array(model, label):
+    dir_str = str(pathlib.Path.cwd() / pathlib.Path('tests/input/%s.%s.npy' % (model, label)))
+    return np.squeeze(np.load(dir_str))
+
 def sim_combi_gt_matrix(p=2, s=2, alleles=[0, 1]):
     '''
     generates numpy-genotype-array all possible combinations of elements in `alleles`
@@ -113,7 +117,7 @@ def chisquare_contingency(observed1, observed2, p_th=0.05):
 def bonferroni(p_threshold, pvals):
     assert min(pvals) > p_threshold / len(pvals)
 
-def scatter_loglog(observed, expected, min_value, name, xlabel='gimble', ylabel='sims'):
+def scatter_loglog(observed, expected, min_value, name, num_replicates, xlabel='gimble', ylabel='sims'):
     obs = np.reshape(observed, -1)
     exp = np.reshape(expected, -1)
     not_zeros = exp > 0
@@ -132,6 +136,14 @@ def scatter_loglog(observed, expected, min_value, name, xlabel='gimble', ylabel=
     ax.set_ylim((0,min_value+1))
     ax.set_xlabel(f'lnP_{xlabel}')
     ax.set_ylabel(f'lnP_{ylabel}')
+    #add confidence interval
+    #pick single point
+    p = 0.01
+    ref_point = -np.log(p)
+    ci = np.array(scipy.stats.binom.interval(1-0.05/subs_exp.size, num_replicates, p))
+    ci = -np.log(ci/num_replicates)
+    ax.plot([0, ref_point],[0,ci[0]], 'k--')
+    ax.plot([0, ref_point],[0,ci[1]], 'k--')
     ax.set_title(name)
     if not os.path.isdir('tests/output'):
         os.mkdir('tests/output')
