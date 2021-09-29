@@ -9,10 +9,10 @@ import tests.aux_functions as af
 from lib.GeneratingFunction.gf import togimble
 
 @pytest.mark.ETPs
-@pytest.mark.parametrize('config_file', [
-    af.get_test_config_file(task='simulate', model='DIV', label='test_ETPs_1'),
-    af.get_test_config_file(task='simulate', model='MIG_BA', label='test_ETPs_2'),
-    af.get_test_config_file(task='simulate', model='IM_AB', label='test_ETPs_3')
+@pytest.mark.parametrize('model, label', [
+    ('DIV','test_ETPs_1'),
+    ('MIG_BA', 'test_ETPs_2'),
+    ('IM_AB', 'test_ETPs_3')
     ], scope='class')
 class Test_ETPs:
 
@@ -33,10 +33,13 @@ class Test_ETPs:
             return ETPs
         return _gimble_ETPs
 
-    def test_ETPs_model(self, gimble_ETPs, config_file, cmd_plot=True):
+    def test_ETPs_model(self, gimble_ETPs, model, label, cmd_plot=True):
+        config_file = af.get_test_config_file(task='simulate', model=model, label=label)
         config = lib.gimble.load_config(config_file)
-        simmed_ETPs = lib.simulate.run_sims(config['demographies'], config['simulate']['recombination_rate'], config, config['replicates'], config['seeds'], 1)
+        simmed_ETPs = lib.simulate.run_sims(config['demographies'], config['simulate']['recombination_rate'], config, config['replicates'], config['seeds'], 1, discrete=False, disable_tqdm=True)
         gimbled_ETPs = gimble_ETPs(config)
+        precalc_ETPs = af.get_numpy_array(model, label)
+        assert np.allclose(precalc_ETPs, gimbled_ETPs)
         for idx, (gimble_combo, sim_combo) in enumerate(zip(gimbled_ETPs, simmed_ETPs)):
             summed_combo=np.sum(sim_combo, axis=0)
             total_reps = np.sum(summed_combo)
@@ -44,7 +47,7 @@ class Test_ETPs:
             counts_gimble_ETPs = gimble_combo * total_reps
             assert summed_combo.shape == gimble_combo.shape
             if cmd_plot:
-                af.scatter_loglog(freqs_simmed_ETPs, gimble_combo, -np.log(1 / total_reps), '%s_rep%s' % (config['gimble']['model'], idx))
+                af.scatter_loglog(freqs_simmed_ETPs, gimble_combo, -np.log(1 / total_reps), model, total_reps)
             af.chisquare(summed_combo, counts_gimble_ETPs)
 
 # @pytest.mark.chunks
