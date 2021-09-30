@@ -220,6 +220,8 @@ def make_ini_configparser(version, task, model, label):
         config.set('simulate', '# Number of samples per population')
         config.set('simulate', 'sample_size_A', '1')
         config.set('simulate', 'sample_size_B', '1')
+        config.set('simulate', '# Mutations at discrete sites (True) or infinite sites model (False)')
+        config.set('simulate', 'discrete_genome', 'True')
         config.set('simulate', '# Set recombination rate (optional)')
         config.set('simulate', 'recombination_rate', "")
         config.set('simulate', '# Set path to recombination map (optional)')
@@ -322,6 +324,7 @@ def config_to_meta(config, task):
         meta['replicates'] = config['replicates']
         meta['parameters_LOD'] = config['parameters_LOD']
         meta['parameters'] = config['parameters']
+        meta['discrete_genome'] = config['simulate']['discrete_genome']
         if config['gridbased']['grid_label']!="":
             meta['grid_label'] = config['gridbased']['grid_label']
             meta['window_param_idx'] = tuple(int(i) for i in config['window_param_idx'])
@@ -333,6 +336,7 @@ def config_to_meta(config, task):
         meta['replicates'] = config['replicates']
         meta['parameters_LOD'] = config['parameters_LOD'][config['idx']]
         meta['parameters'] = {k:v for k,v in config['parameters'].items()}
+        meta['discrete_genome'] = config['simulate']['discrete_genome']
         if not(isinstance(config['parameters']['recombination_rate'], float) or isinstance(config['parameters']['recombination_rate'], int)):
             meta['parameters']['recombination_rate'] = config['parameters']['recombination_rate'][config['idx']]
     if task == 'makegrid':
@@ -764,6 +768,7 @@ def get_config_schema(module):
                 'replicates': {'required':True,'empty': False, 'type': 'integer', 'min': 1, 'coerce':int},
                 'sample_size_A': {'required':True,'empty':False, 'type': 'integer', 'min': 1, 'coerce':int},
                 'sample_size_B': {'required':True,'empty':False, 'type': 'integer', 'min': 1, 'coerce':int},
+                'discrete_genome': {'empty':True, 'type': 'boolean', 'coerce':bool},
                 'recombination_rate': {'empty': True, 'notNoneFloat':True, 'coerce':'float_or_empty', 'min': 0.0},
                 'recombination_map': {'empty': True, 'type': 'string', 'coerce': 'path', 'dependencies':['number_bins', 'cutoff', 'scale']},
                 'number_bins': {'empty': True, 'notNoneInt': True, 'coerce':'int_or_empty', 'min': 1},
@@ -1953,7 +1958,8 @@ class Store(object):
                 config, 
                 config['replicates'], 
                 config['seeds'], 
-                threads
+                threads,
+                discrete=config['simulate']['discrete_genome']
                 )
             ):
             self._save_simulation_instance(config, simulation_instance, idx)
