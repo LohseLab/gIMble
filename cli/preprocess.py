@@ -13,19 +13,19 @@
         -k, --keep_tmp                   Do not delete temporary files [default: False]
 """
 
-from timeit import default_timer as timer
-from docopt import docopt
 import lib.gimble
 import numpy as np
 import tempfile
 import pathlib
 import subprocess
 import sys
+import os
 import shutil
 from tqdm import tqdm
 import pysam
 import pandas as pd
-import tabulate
+from timeit import default_timer as timer
+from docopt import docopt
 
 '''
 [To Do]
@@ -42,7 +42,7 @@ import tabulate
 '''
 
 def print_df(df):
-    table = tabulate.tabulate(df, headers=df.columns, tablefmt="orgtbl", floatfmt=".2f")
+    table = df.to_string(index=False)
     border = "[=] %s" % str('=' * (len(table.split("\n")[0]) - 4))
     print(border)
     print(table)
@@ -55,6 +55,13 @@ def write_df(df, out_f='', sep='\t', header=True, status=True):
         df.to_csv(out_f, index=False, sep=sep, header=False)
     if status == True:
         print("[+] \t=> Wrote %r" % str(out_f))
+
+def fix_permissions(path):
+    for root, dirs, files in os.walk(path, topdown=True):
+        for _d in [os.path.join(root, d) for d in dirs]:
+            os.chmod(_d, 0o775)
+        for _f in [os.path.join(root, f) for f in files]:
+            os.chmod(_f, 0o664)
 
 class PreprocessParameterObj(lib.gimble.ParameterObj):
     '''Sanitises command line arguments and stores parameters'''
@@ -76,17 +83,20 @@ class PreprocessParameterObj(lib.gimble.ParameterObj):
         self.gimble_vcf_file = pathlib.Path('%s.vcf.gz' % self.outprefix)
         self.gimble_sample_file = pathlib.Path("%s.samples.csv" % self.outprefix)
         self.gimble_log_file = pathlib.Path("%s.log.txt" % self.outprefix)
-        self.bed_multi_callable_file =  self.tmp_dir / pathlib.Path('%s.multi_callable.bed' % self.outprefix)
+        self.bed_multi_callable_file =  self.tmp_dir / pathlib.Path('multi_callable.bed')
         self.coverage_data = []
         self.commands = []
 
     def clean_up(self):        
         if self.keep_tmp:
             print("[+] Not deleting Temporary folder %r since '--keep_tmp' was specified." % self.tmp_dir)
+            fix_permissions(self.tmp_dir)
+            print("[+] Updated file permissions for folder %s" % self.tmp_dir)
         else:
             print("[+] Deleting temporary folder %r ..." % self.tmp_dir)
             shutil.rmtree(self.tmp_dir)
-
+            print("[+] Folder %r was deleted." % self.tmp_dir)
+    
     def write_log(self):
         with open(self.gimble_log_file, 'w') as fh:
             fh.write("%s\n" % "\n".join(self.commands))
@@ -174,7 +184,7 @@ def process_vcf_f(parameterObj):
     sample_df = pd.DataFrame(sorted(sample_id_intersection))
     write_df(sample_df, out_f=parameterObj.gimble_sample_file, sep=',', header=False)
     print("[+] Process variants (this might take a while)...")
-    vcf_tmp = pathlib.Path(parameterObj.tmp_dir, '%s.filtered.vcf.gz' % parameterObj.outprefix)
+    vcf_tmp = pathlib.Path(parameterObj.tmp_dir, 'vcf.filtered.vcf.gz')
     print("[+] Filtering VCF file ...")
     cmd = f"""bcftools norm --threads {parameterObj.threads} -Ov -f {parameterObj.fasta_file} {parameterObj.vcf_file} | \
             vcfallelicprimitives --keep-info --keep-geno -t decomposed | \
@@ -182,16 +192,15 @@ def process_vcf_f(parameterObj):
             bcftools filter --threads {parameterObj.threads} -Oz -s Balance -m+ -e 'RPL<1 | RPR<1 | SAF<1 | SAR<1' | \
             bcftools filter --threads {parameterObj.threads} -Oz -m+ -s+ --SnpGap 2 | \
             bcftools filter --threads {parameterObj.threads} -Oz -e 'TYPE!="snp"' -s NonSnp -m+ > {vcf_tmp}"""
-    # other alternative is fixing AC/AN with vcffixup (hopefully bcftools is faster/better)
     _stdout, _stderr = run_command(cmd)
     parameterObj.commands.append(cmd)
     print("[+] Subsetting VCF file ...")
-    bed_fail_f = pathlib.Path(parameterObj.tmp_dir, '%s.filtered.fail.bed' % parameterObj.outprefix)
+    bed_fail_f = pathlib.Path(parameterObj.tmp_dir, 'vcf.filtered.fail.bed')
     cmd = f"""bcftools view --threads {parameterObj.threads} -H -i "%FILTER!='PASS'" {vcf_tmp} | \
             perl -lane '$pad=0; print($F[0]."\t".($F[1]-1)."\t".(($F[1]-1)+length($F[3]))."\t".$F[6])' | bedtools sort - | bedtools merge -i - > {bed_fail_f}"""
     _stdout, _stderr = run_command(cmd)
     parameterObj.commands.append(cmd)
-    vcf_tmp_pass = pathlib.Path(parameterObj.tmp_dir, '%s.filtered.pass.vcf.gz' % parameterObj.outprefix)
+    vcf_tmp_pass = pathlib.Path(parameterObj.tmp_dir, 'vcf.filtered.pass.vcf.gz')
     cmd = f"""bcftools view --threads {parameterObj.threads} -Oz -f "PASS" {vcf_tmp} > {vcf_tmp_pass}"""
     _stdout, _stderr = run_command(cmd)
     print("[+] Adjusting callable regions (Filter FAILs are removed)...")
