@@ -13,18 +13,19 @@
         -k, --keep_tmp                   Do not delete temporary files [default: False]
 """
 
-from timeit import default_timer as timer
-from docopt import docopt
 import lib.gimble
 import numpy as np
 import tempfile
 import pathlib
 import subprocess
 import sys
+import os
 import shutil
 from tqdm import tqdm
 import pysam
 import pandas as pd
+from timeit import default_timer as timer
+from docopt import docopt
 
 '''
 [To Do]
@@ -56,12 +57,11 @@ def write_df(df, out_f='', sep='\t', header=True, status=True):
         print("[+] \t=> Wrote %r" % str(out_f))
 
 def fix_permissions(path):
-    for root, dirs, files in os.walk(path, topdown=False):
+    for root, dirs, files in os.walk(path, topdown=True):
         for _d in [os.path.join(root, d) for d in dirs]:
-            os.chmod(dir, mode)
-    for file in [os.path.join(root, f) for f in files]:
-            os.chmod(file, mode)
-change_permissions_recursive('my_folder', 0o777)
+            os.chmod(_d, 0o775)
+        for _f in [os.path.join(root, f) for f in files]:
+            os.chmod(_f, 0o664)
 
 class PreprocessParameterObj(lib.gimble.ParameterObj):
     '''Sanitises command line arguments and stores parameters'''
@@ -90,11 +90,13 @@ class PreprocessParameterObj(lib.gimble.ParameterObj):
     def clean_up(self):        
         if self.keep_tmp:
             print("[+] Not deleting Temporary folder %r since '--keep_tmp' was specified." % self.tmp_dir)
-            print("[+] Updated file permissions for folder %s" % )
+            fix_permissions(self.tmp_dir)
+            print("[+] Updated file permissions for folder %s" % self.tmp_dir)
         else:
             print("[+] Deleting temporary folder %r ..." % self.tmp_dir)
             shutil.rmtree(self.tmp_dir)
             print("[+] Folder %r was deleted." % self.tmp_dir)
+    
     def write_log(self):
         with open(self.gimble_log_file, 'w') as fh:
             fh.write("%s\n" % "\n".join(self.commands))
@@ -190,7 +192,6 @@ def process_vcf_f(parameterObj):
             bcftools filter --threads {parameterObj.threads} -Oz -s Balance -m+ -e 'RPL<1 | RPR<1 | SAF<1 | SAR<1' | \
             bcftools filter --threads {parameterObj.threads} -Oz -m+ -s+ --SnpGap 2 | \
             bcftools filter --threads {parameterObj.threads} -Oz -e 'TYPE!="snp"' -s NonSnp -m+ > {vcf_tmp}"""
-    # other alternative is fixing AC/AN with vcffixup (hopefully bcftools is faster/better)
     _stdout, _stderr = run_command(cmd)
     parameterObj.commands.append(cmd)
     print("[+] Subsetting VCF file ...")
