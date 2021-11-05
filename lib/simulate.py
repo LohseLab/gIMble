@@ -4,7 +4,7 @@ import numpy as np
 import msprime
 import allel
 import zarr
-import multiprocessing
+import concurrent.futures
 import contextlib
 from tqdm import tqdm
 import itertools
@@ -13,12 +13,15 @@ import pandas as pd
 from functools import partial
 import collections
 
-def run_sims(demographies, recombination_rates, global_info, replicates, seeds, threads=1, discrete=True, disable_tqdm=False): 
+def run_sims(config, threads=1, discrete=True, disable_tqdm=False): 
 	samples = {
-               'A': global_info['simulate']['sample_size_A'], 
-               'B': global_info['simulate']['sample_size_B']
+               'A': config['simulate']['sample_size_A'], 
+               'B': config['simulate']['sample_size_B']
                }
 	mutation_model = 'infinite_alleles'
+	recombination_rates = config['simulate']['recombination_rate']
+	demographies = config['demographies']
+	seeds = config['seeds']
 	if isinstance(recombination_rates, float):
 		recombination_rates = itertools.repeat(recombination_rates)
 	for idx, (demography,rec_rate, seed) in enumerate(tqdm(
@@ -26,7 +29,7 @@ def run_sims(demographies, recombination_rates, global_info, replicates, seeds, 
 		desc='Overall simulation progress',
 		ncols=100, 
 		unit_scale=True, 
-		total=global_info['parameters_grid_points'], 
+		total=config['parameters_grid_points'], 
 		disable=disable_tqdm
 		)
 	):
@@ -36,14 +39,14 @@ def run_sims(demographies, recombination_rates, global_info, replicates, seeds, 
 				rec_rate, 
 				samples, 
 				demography, 
-				global_info['simulate']['ploidy'], 
-				global_info['simulate']['block_length']*global_info['simulate']['blocks'], 
-				global_info['simulate']['comparisons'], 
-				global_info['max_k'],
-				global_info['mu']['mu'],
+				config['simulate']['ploidy'], 
+				config['simulate']['block_length'], 
+				config['simulate']['comparisons'], 
+				config['max_k'],
+				config['mu']['mu'],
 				mutation_model,
 				discrete,
-				global_info['simulate']['blocks'], 
+				config['simulate']['blocks_per_replicate'], 
 				disable_tqdm,
 				idx,
 				threads
@@ -54,22 +57,24 @@ def run_sims(demographies, recombination_rates, global_info, replicates, seeds, 
 				rec_rate, 
 				samples, 
 				demography, 
-				global_info['simulate']['ploidy'], 
-				global_info['simulate']['block_length']*global_info['simulate']['blocks'], 
-				global_info['simulate']['comparisons'], 
-				global_info['max_k'], 
-				global_info['mu']['mu'],
+				config['simulate']['ploidy'], 
+				config['simulate']['block_length'], 
+				config['simulate']['comparisons'], 
+				config['max_k'], 
+				config['mu']['mu'],
 				mutation_model,
 				discrete,
-				global_info['simulate']['blocks'], 
+				config['simulate']['blocks_per_replicate'], 
 				disable_tqdm,
 				idx
 				)
-		result_list = _combine_chunks(result_list, global_info['simulate']['chunks'])
+		chunks = config['simulate']['blocks_per_replicate'].size
+		result_list = _combine_chunks(result_list, chunks)
 		yield np.array(result_list)
 
-def sim_worker(seed, recombination_rate, samples, demography, ploidy, sequence_length, blocks, comparisons, max_k, mutation_rate, mutation_model, discrete):
+def sim_worker(seed, blocks, recombination_rate, samples, demography, ploidy, block_length, comparisons, max_k, mutation_rate, mutation_model, discrete):
 	ancestry_seed, mutation_seed = seed
+	sequence_length = block_length * blocks
 	#run simulation:
 	ts = msprime.sim_ancestry(
 		samples=samples, 
@@ -90,23 +95,22 @@ def sim_worker(seed, recombination_rate, samples, demography, ploidy, sequence_l
 	num_samples = sum(samples.values())
 	#make bsfs:
 	if discrete:
-		positions = np.array([site.position for site in ts.sites()])
+		positions = np.array([site.position for site in ts.sites()], dtype=np.int64)
 	else:
 		positions, sequence_length = infinite_sites(ts, blocks, sequence_length)
 	genotype_matrix = get_genotypes(ts, ploidy, num_samples)
 	bsfs = generate_bsfs(genotype_matrix, positions, comparisons, max_k, blocks, sequence_length)
 	return bsfs
 
-def run_sim_parallel(seeds, recombination_rate, samples, demography, ploidy, sequence_length, comparisons, max_k, mutation_rate, mutation_model, discrete, blocks, disable_tqdm, idx, threads):
-	with multiprocessing.Pool(processes=threads) as pool:
+def run_sim_parallel(seeds, recombination_rate, samples, demography, ploidy, block_length, comparisons, max_k, mutation_rate, mutation_model, discrete, blocks_per_replicate, disable_tqdm, idx, threads):
+	with concurrent.futures.ProcessPoolExecutor(max_workers=threads) as pool:
 		run_sims_specified = partial(
 		sim_worker,
 		recombination_rate=recombination_rate,
 		samples=samples,
 		demography=demography,
 		ploidy=ploidy,
-		sequence_length=sequence_length,
-		blocks=blocks,
+		block_length=block_length,
 		comparisons=comparisons,
 		max_k=max_k,
 		mutation_rate=mutation_rate,
@@ -114,22 +118,46 @@ def run_sim_parallel(seeds, recombination_rate, samples, demography, ploidy, seq
 		discrete=discrete
 	)
 	
-		result_list = list(tqdm(pool.imap(run_sims_specified, seeds),desc=f'running parameter combination {idx}',ncols=100, unit_scale=True, total=len(seeds),disable=disable_tqdm))
+		result_list = list(
+						tqdm(
+							pool.map(
+								run_sims_specified, 
+								seeds, 
+								itertools.cycle(blocks_per_replicate)
+								),
+							desc=f'running parameter combination {idx}',
+							ncols=100, 
+							unit_scale=True, 
+							total=len(seeds),
+							disable=disable_tqdm)
+						)
 	return result_list
 	   
-def run_sim_serial(seeds, recombination_rate, samples, demography, ploidy, sequence_length, comparisons, max_k, mutation_rate, mutation_model, discrete, blocks, disable_tqdm, idx):
+def run_sim_serial(seeds, recombination_rate, samples, demography, ploidy, block_length, comparisons, max_k, mutation_rate, mutation_model, discrete, blocks_per_replicate, disable_tqdm, idx):
 	# [SIMULATION]
 	shape = np.insert(max_k+2, 0, seeds.shape[0]) 
-	result_list = np.zeros(shape, dtype=lib.gimble._return_np_type(blocks))
-	for sub_idx, seed in enumerate(tqdm(seeds, desc=f'running parameter combination {idx}',ncols=100, unit_scale=True, disable=disable_tqdm)):
+	result_list = np.zeros(shape, dtype=lib.gimble._return_np_type(np.sum(blocks_per_replicate)))
+	for sub_idx, (seed, block_per_replicate) in enumerate(
+						tqdm(
+							zip(
+								seeds, 
+								itertools.cycle(blocks_per_replicate)
+								), 
+							desc=f'running parameter combination {idx}',
+							ncols=100, 
+							unit_scale=True, 
+							disable=disable_tqdm,
+							total=len(seeds)
+							)
+						):
 		result_list[sub_idx] = sim_worker(
 				seed=seed,
+				blocks=block_per_replicate,
 				recombination_rate=recombination_rate,
 				samples=samples,
 				demography=demography,
 				ploidy=ploidy,
-				sequence_length=sequence_length,
-				blocks=blocks,
+				block_length=block_length,
 				comparisons=comparisons,
 				max_k=max_k,
 				mutation_rate=mutation_rate,
@@ -145,13 +173,14 @@ def generate_bsfs(genotype_matrix, positions, comparisons, max_k, blocks, total_
 	# generate all comparisons
 
 	for idx, pair in enumerate(comparisons):
-		block_sites = np.arange(total_length).reshape(blocks, -1)
+		block_sites = np.arange(total_length, dtype=np.int64).reshape(blocks, -1)
 		new_positions_variant_bool = np.isin(
             positions, block_sites, assume_unique=True
             )
 		subset_genotype_array = sa_genotype_array.subset(new_positions_variant_bool, pair) #all variants are included
 		*redundant, variation = lib.gimble.blocks_to_arrays(block_sites, subset_genotype_array, positions)
 		result[idx] = variation
+	
 	result = result.reshape(-1, result.shape[-1])
 	# count mutuples (clipping at k_max, if supplied)
 	mutuples, counts = np.unique(np.clip(result, 0, max_k+1), return_counts=True, axis=0)
@@ -170,7 +199,7 @@ def infinite_sites(ts, blocks, total_length):
 		total_length = blocks*blocklength
 	if ts.num_sites==0:
 		new_positions = [0,]
-	return (new_positions, total_length)
+	return (new_positions.astype(np.int64), total_length)
 
 def _combine_chunks(result_list, chunks):
 	if chunks>1:

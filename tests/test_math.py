@@ -36,7 +36,7 @@ class Test_ETPs:
     def test_ETPs_model(self, gimble_ETPs, model, label, cmd_plot=True):
         config_file = af.get_test_config_file(task='simulate', model=model, label=label)
         config = lib.gimble.load_config(config_file)
-        simmed_ETPs = lib.simulate.run_sims(config['demographies'], config['simulate']['recombination_rate'], config, config['replicates'], config['seeds'], 1, discrete=False, disable_tqdm=True)
+        simmed_ETPs = lib.simulate.run_sims(config, 1, discrete=False, disable_tqdm=True)
         gimbled_ETPs = gimble_ETPs(config)
         precalc_ETPs = af.get_numpy_array(model, label)
         assert np.allclose(precalc_ETPs, gimbled_ETPs)

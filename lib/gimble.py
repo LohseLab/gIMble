@@ -4,6 +4,7 @@ from lib.functions import plot_mutuple_barchart
 import allel
 import demes
 import ast
+import math
 import numpy as np
 import pandas as pd
 import shutil
@@ -214,7 +215,7 @@ def make_ini_configparser(version, task, model, label):
         config.set('simulate', '# Blocks')
         config.set('simulate', 'blocks', "")
         config.set('simulate', 'block_length', "")
-        config.set('simulate', 'chunks', '1')
+        config.set('simulate', 'num_linked_blocks', "")
         config.set('simulate', '# Number of replicates')
         config.set('simulate', 'replicates', "")
         config.set('simulate', '# Number of samples per population')
@@ -323,7 +324,7 @@ def config_to_meta(config, task):
         meta['max_k'] = tuple([int(v) for v in config['max_k']])
         meta['replicates'] = config['replicates']
         meta['parameters_LOD'] = config['parameters_LOD']
-        meta['parameters'] = config['parameters']
+        meta['parameters'] = {k:(tuple(v.tolist()) if isinstance(v, np.ndarray) else v) for k,v in config['parameters'].items()}
         meta['discrete_genome'] = config['simulate']['discrete_genome']
         if config['gridbased']['grid_label']!="":
             meta['grid_label'] = config['gridbased']['grid_label']
@@ -335,7 +336,7 @@ def config_to_meta(config, task):
         meta['mutation_seeds'] = tuple([int(s) for s in config['seeds'][config['idx']][:,1]])
         meta['replicates'] = config['replicates']
         meta['parameters_LOD'] = config['parameters_LOD'][config['idx']]
-        meta['parameters'] = {k:v for k,v in config['parameters'].items()}
+        meta['parameters'] = {k:(tuple(v.tolist()) if isinstance(v, np.ndarray) else v) for k,v in config['parameters'].items()}
         meta['discrete_genome'] = config['simulate']['discrete_genome']
         if not(isinstance(config['parameters']['recombination_rate'], float) or isinstance(config['parameters']['recombination_rate'], int)):
             meta['parameters']['recombination_rate'] = config['parameters']['recombination_rate'][config['idx']]
@@ -502,11 +503,26 @@ def get_config_simulate(config):
         if fixed_parameter not in config['parameters']:
             sys.exit('[X] Gridbased fixed_parameter should be one of the model parameters.')
     config['demographies'] = lib.simulate.make_demographies(config)
-    config['seeds'] = np.random.randint(1, 2 ** 32, (config.get('parameters_grid_points', 1), config['simulate']['replicates'], 2))   
-    config['replicates'] = config['simulate']['chunks'] * config['simulate']['replicates']
+    # if config['simulate']['num_linked_blocks'] is not specified, default to config['simulate']['blocks']
+    if not config['simulate']['num_linked_blocks']:
+        config['simulate']['num_linked_blocks'] = config['simulate']['blocks']
+    blocks_per_replicate = get_blocks_per_replicate(config['simulate']['blocks'], config['simulate']['num_linked_blocks']) 
+    sequence_length_per_replicate = blocks_per_replicate * config['simulate']['block_length']
+    config['simulate']['blocks_per_replicate'] = blocks_per_replicate
+    config['simulate']['sequence_length'] = sequence_length_per_replicate
+    config['replicates'] = blocks_per_replicate.size * config['simulate']['replicates']
+    config['seeds'] = np.random.randint(1, 2 ** 32, (config.get('parameters_grid_points', 1), config['simulate']['replicates'], 2))       
     config['parameters_LOD'] = DOL_to_LOD(config['parameters_expanded'])
     config['parameters'] = {**config['simulate'],**config['mu']} # is this necessary?
     return config
+
+def get_blocks_per_replicate(num, part):
+    num_entries = math.ceil(num/part)
+    result = np.full(num_entries, fill_value=part, dtype=np.uint64)
+    floor = num//part
+    if num_entries != floor:
+        result[-1] = num - floor * part 
+    return result
 
 def load_config(config_file, MODULE=None, CWD=None, VERSION=None):
     parser = configparser.ConfigParser(inline_comment_prefixes='#', allow_no_value=True)
@@ -764,7 +780,7 @@ def get_config_schema(module):
                 'ploidy': {'required':True,'empty': False, 'min': 1, 'coerce': int},
                 'blocks': {'required':True, 'empty': False, 'type': 'integer', 'min': 1, 'coerce': 'int'},
                 'block_length': {'required': True, 'empty':False, 'min': 1, 'type': 'integer', 'coerce': int},
-                'chunks': {'required':True, 'empty':False, 'type': 'integer', 'min': 1, 'coerce':int},
+                'num_linked_blocks': {'required':True, 'empty':True, 'min': 1, 'coerce': 'int_or_empty'},
                 'replicates': {'required':True,'empty': False, 'type': 'integer', 'min': 1, 'coerce':int},
                 'sample_size_A': {'required':True,'empty':False, 'type': 'integer', 'min': 1, 'coerce':int},
                 'sample_size_B': {'required':True,'empty':False, 'type': 'integer', 'min': 1, 'coerce':int},
@@ -1924,7 +1940,6 @@ class Store(object):
         if not overwrite and self._has_key(config['simulate_key']):
             sys.exit("[X] Simulated results with label %r already exist. Use '-f' to overwrite or change analysis label in the INI file." % 
                 (config['simulate_key']))
-        print('config', config)
         #deal with grid_label:
         if config['gridbased']['grid_label'].strip()!='':
             #check whether grid_label exists
@@ -1942,8 +1957,8 @@ class Store(object):
                 lncls_windows = self._get_data(key_5D)
                 fixed_param_grid = config['gridbased']['fixed_parameter'] if config['gridbased']['fixed_parameter']!='' else None
                 config = _get_sim_grid_config(config, lncls_global, lncls_windows, meta_5D, window_info, fixed_param_grid)
-        print('[+] Simulating %s replicate(s) of %s block(s) for %s parameter combinations' %
-            (config['simulate']['replicates'], config['simulate']['blocks'], config['parameters_grid_points']))
+        #print('[+] Simulating %s replicate(s) of %s block(s) for %s parameter combinations' %
+        #    (config['simulate']['replicates'], config['simulate']['blocks'], config['parameters_grid_points']))
         return config
 
     def simulate(self, config, threads, overwrite):
@@ -1953,11 +1968,7 @@ class Store(object):
             (config['simulate']['replicates'], config['simulate']['blocks'], config['parameters_grid_points']))
         for idx, simulation_instance in enumerate(
             lib.simulate.run_sims(
-                config['demographies'], 
-                config['simulate']['recombination_rate'], 
                 config, 
-                config['replicates'], 
-                config['seeds'], 
                 threads,
                 discrete=config['simulate']['discrete_genome']
                 )
