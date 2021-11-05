@@ -503,11 +503,10 @@ def get_config_simulate(config):
         if fixed_parameter not in config['parameters']:
             sys.exit('[X] Gridbased fixed_parameter should be one of the model parameters.')
     config['demographies'] = lib.simulate.make_demographies(config)
-    #adapt here to num_linked_blocks
-    num_linked_blocks = config['simulate']['num_linked_blocks']
-    if not isinstance(num_linked_blocks, int):
-        num_linked_blocks = config['simulate']['blocks']
-    blocks_per_replicate = get_blocks_per_replicate(config['simulate']['blocks'], num_linked_blocks) 
+    # if config['simulate']['num_linked_blocks'] is not specified, default to config['simulate']['blocks']
+    if not config['simulate']['num_linked_blocks']:
+        config['simulate']['num_linked_blocks'] = config['simulate']['blocks']
+    blocks_per_replicate = get_blocks_per_replicate(config['simulate']['blocks'], config['simulate']['num_linked_blocks']) 
     sequence_length_per_replicate = blocks_per_replicate * config['simulate']['block_length']
     config['simulate']['blocks_per_replicate'] = blocks_per_replicate
     config['simulate']['sequence_length'] = sequence_length_per_replicate
@@ -781,7 +780,7 @@ def get_config_schema(module):
                 'ploidy': {'required':True,'empty': False, 'min': 1, 'coerce': int},
                 'blocks': {'required':True, 'empty': False, 'type': 'integer', 'min': 1, 'coerce': 'int'},
                 'block_length': {'required': True, 'empty':False, 'min': 1, 'type': 'integer', 'coerce': int},
-                'num_linked_blocks': {'required':True, 'empty':True, 'type': 'integer', 'min': 1, 'coerce':int},
+                'num_linked_blocks': {'required':True, 'empty':True, 'min': 1, 'coerce': 'int_or_empty'},
                 'replicates': {'required':True,'empty': False, 'type': 'integer', 'min': 1, 'coerce':int},
                 'sample_size_A': {'required':True,'empty':False, 'type': 'integer', 'min': 1, 'coerce':int},
                 'sample_size_B': {'required':True,'empty':False, 'type': 'integer', 'min': 1, 'coerce':int},
@@ -1941,7 +1940,6 @@ class Store(object):
         if not overwrite and self._has_key(config['simulate_key']):
             sys.exit("[X] Simulated results with label %r already exist. Use '-f' to overwrite or change analysis label in the INI file." % 
                 (config['simulate_key']))
-        print('config', config)
         #deal with grid_label:
         if config['gridbased']['grid_label'].strip()!='':
             #check whether grid_label exists
