@@ -243,3 +243,19 @@ blessed_configs/
 tests/output/
 
 *.log
+
+gimble.2chr_1M.optimize_maxk1_test_optimize_1.optimize.tsv
+
+gimble.2chr_1M.optimize_maxk3_test_optimize_1.optimize.tsv
+
+gimble.2chr_1M.optimize_simulate64_test_optimize_1.optimize.0.tsv
+
+gimble.2chr_1M.optimize_simulate64_test_optimize_1.optimize.1.tsv
+
+gimble.2chr_1M.optimize_simulate64_test_optimize_1.optimize.2.tsv
+
+gimble.2chr_1M.tally_maxk1.tsv
+
+gimble.2chr_1M.tally_maxk3.tsv
+
+gimble.optimize.DIV.test_optimize_1.config.ini
