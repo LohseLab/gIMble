@@ -7,7 +7,7 @@
     Options:
         -z, --zarr_file <FILE>                      Path to existing GimbleStore
         -d, --data_source <STR>                     'blocks', 'windows', or 'windowsum'
-        -l, --data_label <STR>                     Label under which the tally gets saved
+        -l, --data_label <STR>                      Label under which the tally gets saved
         
         -k, --maxk <STR>                            Max value for mutypes (values above get binned) [default: 2,2,2,2]
         -s, --sequence_ids <STR>                    Sequence IDs for which to tally blocks (comma-separated)
@@ -47,7 +47,7 @@ def main(params):
         args = docopt(__doc__)
         parameterObj = TallyParameterObj(params, args)
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
-        gimbleStore.tally(
+        tally_key = gimbleStore.tally(
             data_source=parameterObj.data_source,
             data_label=parameterObj.data_label,
             max_k=parameterObj.max_k,
@@ -56,6 +56,7 @@ def main(params):
             genome_file=parameterObj.genome_file,
             overwrite=parameterObj.overwrite
             )
+        print("[+] Tally is accessible with the key %r (use this for query)." % tally_key)
         print("[*] Total runtime was %s" % (lib.gimble.format_time(timer() - start_time)))
     except KeyboardInterrupt:
         print("\n[X] Interrupted by user after %s !\n" % (lib.gimble.format_time(timer() - start_time)))

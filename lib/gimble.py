@@ -365,7 +365,8 @@ def config_to_meta(config, task):
         meta['gridsearch_instance_keys'] = config['gridsearch_key_generator'] if 'gridsearch_key_generator' in config else None
     if task == 'optimize':
         meta['optimize_key'] = config['optimize_key']
-        meta['parameters'] = {}
+        meta['optimize_keys'] = config['optimize_keys']
+        meta['parameters'] = config['parameters']
         meta['parameters']['fixed'] = config['parameters_fixed']
         meta['parameters']['bounded'] = config['parameters_bounded']
         meta['block_length'] = config['block_length']
@@ -1997,80 +1998,123 @@ class Store(object):
         meta = config_to_meta(config, 'simulate_instance')
         self._set_meta_and_data(simulation_instance_key, meta, simulation_instance)
 
-    def query(self, version, data_type, data_format, max_k):
-        self._preflight_query(data_type, data_format)
-        if data_format == 'bed':
-            # new query for window_coverage by SAMPLE!!!
-            if data_type == 'windows':
-                self._write_window_bed(version)
-        elif data_format == 'tally':
-            self._write_tally_tsv(data_type=data_type, sample_sets='X', max_k=max_k)
-        elif data_format == 'lncls':
-            # needs to be called with explicit args
-            self.dump_lncls(parameterObj)
-        else:
-            sys.exit("[+] Nothing to be done.")
+    def _preflight_query(self, data_key):
+        config = {'data_key': data_key}
+        if not self._has_key(data_key):
+            sys.exit("[X] ZARR store %s has no data under the key %r." % (self.path, data_key))
+        config['data_type'] = data_key.split("/")[0]
+        return config
 
-    def _write_tally_tsv(self, data_type=None, sequences=None, sample_sets=None, population_by_letter=None, max_k=None):
-        if data_type == 'blocks' or data_type == 'windows_sum':
-            header = ['count', 'm_1', 'm_2', 'm_3', 'm_4']
-        elif data_type == 'windows':
-            header = ['window_idx', 'count', 'm_1', 'm_2', 'm_3', 'm_4']
+    def query(self, version, data_key):
+        config = self._preflight_query(data_key)
+        if config['data_type'] == 'tally':
+            self._write_tally_tsv(config)
+        elif config['data_type'] == 'optimize':
+            self._write_optimize_tsv(config)
+        elif config['data_type'] == 'windows':
+            sys.exit("[X] Not implemented.")
+            #self._write_window_bed(version)
+        elif config['data_type'] == 'gridsearch':
+            sys.exit("[X] Not implemented.")
+            #self.dump_lncls(parameterObj)
         else:
-            raise ValueError("Invalid data type %s" % data_type) 
-        print("[#] Getting variation tally for %s ..." % data_type)
-        variation_tally = tally_variation(self._get_variation(data_type=data_type, sample_sets='X', sequences=sequences, population_by_letter=population_by_letter), form='tally', max_k=max_k)
-        variation_tally_marginality = calculate_marginality(variation_tally, max_k=max_k) 
-        print('[+] Proportion of data in marginals (w/ kmax = %s) = %s' % (max_k if max_k is None else list(max_k), variation_tally_marginality))
-        tally_filename = self.get_tally_filename(
-            data_type=data_type,
-            sequences=sequences,
-            sample_sets=sample_sets,
-            population_by_letter=population_by_letter,
-            max_k=max_k)
-        print("[#] Writing %s ..." % tally_filename)
-        pd.DataFrame(data=variation_tally, columns=header, dtype='int64').to_csv(tally_filename, index=False, sep='\t')
+            sys.exit("[X] Not implemented.")
 
-    def get_tally_filename(self, data_type=None, sequences=None, sample_sets=None, population_by_letter=None, max_k=None):
-        # [needs fixing]
-        if data_type == 'blocks':
-            meta_blocks = self._get_meta('blocks')
-            return "%s.l_%s.m_%s.i_%s.u_%s.kmax_%s.tally.%s.tsv" % (
-                self.prefix, 
-                meta_blocks['length'], 
-                meta_blocks['span'], 
-                meta_blocks['max_missing'], 
-                meta_blocks['max_multiallelic'], 
-                "None" if max_k is None else "_".join([str(k) for k in list(max_k)]), 
-                data_type)
-        elif data_type == 'windows':
-            meta_blocks = self._get_meta('blocks')
-            meta_windows = self._get_meta('windows')
-            return "%s.l_%s.m_%s.i_%s.u_%s.w_%s.s_%s.kmax_%s.tally.%s.tsv" % (
-                self.prefix, 
-                meta_blocks['length'], 
-                meta_blocks['span'], 
-                meta_blocks['max_missing'], 
-                meta_blocks['max_multiallelic'], 
-                meta_windows['size'], 
-                meta_windows['step'],
-                "None" if max_k is None else "_".join([str(k) for k in list(max_k)]),  
-                data_type)
-        elif data_type == 'windows_sum':
-            meta_blocks = self._get_meta('blocks')
-            meta_windows = self._get_meta('windows')
-            return "%s.l_%s.m_%s.i_%s.u_%s.w_%s.s_%s.kmax_%s.tally.%s.tsv" % (
-                self.prefix, 
-                meta_blocks['length'], 
-                meta_blocks['span'], 
-                meta_blocks['max_missing'], 
-                meta_blocks['max_multiallelic'], 
-                meta_windows['size'], 
-                meta_windows['step'], 
-                "None" if max_k is None else "_".join([str(k) for k in list(max_k)]), 
-                data_type)
-        else:
-            raise ValueError("data_type %s is not defined" % data_type)
+    def _write_optimize_tsv(self, config):
+        optimize_meta = dict(self._get_meta(config['data_key']))
+        single_file_flag = (len(optimize_meta['optimize_keys']) == 1)
+        for idx, optimize_key in enumerate(optimize_meta['optimize_keys']):
+            instance_meta = dict(self._get_meta(optimize_key))
+            optima = pd.DataFrame(instance_meta['optimize_results'])
+            if single_file_flag:
+                fn = "%s.%s.optimize.tsv" % (self.prefix, config['data_key'].replace("/", "_"))
+            else:
+                fn = "%s.%s.optimize.%s.tsv" % (self.prefix, config['data_key'].replace("/", "_"), idx)
+            pd.DataFrame(
+                data=instance_meta['optimize_results']).to_csv(fn, index=True, index_label='idx', sep='\t')
+            print("[#] Wrote file %r." % fn)
+
+    def _write_tally_tsv(self, config):
+        config['data'] = np.array(self._get_data(config['data_key']))
+        config['meta'] = dict(self._get_meta(config['data_key']))
+        print("[+] Tally info ...")
+        lines = []
+        for key, value in config['meta'].items():
+            if isinstance(value, int):
+                lines.append("[+]\t%s: %s" % (key, format_count(value)))
+            elif isinstance(value, list):
+                lines.append("[+]\t%s: %s" % (key, str(value)))
+            else:
+                lines.append("[+]\t%s: %s" % (key, value))
+        print("\n".join(lines))
+        config['header'] = ['count', 'm_1', 'm_2', 'm_3', 'm_4'] if config['data'].ndim == 4 else ['window_idx', 'count', 'm_1', 'm_2', 'm_3', 'm_4']
+        config['filename'] = "%s.%s.tsv" % (self.prefix, config['data_key'].replace("/", "_"))
+        pd.DataFrame(
+            data=bsfs_to_2d(config['data']), 
+            columns=config['header'],
+            dtype='int64').to_csv(config['filename'], index=False, sep='\t')
+        print("[#] Wrote file %r." % config['filename'])
+
+    # def _write_tally_tsv_old(self, config):    
+    #     if data_type == 'blocks' or data_type == 'windows_sum':
+    #         header = ['count', 'm_1', 'm_2', 'm_3', 'm_4']
+    #     elif data_type == 'windows':
+    #         header = ['window_idx', 'count', 'm_1', 'm_2', 'm_3', 'm_4']
+    #     else:
+    #         raise ValueError("Invalid data type %s" % data_type) 
+    #     print("[#] Getting variation tally for %s ..." % data_type)
+    #     variation_tally = tally_variation(self._get_variation(data_type=data_type, sample_sets='X', sequences=sequences, population_by_letter=population_by_letter), form='tally', max_k=max_k)
+    #     variation_tally_marginality = calculate_marginality(variation_tally, max_k=max_k) 
+    #     print('[+] Proportion of data in marginals (w/ kmax = %s) = %s' % (max_k if max_k is None else list(max_k), variation_tally_marginality))
+    #     tally_filename = self.get_tally_filename(
+    #         data_type=data_type,
+    #         sequences=sequences,
+    #         sample_sets=sample_sets,
+    #         population_by_letter=population_by_letter,
+    #         max_k=max_k)
+    #     print("[#] Writing %s ..." % tally_filename)
+    #     pd.DataFrame(data=variation_tally, columns=header, dtype='int64').to_csv(tally_filename, index=False, sep='\t')
+
+    # def get_tally_filename(self, data_type=None, sequences=None, sample_sets=None, population_by_letter=None, max_k=None):
+    #     # [needs fixing]
+    #     if data_type == 'blocks':
+    #         meta_blocks = self._get_meta('blocks')
+    #         return "%s.l_%s.m_%s.i_%s.u_%s.kmax_%s.tally.%s.tsv" % (
+    #             self.prefix, 
+    #             meta_blocks['length'], 
+    #             meta_blocks['span'], 
+    #             meta_blocks['max_missing'], 
+    #             meta_blocks['max_multiallelic'], 
+    #             "None" if max_k is None else "_".join([str(k) for k in list(max_k)]), 
+    #             data_type)
+    #     elif data_type == 'windows':
+    #         meta_blocks = self._get_meta('blocks')
+    #         meta_windows = self._get_meta('windows')
+    #         return "%s.l_%s.m_%s.i_%s.u_%s.w_%s.s_%s.kmax_%s.tally.%s.tsv" % (
+    #             self.prefix, 
+    #             meta_blocks['length'], 
+    #             meta_blocks['span'], 
+    #             meta_blocks['max_missing'], 
+    #             meta_blocks['max_multiallelic'], 
+    #             meta_windows['size'], 
+    #             meta_windows['step'],
+    #             "None" if max_k is None else "_".join([str(k) for k in list(max_k)]),  
+    #             data_type)
+    #     elif data_type == 'windows_sum':
+    #         meta_blocks = self._get_meta('blocks')
+    #         meta_windows = self._get_meta('windows')
+    #         return "%s.l_%s.m_%s.i_%s.u_%s.w_%s.s_%s.kmax_%s.tally.%s.tsv" % (
+    #             self.prefix, 
+    #             meta_blocks['length'], 
+    #             meta_blocks['span'], 
+    #             meta_blocks['max_missing'], 
+    #             meta_blocks['max_multiallelic'], 
+    #             meta_windows['size'], 
+    #             meta_windows['step'], 
+    #             "None" if max_k is None else "_".join([str(k) for k in list(max_k)]), 
+    #             data_type)
+    #     else:
+    #         raise ValueError("data_type %s is not defined" % data_type)
 
     def dump_lncls(self, parameterObj):
         unique_hash = parameterObj._get_unique_hash()
@@ -2310,11 +2354,13 @@ class Store(object):
             data = ((0, self._get_data(config['data_key'])) for _ in (0,))
             meta = self._get_meta(config['data_key'])
             config['block_length'] = meta['block_length']
+            config['max_k'] = np.array(meta['max_k']) # INI values get overwritten by data ...
             config['optimize_keys'] = [self._get_key(task='optimize', data_label=config['data_label'], analysis_label=config['gimble']['label'], parameter_label=idx) for idx in range(1)]
         else:
             data = self._get_sims_bsfs(config['data_key']) # data is an iterator across parameter combos
             meta = self._get_meta(config['data_key'])
             config['block_length'] = meta['parameters']['block_length']
+            config['max_k'] = np.array(meta['max_k']) # INI values get overwritten by data ...
             config['optimize_keys'] = [self._get_key(task='optimize', data_label=config['data_label'], analysis_label=config['gimble']['label'], parameter_label=idx) for idx in range(meta['max_idx'] + 1)]
         # start point
         if start_point == 'midpoint':
@@ -2326,27 +2372,32 @@ class Store(object):
 
     def optimize(self, config, sim_label, tally_label, num_cores, start_point, max_iterations, xtol_rel, ftol_rel, overwrite):
         data, config = self._preflight_optimize(config, sim_label, tally_label, num_cores, start_point, max_iterations, xtol_rel, ftol_rel, overwrite)
+        print('config', config)
         print('[+] Constructing GeneratingFunction...')
         gf = lib.math.config_to_gf(config)
         gfEvaluatorObj = togimble.gfEvaluator(gf, config['max_k'], MUTYPES, config['gimble']['precision'], exclude=[(2,3),])
         print('[+] GeneratingFunctions for model %r have been generated.' % config['gimble']['model'])
         for data_idx, dataset in data:
             optimize_result = lib.math.optimize(gfEvaluatorObj, data_idx, dataset, config)
-            self.save_optimize(data_idx, config, optimize_result, overwrite)
-        print("[+] Optimization results saved under label %r" % config['data_label'])   
+            self.save_optimize_instance(data_idx, config, optimize_result, overwrite)
+        self._set_meta(config['optimize_key'], meta=config_to_meta(config, 'optimize'))
+        print("[+] Optimization results saved under label %r" % config['optimize_key'])
 
-    def save_optimize(self, data_idx, config, optimize_result, overwrite):
+    def save_optimize_instance(self, data_idx, config, optimize_result, overwrite):
         data_idx = int(data_idx)
         optimize_key = config['optimize_keys'][data_idx]
-        optimize_meta = config_to_meta(config, 'optimize')
+        optimize_meta = {}
         optimize_meta['nlopt_log_iteration_header'] = optimize_result['nlopt_log_iteration_header']
-        optimize_meta['nlopt_exit_codes'] = []
-        optimize_meta['optimum_likelihoods'] = []
-        optimize_meta['optimum_values'] = []
+        optimize_meta['optimize_results'] = []
         for dataset_idx in range(optimize_result['dataset_count']):
-            optimize_meta['optimum_values'].append(optimize_result['nlopt_values_by_dataset_idx'][dataset_idx])
-            optimize_meta['optimum_likelihoods'].append(optimize_result['nlopt_optimum_by_dataset_idx'][dataset_idx])
-            optimize_meta['nlopt_exit_codes'].append(optimize_result['nlopt_status_by_dataset_idx'][dataset_idx])
+            result = optimize_result['nlopt_values_by_dataset_idx'][dataset_idx]
+            print(result)
+            result['nlopt_exit_code'] = optimize_result['nlopt_status_by_dataset_idx'][dataset_idx]
+            result['likelihood'] = optimize_result['nlopt_optimum_by_dataset_idx'][dataset_idx]
+            optimize_meta['optimize_results'].append(result)
+            #optimize_meta['optimum_values'].append(optimize_result['nlopt_values_by_dataset_idx'][dataset_idx])
+            #optimize_meta['optimum_likelihoods'].append(optimize_result['nlopt_optimum_by_dataset_idx'][dataset_idx])
+            #optimize_meta['nlopt_exit_codes'].append(optimize_result['nlopt_status_by_dataset_idx'][dataset_idx])
         self._set_meta_and_data(optimize_key, optimize_meta, optimize_result['nlopt_log_iteration_array'])
 
     def _preflight_tally(self, data_source, data_label, max_k, sample_sets, sequence_ids, genome_file, overwrite):
@@ -2401,12 +2452,13 @@ class Store(object):
             variation = variation.reshape(-1, variation.shape[-1])
         variation_tally = tally_variation(variation, form='bsfs', max_k=config['max_k'])
         self.save_tally(config, variation_tally)
+        return config['tally_key']
 
     def save_tally(self, config, tally):
         tally_key = config['tally_key'] 
         tally_meta = config_to_meta(config, 'tally')
         self._set_meta_and_data(tally_key, tally_meta, tally)
-        print("[+] Tally saved under label %r (and ready for inference)." % config['data_label'])
+        print("[+] Tally saved under label %r (use this for optimize/gridsearch)." % config['data_label'])
 
     def _get_key(self, task=None, data_label=None, analysis_label=None, parameter_label=None, mod_label=None, seq_label=None):
         if task == 'tally':
@@ -2438,7 +2490,7 @@ class Store(object):
         return None
 
     def _has_key(self, key):
-        return (key in self.data)
+        return (key in self.data) if key else False
 
     def _set_data(self, key, array):
         self.data.create_dataset(key, data=array, overwrite=True)
@@ -2761,18 +2813,6 @@ class Store(object):
         bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=columns, float_format='%.5f')
         return out_f
 
-    def _preflight_query(self, data_type, data_format):
-        '''[needs fixing]'''
-        if data_type == 'blocks':
-            if not self.has_stage('blocks'):
-                sys.exit("[X] GStore %r has no blocks. Please run 'gimble blocks'." % self.path)
-        if data_type == 'windows' or data_type == 'windows_sum':
-            if not self.has_stage('windows'):
-                sys.exit("[X] GStore %r has no windows. Please run 'gimble windows'." % self.path)
-        if data_format == 'lncls':
-            if not self.has_stage('makegrid'):
-                sys.exit("[X] GStore %r has no grid. Please run 'gimble makegrid'." % self.path)
-
     def _preflight_windows(self, overwrite=False):
         if not self.has_stage('blocks'):
             sys.exit("[X] GStore %r has no blocks. Please run 'gimble blocks'." % self.path)
@@ -3088,6 +3128,14 @@ class Store(object):
                 format_count(meta_windows['count'])))
         return reportObj
 
+    def _get_tally_report(self, width):
+        reportObj = ReportObj(width=width)
+        reportObj.add_line(prefix="[+]", left='[', center='Tallies', right=']', fill='=')
+        reportObj.add_line(prefix="[+]", left='Tally')
+        for tally_label, tally_array in self.data['tally/'].arrays():
+            reportObj.add_line(prefix="[+]", branch='F', fill=".", left="'tally/%s'" % (tally_label), right=' shape %s ' % (str(tally_array.shape)))
+        return reportObj
+
     def info(self, version=None, tree=False):
         width = 100
         if tree:
@@ -3096,8 +3144,10 @@ class Store(object):
         report += self._get_parse_report(width)    
         report += self._get_blocks_report(width)
         report += self._get_windows_report(width)
-        report += self._get_grids_report(width)
-        report += self._get_lncls_report(width)
+        report += self._get_tally_report(width)
+        #report += self._get_optimize_report(width)
+        #report += self._get_grids_report(width)
+        #report += self._get_lncls_report(width)
         #report += self._get_bsfs_report(width)
         #report += self._get_sims_report(width)
         write_info_report(version, report, self.prefix)
