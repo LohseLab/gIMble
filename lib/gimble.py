@@ -512,7 +512,7 @@ def get_config_simulate(config):
     config['simulate']['blocks_per_replicate'] = blocks_per_replicate
     config['simulate']['sequence_length'] = sequence_length_per_replicate
     config['replicates'] = blocks_per_replicate.size * config['simulate']['replicates']
-    config['seeds'] = np.random.randint(1, 2 ** 32, (config.get('parameters_grid_points', 1), config['simulate']['replicates'], 2))       
+    config['seeds'] = np.random.randint(1, 2 ** 32, (config.get('parameters_grid_points', 1), config['replicates'], 2))       
     config['parameters_LOD'] = DOL_to_LOD(config['parameters_expanded'])
     config['parameters'] = {**config['simulate'],**config['mu']} # is this necessary?
     return config
