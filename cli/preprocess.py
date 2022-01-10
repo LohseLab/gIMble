@@ -62,6 +62,7 @@ def fix_permissions(path):
             os.chmod(_d, 0o775)
         for _f in [os.path.join(root, f) for f in files]:
             os.chmod(_f, 0o664)
+        #os.chmod(root, 0o775)
 
 class PreprocessParameterObj(lib.gimble.ParameterObj):
     '''Sanitises command line arguments and stores parameters'''
@@ -75,6 +76,7 @@ class PreprocessParameterObj(lib.gimble.ParameterObj):
         self.min_depth = self._get_int(args['--min_depth'])
         self.max_depth = self._get_float(args['--max_depth'])
         self.tmp_dir = tempfile.mkdtemp(prefix='.tmp_gimble_', dir=".")
+        #fix_permissions(self.tmp_dir)
         self.threads = self._get_int(args['--threads'])
         self.outprefix = args['--outprefix']
         self.keep_tmp = args['--keep_tmp']
@@ -133,7 +135,7 @@ def get_coverage_data_from_bam(parameterObj):
                 parameterObj.commands.append(cmd)
                 bed_f = '%s.per-base.bed.gz' % tmp_prefix
                 bed_df = pd.read_csv(bed_f, compression='gzip', sep="\t", names=['sequence_id', 'start', 'end', 'depth'], 
-                    dtype={'sequence_id': str, 'start': np.int, 'end': np.int, 'depth': np.int})
+                    dtype={'sequence_id': str, 'start': int, 'end': int, 'depth': int})
                 bed_df = bed_df[bed_df['depth'] > 0] # ignore 0-depth sites
                 bed_df['length'] = bed_df['end'] - bed_df['start']
                 mean = round(np.average(bed_df['depth'], weights=bed_df['length']), 2)
@@ -157,7 +159,7 @@ def get_multi_callable_f(parameterObj):
         parameterObj.commands.append(cmd)
         bed_path = tmp_prefix.parent / (tmp_prefix.name + '.quantized.bed.gz')
         bed_df = pd.read_csv(bed_path, compression='gzip', sep="\t", names=['sequence_id', 'start', 'end', 'callability'], 
-                    dtype={'sequence_id': str, 'start': np.int, 'end': np.int, 'callability': str}).sort_values(['sequence_id', 'start'], ascending=[True, True])
+                    dtype={'sequence_id': str, 'start': int, 'end': int, 'callability': str}).sort_values(['sequence_id', 'start'], ascending=[True, True])
         bed_callable_df = bed_df[bed_df['callability'] == "CALLABLE"] # subset CALLABLE regions
         bed_callable_f = tmp_prefix.parent / (tmp_prefix.name + '.callable.bed')
         write_df(bed_callable_df, out_f=bed_callable_f, sep='\t', header=False, status=False)
