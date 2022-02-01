@@ -1041,6 +1041,8 @@ def harmonic(n):
     return _harmonic(1,n+1)
 
 def chisq(sample_set_idxs, window_samples_set_idxs):
+    if window_samples_set_idxs.size == 0:
+        return 0.0
     spacer = (np.max(window_samples_set_idxs)+1)
     window_count = window_samples_set_idxs.shape[0]
     window_size = window_samples_set_idxs.shape[1]
@@ -1052,6 +1054,8 @@ def chisq(sample_set_idxs, window_samples_set_idxs):
 
 def mse(sample_set_idxs, window_samples_set_idxs):
     '''measure of eveness'''
+    if window_samples_set_idxs.size == 0:
+        return 0.0
     spacer = (np.max(window_samples_set_idxs)+1)
     window_count = window_samples_set_idxs.shape[0]
     window_size = window_samples_set_idxs.shape[1]
@@ -1065,10 +1069,12 @@ def mse(sample_set_idxs, window_samples_set_idxs):
     return np.sum((((obs-exp)**2)), axis=1) / max_mse
 
 def blocks_to_windows(sample_set_idxs, block_variation, start_array, end_array, block_sample_set_idxs, window_size, window_step):
-    # order of blocks is defined by end_array, 
+    # order of blocks is defined by end_array
+    # coordinate_sorted_idx is the order of blocks if one were to sort them by end_array 
     coordinate_sorted_idx = np.argsort(end_array) 
-    # elements in windows are defined by window_idxs -> shape(n, window_size)
+    # elements in windows are defined by window_idxs -> shape(n, window_size) 
     window_idxs = np.arange(coordinate_sorted_idx.shape[0] - window_size + 1)[::window_step, None] + np.arange(window_size)
+    #window_idxs_alt = np.arange((block_variation.shape[0] - window_size) + 1)[::window_step, None] + np.arange(window_size)
     # all taking is done with coordinate_sorted_idx and window_idxs
     window_variation = block_variation.take(coordinate_sorted_idx, axis=0).take(window_idxs, axis=0)
     block_starts = start_array.take(coordinate_sorted_idx, axis=0).take(window_idxs, axis=0)
@@ -1078,10 +1084,8 @@ def blocks_to_windows(sample_set_idxs, block_variation, start_array, end_array, 
     # needs some solution for chisq-calculation by window ...
     window_samples_set_idxs = block_sample_set_idxs.take(coordinate_sorted_idx, axis=0).take(window_idxs, axis=0)
     #np.set_printoptions(threshold=sys.maxsize)
-    #print(window_samples_set_idxs)
     balance = chisq(sample_set_idxs, window_samples_set_idxs)
     mse_sample_set_cov = mse(sample_set_idxs, window_samples_set_idxs)
-    #print('balance', balance)
     block_midpoints = (block_starts / 2) + (block_ends / 2)
     window_pos_mean = np.rint(np.mean(block_midpoints, axis=1).T)
     window_pos_median = np.rint(np.median(block_midpoints, axis=1).T)
@@ -2955,19 +2959,24 @@ class Store(object):
         meta_blocks = self._get_meta('blocks')
         sample_set_idxs = np.array(self._get_sample_set_idxs(query=sample_sets), dtype=np.int64)
         window_count = 0
-        window_size_effective = window_size * sample_set_idxs.shape[0]
-        window_step_effective = window_step * sample_set_idxs.shape[0]
+        window_size_effective = window_size #* sample_set_idxs.shape[0]
+        window_step_effective = window_step #* sample_set_idxs.shape[0]
 
-        blockable_seqs = [seq_name for seq_name, block_count in meta_blocks['count_by_sequence'].items()
-            if block_count >= window_size_effective]
-
+        blockable_seqs, unblockable_seqs = [], []
+        for seq_name, block_count in meta_blocks['count_by_sequence'].items():
+            if block_count >= window_size_effective:
+                blockable_seqs.append(seq_name)
+            else:
+                unblockable_seqs.append(seq_name)
         if not blockable_seqs:
-            sys.exit("[X] Not enough blocks to make windows with size %s * %s = %s." % (
-                window_size, sample_set_idxs.shape[0], window_size_effective))
+            sys.exit("[X] Not enough blocks to make windows of this size (%s)." % (window_size_effective))
+        print("[+] Making windows along %s sequences (%s sequences excluded)" % (len(blockable_seqs), len(unblockable_seqs)))
         for seq_name in tqdm(blockable_seqs, total=len(blockable_seqs), desc="[%] Making windows", ncols=100):
-
             block_variation = self._get_variation(data_type='blocks', sample_sets=sample_sets, sequences=[seq_name])
+            #print('block_variation.shape', block_variation.shape)
             block_starts, block_ends = self._get_block_coordinates(sample_sets=sample_sets, sequences=[seq_name])
+            #print('block_starts', block_starts)
+            #print('block_ends', block_ends)
             block_sample_set_idxs = self._get_block_sample_set_idxs(sample_sets=sample_sets, sequences=[seq_name])
             windows = blocks_to_windows(sample_set_idxs, block_variation, block_starts, block_ends, block_sample_set_idxs, window_size_effective, window_step_effective)
             window_variation, window_starts, window_ends, window_pos_mean, window_pos_median, balance, mse_sample_set_cov = windows
