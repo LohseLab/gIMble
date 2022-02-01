@@ -13,6 +13,7 @@
 
 from docopt import docopt
 from timeit import default_timer as timer
+import sys
 import lib.gimble
 
 class WindowsParameterObj(lib.gimble.ParameterObj):
@@ -23,6 +24,12 @@ class WindowsParameterObj(lib.gimble.ParameterObj):
         self.window_size = self._get_int((args['--blocks']))
         self.window_step = self._get_int((args['--steps']))
         self.overwrite = True if args['--force'] else False
+        self.check_block_steps()
+
+    def check_block_steps(self):
+        if not self.window_size % self.window_step == 0:
+            sys.exit("[X] Quotient of '--blocks' and '--steps' must be an integer. It is %s/%s=%s" % (self.window_size, self.window_step, self.window_size/self.window_step))
+
 
 def main(params):
     try:
