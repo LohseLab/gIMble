@@ -2824,7 +2824,7 @@ class Store(object):
             if not overwrite:
                 sys.exit("[X] GStore %r already contains windows.\n[X] These windows => %r\n[X] Please specify '--force' to overwrite." % (self.path, self.get_stage('windows')))
             print('[-] GStore %r already contains windows. But these will be overwritten...' % (self.path))
-            self._wipe_stage('windows')
+            self._del_data_and_meta('windows')
     
     def _preflight_blocks(self, overwrite=False):
         if not self.has_stage('measure'):
@@ -2834,9 +2834,9 @@ class Store(object):
                 sys.exit("[X] GStore %r already contains blocks.\n[X] These blocks => %r\n[X] Please specify '--force' to overwrite." % (self.path, self.get_stage('blocks')))
             print('[-] GStore %r already contains blocks. But these will be overwritten...' % (self.path))
             # wipe bsfs, windows, AND meta, since new blocks...
-            self._wipe_stage('blocks')
-            self._wipe_stage('windows')
-            self._wipe_stage('bsfs')
+            self._del_data_and_meta('blocks')
+            self._del_data_and_meta('windows')
+            self._del_data_and_meta('bsfs')
 
     def _get_interval_coordinates(self, seq_name=None, sample_set=None):
         if seq_name is None:
