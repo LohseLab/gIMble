@@ -1383,11 +1383,11 @@ class ParameterObj(object):
             return int(string)
         except TypeError:
             if not ret_none:
-                sys.exit("[X] %r can't be converted to interger." % string)
+                sys.exit("[X] %r can't be converted to integer." % string)
             return None
         except ValueError:
             if not ret_none:
-                sys.exit("[X] %r can't be converted to interger." % string)
+                sys.exit("[X] %r can't be converted to integer." % string)
             return None
 
     def _get_float(self, string, ret_none=False):
