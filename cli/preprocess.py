@@ -194,7 +194,7 @@ def get_coverage_data_from_bam(parameterObj):
                 bed_df['length'] = bed_df['end'] - bed_df['start']
                 mean = round(np.average(bed_df['depth'], weights=bed_df['length']), 2)
                 sd = round(np.sqrt(np.average((bed_df['depth'] - mean)**2, weights=bed_df['length'])), 2)
-                parameterObj.coverage_data.append([bam_file.name, readgroup_id, mean, sd, parameterObj.min_depth, int(mean) * parameterObj.max_depth])
+                parameterObj.coverage_data.append([bam_file.name, readgroup_id, mean, sd, parameterObj.min_depth, int(int(mean) * parameterObj.max_depth)])
         except IOError:
             sys.exit("[X] BAM file %r has no index. Please (sort and) index your BAM files." % bam_file)
     coverage_df = pd.DataFrame(parameterObj.coverage_data, columns=['bam_f', 'read_group_id', 'cov_mean', 'cov_sd', 'depth_min', 'depth_max'])
