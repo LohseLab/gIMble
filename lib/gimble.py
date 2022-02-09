@@ -3141,8 +3141,9 @@ class Store(object):
         reportObj = ReportObj(width=width)
         reportObj.add_line(prefix="[+]", left='[', center='Tallies', right=']', fill='=')
         reportObj.add_line(prefix="[+]", left='Tally')
-        for tally_label, tally_array in self.data['tally/'].arrays():
-            reportObj.add_line(prefix="[+]", branch='F', fill=".", left="'tally/%s'" % (tally_label), right=' shape %s ' % (str(tally_array.shape)))
+        if 'tally/' in self.data:
+            for tally_label, tally_array in self.data['tally/'].arrays():
+                reportObj.add_line(prefix="[+]", branch='F', fill=".", left="'tally/%s'" % (tally_label), right=' shape %s ' % (str(tally_array.shape)))
         return reportObj
 
     def info(self, version=None, tree=False):
