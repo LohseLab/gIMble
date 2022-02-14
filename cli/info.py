@@ -1,8 +1,7 @@
-"""usage: gimbl info                  -z FILE [--tree] [-h|--help]
+"""usage: gimbl info                  -z FILE [-h|--help]
                                             
     Options:
         -z, --zarr_file FILE                        ZARR datastore
-        -t, --tree                                  Display datastructure tree
 
         -h --help                                   show this
 """
@@ -17,10 +16,13 @@ class InfoParameterObj(lib.gimble.ParameterObj):
     def __init__(self, params, args):
         super().__init__(params)
         self.zstore = self._get_path(args['--zarr_file'])
-        self.tree = args['--tree']
+        self.tree = False
 
 '''[To Do]
 - MUST write info report to file
+
+info should say which parts have no data! (as opposed to just not listing anything)
+- BED intervals (has to say BED otherwise people get confused)
 '''
 def main(params):
     try:
