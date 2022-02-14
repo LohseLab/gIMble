@@ -289,7 +289,7 @@ def LOD_to_DOL(LOD):
     return {k:np.array(v,dtype=np.float64) for k,v in zip(LOD[0].keys(),reshape_LOD)}
 
 def _return_np_type(x):
-    return np.min_scalar_type(np.sign(np.min(x)) * np.max(np.abs(x)))
+    return np.min_scalar_type((1 if np.min(x) >= 0 else -1) * np.max(np.abs(x)))
 
 def get_config_pops(config):
     # make populations_by_letter
@@ -922,7 +922,7 @@ def calculate_blocks_report_metrics(tally, sample_sets_count, block_length, inte
     BRM = collections.defaultdict(lambda: "-")
     BRM['blocks_total'] = np.sum(tally[:,0]) if np.any(tally) else 0
     effective_length = block_length * BRM['blocks_total']
-    BRM['interval_coverage'] = effective_length / intervals_span / sample_sets_count
+    BRM['interval_coverage'] = (effective_length / sample_sets_count) / intervals_span #/ sample_sets_count
     if BRM['blocks_total']:
         BRM['blocks_invariant'] = tally[0,0] / BRM['blocks_total']
         BRM['blocks_fgv'] = np.sum(tally[(tally[:,3]>0) & (tally[:,4]>0)][:,0]) / BRM['blocks_total']
@@ -1246,15 +1246,14 @@ def tally_variation(variation, form='bsfs', max_k=None):
         raise ValueError('variation.ndim is %r, should either be 2 (blocks) or 3 (windows)' % variation.ndim)
     try:
         mutuples_unique, counts = np.unique(mutuples, return_counts=True, axis=0)
+        dtype = _return_np_type(counts)
         if form == 'bsfs':
-            dtype = _return_np_type(counts)
             out = np.zeros(tuple(np.max(mutuples, axis=0) + 1), dtype) 
             out[tuple(mutuples_unique.T)] = counts
         elif form == 'tally':
             out = np.concatenate((counts.reshape(counts.shape[0], 1), mutuples_unique), axis=1)
             if variation.ndim == 3:
                 out[:, [0, 1]] = out[:, [1, 0]] # for window variation, order must be [idx, count, mutuple]
-            dtype = _return_np_type(out)
             out = out.astype(dtype)
         else:
             raise ValueError('form must be %r or %r, was %r' % ('bsfs', 'tally', form))    
@@ -2003,6 +2002,9 @@ class Store(object):
         self._set_meta_and_data(simulation_instance_key, meta, simulation_instance)
 
     def _preflight_query(self, data_key):
+        if not data_key:
+            pass
+            # list all available data keys!
         config = {'data_key': data_key}
         if not self._has_key(data_key):
             sys.exit("[X] ZARR store %s has no data under the key %r." % (self.path, data_key))
@@ -2692,13 +2694,15 @@ class Store(object):
             sample_set_idxs = self._get_sample_set_idxs(query=sample_sets)
             keys = ['blocks/%s/%s/variation' % (seq_name, sample_set_idx) 
                 for seq_name, sample_set_idx in list(itertools.product(sequences, sample_set_idxs))]
+            #print('variation keys', keys)
         elif data_type == 'windows':
             keys = ['windows/%s/variation' % (seq_name) for seq_name in sequences]
         else:
             raise ValueError("Invalid datatype: %s" % data_type)
         variations = []
         for key in tqdm(keys, total=len(keys), desc="[%] Preparing data...", ncols=100, unit_scale=True, disable=(not progress)):
-            variations.append(np.array(self.data[key], dtype=np.int64))
+            #variations.append(np.array(self.data[key], dtype=np.int64))
+            variations.append(self.data[key])
         variation = np.concatenate(variations, axis=0)
         polarise_true = (
             (population_by_letter['A'] == meta['population_by_letter']['B']) and 
@@ -3065,9 +3069,16 @@ class Store(object):
         meta_seqs = self._get_meta('seqs')
         intervals_span = meta_seqs['intervals_span']
         BRMs = {}
+        #print(dict(meta_blocks))
+        #print(dict(meta_seqs))
+        #sys.exit()
         for sample_sets in ['X', 'A', 'B']:
             sample_sets_count = len(self._get_sample_set_idxs(sample_sets))
+            #print(sample_sets, sample_sets_count)
+            #print(self._get_variation(data_type='blocks', sample_sets=sample_sets))
             tally = tally_variation(self._get_variation(data_type='blocks', sample_sets=sample_sets), form='tally')
+            #print(tally)
+            #sys.exit()
             BRM = calculate_blocks_report_metrics(tally, sample_sets_count, block_length, intervals_span)
             for k, v in BRM.items():
                 if k in ['interval_coverage', 'blocks_invariant', 'blocks_fgv']:
