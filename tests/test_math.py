@@ -35,7 +35,7 @@ class Test_ETPs:
 
     def test_ETPs_model(self, gimble_ETPs, model, label, cmd_plot=True):
         config_file = af.get_test_config_file(task='simulate', model=model, label=label)
-        config = lib.gimble.load_config(config_file)
+        config = lib.gimble.load_config(config_file, MODULE='simulate')
         simmed_ETPs = lib.simulate.run_sims(config, 1, discrete=False, disable_tqdm=True)
         gimbled_ETPs = gimble_ETPs(config)
         precalc_ETPs = af.get_numpy_array(model, label)
@@ -148,11 +148,11 @@ class Test_optimize:
 
     def test_known_truth(self, gimble_ETPs, opt_config_file, etp_config_file):
         # ETPs
-        config_ETPs = lib.gimble.load_config(etp_config_file)
+        config_ETPs = lib.gimble.load_config(etp_config_file, MODULE='makegrid')
         config_ETPs['block_length'] = 64
         dataset = gimble_ETPs(config_ETPs)
         # optimize
-        config_optimize = lib.gimble.load_config(opt_config_file)
+        config_optimize = lib.gimble.load_config(opt_config_file, MODULE='optimize')
         config_optimize['start_point'] = np.array([6e5, 7e-7])
         config_optimize['block_length'] = 64
         config_optimize['num_cores'] = 1

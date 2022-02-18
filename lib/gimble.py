@@ -465,6 +465,7 @@ def get_config_kmax(config):
     return config
 
 def expand_parameters(config):
+    print(config)
     if 'populations' in config and len(config['populations']['sync_pop_ids'])>0:
         to_sync = ['Ne_%s' % pop for pop in config['populations']['sync_pop_ids'][1:]]
         sync_to = "Ne_%s" % config['populations']['sync_pop_ids'][0]
@@ -547,9 +548,9 @@ def load_config(config_file, MODULE=None, CWD=None, VERSION=None):
     config = get_config_kmax(config)
     config = get_config_model_events(config)
     config = get_config_model_parameters(config, MODULE)
-    #if MODULE == 'makegrid' or MODULE == 'simulate':
-    #    config = expand_parameters(config)
-    config = expand_parameters(config) # needed for testing
+    if MODULE == 'makegrid' or MODULE == 'simulate':
+        config = expand_parameters(config)
+    #config = expand_parameters(config) # needed for testing
     if MODULE == 'simulate':
         config = get_config_simulate(config)
     if MODULE == 'optimize':
