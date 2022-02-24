@@ -21,6 +21,15 @@ class InfoParameterObj(lib.gimble.ParameterObj):
 '''[To Do]
 - MUST write info report to file
 
+should not print shape, but kmax (and explanation what it means)
+                                                                                       kmax*
+    └── 'tally/blocks_kmax2' .....................................................  [2,2,2,2]
+            Het_A=0.01583 Het_B=0.01553 D_xy=0.02204 F_st=0.16862 Marginality=23.46%
+[+] └── 'tally/blocks_kmax3' .....................................................  [2,3,2,3]
+            Het_A=0.01583 Het_B=0.01553 D_xy=0.02204 F_st=0.16862 Marginality=11.13%
+
+    * kmax is bla ... 
+
 info should say which parts have no data! (as opposed to just not listing anything)
 - BED intervals (has to say BED otherwise people get confused)
 '''

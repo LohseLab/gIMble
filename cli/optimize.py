@@ -33,6 +33,28 @@ import sys
 
 '''
 [To Do]
+
+----
+should write elapsed time to zarr store
+    - needs starting time to be passed as argument to optimize
+
+----
+- default iteration: 100 ?
+
+
+- add best log likelihood to end of log
+
+- add mutation rate to print out
+
+- Print SCALED intermediate as in end result!!!
+
+
+- general config parsing:
+    - check that zarrstore ends in .z
+    - check that config ends in .ini
+
+------------------------
+
 - future features:
     - manual startingpoint via INI, also add random/midpoint to ini
     - unique random starting points per parameter combination

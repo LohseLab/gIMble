@@ -33,7 +33,9 @@
 """
 
 '''
-
+- remove block size and get it from the tally
+- remove kmax and get it from tally 
+`
 [--label] : defines where results of an analysis get stored!
 
 [To do]

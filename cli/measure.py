@@ -13,6 +13,20 @@
         -h --help                        Show this
     
 """
+
+'''
+User needs to modify sample and genomefile and bed file. A good idea is to make a copy of these files.
+
+The genomefile is a way to control which sequences are actually processed within gimble.
+It is a good idea to restrict the analysis to chromosome-length sequences as only these will carry enough signal to analyse the demography
+Caution with sex chromosomes if any of the samples is haploid for these
+
+# remove regions through subtractions from gimble bed
+bedtools subtract -a ../preprocess/heliconius_20220202.bed -b /data/lohse/modelgenomland/analyses/heliconius/9_bed_files/hmel2_5.chromosomes.annotations.bed > heliconius_20220202.non_genic.bed
+bedtools subtract -a heliconius_20220202.non_genic.bed -b /data/lohse/modelgenomland/analyses/heliconius/9_bed_files/hmel2_5.chromosomes.repeatmasked.bed > heliconius_20220202.non_genic_non_repeats.bed
+
+
+'''
 import sys
 
 from timeit import default_timer as timer

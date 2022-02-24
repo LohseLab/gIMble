@@ -16,6 +16,11 @@
 
         -h --help                                   show this
 """
+
+"""
+[+] Tally saved under label 'blocks_kmax2' (use this for optimize/gridsearch).
+[+] Tally is accessible with the key 'tally/blocks_kmax2' (use this for query).
+"""
 from timeit import default_timer as timer
 from docopt import docopt
 import lib.gimble
