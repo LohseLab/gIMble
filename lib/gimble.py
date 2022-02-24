@@ -2016,7 +2016,9 @@ class Store(object):
                 if self._has_key(key):
                     for subkey in self.data[key].keys():
                         available_keys.append("%s/%s" % (key, subkey))
-            sys.exit(list(available_keys))
+            print("[X] Please specify a label (-l) for which data to query. Available labels:")
+            print("\t%s" % "\n\t".join(available_keys))
+            sys.exit(1)
         config = {'data_key': data_key}
         if not self._has_key(data_key):
             sys.exit("[X] ZARR store %s has no data under the key %r." % (self.path, data_key))
