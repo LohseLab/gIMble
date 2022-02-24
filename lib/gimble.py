@@ -311,7 +311,7 @@ def config_to_meta(config, task):
         meta['data_source'] = config['data_source']
         meta['data_type'] = config['data_type']
         meta['tally_key'] = config['tally_key']
-        meta['max_k'] = tuple([int(v) for v in config['max_k']])
+        meta['max_k'] = None if config['max_k'] is None else tuple([int(v) for v in config['max_k']])
         meta['sample_sets'] = config['sample_sets']
         meta['sequences'] = config['sequences']
         meta['genome_file'] = config['genome_file']
@@ -1787,7 +1787,7 @@ class Store(object):
         self._read_intervals(measure_key, bed_f)
         print("[#] Processing VCF_FILE %r." % vcf_f)
         self._read_variants(measure_key, vcf_f)
-        print(self.data.tree())
+        #print(self.data.tree())
 
     def _read_sequences(self, measure_key, genome_f):
         sequences_df = parse_csv(
@@ -1934,6 +1934,9 @@ class Store(object):
             block_max_multiallelic, 
             block_max_missing))
         self._make_blocks(block_length, block_span, block_max_missing, block_max_multiallelic)
+        # after making blocks, a tally without kmax will be generated automatically
+        tally = self.tally('blocks', 'raw', None, 'X', None, None, overwrite, verbose=False)
+        #print(tally)
 
     def windows(self, window_size=500, window_step=100, overwrite=False):
         self._preflight_windows(overwrite)
@@ -2004,8 +2007,16 @@ class Store(object):
 
     def _preflight_query(self, data_key):
         if not data_key:
-            pass
-            # list all available data keys!
+            # list available data keys...
+            available_keys = []
+            for key in ['blocks', 'windows']:
+                if self._has_key(key):
+                    available_keys.append(key)
+            for key in ['tally', 'sims', 'optimize', 'gridsearch']:
+                if self._has_key(key):
+                    for subkey in self.data[key].keys():
+                        available_keys.append("%s/%s" % (key, subkey))
+            sys.exit(list(available_keys))
         config = {'data_key': data_key}
         if not self._has_key(data_key):
             sys.exit("[X] ZARR store %s has no data under the key %r." % (self.path, data_key))
@@ -2440,32 +2451,33 @@ class Store(object):
                 sys.exit("[X] Could not parse %r. Should be list of sequence names." % config['genome_file'])
         return config
         
-    def tally(self, data_source, data_label, max_k, sample_sets, sequence_ids, genome_file, overwrite):
+    def tally(self, data_source, data_label, max_k, sample_sets, sequence_ids, genome_file, overwrite, verbose=True):
         config = self._preflight_tally(data_source, data_label, max_k, sample_sets, sequence_ids, genome_file, overwrite)
-        print("[+] Retrieving variation data ... ")
         variation = self._get_variation(data_type=config['data_type'], sample_sets=config['sample_sets'], sequences=config['sequences'], progress=True) 
         config['windows'] = variation.shape[0] if variation.ndim == 3 else 0
         config['blocks'] = (variation.shape[0] * variation.shape[1]) if variation.ndim == 3 else variation.shape[0]
         config['marginality'] = format_percentage(calculate_marginality_of_variation(variation, max_k=config['max_k']))
-        if config['data_type'] == 'blocks':
-            print("[+] Found %s blocks on %s sequence(s)." % (
-                format_count(config['blocks']), format_count(len(config['sequences'])))) 
-        else:
-            print("[+] Found %s blocks in %s windows (%s blocks per window) on %s sequence(s)." % (
-                format_count(config['blocks']), format_count(config['windows']), format_count(variation.shape[1]), format_count(len(config['sequences'])))) 
-        print('[+] Percentage of blocks treated as marginals (w/ kmax = %s) = %s' % (config['max_k'], config['marginality']))
-        print("[+] Tally'ing variation data ... ")
+        if verbose:
+            if config['data_type'] == 'blocks':
+                print("[+] Found %s blocks on %s sequence(s)." % (
+                    format_count(config['blocks']), format_count(len(config['sequences'])))) 
+            else:
+                print("[+] Found %s blocks in %s windows (%s blocks per window) on %s sequence(s)." % (
+                    format_count(config['blocks']), format_count(config['windows']), format_count(variation.shape[1]), format_count(len(config['sequences'])))) 
+            print('[+] Percentage of blocks treated as marginals (w/ kmax = %s) = %s' % (config['max_k'], config['marginality']))
+            print("[+] Tally'ing variation data ... ")
         if config['data_type'] == 'windowsum':
             variation = variation.reshape(-1, variation.shape[-1])
         variation_tally = tally_variation(variation, form='bsfs', max_k=config['max_k'])
-        self.save_tally(config, variation_tally)
+        self.save_tally(config, variation_tally, verbose)
         return config['tally_key']
 
-    def save_tally(self, config, tally):
+    def save_tally(self, config, tally, verbose=True):
         tally_key = config['tally_key'] 
         tally_meta = config_to_meta(config, 'tally')
         self._set_meta_and_data(tally_key, tally_meta, tally)
-        print("[+] Tally saved under label %r (use this for optimize/gridsearch)." % config['data_label'])
+        if verbose:
+            print("[+] Tally saved under label %r (use this for optimize/gridsearch)." % config['data_label'])
 
     def _get_key(self, task=None, data_label=None, analysis_label=None, parameter_label=None, mod_label=None, seq_label=None):
         if task == 'tally':
@@ -2720,13 +2732,13 @@ class Store(object):
     def _init_store(self, create, overwrite):
         if create:
             if os.path.isdir(self.path):
-                print("[-] Directory %r already exists." % self.path)
+                print("[-] Gimble datastore %r already exists." % self.path)
                 if not overwrite:
                     print("[X] Please specify '-f' to overwrite.")
                     sys.exit(1)
-                print("[+] Deleting existing directory %r" % self.path)
+                print("[+] Deleting existing Gimble datastore %r" % self.path)
                 shutil.rmtree(self.path)
-            print("[+] Creating GStore in %r" % self.path)
+            print("[+] Creating Gimble datastore in %r" % self.path)
             return zarr.open(str(self.path), mode='w')
         #print("[+] Loading GStore from %r" % self.path)
         return zarr.open(str(self.path), mode='r+')
@@ -2823,6 +2835,9 @@ class Store(object):
         return out_f
 
     def _preflight_windows(self, overwrite=False):
+        '''
+        [TODO]: allow for multiple window datasets
+        '''
         if not self.has_stage('blocks'):
             sys.exit("[X] GStore %r has no blocks. Please run 'gimble blocks'." % self.path)
         if self.has_stage('windows'):
@@ -2832,6 +2847,9 @@ class Store(object):
             self._del_data_and_meta('windows')
     
     def _preflight_blocks(self, overwrite=False):
+        '''
+        [TODO]: allow for multiple block datasets
+        '''
         if not self.has_stage('measure'):
             sys.exit("[X] GStore %r has no data. Please run 'gimble measure'." % self.path)
         if self.has_stage('blocks'):
@@ -3070,16 +3088,9 @@ class Store(object):
         meta_seqs = self._get_meta('seqs')
         intervals_span = meta_seqs['intervals_span']
         BRMs = {}
-        #print(dict(meta_blocks))
-        #print(dict(meta_seqs))
-        #sys.exit()
         for sample_sets in ['X', 'A', 'B']:
             sample_sets_count = len(self._get_sample_set_idxs(sample_sets))
-            #print(sample_sets, sample_sets_count)
-            #print(self._get_variation(data_type='blocks', sample_sets=sample_sets))
             tally = tally_variation(self._get_variation(data_type='blocks', sample_sets=sample_sets), form='tally')
-            #print(tally)
-            #sys.exit()
             BRM = calculate_blocks_report_metrics(tally, sample_sets_count, block_length, intervals_span)
             for k, v in BRM.items():
                 if k in ['interval_coverage', 'blocks_invariant', 'blocks_fgv']:
@@ -3122,12 +3133,12 @@ class Store(object):
                     format_percentage(1 - (meta_blocks['count_total'] / meta_blocks['count_total_raw']))))
             reportObj.add_line(prefix="[+]", branch="P", right="".join(
                 [c.rjust(column_just) for c in ["X", "A", "B"]]))
-            for label, key, branch in [('Intervals in blocks (%)', 'interval_coverage', 'T'),
+            for label, key, branch in [('Mean BED interval sites in blocks (%) *', 'interval_coverage', 'T'),
                                        ('Total blocks', 'blocks_total', 'T'),
                                        ('Invariant blocks', 'blocks_invariant', 'T'),
-                                       ('FGV blocks', 'blocks_fgv', 'T'),
-                                       ('Heterozygosity (A)', 'heterozygosity_A', 'T'),
-                                       ('Heterozygosity (B)', 'heterozygosity_B', 'T'),
+                                       ('Four-gamete-violation blocks', 'blocks_fgv', 'T'),
+                                       ('Heterozygosity (population A)', 'heterozygosity_A', 'T'),
+                                       ('Heterozygosity (population B)', 'heterozygosity_B', 'T'),
                                        ('D_xy', 'dxy', 'T'),
                                        ('F_st', 'fst', 'T'),
                                        ('Pi', 'pi', 'T'),
