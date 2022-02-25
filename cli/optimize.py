@@ -12,7 +12,8 @@ usage: gimble optimize                  -z FILE -c FILE (-s STR | -t STR)
     -t, --tally_label STR                           Label of tally in ZARR store (requires 'tally' data)
 
     Stopping criteria of optimization
-        -i, --max_iterations INT                    Maximum number of iterations to perform when optimizing, deactivate with 0 [default: 100]
+        -i, --max_iterations INT                    Maximum number of iterations to perform when 
+                                                        optimizing, deactivate with 0 [default: 1000]
         --xtol FLOAT                                Relative tolerance on norm of vector of optimisation parameters
                                                         Float between 0 and 1, deactivate with -1 [default: -1.0]
         --ftol FLOAT                                Relative tolerance on lnCL 
@@ -52,6 +53,8 @@ should write elapsed time to zarr store
 - general config parsing:
     - check that zarrstore ends in .z
     - check that config ends in .ini
+
+- optimization should alert user if bounds are being hit
 
 ------------------------
 
