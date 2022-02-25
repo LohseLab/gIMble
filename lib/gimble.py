@@ -2007,17 +2007,20 @@ class Store(object):
 
     def _preflight_query(self, data_key):
         if not data_key:
-            # list available data keys...
-            available_keys = []
-            for key in ['blocks', 'windows']:
-                if self._has_key(key):
-                    available_keys.append(key)
-            for key in ['tally', 'sims', 'optimize', 'gridsearch']:
-                if self._has_key(key):
-                    for subkey in self.data[key].keys():
-                        available_keys.append("%s/%s" % (key, subkey))
+            '''Still needs checking whether keys are found correctly for all modules'''
+            available_keys = set()
+            max_depth_by_key = {
+                'blocks': 1, 'windows': 1,
+                'tally': 2, 'makegrid': 2,
+                'optimize': 3, 'simulate': 3}
+            def data_key_finder(path):
+                key_list = str(path).split("/")
+                module = key_list[0]
+                if len(key_list) == max_depth_by_key.get(module, None):
+                    available_keys.add("/".join(key_list[0:max_depth_by_key.get(key_list[0], 0)]))
+            self.data.visit(data_key_finder)
             print("[X] Please specify a label (-l) for which data to query. Available labels:")
-            print("\t%s" % "\n\t".join(available_keys))
+            print("\t%s" % "\n\t".join(sorted(available_keys)))
             sys.exit(1)
         config = {'data_key': data_key}
         if not self._has_key(data_key):
@@ -2042,6 +2045,7 @@ class Store(object):
 
     def _write_optimize_tsv(self, config):
         optimize_meta = dict(self._get_meta(config['data_key']))
+        print('optimize_meta', optimize_meta)
         single_file_flag = (len(optimize_meta['optimize_keys']) == 1)
         for idx, optimize_key in enumerate(optimize_meta['optimize_keys']):
             instance_meta = dict(self._get_meta(optimize_key))
