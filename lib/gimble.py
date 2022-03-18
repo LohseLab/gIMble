@@ -28,7 +28,7 @@ import fractions
 import copy
 import lib.math
 import tabulate
-import time
+from timeit import default_timer as timer
 # np.set_printoptions(threshold=sys.maxsize)
 
 from lib.GeneratingFunction.gf import togimble
@@ -138,14 +138,14 @@ def get_ini_parameter_list(task, events):
     # [parser.py]
     l = ['# Model parameters and their values/ranges:']
     if task == 'simulate':
-        l.append('# A) Fixed : VALUE')
-        l.append('# B) Range : MIN, MAX, STEPS, LIN|LOG')
+        l.append('# A) Fixed : value')
+        l.append('# B) Range : min, max, steps, lin|log')
     elif task == 'optimize':
-        l.append('# A) Fixed : VALUE')
-        l.append('# B) Range : MIN, MAX')
+        l.append('# A) Fixed : value')
+        l.append('# B) Range : min, max')
     elif task == 'makegrid':
-        l.append('# A) Fixed : VALUE')
-        l.append('# B) Range : MIN, MAX, STEPS, LIN|LOG')
+        l.append('# A) Fixed : value')
+        l.append('# B) Range : min, max, steps, lin|log')
     else:
         raise ValueError("%s is not a supported task." % task)  
     for event in events:
@@ -194,17 +194,15 @@ def make_ini_configparser(version, task, model, label):
             config.set('populations', 'reference_pop_id', "")
         config.set('populations', '# Choose to simplify model by assuming equality of Ne\'s (optional): %s' % string_pop_ids_sync)
         config.set('populations', 'sync_pop_ids', "")
-    # k_max
-    # do all inferences need k_max?
-    config.add_section('k_max')
-    config.set('k_max', '# k_max sets limits for mutation-type cardinalities.')
-    config.set('k_max', '# Mutation-types beyond these are calculated as marginals')
-    config.set('k_max', 'm_1', '2    # hetB')
-    config.set('k_max', 'm_2', '2    # hetA')
-    config.set('k_max', 'm_3', '2    # hetAB')
-    config.set('k_max', 'm_4', '2    # fixed')
     # simulate
-    # is this all simulate needs?
+    if task == 'simulate' or task == 'makegrid':
+        config.add_section('k_max')
+        config.set('k_max', '# k_max sets limits for mutation-type cardinalities.')
+        config.set('k_max', '# Mutation-types beyond these are calculated as marginals')
+        config.set('k_max', 'm_1', '2    # hetB')
+        config.set('k_max', 'm_2', '2    # hetA')
+        config.set('k_max', 'm_3', '2    # hetAB')
+        config.set('k_max', 'm_4', '2    # fixed')
     if task == 'simulate':
         config.add_section('simulate')
         config.set('simulate', 'pop_ids', string_pop_ids)
@@ -352,20 +350,31 @@ def config_to_meta(config, task):
         meta['population_by_letter'] = config['populations']['population_by_letter']
         meta['max_k'] = list([float(k) for k in config['max_k']])
     if task == 'gridsearch':
+        print('config_to_meta (in):', config)
         meta['makegrid_key'] = config['makegrid_key']
         meta['data_key'] = config['data_key']
         meta['gridsearch_key'] = config['gridsearch_key']
         meta['grid_dict'] = config['grid_dict']
-        meta['data_block_length'] = config['data_block_length']
-        meta['grid_block_length'] = config['grid_block_length'] 
+        meta['block_length_data'] = config['block_length_data']
+        meta['block_length_grid'] = config['block_length_grid'] 
         meta['data_label'] = config['data_label']
-        meta['data_type'] = config['data_type']
-        meta['gridsearch_key_4D'] = config.get('gridsearch_key_4D', None)
-        meta['gridsearch_key_5D'] = config.get('gridsearch_key_5D', None)
+        meta['data_source'] = config['data_source']
         meta['gridsearch_instance_keys'] = config['gridsearch_key_generator'] if 'gridsearch_key_generator' in config else None
+        print('config_to_meta (out):', meta)
     if task == 'optimize':
         meta['optimize_key'] = config['optimize_key']
         meta['optimize_keys'] = config['optimize_keys']
+        meta['random_seed'] = config['gimble']['random_seed']
+        meta['data_source'] = config['data_source']
+        meta['data_key'] = config['data_key']
+        meta['start_point_method'] = config['start_point_method']
+        meta['start_point'] = list([float(k) for k in config['start_point']])
+        meta['population_by_letter'] = config['populations']['population_by_letter']
+        meta['reference_pop_id'] = config['populations']['reference_pop_id']
+        meta['optimize_time'] = config['optimize_time']
+        meta['max_iterations'] = config['max_iterations']
+        meta['xtol_rel'] = config['xtol_rel']
+        meta['ftol_rel'] = config['ftol_rel']
         meta['parameters'] = config['parameters']
         meta['parameters']['fixed'] = config['parameters_fixed']
         meta['parameters']['bounded'] = config['parameters_bounded']
@@ -390,7 +399,7 @@ def get_config_model_parameters(config, module):
             config['parameters_np'][parameter] = np.array(values)
         elif len(values) == 2:
             if module == 'makegrid':
-                sys.exit("[X] Module %r only supports FLOAT, or (MIN, MAX, STEPS, LIN|LOG) for parameters. Not %r" % (module, values))
+                sys.exit("[X] Module %r only supports FLOAT, or (min, max, steps, lin|log) for parameters. Not %r" % (module, values))
             if parameter.startswith('Ne'):
                 pop_id = parameter.replace("Ne_", "")
                 if pop_id in config['populations']['sync_pop_ids']:
@@ -825,6 +834,23 @@ def parse_csv(csv_f='', dtype=[], usecols=[], sep=',', header=None):
     return df
 
 # all formats should be in another file 
+
+def format_query_meta(meta, ignore_long=False):
+    LONG_THRESHOLD = 80
+    lines = []
+    for key, value in meta.items():
+        if isinstance(value, int):
+            formatted_value = format_count(value)
+        elif isinstance(value, list):
+            formatted_value = str(value)
+        else:
+            formatted_value = value
+        if ignore_long:
+            if len(formatted_value) < LONG_THRESHOLD:
+                lines.append("[+]\t%s: %s" % (key, formatted_value))
+        else:
+            lines.append("[+]\t%s: %s" % (key, formatted_value))
+    return "\n".join(lines)
 
 def format_bases(bases):
     if bases in set(['-', 'N/A']):
@@ -1934,14 +1960,15 @@ class Store(object):
             block_max_multiallelic, 
             block_max_missing))
         self._make_blocks(block_length, block_span, block_max_missing, block_max_multiallelic)
-        # after making blocks, a tally without kmax will be generated automatically
-        tally = self.tally('blocks', 'raw', None, 'X', None, None, overwrite, verbose=False)
-        #print(tally)
+        # after making blocks, make tally 'raw' without kmax. This is needed for heterozygosity, d_xy, F_sts metrics, etc
+        self.tally('blocks', 'blocks_raw', None, 'X', None, None, overwrite=True, verbose=False)
 
     def windows(self, window_size=500, window_step=100, overwrite=False):
         self._preflight_windows(overwrite)
         print("[+] Window parameters = [-w %s -s %s]" % (window_size, window_step))
         self._make_windows(window_size, window_step, sample_sets='X')
+        self.tally('windows', 'windows_raw', None, 'X', None, None, overwrite=True, verbose=False)
+        self.tally('windows', 'windowsum_raw', None, 'X', None, None, overwrite=True, verbose=False)
 
     def _preflight_simulate(self, config, overwrite):
         config['simulate_key'] = self._get_key(task='simulate', analysis_label=config['gimble']['label'])
@@ -2005,51 +2032,78 @@ class Store(object):
         meta = config_to_meta(config, 'simulate_instance')
         self._set_meta_and_data(simulation_instance_key, meta, simulation_instance)
 
-    def _preflight_query(self, data_key):
+    def _preflight_query(self, data_key, version):
         if not data_key:
-            '''Still needs checking whether keys are found correctly for all modules'''
-            available_keys = set()
+            '''Still needs checking whether keys are found correctly for all modules
+            # blocks √
+            # windows √
+            # tally √ 
+            # optimize √
+            # makegrid ?
+            # gridsearch ?
+            # simulate ?
+            '''
+            available_keys_by_category = collections.defaultdict(set)
             max_depth_by_key = {
                 'blocks': 1, 'windows': 1,
-                'tally': 2, 'makegrid': 2,
-                'optimize': 3, 'simulate': 3}
+                'tally': 2, 'makegrid': 2, 'optimize': 3, 
+                'gridsearch': 3, 'simulate': 3}
+            category_by_module = {
+                'blocks': 'measure',
+                'windows': 'measure',
+                'tally': 'tally',
+                'makegrid': 'makegrid',
+                'simulate': 'simulate',
+                'optimize': 'optimize',
+                'gridsearch': 'gridsearch'
+                }
             def data_key_finder(path):
                 key_list = str(path).split("/")
                 module = key_list[0]
                 if len(key_list) == max_depth_by_key.get(module, None):
-                    available_keys.add("/".join(key_list[0:max_depth_by_key.get(key_list[0], 0)]))
+                    available_keys_by_category[category_by_module[module]].add("/".join(key_list[0:max_depth_by_key.get(key_list[0], 0)]))
             self.data.visit(data_key_finder)
             print("[X] Please specify a label (-l) for which data to query. Available labels:")
-            print("\t%s" % "\n\t".join(sorted(available_keys)))
+            for category, available_keys in available_keys_by_category.items():
+                print("# %s" % category)
+                print("- %s" % "\n- ".join(sorted(available_keys)))
             sys.exit(1)
-        config = {'data_key': data_key}
+        config = {'data_key': data_key, 'version': version}
         if not self._has_key(data_key):
             sys.exit("[X] ZARR store %s has no data under the key %r." % (self.path, data_key))
         config['data_type'] = data_key.split("/")[0]
         return config
 
     def query(self, version, data_key):
-        config = self._preflight_query(data_key)
+        config = self._preflight_query(data_key, version)
         if config['data_type'] == 'tally':
             self._write_tally_tsv(config)
         elif config['data_type'] == 'optimize':
             self._write_optimize_tsv(config)
         elif config['data_type'] == 'windows':
-            sys.exit("[X] Not implemented.")
-            #self._write_window_bed(version)
+            #sys.exit("[X] Not implemented.")
+            self._write_window_bed(config)
         elif config['data_type'] == 'gridsearch':
-            sys.exit("[X] Not implemented.")
-            #self.dump_lncls(parameterObj)
+            print(config)
+            a = self._get_data(data_key)
+            for x, y in a.items():
+                print(x, np.array(y))
+        elif config['data_type'] == 'makegrid':
+            meta = self._get_meta(config['data_key'])
+            print(dict(meta))
         else:
             sys.exit("[X] Not implemented.")
 
     def _write_optimize_tsv(self, config):
         optimize_meta = dict(self._get_meta(config['data_key']))
-        print('optimize_meta', optimize_meta)
+        # prints optimize_meta, could have prettier formatting ...
+        print("[+] Optimize ...")
+        query_meta = format_query_meta(optimize_meta)
+        print(query_meta)
         single_file_flag = (len(optimize_meta['optimize_keys']) == 1)
         for idx, optimize_key in enumerate(optimize_meta['optimize_keys']):
             instance_meta = dict(self._get_meta(optimize_key))
-            optima = pd.DataFrame(instance_meta['optimize_results'])
+            # optima = pd.DataFrame(instance_meta['optimize_results'])
             if single_file_flag:
                 fn = "%s.%s.optimize.tsv" % (self.prefix, config['data_key'].replace("/", "_"))
             else:
@@ -2061,16 +2115,9 @@ class Store(object):
     def _write_tally_tsv(self, config):
         config['data'] = np.array(self._get_data(config['data_key']))
         config['meta'] = dict(self._get_meta(config['data_key']))
-        print("[+] Tally info ...")
-        lines = []
-        for key, value in config['meta'].items():
-            if isinstance(value, int):
-                lines.append("[+]\t%s: %s" % (key, format_count(value)))
-            elif isinstance(value, list):
-                lines.append("[+]\t%s: %s" % (key, str(value)))
-            else:
-                lines.append("[+]\t%s: %s" % (key, value))
-        print("\n".join(lines))
+        print("[+] Tally ...")
+        query_meta = format_query_meta(config['meta'])
+        print(query_meta)
         config['header'] = ['count', 'm_1', 'm_2', 'm_3', 'm_4'] if config['data'].ndim == 4 else ['window_idx', 'count', 'm_1', 'm_2', 'm_3', 'm_4']
         config['filename'] = "%s.%s.tsv" % (self.prefix, config['data_key'].replace("/", "_"))
         pd.DataFrame(
@@ -2079,66 +2126,34 @@ class Store(object):
             dtype='int64').to_csv(config['filename'], index=False, sep='\t')
         print("[#] Wrote file %r." % config['filename'])
 
-    # def _write_tally_tsv_old(self, config):    
-    #     if data_type == 'blocks' or data_type == 'windows_sum':
-    #         header = ['count', 'm_1', 'm_2', 'm_3', 'm_4']
-    #     elif data_type == 'windows':
-    #         header = ['window_idx', 'count', 'm_1', 'm_2', 'm_3', 'm_4']
-    #     else:
-    #         raise ValueError("Invalid data type %s" % data_type) 
-    #     print("[#] Getting variation tally for %s ..." % data_type)
-    #     variation_tally = tally_variation(self._get_variation(data_type=data_type, sample_sets='X', sequences=sequences, population_by_letter=population_by_letter), form='tally', max_k=max_k)
-    #     variation_tally_marginality = calculate_marginality(variation_tally, max_k=max_k) 
-    #     print('[+] Proportion of data in marginals (w/ kmax = %s) = %s' % (max_k if max_k is None else list(max_k), variation_tally_marginality))
-    #     tally_filename = self.get_tally_filename(
-    #         data_type=data_type,
-    #         sequences=sequences,
-    #         sample_sets=sample_sets,
-    #         population_by_letter=population_by_letter,
-    #         max_k=max_k)
-    #     print("[#] Writing %s ..." % tally_filename)
-    #     pd.DataFrame(data=variation_tally, columns=header, dtype='int64').to_csv(tally_filename, index=False, sep='\t')
-
-    # def get_tally_filename(self, data_type=None, sequences=None, sample_sets=None, population_by_letter=None, max_k=None):
-    #     # [needs fixing]
-    #     if data_type == 'blocks':
-    #         meta_blocks = self._get_meta('blocks')
-    #         return "%s.l_%s.m_%s.i_%s.u_%s.kmax_%s.tally.%s.tsv" % (
-    #             self.prefix, 
-    #             meta_blocks['length'], 
-    #             meta_blocks['span'], 
-    #             meta_blocks['max_missing'], 
-    #             meta_blocks['max_multiallelic'], 
-    #             "None" if max_k is None else "_".join([str(k) for k in list(max_k)]), 
-    #             data_type)
-    #     elif data_type == 'windows':
-    #         meta_blocks = self._get_meta('blocks')
-    #         meta_windows = self._get_meta('windows')
-    #         return "%s.l_%s.m_%s.i_%s.u_%s.w_%s.s_%s.kmax_%s.tally.%s.tsv" % (
-    #             self.prefix, 
-    #             meta_blocks['length'], 
-    #             meta_blocks['span'], 
-    #             meta_blocks['max_missing'], 
-    #             meta_blocks['max_multiallelic'], 
-    #             meta_windows['size'], 
-    #             meta_windows['step'],
-    #             "None" if max_k is None else "_".join([str(k) for k in list(max_k)]),  
-    #             data_type)
-    #     elif data_type == 'windows_sum':
-    #         meta_blocks = self._get_meta('blocks')
-    #         meta_windows = self._get_meta('windows')
-    #         return "%s.l_%s.m_%s.i_%s.u_%s.w_%s.s_%s.kmax_%s.tally.%s.tsv" % (
-    #             self.prefix, 
-    #             meta_blocks['length'], 
-    #             meta_blocks['span'], 
-    #             meta_blocks['max_missing'], 
-    #             meta_blocks['max_multiallelic'], 
-    #             meta_windows['size'], 
-    #             meta_windows['step'], 
-    #             "None" if max_k is None else "_".join([str(k) for k in list(max_k)]), 
-    #             data_type)
-    #     else:
-    #         raise ValueError("data_type %s is not defined" % data_type)
+    def _write_window_bed(self, config):
+        meta_blocks = self._get_meta('blocks')
+        meta_windows = self._get_meta('windows')
+        print("[+] Windows ...")
+        query_meta_blocks = format_query_meta(meta_blocks, ignore_long=True)
+        print(query_meta_blocks)
+        query_meta_windows = format_query_meta(meta_blocks, ignore_long=True)
+        print(query_meta_windows)
+        #print("[+] Getting data for BED ...")
+        sequences, starts, ends, index, pos_mean, pos_median, balance, mse_sample_set_cov = self._get_window_bed()
+        #print("[+] Calculating popgen metrics ...")
+        tally = tally_variation(self._get_variation(data_type='windows', sample_sets='X', progress=False), form='tally')
+        pop_metrics = get_popgen_metrics(tally, sites=(meta_blocks['length'] * meta_windows['size']))
+        int_bed = np.vstack([starts, ends, index, pos_mean, pos_median, pop_metrics, balance, mse_sample_set_cov]).T
+        columns = ['sequence', 'start', 'end', 'index', 'pos_mean', 'pos_median', 'heterozygosity_A', 'heterozygosity_B', 'd_xy', 'f_st', 'balance', 'mse_sample_set_cov']
+        header = ["# %s" % config['version'], "# %s" % "\t".join(columns)]
+        out_f = '%s.windows.popgen.bed' % self.prefix
+        print("[+] Writing BED file %s ..." % out_f)
+        with open(out_f, 'w') as out_fh:
+            out_fh.write("\n".join(header) + "\n")
+        dtypes = {
+            'start': 'int64', 'end': 'int64', 'index': 'int64', 'pos_mean': 'int64', 
+            'pos_median': 'int64','heterozygosity_A': 'float64', 'heterozygosity_B': 'float64', 
+            'd_xy': 'float64', 'f_st': 'float64', 'balance': 'float64'}
+        bed_df = pd.DataFrame(data=int_bed, columns=columns[1:]).astype(dtype=dtypes)
+        bed_df['sequence'] = sequences
+        bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=columns, float_format='%.5f')
+        return out_f
 
     def dump_lncls(self, parameterObj):
         unique_hash = parameterObj._get_unique_hash()
@@ -2247,69 +2262,101 @@ class Store(object):
         # MUST be mode='a' otherwise header gets wiped ...
         bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=columns)
         return out_f
-        
-    def gridsearch_preflight(self, data_label, grid_label, overwrite):
+    
+    def copy_preflight_optimize(self, config, sim_label, tally_label, num_cores, start_point, max_iterations, xtol_rel, ftol_rel, overwrite):
+        config['num_cores'] = num_cores
+        config['max_iterations'] = max_iterations
+        config['xtol_rel'] = xtol_rel
+        config['ftol_rel'] = ftol_rel
+        config['optimize_time'] = 'None' # just so that it initialised for later
+        # Error if no data
+        config['data_source'] = 'sims' if sim_label else 'meas'
+        config['data_label'] = sim_label or tally_label
+        if sim_label:
+            config['data_key'] = self._get_key(task='simulate', analysis_label=config['data_label'])
+        if tally_label:
+            config['data_key'] = self._get_key(task='tally', data_label=config['data_label'])
+        if not self._has_key(config['data_key']):
+            sys.exit("[X] gimbleStore has no %r." % config['data_key'])
+        # Error if results clash
+        config['optimize_key'] = self._get_key(task='optimize', data_label=config['data_label'], analysis_label=config['gimble']['label'])
+        if not overwrite and self._has_key(config['optimize_key']):
+            sys.exit("[X] Analysis with label %r on data %r already exist. Change the label in the config file or use '--force'" % (config['gimble']['label'], config['data_label']))
+        # get data (this could be a separate function, also needed for gridsearch)
+        if config['data_source'] == 'meas':
+            data = ((0, self._get_data(config['data_key'])) for _ in (0,))
+            meta = self._get_meta(config['data_key'])
+            config['block_length'] = meta['block_length']
+            config['max_k'] = np.array(meta['max_k']) # INI values get overwritten by data ...
+            config['optimize_keys'] = [self._get_key(task='optimize', data_label=config['data_label'], analysis_label=config['gimble']['label'], parameter_label=idx) for idx in range(1)]
+        else:
+            data = self._get_sims_bsfs(config['data_key']) # data is an iterator across parameter combos
+            meta = self._get_meta(config['data_key'])
+            config['block_length'] = meta['parameters']['block_length']
+            config['max_k'] = np.array(meta['max_k']) # INI values get overwritten by data ...
+            config['optimize_keys'] = [self._get_key(task='optimize', data_label=config['data_label'], analysis_label=config['gimble']['label'], parameter_label=idx) for idx in range(meta['max_idx'] + 1)]
+        # start point
+        config['start_point_method'] = start_point
+        if start_point == 'midpoint':
+            config['start_point'] = np.mean(np.vstack((config['parameter_combinations_lowest'], config['parameter_combinations_highest'])), axis=0)
+        if start_point == 'random':
+            #np.random.seed(config['gimble']['random_seed'])
+            config['start_point'] = np.random.uniform(low=config['parameter_combinations_lowest'], high=config['parameter_combinations_highest'])
+        return (data, config)
+
+    def gridsearch_preflight(self, tally_label, sim_label, grid_label, overwrite):
         config = {}
+        config['gridsearch_time'] = 'None' # just so that it initialised for later
         # first deal with grid
         config['makegrid_key'] = self._get_key(task='makegrid', analysis_label=grid_label)
-        grid = np.array(self._get_data(config['makegrid_key']), dtype=np.float64) # should be changed to call dtype as arg
-        grid_meta = self._get_meta(config['makegrid_key'])
-        config['grid_dict'] = grid_meta['grid_dict']
-        config['data_type'] = data_label if data_label in set(['blocks', 'windows']) else 'simulations'
-        config['data_key'] = self._get_key(task='simulate', analysis_label=data_label) if config['data_type'] == 'simulations' else config['data_type']
+        grid_meta = dict(self._get_meta(grid_label))
+        grid = np.array(self._get_data(grid_label), dtype=np.float64) # grid is likelihoods 
+        config['grid_dict'] = grid_meta['grid_dict'] # grid_dict is params
+        # Error if no data
+        config['data_source'] = 'sims' if sim_label else 'meas'
+        config['data_label'] = sim_label or tally_label
+        if sim_label:
+            config['data_key'] = self._get_key(task='simulate', analysis_label=config['data_label'])
+        if tally_label:
+            config['data_key'] = self._get_key(task='tally', data_label=config['data_label'])
         if not self._has_key(config['data_key']):
-            sys.exit("[X] gimbleStore has no %r." % config['data_type'])
-        config['gridsearch_key'] = self._get_key(task='gridsearch', data_label=data_label, analysis_label=grid_label)
-        if not overwrite and self._has_key(config['gridsearch_key_4D']):
+            sys.exit("[X] gimbleStore has no %r." % config['data_key'])
+        config['gridsearch_key'] = self._get_key(task='gridsearch', data_label=config['data_label'], analysis_label=grid_label)
+        if not overwrite and self._has_key(config['gridsearch_key']):
             sys.exit("[X] Gridsearch results with grid label %r on data %r already exist. Use '-f' to replace." % (grid_label, data_label))
-        tally_4D, tally_5D, tally_generator = None, None, None
-        if config['data_type'] == 'simulations':
-            tally_generator = self._get_sims_bsfs(config['data_key'])
-            simulations_meta = self._get_meta(config['data_key'])
-            config['data_label'] = config['data_key']
-            config['data_block_length'] = simulations_meta['parameters']['block_length']
-            config['gridsearch_keys'] = [self._get_key(task='gridsearch', data_label=data_label, analysis_label=grid_label, parameter_label=idx) for idx in range(simulations_meta['max_idx'] + 1)]
+        if config['data_source'] == 'meas':
+            data = ((0, self._get_data(config['data_key'])) for _ in (0,))
+            meta = self._get_meta(config['data_key'])
+            config['block_length_data'] = meta['block_length']
+            config['max_k'] = np.array(meta['max_k']) # INI values get overwritten by data ...
+            config['gridsearch_keys'] = [self._get_key(task='gridsearch', data_label=config['data_label'], analysis_label=grid_meta['label'], parameter_label=idx) for idx in range(1)]
         else:
-            config['data_block_length'] = self._get_meta('blocks')['length']
-            config['data_label'] = config['data_type']
-            data = tally_variation(
-                self._get_variation(data_type=config['data_type'], population_by_letter=grid_meta['population_by_letter'], sample_sets="X"), 
-                form='bsfs', max_k=np.array(grid_meta['max_k'], dtype=np.int64))
-            config['gridsearch_key_4D'] = self._get_key(task='gridsearch', data_label=data_label, analysis_label=grid_label, mod_label='4D')
-            if data.ndim == 4:
-                tally_4D = data
-            if data.ndim == 5:
-                tally_4D = data.sum(axis=0)
-                config['gridsearch_key_5D'] = self._get_key(task='gridsearch', data_label=data_label, analysis_label=grid_label, mod_label='5D')
-                tally_5D = data
-        config['grid_block_length'] = grid_meta['block_length']
+            data = self._get_sims_bsfs(config['data_key']) # data is an iterator across parameter combos
+            meta = self._get_meta(config['data_key'])
+            config['block_length_data'] = meta['parameters']['block_length']
+            config['max_k'] = np.array(meta['max_k']) # INI values get overwritten by data ...
+            config['gridsearch_keys'] = [self._get_key(task='gridsearch', data_label=config['data_label'], analysis_label=grid_meta['label'], parameter_label=idx) for idx in range(meta['max_idx'] + 1)]
+        config['block_length_grid'] = grid_meta['block_length']
         # checking whether block_length in data and grid are compatible
-        if not config['data_block_length'] == config['grid_block_length']:
+        if not config['block_length_data'] == config['block_length_grid']:
             sys.exit("[X] Block lengths in data %r (%s) and grid %r (%s) are not compatible.." % (
                 data_label, 
-                config['data_block_length'],
+                config['block_length_data'],
                 grid_label, 
-                config['grid_block_length']
+                config['block_length_grid']
                 ))
-        return (config, tally_4D, tally_5D, tally_generator, grid)
+        return (config, data, grid)
 
-    def gridsearch(self, data_label, grid_label, overwrite):
+    def gridsearch(self, tally_label, sim_label, grid_label, overwrite):
         print("[+] Gathering data for gridsearch ...")
-        config, tally_4D, tally_5D, tally_generator, grid = self.gridsearch_preflight(data_label, grid_label, overwrite)
-        if tally_generator is None:
-            print("[+] Performing global gridsearch on data type %r ..." % (config['data_type']))
-            gridsearch_4D_result = gridsearch_np(tally=tally_4D, grid=grid)
-            gridsearch_4D_result_best_idx = np.argmax(gridsearch_4D_result, axis=0)
-            print('[+] \t Highest scoring gridpoint %s' % "; ".join(
-                ["%s = %s" % (parameter, values[gridsearch_4D_result_best_idx]) for parameter, values in config['grid_dict'].items()]))
-            gridsearch_5D_result = gridsearch_np(tally=tally_5D, grid=grid)
-            self.save_gridsearch(config, gridsearch_4D_result, gridsearch_5D_result)
-        else:
-            for key, (idx, tally) in zip(config['gridsearch_keys'], tally_generator):
-                gridsearch_instance_result = gridsearch_np(tally=tally, grid=grid)
-                self._set_data(key, gridsearch_instance_result)
-            gridsearch_meta = config_to_meta(config, 'gridsearch')    
-            self._set_meta(gridsearch_meta['gridsearch_key'], gridsearch_meta)
+        config, data, grid = self.gridsearch_preflight(tally_label, sim_label, grid_label, overwrite)
+        print("[+] Performing global gridsearch on %r ..." % (config['data_key']))
+        
+        for key, (idx, tally) in zip(config['gridsearch_keys'], data):
+            gridsearch_instance_result = gridsearch_np(tally=tally, grid=grid)
+            self._set_data(key, gridsearch_instance_result)
+        gridsearch_meta = config_to_meta(config, 'gridsearch')    
+        self._set_meta(gridsearch_meta['gridsearch_key'], gridsearch_meta)
         
     def save_gridsearch(self, config, gridsearch_4D_result, gridsearch_5D_result):
         gridsearch_meta = config_to_meta(config, 'gridsearch')
@@ -2360,6 +2407,7 @@ class Store(object):
         config['max_iterations'] = max_iterations
         config['xtol_rel'] = xtol_rel
         config['ftol_rel'] = ftol_rel
+        config['optimize_time'] = 'None' # just so that it initialised for later
         # Error if no data
         config['data_source'] = 'sims' if sim_label else 'meas'
         config['data_label'] = sim_label or tally_label
@@ -2387,6 +2435,7 @@ class Store(object):
             config['max_k'] = np.array(meta['max_k']) # INI values get overwritten by data ...
             config['optimize_keys'] = [self._get_key(task='optimize', data_label=config['data_label'], analysis_label=config['gimble']['label'], parameter_label=idx) for idx in range(meta['max_idx'] + 1)]
         # start point
+        config['start_point_method'] = start_point
         if start_point == 'midpoint':
             config['start_point'] = np.mean(np.vstack((config['parameter_combinations_lowest'], config['parameter_combinations_highest'])), axis=0)
         if start_point == 'random':
@@ -2396,18 +2445,22 @@ class Store(object):
 
     def optimize(self, config, sim_label, tally_label, num_cores, start_point, max_iterations, xtol_rel, ftol_rel, overwrite):
         data, config = self._preflight_optimize(config, sim_label, tally_label, num_cores, start_point, max_iterations, xtol_rel, ftol_rel, overwrite)
-        print('config', config)
+        optimize_analysis_start_time = timer() # used for saving elapsed time in meta
         print('[+] Constructing GeneratingFunction...')
         gf = lib.math.config_to_gf(config)
         gfEvaluatorObj = togimble.gfEvaluator(gf, config['max_k'], MUTYPES, config['gimble']['precision'], exclude=[(2,3),])
         print('[+] GeneratingFunctions for model %r have been generated.' % config['gimble']['model'])
         for data_idx, dataset in data:
+            optimize_instance_start_time = timer()
             optimize_result = lib.math.optimize(gfEvaluatorObj, data_idx, dataset, config)
-            self.save_optimize_instance(data_idx, config, optimize_result, overwrite)
+            optimize_time = format_time(timer() - optimize_instance_start_time)
+            self.save_optimize_instance(data_idx, config, optimize_result, optimize_time, overwrite)
+        config['optimize_time'] = format_time(timer() - optimize_analysis_start_time)
         self._set_meta(config['optimize_key'], meta=config_to_meta(config, 'optimize'))
+
         print("[+] Optimization results saved under label %r" % config['optimize_key'])
 
-    def save_optimize_instance(self, data_idx, config, optimize_result, overwrite):
+    def save_optimize_instance(self, data_idx, config, optimize_result, optimize_time, overwrite):
         data_idx = int(data_idx)
         optimize_key = config['optimize_keys'][data_idx]
         optimize_meta = {}
@@ -2415,13 +2468,10 @@ class Store(object):
         optimize_meta['optimize_results'] = []
         for dataset_idx in range(optimize_result['dataset_count']):
             result = optimize_result['nlopt_values_by_dataset_idx'][dataset_idx]
-            print(result)
             result['nlopt_exit_code'] = optimize_result['nlopt_status_by_dataset_idx'][dataset_idx]
             result['likelihood'] = optimize_result['nlopt_optimum_by_dataset_idx'][dataset_idx]
+            result['nlopt_time'] = optimize_time
             optimize_meta['optimize_results'].append(result)
-            #optimize_meta['optimum_values'].append(optimize_result['nlopt_values_by_dataset_idx'][dataset_idx])
-            #optimize_meta['optimum_likelihoods'].append(optimize_result['nlopt_optimum_by_dataset_idx'][dataset_idx])
-            #optimize_meta['nlopt_exit_codes'].append(optimize_result['nlopt_status_by_dataset_idx'][dataset_idx])
         self._set_meta_and_data(optimize_key, optimize_meta, optimize_result['nlopt_log_iteration_array'])
 
     def _preflight_tally(self, data_source, data_label, max_k, sample_sets, sequence_ids, genome_file, overwrite):
@@ -2459,7 +2509,7 @@ class Store(object):
         
     def tally(self, data_source, data_label, max_k, sample_sets, sequence_ids, genome_file, overwrite, verbose=True):
         config = self._preflight_tally(data_source, data_label, max_k, sample_sets, sequence_ids, genome_file, overwrite)
-        variation = self._get_variation(data_type=config['data_type'], sample_sets=config['sample_sets'], sequences=config['sequences'], progress=True) 
+        variation = self._get_variation(data_type=config['data_type'], sample_sets=config['sample_sets'], sequences=config['sequences'], progress=verbose) 
         config['windows'] = variation.shape[0] if variation.ndim == 3 else 0
         config['blocks'] = (variation.shape[0] * variation.shape[1]) if variation.ndim == 3 else variation.shape[0]
         config['marginality'] = format_percentage(calculate_marginality_of_variation(variation, max_k=config['max_k']))
@@ -2623,7 +2673,7 @@ class Store(object):
         config['key'] = key
         return config
 
-    def makegrid(self, config, threads, overwrite):
+    def makegrid(self, config, num_cores, overwrite):
         # print(self.data.tree())
         config = self._preflight_makegrid(config, overwrite)
         print("[+] Grid of %s grid points will be prepared..." % config['parameters_grid_points'])
@@ -2637,7 +2687,7 @@ class Store(object):
             config['populations']['reference_pop_id'], 
             config['mu']['block_length'], 
             config['mu']['mu'], 
-            processes=1, 
+            processes=num_cores, 
             verbose=False
             )
         self.save_grid(config, grid)
@@ -2815,30 +2865,6 @@ class Store(object):
                 sequences[offset:offset+_window_count] = np.full_like(_window_count, seq_name, dtype='<U%s' % MAX_SEQNAME_LENGTH)
                 offset += _window_count
         return (sequences, starts, ends, index, pos_mean, pos_median, balance, mse_sample_set_cov)
-
-    def _write_window_bed(self, version):
-        meta_blocks = self._get_meta('blocks')
-        meta_windows = self._get_meta('windows')
-        print("[+] Getting data for BED ...")
-        sequences, starts, ends, index, pos_mean, pos_median, balance, mse_sample_set_cov = self._get_window_bed()
-        print("[+] Calculating popgen metrics ...")
-        tally = tally_variation(self._get_variation(data_type='windows', sample_sets='X'), form='tally')
-        pop_metrics = get_popgen_metrics(tally, sites=(meta_blocks['length'] * meta_windows['size']))
-        int_bed = np.vstack([starts, ends, index, pos_mean, pos_median, pop_metrics, balance, mse_sample_set_cov]).T
-        columns = ['sequence', 'start', 'end', 'index', 'pos_mean', 'pos_median', 'heterozygosity_A', 'heterozygosity_B', 'd_xy', 'f_st', 'balance', 'mse_sample_set_cov']
-        header = ["# %s" % version, "# %s" % "\t".join(columns)]
-        out_f = '%s.windows.popgen.bed' % self.prefix
-        print("[+] Writing BED file %s ..." % out_f)
-        with open(out_f, 'w') as out_fh:
-            out_fh.write("\n".join(header) + "\n")
-        dtypes = {
-            'start': 'int64', 'end': 'int64', 'index': 'int64', 'pos_mean': 'int64', 
-            'pos_median': 'int64','heterozygosity_A': 'float64', 'heterozygosity_B': 'float64', 
-            'd_xy': 'float64', 'f_st': 'float64', 'balance': 'float64'}
-        bed_df = pd.DataFrame(data=int_bed, columns=columns[1:]).astype(dtype=dtypes)
-        bed_df['sequence'] = sequences
-        bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=columns, float_format='%.5f')
-        return out_f
 
     def _preflight_windows(self, overwrite=False):
         '''

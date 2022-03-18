@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gimble gridsearch -z <FILE> -g <STR> -d <STR> [-f] [-h|--help]
+"""usage: gimble gridsearch -z <FILE> -g <STR> [-d <STR>|-s <STR>] [-f] [-h|--help]
                                             
                                             
     Options:
@@ -9,7 +9,8 @@
         
         -z, --zarr_file <FILE>                      Path to existing GimbleStore
         -g, --grid_label <STR>                      Label of makegrid run in GimbleStore
-        -d, --data_label <STR>                      'blocks' or 'windows' or label of simulate run in GimbleStore
+        -d, --tally_label <STR>                     Tally label
+        -s, --sim_label <STR>                       Simulation label
         -f, --overwrite                             Overwrite results in GimbleStore
 
 """
@@ -24,7 +25,8 @@ class GridsearchParameterObj(lib.gimble.ParameterObj):
     def __init__(self, params, args):
         super().__init__(params)
         self.zstore = self._get_path(args['--zarr_file'])
-        self.data_label = args['--data_label']
+        self.tally_label = args['--tally_label']
+        self.sim_label = args['--sim_label']
         self.grid_label = args['--grid_label']
         self.overwrite = args['--overwrite']
         
@@ -35,7 +37,8 @@ def main(params):
         parameterObj = GridsearchParameterObj(params, args)
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
         gimbleStore.gridsearch(
-            data_label=parameterObj.data_label,
+            tally_label=parameterObj.tally_label,
+            sim_label=parameterObj.sim_label,
             grid_label=parameterObj.grid_label,
             overwrite=parameterObj.overwrite,
             )

@@ -499,6 +499,7 @@ def nlopt_call(args):
     return nlopt_result
 
 def get_nlopt_log_fn(data_idx, config):
+    # optimize_meta = lib.gimble.config_to_meta(config, 'optimize') # could be used to populate header further with data
     nlopt_log_header = ["dataset_idx", 'iteration', 'block_length', 'likelihood']
     nlopt_log_header += ['%s_unscaled' % parameter for parameter in config['parameters_bounded'] + config['parameters_fixed']]
     nlopt_log_header += ['%s_scaled' % parameter for parameter in config['parameters_bounded'] + config['parameters_fixed']]
@@ -513,7 +514,8 @@ NLOPT_LOG_ITERATIONS_MANAGER = multiprocessing.Manager()
 
 def nlopt_logger(nlopt_log_fn, nlopt_log_header, nlopt_log_iterations, nlopt_call_count):
     global NLOPT_LOG_QUEUE
-    pbar = tqdm(desc="[%] Progress", total=nlopt_call_count, position=0)
+    progress_bar_disable_bool = (True if nlopt_call_count == 1 else False) # disable if only one dataset (i.e. blocks)
+    pbar = tqdm(desc="[%] Progress", total=nlopt_call_count, position=0, disable=progress_bar_disable_bool)
     with open(nlopt_log_fn, 'a') as nlopt_log_fh:
         while 1:
             msg = NLOPT_LOG_QUEUE.get()
@@ -545,10 +547,13 @@ def format_nlopt_result(result_dict):
         result_dict['nlopt_status'])
 
 def format_nlopt_log_iteration_values(nlopt_log_iteration_values_by_key):
+    '''determines how log and screen prints work'''
+    value_suffix = '_scaled' # '_unscaled'
+    #print(nlopt_log_iteration_values_by_key)
     return "[+] data_idx=%s i=%s -- {%s} -- L=%s" % (
         int(nlopt_log_iteration_values_by_key['dataset_idx']),
         str(int(nlopt_log_iteration_values_by_key['iteration'])).ljust(4),
-        " ".join(["%s=%s" % (k.replace('_unscaled', ''), '{:.5e}'.format(float(v))) for k, v in nlopt_log_iteration_values_by_key.items() if k.endswith("unscaled")]),
+        " ".join(["%s=%s" % (k.replace(value_suffix, ''), '{:.5e}'.format(float(v))) for k, v in nlopt_log_iteration_values_by_key.items() if k.endswith(value_suffix)]),
         '{:.5f}'.format(float(nlopt_log_iteration_values_by_key['likelihood'])))
 
 def get_nlopt_args(gfEvaluatorObj, dataset, config):
@@ -912,21 +917,20 @@ def new_calculate_all_ETPs(gfEvaluatorObj, parameter_combinations, reference_pop
         shape='LOD'
         )
     all_ETPs = []
-    desc = f'[%] Calculating mutation configuration probabilities for {len(scaled_parameter_combinations)} gridpoints'
+    print("[+] Calculating probabilities for %s gridpoints" % len(scaled_parameter_combinations))
     if processes==1:
         #for parameter_combination in tqdm(scaled_parameter_combinations, desc=desc, ncols=100, disable=True):
         #    print(parameter_combination)
         #    all_ETPs.append(gfEvaluatorObj.evaluate_gf(parameter_combination, parameter_combination[sage.all.SR.var('theta')])) 
-        all_ETPs = [
-            gfEvaluatorObj.evaluate_gf(parameter_combination, parameter_combination[sage.all.SR.var('theta')]) 
-                for parameter_combination in tqdm(scaled_parameter_combinations, desc=desc, ncols=100, disable=True)]
+        for parameter_combination in tqdm(scaled_parameter_combinations, desc="[%]", ncols=100, disable=True):
+            result = gfEvaluatorObj.evaluate_gf(parameter_combination, parameter_combination[sage.all.SR.var('theta')]) 
+            all_ETPs.append(result)
+                
     else:
         args = ((param_combo, param_combo[sage.all.SR.var('theta')]) for param_combo in scaled_parameter_combinations)
         with multiprocessing.Pool(processes=processes) as pool:
-            with tqdm(total=len(scaled_parameter_combinations), desc=desc, ncols=100) as pbar:
-                    for ETP in pool.starmap(gfEvaluatorObj.evaluate_gf, args):
-                        all_ETPs.append(ETP)
-                        pbar.update()
+            for ETP in pool.starmap(gfEvaluatorObj.evaluate_gf, tqdm(args, total=len(scaled_parameter_combinations), ncols=100, desc="[%]")):
+                all_ETPs.append(ETP)
     return np.array(all_ETPs, dtype=np.float64)
 """
 class Constructor(object):

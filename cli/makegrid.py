@@ -1,4 +1,4 @@
-"""usage: gimbl makegrid                 (-z <FILE> | -o <STR>) -c <FILE> [-f] [--numc <INT> ] [-h|--help]
+"""usage: gimbl makegrid                 (-z <FILE> | -o <STR>) -c <FILE> [-f] [-n <INT> ] [-h|--help]
                                             
     Options:
         -h --help                        show this
@@ -7,7 +7,7 @@
         -o, --outprefix <STR>            Prefix to use for new GimbleStore
         -c, --config_file <FILE>         Config file with model parameters
         -f, --overwrite                  Overwrite grid in GimbleStore
-        --numc INT                       Number of available cores [default: 1] 
+        -n, --processes <INT>            Number of processes [default: 1] 
         
 """
 
@@ -29,7 +29,7 @@ class MakeGridParameterObj(lib.gimble.ParameterObj):
         self.zstore = self._get_path(args["--zarr_file"])
         self.prefix = self._get_prefix(args["--outprefix"])
         self.config_file = self._get_path(args['--config_file'])
-        self.threads = self._get_int(args['--numc']) #number of workers for independent processes
+        self.num_cores = self._get_int(args['--processes']) #number of workers for independent processes
         self.overwrite = args['--overwrite']
         self.config = lib.gimble.load_config(
             self.config_file, 
@@ -49,7 +49,7 @@ def main(params):
             create=(False if parameterObj.zstore else True))
         gimbleStore.makegrid(
             config=parameterObj.config,
-            threads=parameterObj.threads,
+            num_cores=parameterObj.num_cores,
             overwrite=parameterObj.overwrite,
             )
         print("[*] Total runtime was %s" % (lib.gimble.format_time(timer() - start_time)))

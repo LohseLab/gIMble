@@ -15,6 +15,9 @@
 
 '''
 [To Do]
+- fix file parsing:
+    - should account for gziped/non-gziped VCF
+
 - ignore sample argument:
     - should be possible to remove certain samples from VCF file
 
@@ -198,7 +201,7 @@ class TranscriptObj(object):
         return False
 
     def is_orf(self):
-        if self.has_start() and self.has_stop() and self.is_divisible_by_three():
+        if self.has_start() and self.is_divisible_by_three():
             return True
         return False
 
@@ -234,17 +237,18 @@ def parse_vcf_file(parameterObj, sequence_ids, query_regions_by_sequence_id):
                 samples=samples_query, 
                 fields=[gt_key, pos_key, ref_key, alt_key])
             if not vcf_data is None:
-                pos_array = np.array(vcf_data[pos_key]) - 1 # port to BED (0-based) coordinates
-                cds_mask = np.isin(pos_array, query_regions_by_sequence_id[sequence_id])
-                pos = pos_array[cds_mask]
-                zstore.create_dataset("seqs/%s/variants/pos" % sequence_id, data=pos)
-                ref = vcf_data[ref_key][cds_mask]
-                zstore.create_dataset("seqs/%s/variants/ref" % sequence_id, data=ref, dtype='str')
-                alt = vcf_data[alt_key][cds_mask]
-                zstore.create_dataset("seqs/%s/variants/alt" % sequence_id, data=alt, dtype='str')
-                gts = vcf_data[gt_key][cds_mask]
-                zstore.create_dataset("seqs/%s/variants/gts" % sequence_id, data=gts)
-                variant_counts.append(pos_array.shape[0])
+                if sequence_id in query_regions_by_sequence_id:
+                    pos_array = np.array(vcf_data[pos_key]) - 1 # port to BED (0-based) coordinates
+                    cds_mask = np.isin(pos_array, query_regions_by_sequence_id[sequence_id])
+                    pos = pos_array[cds_mask]
+                    zstore.create_dataset("seqs/%s/variants/pos" % sequence_id, data=pos)
+                    ref = vcf_data[ref_key][cds_mask]
+                    zstore.create_dataset("seqs/%s/variants/ref" % sequence_id, data=ref, dtype='str')
+                    alt = vcf_data[alt_key][cds_mask]
+                    zstore.create_dataset("seqs/%s/variants/alt" % sequence_id, data=alt, dtype='str')
+                    gts = vcf_data[gt_key][cds_mask]
+                    zstore.create_dataset("seqs/%s/variants/gts" % sequence_id, data=gts)
+                    variant_counts.append(pos_array.shape[0])
     print("[+] Parsed %s variants." % sum(variant_counts))
     return zstore
 
@@ -303,7 +307,8 @@ def infer_degeneracy(parameterObj, transcriptObjs, zstore):
             length_by_sequence_id[transcriptObj.sequence_id] += transcriptObj.positions.shape[0]
             transcriptObjs_valid += 1
     samples = zstore.attrs['samples']
-    degeneracy_chars = "U%s" % (len(samples) * 6) # could be improved with ploidy?
+    degeneracy_chars = "U%s" % (len(samples) * 6 + len(samples) * 1) # could be improved with ploidy?
+    chrom_chars = "U%s" % (max([len(sequence_id) for sequence_id in length_by_sequence_id.keys()]) + 1)
     #data = np.zeros(total_sites, dtype={'names':('sequence_id', 'start', 'end', 'degeneracy', 'codon_pos', 'orientation'),'formats':('U16', 'i8', 'i8', degeneracy_chars, 'i1', 'U1')})
     if warnings:
         with open("%s.cds.rejected_transcripts.bed" % parameterObj.outprefix, 'w') as fh:
@@ -315,7 +320,7 @@ def infer_degeneracy(parameterObj, transcriptObjs, zstore):
             offset = 0 
             data = np.zeros(
                 length_by_sequence_id[sequence_id], 
-                dtype={'names':('sequence_id', 'start', 'end', 'degeneracy', 'codon_pos', 'orientation'),'formats':('U16', 'i8', 'i8', degeneracy_chars, 'i1', 'U1')})
+                dtype={'names':('sequence_id', 'start', 'end', 'degeneracy', 'codon_pos', 'orientation'),'formats':(chrom_chars, 'i8', 'i8', degeneracy_chars, 'i1', 'U1')})
             if sequence_id in zstore['seqs']: # sequence has variants
                 pos = np.array(zstore["seqs/%s/variants/pos" % sequence_id]) 
                 gts = np.array(zstore["seqs/%s/variants/gts" % sequence_id])
@@ -324,6 +329,7 @@ def infer_degeneracy(parameterObj, transcriptObjs, zstore):
                 alleles_raw = np.column_stack([ref, alt])
                 # initiate boolean mask with False
                 mask = np.zeros(alleles_raw.shape, dtype=bool)
+            if gts.size:
                 acs = allel.GenotypeArray(gts).count_alleles()
                 # overwrite with True those alleles_raw that occur in gts 
                 mask[:,0:acs.shape[1]] = acs
