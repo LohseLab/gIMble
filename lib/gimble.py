@@ -277,7 +277,7 @@ def DOL_to_LOD(DOL):
     converts dict of lists to list of dicts
     """
     reshape_DOL = list(zip(*DOL.values()))
-    return [{k:v for k,v in zip(DOL.keys(),sublist)} for sublist in reshape_DOL]  
+    return [{k:v for k,v in zip(DOL.keys(), sublist)} for sublist in reshape_DOL]  
 
 def LOD_to_DOL(LOD):
     """
@@ -350,17 +350,15 @@ def config_to_meta(config, task):
         meta['population_by_letter'] = config['populations']['population_by_letter']
         meta['max_k'] = list([float(k) for k in config['max_k']])
     if task == 'gridsearch':
-        print('config_to_meta (in):', config)
         meta['makegrid_key'] = config['makegrid_key']
+        meta['batch_sites'] = config['batch_sites']
         meta['data_key'] = config['data_key']
         meta['gridsearch_key'] = config['gridsearch_key']
         meta['grid_dict'] = config['grid_dict']
-        meta['block_length_data'] = config['block_length_data']
-        meta['block_length_grid'] = config['block_length_grid'] 
+        meta['block_length'] = config['block_length_data']
         meta['data_label'] = config['data_label']
         meta['data_source'] = config['data_source']
-        meta['gridsearch_instance_keys'] = config['gridsearch_key_generator'] if 'gridsearch_key_generator' in config else None
-        print('config_to_meta (out):', meta)
+        meta['gridsearch_keys'] = config['gridsearch_keys']
     if task == 'optimize':
         meta['optimize_key'] = config['optimize_key']
         meta['optimize_keys'] = config['optimize_keys']
@@ -2084,10 +2082,7 @@ class Store(object):
             #sys.exit("[X] Not implemented.")
             self._write_window_bed(config)
         elif config['data_type'] == 'gridsearch':
-            print(config)
-            a = self._get_data(data_key)
-            for x, y in a.items():
-                print(x, np.array(y))
+            self._write_gridsearch_bed(config)
         elif config['data_type'] == 'makegrid':
             meta = self._get_meta(config['data_key'])
             print(dict(meta))
@@ -2222,95 +2217,99 @@ class Store(object):
         index = np.arange(meta_windows['count'],  dtype=np.int64)
         return (sequences, starts, ends, index)
 
-    def _write_gridsearch_bed(self, parameterObj=None, lncls=None, best_idx=None, grid_meta_dict=None):
-        if parameterObj is None or lncls is None or grid_meta_dict is None:
-            raise ValueError('_write_gridsearch_bed: needs parameterObj and lncls and grid_meta_dict')
-        #grids = []
-        grids = DOL_to_LOD(grid_meta_dict)
-        #for grid_idx, grid_dict in grid_meta_dict.items():
-        #    grids.append(list(grid_dict.values()))
+    def _write_gridsearch_bed(self, config):
+        meta_gridsearch = self._get_meta(config['data_key'])
+        print(dict(meta_gridsearch))
+        # grid params
+        grids = DOL_to_LOD(meta_gridsearch['grid_dict'])
         grid_params = np.array([list(subdict.values()) for subdict in grids] ,dtype=np.float64)
-        best_params = grid_params[np.argmax(lncls, axis=1), :]
-        best_likelihoods = np.max(lncls, axis=1)
-        delta_lncls = best_likelihoods - lncls[:, best_idx]
-        sequences, starts, ends, index = self._get_window_bed_columns() 
-        params_header = list(next(iter(grids)).keys())
-        #params_header = list(grid_dict.keys())
-        meta_blocks = self._get_meta('blocks')
-        meta_windows = self._get_meta('windows')
-        bsfs_windows_full = self.get_bsfs(
-                data_type='windows', 
-                population_by_letter=parameterObj.config['population_by_letter'], 
-                sample_sets='X')
-        popgen_metrics = pop_metrics_from_bsfs(bsfs_windows_full, block_length=meta_blocks['length'], window_size=meta_windows['size'])
-        popgen_header = ['heterozygosity_A', 'heterozygosity_B', 'd_xy', 'f_st']
-        columns = ['sequence', 'start', 'end', 'index', 'lnCL', 'delta_lnCl'] + params_header + popgen_header
-        dtypes = {'start': 'int64', 'end': 'int64', 'index': 'int64', 'lnCL': 'float64', 'delta_lnCl': 'float64'}
-        for param in params_header + popgen_header:
-            dtypes[param] = 'float64'
-        '''dtypes := "object", "int64", "float64", "bool", "datetime64", "timedelta", "category"'''
-        int_bed = np.vstack([starts, ends, index, best_likelihoods, delta_lncls, best_params.T, popgen_metrics]).T
-        out_f = '%s.%s.gridsearch.bestfit.bed' % (self.prefix, parameterObj.data_type)
-        print("[+] Sum of lnCL for winning parameters = %s" % np.sum(best_likelihoods))
-        # write header
-        header = ["# %s" % parameterObj._VERSION]
-        header += ["# %s" % "\t".join(columns)]
-        with open(out_f, 'w') as out_fh:
-            out_fh.write("\n".join(header) + "\n")
-        bed_df = pd.DataFrame(data=int_bed, columns=columns[1:]).astype(dtype=dtypes)
-        bed_df['sequence'] = sequences
-        # MUST be mode='a' otherwise header gets wiped ...
-        bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=columns)
-        return out_f
-    
-    def copy_preflight_optimize(self, config, sim_label, tally_label, num_cores, start_point, max_iterations, xtol_rel, ftol_rel, overwrite):
-        config['num_cores'] = num_cores
-        config['max_iterations'] = max_iterations
-        config['xtol_rel'] = xtol_rel
-        config['ftol_rel'] = ftol_rel
-        config['optimize_time'] = 'None' # just so that it initialised for later
-        # Error if no data
-        config['data_source'] = 'sims' if sim_label else 'meas'
-        config['data_label'] = sim_label or tally_label
-        if sim_label:
-            config['data_key'] = self._get_key(task='simulate', analysis_label=config['data_label'])
-        if tally_label:
-            config['data_key'] = self._get_key(task='tally', data_label=config['data_label'])
-        if not self._has_key(config['data_key']):
-            sys.exit("[X] gimbleStore has no %r." % config['data_key'])
-        # Error if results clash
-        config['optimize_key'] = self._get_key(task='optimize', data_label=config['data_label'], analysis_label=config['gimble']['label'])
-        if not overwrite and self._has_key(config['optimize_key']):
-            sys.exit("[X] Analysis with label %r on data %r already exist. Change the label in the config file or use '--force'" % (config['gimble']['label'], config['data_label']))
-        # get data (this could be a separate function, also needed for gridsearch)
-        if config['data_source'] == 'meas':
-            data = ((0, self._get_data(config['data_key'])) for _ in (0,))
-            meta = self._get_meta(config['data_key'])
-            config['block_length'] = meta['block_length']
-            config['max_k'] = np.array(meta['max_k']) # INI values get overwritten by data ...
-            config['optimize_keys'] = [self._get_key(task='optimize', data_label=config['data_label'], analysis_label=config['gimble']['label'], parameter_label=idx) for idx in range(1)]
-        else:
-            data = self._get_sims_bsfs(config['data_key']) # data is an iterator across parameter combos
-            meta = self._get_meta(config['data_key'])
-            config['block_length'] = meta['parameters']['block_length']
-            config['max_k'] = np.array(meta['max_k']) # INI values get overwritten by data ...
-            config['optimize_keys'] = [self._get_key(task='optimize', data_label=config['data_label'], analysis_label=config['gimble']['label'], parameter_label=idx) for idx in range(meta['max_idx'] + 1)]
-        # start point
-        config['start_point_method'] = start_point
-        if start_point == 'midpoint':
-            config['start_point'] = np.mean(np.vstack((config['parameter_combinations_lowest'], config['parameter_combinations_highest'])), axis=0)
-        if start_point == 'random':
-            #np.random.seed(config['gimble']['random_seed'])
-            config['start_point'] = np.random.uniform(low=config['parameter_combinations_lowest'], high=config['parameter_combinations_highest'])
-        return (data, config)
+        # bed
+        sequences, starts, ends, index, pos_mean, pos_median, balance, mse_sample_set_cov = self._get_window_bed()
+        params_header = list(meta_gridsearch['grid_dict'].keys())
+        out_fs = []
+        for gridsearch_key in meta_gridsearch['gridsearch_keys']:
+            lncls = np.array(self._get_data(gridsearch_key))
+            print('lncls', lncls)
+            best_lncl = np.max(lncls, axis=lncls.ndim-1)
+            print('best_lncl', best_lncl)
+            best_idx = np.argmax(lncls, axis=lncls.ndim-1)
+            print('best_idx', best_idx)
+            best_params = grid_params[best_idx, :]
+            print('best_params', best_params)
+            if lncls.ndim == 1:
+                columns = ['lnCL'] + params_header
+                dtypes = {column: 'float64' for column in columns}
+                int_bed = [best_lncl] + list(best_params)
+            else:
+                columns = ['sequence', 'start', 'end', 'index', 'pos_mean', 'pos_median', 'balance', 'mse_sample_set_cov', 'lnCL'] + params_header
+                int_bed = np.vstack([starts, ends, index, pos_mean, pos_median, balance, mse_sample_set_cov, best_lncl, best_params.T]).T
+                dtypes = {'start': 'int64', 'end': 'int64', 'index': 'int64', 'pos_mean': 'float64', 'pos_median': 'float64', 
+                    'balance': 'float64', 'mse_sample_set_cov': 'float64', 'lnCL': 'float64'}
+                for param in params_header:
+                    dtypes[param] = 'float64'
+            out_f = '%s.bed' % ("_".join(gridsearch_key.split("/")))
+            print("[+] Sum of lnCL for winning parameters = %s" % np.sum(best_lncl))
+            # write header
+            header = ["# %s" % config['version']]
+            header += ["# %s" % "\t".join(columns)]
+            with open(out_f, 'w') as out_fh:
+                out_fh.write("\n".join(header) + "\n")
+            if lncls.ndim > 1:
+                bed_df = pd.DataFrame(data=int_bed, columns=columns[1:]).astype(dtype=dtypes)
+                bed_df['sequence'] = sequences
+                # MUST be mode='a' otherwise header gets wiped ...
+                bed_df.sort_values(['sequence', 'start'], ascending=[True, True])
+            else:
+                bed_df = pd.DataFrame(data=int_bed, columns=columns).astype(dtype=dtypes)
+            bed_df.to_csv(out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=columns)
+            out_fs.append(out_f)
+        return out_fs
+        #grids = DOL_to_LOD(meta_gridsearch['grid_dict'])
+        ##for grid_idx, grid_dict in grid_meta_dict.items():
+        ##    grids.append(list(grid_dict.values()))
+        #grid_params = np.array([list(subdict.values()) for subdict in grids] ,dtype=np.float64)
+        #best_params = grid_params[np.argmax(lncls, axis=1), :]
+        #best_likelihoods = np.max(lncls, axis=1)
+        #delta_lncls = best_likelihoods - lncls[:, best_idx]
+        #sequences, starts, ends, index = self._get_window_bed_columns() 
+        #params_header = list(next(iter(grids)).keys())
+        ##params_header = list(grid_dict.keys())
+        #meta_blocks = self._get_meta('blocks')
+        #meta_windows = self._get_meta('windows')
+        #bsfs_windows_full = self.get_bsfs(
+        #        data_type='windows', 
+        #        population_by_letter=parameterObj.config['population_by_letter'], 
+        #        sample_sets='X')
+        #popgen_metrics = pop_metrics_from_bsfs(bsfs_windows_full, block_length=meta_blocks['length'], window_size=meta_windows['size'])
+        #popgen_header = ['heterozygosity_A', 'heterozygosity_B', 'd_xy', 'f_st']
+        #columns = ['sequence', 'start', 'end', 'index', 'lnCL', 'delta_lnCl'] + params_header + popgen_header
+        #dtypes = {'start': 'int64', 'end': 'int64', 'index': 'int64', 'lnCL': 'float64', 'delta_lnCl': 'float64'}
+        #for param in params_header + popgen_header:
+        #    dtypes[param] = 'float64'
+        #'''dtypes := "object", "int64", "float64", "bool", "datetime64", "timedelta", "category"'''
+        #int_bed = np.vstack([starts, ends, index, best_likelihoods, delta_lncls, best_params.T, popgen_metrics]).T
+        #out_f = '%s.%s.gridsearch.bestfit.bed' % (self.prefix, parameterObj.data_type)
+        #print("[+] Sum of lnCL for winning parameters = %s" % np.sum(best_likelihoods))
+        ## write header
+        #header = ["# %s" % parameterObj._VERSION]
+        #header += ["# %s" % "\t".join(columns)]
+        #with open(out_f, 'w') as out_fh:
+        #    out_fh.write("\n".join(header) + "\n")
+        #bed_df = pd.DataFrame(data=int_bed, columns=columns[1:]).astype(dtype=dtypes)
+        #bed_df['sequence'] = sequences
+        ## MUST be mode='a' otherwise header gets wiped ...
+        #bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=columns)
+        #return out_f
 
     def gridsearch_preflight(self, tally_label, sim_label, grid_label, overwrite):
         config = {}
         config['gridsearch_time'] = 'None' # just so that it initialised for later
         # first deal with grid
         config['makegrid_key'] = self._get_key(task='makegrid', analysis_label=grid_label)
-        grid_meta = dict(self._get_meta(grid_label))
-        grid = np.array(self._get_data(grid_label), dtype=np.float64) # grid is likelihoods 
+        grid_meta = self._get_meta(config['makegrid_key'])
+        if grid_meta is None:
+            sys.exit("[X] gimbleStore has no grid labelled %r." % config['makegrid_key'])
+        grid = np.array(self._get_data(config['makegrid_key']), dtype=np.float64) # grid is likelihoods 
         config['grid_dict'] = grid_meta['grid_dict'] # grid_dict is params
         # Error if no data
         config['data_source'] = 'sims' if sim_label else 'meas'
@@ -2328,6 +2327,7 @@ class Store(object):
             data = ((0, self._get_data(config['data_key'])) for _ in (0,))
             meta = self._get_meta(config['data_key'])
             config['block_length_data'] = meta['block_length']
+            config['batch_sites'] = meta['block_length'] * meta['blocks']
             config['max_k'] = np.array(meta['max_k']) # INI values get overwritten by data ...
             config['gridsearch_keys'] = [self._get_key(task='gridsearch', data_label=config['data_label'], analysis_label=grid_meta['label'], parameter_label=idx) for idx in range(1)]
         else:
@@ -2351,12 +2351,12 @@ class Store(object):
         print("[+] Gathering data for gridsearch ...")
         config, data, grid = self.gridsearch_preflight(tally_label, sim_label, grid_label, overwrite)
         print("[+] Performing global gridsearch on %r ..." % (config['data_key']))
-        
         for key, (idx, tally) in zip(config['gridsearch_keys'], data):
             gridsearch_instance_result = gridsearch_np(tally=tally, grid=grid)
             self._set_data(key, gridsearch_instance_result)
-        gridsearch_meta = config_to_meta(config, 'gridsearch')    
-        self._set_meta(gridsearch_meta['gridsearch_key'], gridsearch_meta)
+        self._set_meta(config['gridsearch_key'], config_to_meta(config, 'gridsearch'))
+        meta = self._get_meta(config['gridsearch_key'])
+        print(dict(meta))
         
     def save_gridsearch(self, config, gridsearch_4D_result, gridsearch_5D_result):
         gridsearch_meta = config_to_meta(config, 'gridsearch')
@@ -2535,7 +2535,7 @@ class Store(object):
         if verbose:
             print("[+] Tally saved under label %r (use this for optimize/gridsearch)." % config['data_label'])
 
-    def _get_key(self, task=None, data_label=None, analysis_label=None, parameter_label=None, mod_label=None, seq_label=None):
+    def _get_key(self, task=None, data_label=None, grid_label=None, analysis_label=None, parameter_label=None, mod_label=None, seq_label=None):
         if task == 'tally':
             return "tally/%s" % data_label
         if task == 'measure':
@@ -2551,12 +2551,14 @@ class Store(object):
                 return "%s/%s" % (task, analysis_label) 
             return "%s/%s/%s" % (task, analysis_label, parameter_label)
         if task == 'makegrid':
-            return "%s/%s" % (task, analysis_label)
+            return "makegrid/%s" % (analysis_label)
         if task == 'optimize':
             if parameter_label is None:
                 return "%s/%s/%s" % (task, data_label, analysis_label)
             return "%s/%s/%s/%s" % (task, data_label, analysis_label, parameter_label)
         if task == 'gridsearch':
+            if data_label is not None and grid_label is not None:
+                return "%s/%s/%s" % (task, data_label, grid_label)
             if parameter_label is not None:
                 return "%s/%s/%s/%s" % (task, data_label, analysis_label, parameter_label)
             if mod_label is not None:
