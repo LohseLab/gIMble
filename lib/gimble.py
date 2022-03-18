@@ -2229,13 +2229,13 @@ class Store(object):
         out_fs = []
         for gridsearch_key in meta_gridsearch['gridsearch_keys']:
             lncls = np.array(self._get_data(gridsearch_key))
-            print('lncls', lncls)
+            #print('lncls', lncls)
             best_lncl = np.max(lncls, axis=lncls.ndim-1)
-            print('best_lncl', best_lncl)
+            #print('best_lncl', best_lncl)
             best_idx = np.argmax(lncls, axis=lncls.ndim-1)
-            print('best_idx', best_idx)
+            #print('best_idx', best_idx)
             best_params = grid_params[best_idx, :]
-            print('best_params', best_params)
+            #print('best_params', best_params)
             if lncls.ndim == 1:
                 columns = ['lnCL'] + params_header
                 dtypes = {column: 'float64' for column in columns}
