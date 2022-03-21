@@ -1819,8 +1819,8 @@ def gridsearch_dask(tally=None, grid=None):
     #from dask.distributed import Client
     #client = Client()
     #print(client)
-    tally = dask.array.from_array(tally, chunks=(1000, 1, tally.shape[-4], tally.shape[-3], tally.shape[-2], tally.shape[-1]))
-    grid_log = dask.array.from_array(grid_log, chunks=(1000, grid_log.shape[-4], grid_log.shape[-3], grid_log.shape[-2], grid_log.shape[-1]))
+    tally = dask.array.from_array(tally, chunks=(500, 1, tally.shape[-4], tally.shape[-3], tally.shape[-2], tally.shape[-1]))
+    grid_log = dask.array.from_array(grid_log, chunks=(500, grid_log.shape[-4], grid_log.shape[-3], grid_log.shape[-2], grid_log.shape[-1]))
     product = dask.array.multiply(tally, grid_log)
     result = dask.array.sum(product.reshape((product.shape[0], product.shape[1], np.prod(product.shape[2:]))), axis=-1)
     with daProgressBar():
