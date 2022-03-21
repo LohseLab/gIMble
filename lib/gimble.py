@@ -1814,7 +1814,7 @@ def gridsearch_dask(tally=None, grid=None):
     if not tally.ndim == 4: # if tally.ndim == 5:
         tally = tally[:, None]
     grid = grid.astype(_return_np_type(grid))
-    grid_log = np.zeros(grid.shape, dtype=_return_np_type(grid))
+    grid_log = np.zeros(grid.shape)
     np.log(grid, dtype=_return_np_type(grid_log), where=grid>0, out=grid_log)
     #from dask.distributed import Client
     #client = Client()
