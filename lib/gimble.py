@@ -6,6 +6,8 @@ import demes
 import ast
 import math
 import numpy as np
+import dask
+from dask.diagnostics import ProgressBar as daProgressBar
 import pandas as pd
 import shutil
 import zarr
@@ -1812,13 +1814,18 @@ def gridsearch_dask(tally=None, grid=None):
     if not tally.ndim == 4: # if tally.ndim == 5:
         tally = tally[:, None]
     grid = grid.astype(_return_np_type(grid))
-    grid_log = np.zeros(grid.shape, dtype=GRIDSEARCH_DTYPE)
-    np.log(grid, dtype=GRIDSEARCH_DTYPE, where=grid>0, out=grid_log)
-    import dask.array as da
-    tally = da.from_array(tally, chunks=(1000, 1, tally.shape[-4], tally.shape[-3], tally.shape[-2], tally.shape[-1]))
-    grid_log = da.from_array(grid_log, chunks=(10, grid_log.shape[-4], grid_log.shape[-3], grid_log.shape[-2], grid_log.shape[-1]))
-    product = da.multiply(tally, grid_log)
-    return da.sum(product.reshape((product.shape[0], product.shape[1], np.prod(product.shape[2:]))), axis=-1).compute()
+    grid_log = np.zeros(grid.shape, dtype=_return_np_type(grid))
+    np.log(grid, dtype=_return_np_type(grid_log), where=grid>0, out=grid_log)
+    #from dask.distributed import Client
+    #client = Client()
+    #print(client)
+    tally = dask.array.from_array(tally, chunks=(1000, 1, tally.shape[-4], tally.shape[-3], tally.shape[-2], tally.shape[-1]))
+    grid_log = dask.array.from_array(grid_log, chunks=(10, grid_log.shape[-4], grid_log.shape[-3], grid_log.shape[-2], grid_log.shape[-1]))
+    product = dask.array.multiply(tally, grid_log)
+    result = dask.array.sum(product.reshape((product.shape[0], product.shape[1], np.prod(product.shape[2:]))), axis=-1)
+    with daProgressBar():
+        out = result.compute()
+    return out
 
 class Store(object):
     def __init__(self, prefix=None, path=None, create=False, overwrite=False):
@@ -2412,12 +2419,12 @@ class Store(object):
         meta = self._get_meta(config['gridsearch_key'])
         print(dict(meta))
         
-    def save_gridsearch(self, config, gridsearch_4D_result, gridsearch_5D_result):
-        gridsearch_meta = config_to_meta(config, 'gridsearch')
-        self._set_meta_and_data(config['gridsearch_key_4D'], gridsearch_meta, gridsearch_4D_result)
-        if not gridsearch_5D_result is None:
-            self._set_meta_and_data(config['gridsearch_key_5D'], gridsearch_meta, gridsearch_5D_result)
-        print("[+] Saved gridsearch results.")
+    #def save_gridsearch(self, config, gridsearch_4D_result, gridsearch_5D_result):
+    #    gridsearch_meta = config_to_meta(config, 'gridsearch')
+    #    self._set_meta_and_data(config['gridsearch_key_4D'], gridsearch_meta, gridsearch_4D_result)
+    #    if not gridsearch_5D_result is None:
+    #        self._set_meta_and_data(config['gridsearch_key_5D'], gridsearch_meta, gridsearch_5D_result)
+    #    print("[+] Saved gridsearch results.")
 
     def _gridsearch_sims(self, parameterObj, grids, grid_meta_dict):
         #check parameters that were fixed initially:
