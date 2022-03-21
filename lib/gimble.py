@@ -1804,6 +1804,21 @@ def gridsearch_np(tally=None, grid=None):
     print('product.dtype', product.dtype)
     return np.sum(product.reshape((product.shape[0], product.shape[1], np.prod(product.shape[2:]))), axis=-1)
     
+def gridsearch_dask(tally=None, grid=None):
+    '''returns 2d array of likelihoods of shape (windows, grid)'''
+    if grid is None or tally is None:
+        return None
+    tally = tally if isinstance(tally, np.ndarray) else np.array(tally)
+    if not tally.ndim == 4: # if tally.ndim == 5:
+        tally = tally[:, None]
+    grid = grid.astype(_return_np_type(grid))
+    grid_log = np.zeros(grid.shape, dtype=GRIDSEARCH_DTYPE)
+    np.log(grid, dtype=GRIDSEARCH_DTYPE, where=grid>0, out=grid_log)
+    import dask.array as da
+    tally = da.from_array(tally, chunks=(1000, 1, tally.shape[-4], tally.shape[-3], tally.shape[-2], tally.shape[-1]))
+    grid_log = da.from_array(grid_log, chunks=(10, grid_log.shape[-4], grid_log.shape[-3], grid_log.shape[-2], grid_log.shape[-1]))
+    product = da.multiply(tally, grid_log)
+    return da.sum(product.reshape((product.shape[0], product.shape[1], np.prod(product.shape[2:]))), axis=-1).compute()
 
 class Store(object):
     def __init__(self, prefix=None, path=None, create=False, overwrite=False):
@@ -2382,12 +2397,16 @@ class Store(object):
             print('gridsearch_instance_result.nbytes', gridsearch_instance_result.nbytes)
             print('gridsearch_instance_result.dtype', gridsearch_instance_result.dtype)
             print('np.max(gridsearch_instance_result)', np.max(gridsearch_instance_result))
+            gridsearch_dask_result = gridsearch_dask(tally=tally, grid=grid)
+            print('gridsearch_dask_result.nbytes', gridsearch_dask_result.nbytes)
+            print('gridsearch_dask_result.dtype', gridsearch_dask_result.dtype)
+            print('np.max(gridsearch_dask_result)', np.max(gridsearch_dask_result))
             #old_gridsearch_instance_result = old_gridsearch_np(tally=tally, grid=grid)
             #print('old_gridsearch_instance_result.shape', old_gridsearch_instance_result.shape)
-            #if np.array_equal(gridsearch_instance_result, old_gridsearch_instance_result):
-            #    print("[+] correct")
-            #else:
-            #    print("[+] incorrect")
+            if np.array_equal(gridsearch_instance_result, gridsearch_dask_result):
+                print("[+] correct")
+            else:
+                print("[+] incorrect")
             self._set_data(key, gridsearch_instance_result)
         self._set_meta(config['gridsearch_key'], config_to_meta(config, 'gridsearch'))
         meta = self._get_meta(config['gridsearch_key'])
