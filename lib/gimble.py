@@ -2219,11 +2219,8 @@ class Store(object):
 
     def _write_gridsearch_bed(self, config):
         meta_gridsearch = self._get_meta(config['data_key'])
-        print(dict(meta_gridsearch))
-        # grid params
         grids = DOL_to_LOD(meta_gridsearch['grid_dict'])
         grid_params = np.array([list(subdict.values()) for subdict in grids] ,dtype=np.float64)
-        # bed
         sequences, starts, ends, index, pos_mean, pos_median, balance, mse_sample_set_cov = self._get_window_bed()
         params_header = list(meta_gridsearch['grid_dict'].keys())
         out_fs = []
