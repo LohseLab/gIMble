@@ -2407,9 +2407,9 @@ class Store(object):
             #print('gridsearch_instance_result.dtype', gridsearch_instance_result.dtype)
             #print('np.max(gridsearch_instance_result)', np.max(gridsearch_instance_result))
             gridsearch_dask_result = gridsearch_dask(tally=tally, grid=grid)
-            print('gridsearch_dask_result.nbytes', gridsearch_dask_result.nbytes)
-            print('gridsearch_dask_result.dtype', gridsearch_dask_result.dtype)
-            print('np.max(gridsearch_dask_result)', np.max(gridsearch_dask_result))
+            #print('gridsearch_dask_result.nbytes', gridsearch_dask_result.nbytes)
+            #print('gridsearch_dask_result.dtype', gridsearch_dask_result.dtype)
+            #print('np.max(gridsearch_dask_result)', np.max(gridsearch_dask_result))
             #old_gridsearch_instance_result = old_gridsearch_np(tally=tally, grid=grid)
             #print('old_gridsearch_instance_result.shape', old_gridsearch_instance_result.shape)
             #if np.array_equal(gridsearch_instance_result, gridsearch_dask_result):
@@ -2419,7 +2419,7 @@ class Store(object):
             self._set_data(key, gridsearch_dask_result)
         self._set_meta(config['gridsearch_key'], config_to_meta(config, 'gridsearch'))
         meta = self._get_meta(config['gridsearch_key'])
-        print(dict(meta))
+        #print(dict(meta))
         
     #def save_gridsearch(self, config, gridsearch_4D_result, gridsearch_5D_result):
     #    gridsearch_meta = config_to_meta(config, 'gridsearch')
