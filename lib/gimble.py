@@ -2393,21 +2393,21 @@ class Store(object):
         config, data, grid = self.gridsearch_preflight(tally_label, sim_label, grid_label, overwrite)
         print("[+] Performing global gridsearch on %r ..." % (config['data_key']))
         for key, (idx, tally) in zip(config['gridsearch_keys'], data):
-            gridsearch_instance_result = gridsearch_np(tally=tally, grid=grid)
-            print('gridsearch_instance_result.nbytes', gridsearch_instance_result.nbytes)
-            print('gridsearch_instance_result.dtype', gridsearch_instance_result.dtype)
-            print('np.max(gridsearch_instance_result)', np.max(gridsearch_instance_result))
+            #gridsearch_instance_result = gridsearch_np(tally=tally, grid=grid)
+            #print('gridsearch_instance_result.nbytes', gridsearch_instance_result.nbytes)
+            #print('gridsearch_instance_result.dtype', gridsearch_instance_result.dtype)
+            #print('np.max(gridsearch_instance_result)', np.max(gridsearch_instance_result))
             gridsearch_dask_result = gridsearch_dask(tally=tally, grid=grid)
             print('gridsearch_dask_result.nbytes', gridsearch_dask_result.nbytes)
             print('gridsearch_dask_result.dtype', gridsearch_dask_result.dtype)
             print('np.max(gridsearch_dask_result)', np.max(gridsearch_dask_result))
             #old_gridsearch_instance_result = old_gridsearch_np(tally=tally, grid=grid)
             #print('old_gridsearch_instance_result.shape', old_gridsearch_instance_result.shape)
-            if np.array_equal(gridsearch_instance_result, gridsearch_dask_result):
-                print("[+] correct")
-            else:
-                print("[+] incorrect")
-            self._set_data(key, gridsearch_instance_result)
+            #if np.array_equal(gridsearch_instance_result, gridsearch_dask_result):
+            #    print("[+] correct")
+            #else:
+            #    print("[+] incorrect")
+            self._set_data(key, gridsearch_dask_result)
         self._set_meta(config['gridsearch_key'], config_to_meta(config, 'gridsearch'))
         meta = self._get_meta(config['gridsearch_key'])
         print(dict(meta))
