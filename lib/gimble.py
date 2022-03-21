@@ -1789,15 +1789,19 @@ def gridsearch_np(tally=None, grid=None):
     if not tally.ndim == 4: # if tally.ndim == 5:
         tally = tally[:, None]
     print('tally.shape', tally.shape)
+    print('tally.dtype', tally.dtype)
     print('tally.nbytes', tally.nbytes)
     print("[+] Initialising grid array ...")
+    grid = grid.astype(_return_np_type(grid))
     grid_log = np.zeros(grid.shape, dtype=GRIDSEARCH_DTYPE)
-    np.log(grid, where=grid>0, out=grid_log)
+    np.log(grid, dtype=GRIDSEARCH_DTYPE, where=grid>0, out=grid_log)
     print('grid.shape', grid.shape)
     print('grid.nbytes', grid.nbytes)
+    print('grid.dtype', grid.dtype)
     product = tally * grid_log
     print('product.shape', product.shape)
     print('product.nbytes', product.nbytes)
+    print('product.dtype', product.dtype)
     return np.sum(product.reshape((product.shape[0], product.shape[1], np.prod(product.shape[2:]))), axis=-1)
     
 
