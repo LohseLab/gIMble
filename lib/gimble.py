@@ -1768,7 +1768,7 @@ def _gridsearch_sims_single(data, grids, fixed_param_grid, gridded_params, grid_
             df_fixed_param.to_csv(f'{label}_{name}_lnCL_dist.csv')
     return (df, df_fixed_param)
 
-def gridsearch_np(tally=None, grid=None):
+def old_gridsearch_np(tally=None, grid=None):
     '''returns 2d array of likelihoods of shape (windows, grid)'''
     if grid is None or tally is None:
         return None
@@ -1780,6 +1780,26 @@ def gridsearch_np(tally=None, grid=None):
     if tally.ndim == 4:
         return np.squeeze(np.apply_over_axes(np.sum, (tally * grid_log), axes=[-4,-3,-2,-1]))
     return np.squeeze(np.apply_over_axes(np.sum, (tally[:, None] * grid_log), axes=[-4,-3,-2,-1]))
+
+def gridsearch_np(tally=None, grid=None):
+    '''returns 2d array of likelihoods of shape (windows, grid)'''
+    if grid is None or tally is None:
+        return None
+    tally = tally if isinstance(tally, np.ndarray) else np.array(tally)
+    if not tally.ndim == 4: # if tally.ndim == 5:
+        tally = tally[:, None]
+    print('tally.shape', tally.shape)
+    print('tally.nbytes', tally.nbytes)
+    print("[+] Initialising grid array ...")
+    grid_log = np.zeros(grid.shape, dtype=GRIDSEARCH_DTYPE)
+    np.log(grid, where=grid>0, out=grid_log)
+    print('grid.shape', grid.shape)
+    print('grid.nbytes', grid.nbytes)
+    product = tally * grid_log
+    print('product.shape', product.shape)
+    print('product.nbytes', product.nbytes)
+    return np.sum(product.reshape((product.shape[0], product.shape[1], np.prod(product.shape[2:]))), axis=-1)
+    
 
 class Store(object):
     def __init__(self, prefix=None, path=None, create=False, overwrite=False):
@@ -2358,6 +2378,12 @@ class Store(object):
             print('gridsearch_instance_result.nbytes', gridsearch_instance_result.nbytes)
             print('gridsearch_instance_result.dtype', gridsearch_instance_result.dtype)
             print('np.max(gridsearch_instance_result)', np.max(gridsearch_instance_result))
+            #old_gridsearch_instance_result = old_gridsearch_np(tally=tally, grid=grid)
+            #print('old_gridsearch_instance_result.shape', old_gridsearch_instance_result.shape)
+            #if np.array_equal(gridsearch_instance_result, old_gridsearch_instance_result):
+            #    print("[+] correct")
+            #else:
+            #    print("[+] incorrect")
             self._set_data(key, gridsearch_instance_result)
         self._set_meta(config['gridsearch_key'], config_to_meta(config, 'gridsearch'))
         meta = self._get_meta(config['gridsearch_key'])
