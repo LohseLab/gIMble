@@ -1790,20 +1790,20 @@ def gridsearch_np(tally=None, grid=None):
     tally = tally if isinstance(tally, np.ndarray) else np.array(tally)
     if not tally.ndim == 4: # if tally.ndim == 5:
         tally = tally[:, None]
-    print('tally.shape', tally.shape)
-    print('tally.dtype', tally.dtype)
-    print('tally.nbytes', tally.nbytes)
+    #print('tally.shape', tally.shape)
+    #print('tally.dtype', tally.dtype)
+    #print('tally.nbytes', tally.nbytes)
     print("[+] Initialising grid array ...")
     grid = grid.astype(_return_np_type(grid))
     grid_log = np.zeros(grid.shape, dtype=GRIDSEARCH_DTYPE)
     np.log(grid, dtype=GRIDSEARCH_DTYPE, where=grid>0, out=grid_log)
-    print('grid.shape', grid.shape)
-    print('grid.nbytes', grid.nbytes)
-    print('grid.dtype', grid.dtype)
+    #print('grid.shape', grid.shape)
+    #print('grid.nbytes', grid.nbytes)
+    #print('grid.dtype', grid.dtype)
     product = tally * grid_log
-    print('product.shape', product.shape)
-    print('product.nbytes', product.nbytes)
-    print('product.dtype', product.dtype)
+    #print('product.shape', product.shape)
+    #print('product.nbytes', product.nbytes)
+    #print('product.dtype', product.dtype)
     return np.sum(product.reshape((product.shape[0], product.shape[1], np.prod(product.shape[2:]))), axis=-1)
     
 def gridsearch_dask(tally=None, grid=None):
@@ -1820,7 +1820,7 @@ def gridsearch_dask(tally=None, grid=None):
     #client = Client()
     #print(client)
     tally = dask.array.from_array(tally, chunks=(1000, 1, tally.shape[-4], tally.shape[-3], tally.shape[-2], tally.shape[-1]))
-    grid_log = dask.array.from_array(grid_log, chunks=(2000, grid_log.shape[-4], grid_log.shape[-3], grid_log.shape[-2], grid_log.shape[-1]))
+    grid_log = dask.array.from_array(grid_log, chunks=(1000, grid_log.shape[-4], grid_log.shape[-3], grid_log.shape[-2], grid_log.shape[-1]))
     product = dask.array.multiply(tally, grid_log)
     result = dask.array.sum(product.reshape((product.shape[0], product.shape[1], np.prod(product.shape[2:]))), axis=-1)
     with daProgressBar():
