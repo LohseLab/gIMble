@@ -80,6 +80,9 @@ SIGNS = {
 SPACING = 16
 MUTYPES = ['m_1', 'm_2', 'm_3', 'm_4']
 
+GRIDSEARCH_DTYPE=np.float32 # -3.4028235e+38 ... 3.4028235e+38
+# GRIDSEARCH_DTYPE=np.float64 # -1.7976931348623157e+308 ... 1.7976931348623157e+308
+
 class ReportObj(object):
     '''Report class for making reports'''
 
@@ -1770,8 +1773,10 @@ def gridsearch_np(tally=None, grid=None):
     if grid is None or tally is None:
         return None
     tally = tally if isinstance(tally, np.ndarray) else np.array(tally)
-    grid_log = np.zeros(grid.shape)
+    grid_log = np.zeros(grid.shape, dtype=GRIDSEARCH_DTYPE)
+    print("[+] Initialising grid array ...")
     np.log(grid, where=grid>0, out=grid_log)
+    print('grid.nbytes', grid.nbytes)
     if tally.ndim == 4:
         return np.squeeze(np.apply_over_axes(np.sum, (tally * grid_log), axes=[-4,-3,-2,-1]))
     return np.squeeze(np.apply_over_axes(np.sum, (tally[:, None] * grid_log), axes=[-4,-3,-2,-1]))
@@ -2350,6 +2355,9 @@ class Store(object):
         print("[+] Performing global gridsearch on %r ..." % (config['data_key']))
         for key, (idx, tally) in zip(config['gridsearch_keys'], data):
             gridsearch_instance_result = gridsearch_np(tally=tally, grid=grid)
+            print('gridsearch_instance_result.nbytes', gridsearch_instance_result.nbytes)
+            print('gridsearch_instance_result.dtype', gridsearch_instance_result.dtype)
+            print('np.max(gridsearch_instance_result)', np.max(gridsearch_instance_result))
             self._set_data(key, gridsearch_instance_result)
         self._set_meta(config['gridsearch_key'], config_to_meta(config, 'gridsearch'))
         meta = self._get_meta(config['gridsearch_key'])
