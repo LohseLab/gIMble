@@ -6,6 +6,8 @@ import demes
 import ast
 import math
 import numpy as np
+import dask
+from dask.diagnostics import ProgressBar as daProgressBar
 import pandas as pd
 import shutil
 import zarr
@@ -79,6 +81,9 @@ SIGNS = {
 
 SPACING = 16
 MUTYPES = ['m_1', 'm_2', 'm_3', 'm_4']
+
+GRIDSEARCH_DTYPE=np.float32 # -3.4028235e+38 ... 3.4028235e+38
+# GRIDSEARCH_DTYPE=np.float64 # -1.7976931348623157e+308 ... 1.7976931348623157e+308
 
 class ReportObj(object):
     '''Report class for making reports'''
@@ -1765,16 +1770,65 @@ def _gridsearch_sims_single(data, grids, fixed_param_grid, gridded_params, grid_
             df_fixed_param.to_csv(f'{label}_{name}_lnCL_dist.csv')
     return (df, df_fixed_param)
 
+def old_gridsearch_np(tally=None, grid=None):
+    '''returns 2d array of likelihoods of shape (windows, grid)'''
+    if grid is None or tally is None:
+        return None
+    tally = tally if isinstance(tally, np.ndarray) else np.array(tally)
+    grid_log = np.zeros(grid.shape, dtype=GRIDSEARCH_DTYPE)
+    print("[+] Initialising grid array ...")
+    np.log(grid, where=grid>0, out=grid_log)
+    print('grid.nbytes', grid.nbytes)
+    if tally.ndim == 4:
+        return np.squeeze(np.apply_over_axes(np.sum, (tally * grid_log), axes=[-4,-3,-2,-1]))
+    return np.squeeze(np.apply_over_axes(np.sum, (tally[:, None] * grid_log), axes=[-4,-3,-2,-1]))
+
 def gridsearch_np(tally=None, grid=None):
     '''returns 2d array of likelihoods of shape (windows, grid)'''
     if grid is None or tally is None:
         return None
     tally = tally if isinstance(tally, np.ndarray) else np.array(tally)
+    if not tally.ndim == 4: # if tally.ndim == 5:
+        tally = tally[:, None]
+    #print('tally.shape', tally.shape)
+    #print('tally.dtype', tally.dtype)
+    #print('tally.nbytes', tally.nbytes)
+    print("[+] Initialising grid array ...")
+    grid = grid.astype(_return_np_type(grid))
+    grid_log = np.zeros(grid.shape, dtype=GRIDSEARCH_DTYPE)
+    np.log(grid, dtype=GRIDSEARCH_DTYPE, where=grid>0, out=grid_log)
+    #print('grid.shape', grid.shape)
+    #print('grid.nbytes', grid.nbytes)
+    #print('grid.dtype', grid.dtype)
+    product = tally * grid_log
+    #print('product.shape', product.shape)
+    #print('product.nbytes', product.nbytes)
+    #print('product.dtype', product.dtype)
+    return np.sum(product.reshape((product.shape[0], product.shape[1], np.prod(product.shape[2:]))), axis=-1)
+    
+def gridsearch_dask(tally=None, grid=None):
+    '''returns 2d array of likelihoods of shape (windows, grid)'''
+    if grid is None or tally is None:
+        return None
+    tally = tally if isinstance(tally, np.ndarray) else np.array(tally)
+    if not tally.ndim == 4: # if tally.ndim == 5:
+        tally = tally[:, None]
+    #grid = grid.astype(_return_np_type(grid))
     grid_log = np.zeros(grid.shape)
+    #np.log(grid, dtype=_return_np_type(grid_log), where=grid>0, out=grid_log)
     np.log(grid, where=grid>0, out=grid_log)
-    if tally.ndim == 4:
-        return np.squeeze(np.apply_over_axes(np.sum, (tally * grid_log), axes=[-4,-3,-2,-1]))
-    return np.squeeze(np.apply_over_axes(np.sum, (tally[:, None] * grid_log), axes=[-4,-3,-2,-1]))
+    #from dask.distributed import Client
+    #client = Client()
+    #print(client)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        tally = dask.array.from_array(tally, chunks=(500, 1, tally.shape[-4], tally.shape[-3], tally.shape[-2], tally.shape[-1]))
+        grid_log = dask.array.from_array(grid_log, chunks=(500, grid_log.shape[-4], grid_log.shape[-3], grid_log.shape[-2], grid_log.shape[-1]))
+        product = dask.array.multiply(tally, grid_log)
+        result = dask.array.sum(product.reshape((product.shape[0], product.shape[1], np.prod(product.shape[2:]))), axis=-1)
+        with daProgressBar():
+            out = result.compute()
+        return out
 
 class Store(object):
     def __init__(self, prefix=None, path=None, create=False, overwrite=False):
@@ -2349,18 +2403,31 @@ class Store(object):
         config, data, grid = self.gridsearch_preflight(tally_label, sim_label, grid_label, overwrite)
         print("[+] Performing global gridsearch on %r ..." % (config['data_key']))
         for key, (idx, tally) in zip(config['gridsearch_keys'], data):
-            gridsearch_instance_result = gridsearch_np(tally=tally, grid=grid)
-            self._set_data(key, gridsearch_instance_result)
+            #gridsearch_instance_result = gridsearch_np(tally=tally, grid=grid)
+            #print('gridsearch_instance_result.nbytes', gridsearch_instance_result.nbytes)
+            #print('gridsearch_instance_result.dtype', gridsearch_instance_result.dtype)
+            #print('np.max(gridsearch_instance_result)', np.max(gridsearch_instance_result))
+            gridsearch_dask_result = gridsearch_dask(tally=tally, grid=grid)
+            #print('gridsearch_dask_result.nbytes', gridsearch_dask_result.nbytes)
+            #print('gridsearch_dask_result.dtype', gridsearch_dask_result.dtype)
+            #print('np.max(gridsearch_dask_result)', np.max(gridsearch_dask_result))
+            #old_gridsearch_instance_result = old_gridsearch_np(tally=tally, grid=grid)
+            #print('old_gridsearch_instance_result.shape', old_gridsearch_instance_result.shape)
+            #if np.array_equal(gridsearch_instance_result, gridsearch_dask_result):
+            #    print("[+] correct")
+            #else:
+            #    print("[+] incorrect")
+            self._set_data(key, gridsearch_dask_result)
         self._set_meta(config['gridsearch_key'], config_to_meta(config, 'gridsearch'))
         meta = self._get_meta(config['gridsearch_key'])
-        print(dict(meta))
+        #print(dict(meta))
         
-    def save_gridsearch(self, config, gridsearch_4D_result, gridsearch_5D_result):
-        gridsearch_meta = config_to_meta(config, 'gridsearch')
-        self._set_meta_and_data(config['gridsearch_key_4D'], gridsearch_meta, gridsearch_4D_result)
-        if not gridsearch_5D_result is None:
-            self._set_meta_and_data(config['gridsearch_key_5D'], gridsearch_meta, gridsearch_5D_result)
-        print("[+] Saved gridsearch results.")
+    #def save_gridsearch(self, config, gridsearch_4D_result, gridsearch_5D_result):
+    #    gridsearch_meta = config_to_meta(config, 'gridsearch')
+    #    self._set_meta_and_data(config['gridsearch_key_4D'], gridsearch_meta, gridsearch_4D_result)
+    #    if not gridsearch_5D_result is None:
+    #        self._set_meta_and_data(config['gridsearch_key_5D'], gridsearch_meta, gridsearch_5D_result)
+    #    print("[+] Saved gridsearch results.")
 
     def _gridsearch_sims(self, parameterObj, grids, grid_meta_dict):
         #check parameters that were fixed initially:
