@@ -2659,7 +2659,7 @@ class Store(object):
     def _get_meta(self, key):
         if self._has_key(key):
             return self.data[key].attrs
-        return None
+        return {}
 
     def _set_meta(self, key, meta={}):
         self.data.require_group(key)
