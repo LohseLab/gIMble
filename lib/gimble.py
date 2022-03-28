@@ -2659,7 +2659,7 @@ class Store(object):
     def _get_meta(self, key):
         if self._has_key(key):
             return self.data[key].attrs
-        return {}
+        return None
 
     def _set_meta(self, key, meta={}):
         self.data.require_group(key)
@@ -3042,6 +3042,7 @@ class Store(object):
     def _set_blocks_meta(self, block_length, block_span, block_max_missing, block_max_multiallelic, 
             blocks_raw_by_sample_set_idx, blocks_by_sample_set_idx, blocks_by_sequence):
         meta_blocks = self._get_meta('blocks')
+        print('meta_blocks', type(meta_blocks), meta_blocks)
         meta_blocks['length'] = block_length
         meta_blocks['span'] = block_span
         meta_blocks['max_missing'] = block_max_missing
