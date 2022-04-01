@@ -1,7 +1,9 @@
-"""usage: gimbl query                    -z <DIR> [-l <STR>] [-h|--help]
+"""usage: gimbl query                    -z <DIR> [-l <STR>] [--extended] [-h|--help]
                                             
         -z, --zarr_f DIR                 ZARR datastore
         -l, --label <STR>                Data label
+        --extended                       Write "extended" format (where applicable)
+                                            - gridsearch
         -h --help                        show this
 """
 from timeit import default_timer as timer
@@ -15,6 +17,7 @@ class QueryParameterObj(lib.gimble.ParameterObj):
         super().__init__(params)
         self.zstore = self._get_path(args['--zarr_f'])
         self.data_key = args['--label']
+        self.extended = args['--extended']
 
 def main(params):
     try:
@@ -25,6 +28,7 @@ def main(params):
         gimbleStore.query(
             parameterObj._VERSION,
             parameterObj.data_key,
+            parameterObj.extended
             )
         print("[*] Total runtime was %s" % (lib.gimble.format_time(timer() - start_time)))
     except KeyboardInterrupt:

@@ -36,7 +36,6 @@ class MakeGridParameterObj(lib.gimble.ParameterObj):
             self._MODULE, 
             self._CWD, 
             self._VERSION)
-        print(self.config)
 
 def main(params):
     try:
