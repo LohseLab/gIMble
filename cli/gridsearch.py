@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gimble gridsearch -z <FILE> -g <STR> [-d <STR>|-s <STR>] [-f] [-h|--help]
+"""usage: gimble gridsearch -z <FILE> -g <STR> [-d <STR>|-s <STR>] [-n <INT> -c <INT> -f] [-h|--help]
                                             
                                             
     Options:
@@ -11,6 +11,10 @@
         -g, --grid_label <STR>                      Label of makegrid run in GimbleStore
         -d, --tally_label <STR>                     Tally label
         -s, --sim_label <STR>                       Simulation label
+        -n, --num_cores <INT>                       Number of cores [default: 1]
+        -c, --chunksize <INT>                       Size of chunks to use in parallelisation 
+                                                        (greater chunksize => greater RAM requirements)
+                                                        [default: 500]
         -f, --overwrite                             Overwrite results in GimbleStore
 
 """
@@ -20,8 +24,6 @@ import lib.gimble
 import lib.math
 
 class GridsearchParameterObj(lib.gimble.ParameterObj):
-    '''Sanitises command line arguments and stores parameters.'''
-
     def __init__(self, params, args):
         super().__init__(params)
         self.zstore = self._get_path(args['--zarr_file'])
@@ -29,6 +31,8 @@ class GridsearchParameterObj(lib.gimble.ParameterObj):
         self.sim_label = args['--sim_label']
         self.grid_label = args['--grid_label']
         self.overwrite = args['--overwrite']
+        self.num_cores = self._get_int(args['--num_cores'])    # number of workers for independent processes
+        self.chunksize = self._get_int(args['--chunksize'])    # size of chunks in first dimension of tally/grid dask array 
         
 def main(params):
     try:
@@ -40,6 +44,8 @@ def main(params):
             tally_label=parameterObj.tally_label,
             sim_label=parameterObj.sim_label,
             grid_label=parameterObj.grid_label,
+            num_cores=parameterObj.num_cores,
+            chunksize=parameterObj.chunksize,
             overwrite=parameterObj.overwrite,
             )
         print("[*] Total runtime was %s" % (lib.gimble.format_time(timer() - start_time)))

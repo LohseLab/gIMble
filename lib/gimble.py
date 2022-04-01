@@ -1,5 +1,6 @@
 import itertools
 from tqdm import tqdm
+from tqdm.dask import TqdmCallback
 from lib.functions import plot_mutuple_barchart
 import allel
 import demes
@@ -7,7 +8,6 @@ import ast
 import math
 import numpy as np
 import dask
-from dask.diagnostics import ProgressBar as daProgressBar
 import pandas as pd
 import shutil
 import zarr
@@ -34,6 +34,22 @@ from timeit import default_timer as timer
 # np.set_printoptions(threshold=sys.maxsize)
 
 from lib.GeneratingFunction.gf import togimble
+
+#class DaskProgressBar(dask.callbacks.Callback):
+#    '''DaskProgressBar adapts dask.diagnostics.ProgressBar to behave like tqdm'''
+#    def __init__(self, **kwargs):
+#        self.desc = kwargs['desc']
+#        self.ncols = kwargs['ncols']
+#
+#    def _start_state(self, dsk, state):
+#        self._tqdm = tqdm(total=sum(len(state[k]) for k in ['ready', 'waiting', 'running', 'finished']), desc=self.desc, ncols=self.ncols)
+#
+#    def _posttask(self, key, result, dsk, state, worker_id):
+#        self._tqdm.update(1)
+#
+#    def _finish(self, dsk, state, errored):
+#        pass
+
 '''
 [Rules for better living]
 
@@ -345,7 +361,12 @@ def config_to_meta(config, task):
             meta['parameters']['recombination_rate'] = config['parameters']['recombination_rate'][config['idx']]
     if task == 'makegrid':
         meta['makegrid_key'] = config['key']
-        meta['grid_dict'] = {k:list(v) for k,v in config['parameters_expanded'].items()}
+        meta['makegrid_label'] = config['makegrid_label']
+        meta['parameters'] = config['parameters']
+        meta['parameters_fixed'] = config['parameters_fixed']
+        meta['parameters_gridded'] = config['parameters_gridded']
+        meta['parameters_grid_points'] = config['parameters_grid_points']
+        meta['grid_dict'] = {k: list(v) for k, v in config['parameters_expanded'].items()}
         meta['block_length'] = config['mu']['block_length']
         meta['mu'] = config['mu']['mu']
         meta['label'] = config['gimble']['label']
@@ -353,9 +374,10 @@ def config_to_meta(config, task):
         meta['reference_pop_id'] = config['populations']['reference_pop_id']      
         meta['sync_pop_ids'] = config['populations']['sync_pop_ids']
         meta['population_by_letter'] = config['populations']['population_by_letter']
-        meta['max_k'] = list([float(k) for k in config['max_k']])
+        meta['max_k'] = list([int(k) for k in config['max_k']])
     if task == 'gridsearch':
         meta['makegrid_key'] = config['makegrid_key']
+        meta['makegrid_label'] = config['makegrid_label']
         meta['batch_sites'] = config['batch_sites']
         meta['data_key'] = config['data_key']
         meta['gridsearch_key'] = config['gridsearch_key']
@@ -477,7 +499,6 @@ def get_config_kmax(config):
     return config
 
 def expand_parameters(config):
-    print(config)
     if 'populations' in config and len(config['populations']['sync_pop_ids'])>0:
         to_sync = ['Ne_%s' % pop for pop in config['populations']['sync_pop_ids'][1:]]
         sync_to = "Ne_%s" % config['populations']['sync_pop_ids'][0]
@@ -551,7 +572,6 @@ def load_config(config_file, MODULE=None, CWD=None, VERSION=None):
     validator = ConfigCustomNormalizer(schema, module=MODULE, purge_unknown=True)
     validator.validate(parsee)
     if not validator.validate(parsee):
-        #print(validator.errors)
         validator_error_string = get_validator_error_string(validator.errors)
         sys.exit("[X] Problems were encountered when parsing INI config file:\n%s" % validator_error_string)
     config = validator.normalized(parsee)
@@ -562,14 +582,11 @@ def load_config(config_file, MODULE=None, CWD=None, VERSION=None):
     config = get_config_model_parameters(config, MODULE)
     if MODULE == 'makegrid' or MODULE == 'simulate':
         config = expand_parameters(config)
-    #config = expand_parameters(config) # needed for testing
     if MODULE == 'simulate':
         config = get_config_simulate(config)
     if MODULE == 'optimize':
         config = get_config_optimize(config)
     config['CWD'] = CWD
-    #for k, v in config.items():
-    #    print(k, '\t', v)
     if not VERSION == config['gimble']['version']:
         print("[-] Version conflict:\n\tgimble %s\n\t config INI %s" % (VERSION, config['gimble']['version']))
     return config
@@ -1180,18 +1197,31 @@ def intervals_to_sites(intervals):
         return sites
     return None
 
-def sites_to_blocks(sites, block_length, block_span, debug=False):
-    if sites is None or not block_length or not block_span:
+def sites_to_blocks(sites, block_length, block_span, sample_set, debug=False):
+    # block_sites are 0-based, but they are SITES (numbering the bases) as opposed to coordinates (numbering between the bases)
+    if sites is None:
         return None
-    max_gap = (block_span - block_length - 1)
-    block_sites = np.concatenate([
-        x[:block_length * (x.shape[0] // block_length)].reshape(-1, block_length) 
-            for x in np.split(sites, np.where(np.diff(sites) > max_gap)[0] + 1)]) 
-    #block_sites_valid_mask = (((block_sites[:, -1] - block_sites[:, 0]) + 1) <= block_span)
-    block_sites_valid_mask = (((block_sites[:, -1] - block_sites[:, 0])) <= block_span)
+    max_gap = (block_span - block_length)
+    if max_gap == 0: # no gaps within blocks
+        block_sites = sites[:block_length * (sites.shape[0] // block_length)].reshape(-1, block_length)
+    else: # gaps within blocks are allowed
+        block_sites = np.concatenate([
+            x[:block_length * (x.shape[0] // block_length)].reshape(-1, block_length) 
+                for x in np.split(sites, np.where(np.diff(sites) > max_gap)[0] + 1)]) 
+    # no splitting
+    # block_sites = sites[:block_length * (sites.shape[0] // block_length)].reshape(-1, block_length)
+    # yes splitting
+    # block_sites = np.concatenate([
+    #    x[:block_length * (x.shape[0] // block_length)].reshape(-1, block_length) 
+    #        for x in np.split(sites, np.where(np.diff(sites) > max_gap)[0] + 1)]) 
+    block_sites_valid_mask = (((block_sites[:, -1] - block_sites[:, 0] + 1)) <= block_span) # +1 is needed because block sites are sites
     if debug:
+        print('[+] sample_set', sample_set)
+        print('[+] sites', sites)
         success = (block_sites[block_sites_valid_mask].shape[0] * block_length)/sites.shape[0] if np.count_nonzero(block_sites[block_sites_valid_mask]) else 0
-        print(block_sites[block_sites_valid_mask])
+        print('[+] blocks', block_sites[block_sites_valid_mask])
+        print('[+] block_sites_valid_mask', block_sites_valid_mask)
+        print('[+] block_sites_valid', (block_sites[:, -1] - block_sites[:, 0] + 1))
         print('[+] sites=%s : blocks=%s success=%.2f%%' % (sites.shape[0], block_sites[block_sites_valid_mask].shape[0], success))
     if np.any(block_sites_valid_mask):
         return block_sites[block_sites_valid_mask]
@@ -1806,29 +1836,26 @@ def gridsearch_np(tally=None, grid=None):
     #print('product.dtype', product.dtype)
     return np.sum(product.reshape((product.shape[0], product.shape[1], np.prod(product.shape[2:]))), axis=-1)
     
-def gridsearch_dask(tally=None, grid=None):
+def gridsearch_dask(tally=None, grid=None, num_cores=1, chunksize=500):
     '''returns 2d array of likelihoods of shape (windows, grid)'''
     if grid is None or tally is None:
         return None
     tally = tally if isinstance(tally, np.ndarray) else np.array(tally)
     if not tally.ndim == 4: # if tally.ndim == 5:
         tally = tally[:, None]
-    #grid = grid.astype(_return_np_type(grid))
     grid_log = np.zeros(grid.shape)
-    #np.log(grid, dtype=_return_np_type(grid_log), where=grid>0, out=grid_log)
     np.log(grid, where=grid>0, out=grid_log)
-    #from dask.distributed import Client
-    #client = Client()
-    #print(client)
+    scheduler = 'processes' if num_cores > 1 else 'single-threaded'
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        tally = dask.array.from_array(tally, chunks=(500, 1, tally.shape[-4], tally.shape[-3], tally.shape[-2], tally.shape[-1]))
-        grid_log = dask.array.from_array(grid_log, chunks=(500, grid_log.shape[-4], grid_log.shape[-3], grid_log.shape[-2], grid_log.shape[-1]))
-        product = dask.array.multiply(tally, grid_log)
-        result = dask.array.sum(product.reshape((product.shape[0], product.shape[1], np.prod(product.shape[2:]))), axis=-1)
-        with daProgressBar():
-            out = result.compute()
-        return out
+        with dask.config.set(scheduler=scheduler, n_workers=num_cores):
+            warnings.simplefilter("ignore")
+            tally = dask.array.from_array(tally, chunks=(chunksize, 1, tally.shape[-4], tally.shape[-3], tally.shape[-2], tally.shape[-1]))
+            grid_log = dask.array.from_array(grid_log, chunks=(chunksize, grid_log.shape[-4], grid_log.shape[-3], grid_log.shape[-2], grid_log.shape[-1]))
+            product = dask.array.multiply(tally, grid_log)
+            result = dask.array.sum(product.reshape((product.shape[0], product.shape[1], np.prod(product.shape[2:]))), axis=-1)
+            with TqdmCallback(desc="[%] Performing gridsearch", ncols=100):
+                out = result.compute()
+            return out
 
 class Store(object):
     def __init__(self, prefix=None, path=None, create=False, overwrite=False):
@@ -2084,7 +2111,7 @@ class Store(object):
         meta = config_to_meta(config, 'simulate_instance')
         self._set_meta_and_data(simulation_instance_key, meta, simulation_instance)
 
-    def _preflight_query(self, data_key, version):
+    def _preflight_query(self, version, data_key, extended):
         if not data_key:
             '''Still needs checking whether keys are found correctly for all modules
             # blocks √
@@ -2124,10 +2151,11 @@ class Store(object):
         if not self._has_key(data_key):
             sys.exit("[X] ZARR store %s has no data under the key %r." % (self.path, data_key))
         config['data_type'] = data_key.split("/")[0]
+        config['extended'] = extended
         return config
 
-    def query(self, version, data_key):
-        config = self._preflight_query(data_key, version)
+    def query(self, version, data_key, extended):
+        config = self._preflight_query(version, data_key, extended)
         if config['data_type'] == 'tally':
             self._write_tally_tsv(config)
         elif config['data_type'] == 'optimize':
@@ -2139,7 +2167,6 @@ class Store(object):
             self._write_gridsearch_bed(config)
         elif config['data_type'] == 'makegrid':
             meta = self._get_meta(config['data_key'])
-            print(dict(meta))
         else:
             sys.exit("[X] Not implemented.")
 
@@ -2273,20 +2300,29 @@ class Store(object):
 
     def _write_gridsearch_bed(self, config):
         meta_gridsearch = self._get_meta(config['data_key'])
+        #print('meta_gridsearch', dict(meta_gridsearch))
         grids = DOL_to_LOD(meta_gridsearch['grid_dict'])
-        grid_params = np.array([list(subdict.values()) for subdict in grids] ,dtype=np.float64)
+        parameters = list(meta_gridsearch['grid_dict'].keys())
+        parameter_array = np.array([np.array(v) for k, v in meta_gridsearch['grid_dict'].items()]).T
+        #print(parameter_array)
+        grid_params = np.array([list(subdict.values()) for subdict in grids], dtype=np.float64)
+        #print('grid_params', grid_params.shape, grid_params)
         sequences, starts, ends, index, pos_mean, pos_median, balance, mse_sample_set_cov = self._get_window_bed()
         params_header = list(meta_gridsearch['grid_dict'].keys())
         out_fs = []
         for gridsearch_key in meta_gridsearch['gridsearch_keys']:
+            print("[+] Writing data for gridsearch key %r ..." % gridsearch_key)
+            '''
+            lncls := (n,m) where 
+                    n := number of windows
+                    m := number of parameter combinations
+            '''
             lncls = np.array(self._get_data(gridsearch_key))
-            #print('lncls', lncls)
+            #print('lncls', lncls.shape)
+            #print('grid_params', grid_params.T.shape, grid_params)
             best_lncl = np.max(lncls, axis=lncls.ndim-1)
-            #print('best_lncl', best_lncl)
             best_idx = np.argmax(lncls, axis=lncls.ndim-1)
-            #print('best_idx', best_idx)
             best_params = grid_params[best_idx, :]
-            #print('best_params', best_params)
             if lncls.ndim == 1:
                 columns = ['lnCL'] + params_header
                 dtypes = {column: 'float64' for column in columns}
@@ -2298,8 +2334,7 @@ class Store(object):
                     'balance': 'float64', 'mse_sample_set_cov': 'float64', 'lnCL': 'float64'}
                 for param in params_header:
                     dtypes[param] = 'float64'
-            out_f = '%s.bed' % ("_".join(gridsearch_key.split("/")))
-            print("[+] Sum of lnCL for winning parameters = %s" % np.sum(best_lncl))
+            out_f = ('%s.bed' if not config['extended'] else '%s.extended.bed') % ("_".join(gridsearch_key.split("/")))
             # write header
             header = ["# %s" % config['version']]
             header += ["# %s" % "\t".join(columns)]
@@ -2313,6 +2348,7 @@ class Store(object):
             else:
                 bed_df = pd.DataFrame(data=int_bed, columns=columns).astype(dtype=dtypes)
             bed_df.to_csv(out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=columns)
+            print("[+] \tWrote %r ..." % out_f)
             out_fs.append(out_f)
         return out_fs
         #grids = DOL_to_LOD(meta_gridsearch['grid_dict'])
@@ -2358,22 +2394,25 @@ class Store(object):
         # first deal with grid
         config['makegrid_key'] = self._get_key(task='makegrid', analysis_label=grid_label)
         grid_meta = self._get_meta(config['makegrid_key'])
+        config['makegrid_label'] = grid_meta['label']
         if grid_meta is None:
             sys.exit("[X] gimbleStore has no grid labelled %r." % config['makegrid_key'])
         grid = np.array(self._get_data(config['makegrid_key']), dtype=np.float64) # grid is likelihoods 
         config['grid_dict'] = grid_meta['grid_dict'] # grid_dict is params
         # Error if no data
-        config['data_source'] = 'sims' if sim_label else 'meas'
-        config['data_label'] = sim_label or tally_label
         if sim_label:
+            config['data_source'] = 'sims'
+            config['data_label'] = sim_label
             config['data_key'] = self._get_key(task='simulate', analysis_label=config['data_label'])
         if tally_label:
+            config['data_source'] = 'meas'
+            config['data_label'] = tally_label
             config['data_key'] = self._get_key(task='tally', data_label=config['data_label'])
         if not self._has_key(config['data_key']):
-            sys.exit("[X] gimbleStore has no %r." % config['data_key'])
+            sys.exit("[X] No data found with label %r." % config['data_label'])
         config['gridsearch_key'] = self._get_key(task='gridsearch', data_label=config['data_label'], analysis_label=grid_label)
         if not overwrite and self._has_key(config['gridsearch_key']):
-            sys.exit("[X] Gridsearch results with grid label %r on data %r already exist. Use '-f' to replace." % (grid_label, data_label))
+            sys.exit("[X] Gridsearch results with grid label %r on data %r already exist. Use '-f' to replace." % (grid_label, config['data_label']))
         if config['data_source'] == 'meas':
             data = ((0, self._get_data(config['data_key'])) for _ in (0,))
             meta = self._get_meta(config['data_key'])
@@ -2398,29 +2437,15 @@ class Store(object):
                 ))
         return (config, data, grid)
 
-    def gridsearch(self, tally_label, sim_label, grid_label, overwrite):
+    def gridsearch(self, tally_label, sim_label, grid_label, num_cores, chunksize, overwrite):
         print("[+] Gathering data for gridsearch ...")
         config, data, grid = self.gridsearch_preflight(tally_label, sim_label, grid_label, overwrite)
-        print("[+] Performing global gridsearch on %r ..." % (config['data_key']))
+        print("[+] Searching with grid %r along tally %r ..." % (config['makegrid_label'], config['data_label']))
         for key, (idx, tally) in zip(config['gridsearch_keys'], data):
-            #gridsearch_instance_result = gridsearch_np(tally=tally, grid=grid)
-            #print('gridsearch_instance_result.nbytes', gridsearch_instance_result.nbytes)
-            #print('gridsearch_instance_result.dtype', gridsearch_instance_result.dtype)
-            #print('np.max(gridsearch_instance_result)', np.max(gridsearch_instance_result))
-            gridsearch_dask_result = gridsearch_dask(tally=tally, grid=grid)
-            #print('gridsearch_dask_result.nbytes', gridsearch_dask_result.nbytes)
-            #print('gridsearch_dask_result.dtype', gridsearch_dask_result.dtype)
-            #print('np.max(gridsearch_dask_result)', np.max(gridsearch_dask_result))
-            #old_gridsearch_instance_result = old_gridsearch_np(tally=tally, grid=grid)
-            #print('old_gridsearch_instance_result.shape', old_gridsearch_instance_result.shape)
-            #if np.array_equal(gridsearch_instance_result, gridsearch_dask_result):
-            #    print("[+] correct")
-            #else:
-            #    print("[+] incorrect")
+            gridsearch_dask_result = gridsearch_dask(tally=tally, grid=grid, num_cores=num_cores, chunksize=chunksize)
             self._set_data(key, gridsearch_dask_result)
         self._set_meta(config['gridsearch_key'], config_to_meta(config, 'gridsearch'))
-        meta = self._get_meta(config['gridsearch_key'])
-        #print(dict(meta))
+        print("[+] Gridsearch can be accessed with %r" % config['gridsearch_key'])
         
     #def save_gridsearch(self, config, gridsearch_4D_result, gridsearch_5D_result):
     #    gridsearch_meta = config_to_meta(config, 'gridsearch')
@@ -2737,14 +2762,14 @@ class Store(object):
         if not overwrite and self._has_key(key):
             sys.exit("[X] Grid with label %r already exist. Change the label in the config file or use '--force'" % config['gimble']['label'])
         config['key'] = key
+        config['makegrid_label'] = config['gimble']['label']
         return config
 
     def makegrid(self, config, num_cores, overwrite):
         # print(self.data.tree())
         config = self._preflight_makegrid(config, overwrite)
-        print("[+] Grid of %s grid points will be prepared..." % config['parameters_grid_points'])
+        print("[+] Grid of %s parameter-grid-points will be prepared..." % config['parameters_grid_points'])
         gf = lib.math.config_to_gf(config)
-        print('[+] Generating equations...')
         gfEvaluatorObj = togimble.gfEvaluator(gf, config['max_k'], MUTYPES, config['gimble']['precision'], exclude=[(2,3),])
         print('[+] Equations for model %r have been generated.' % config['gimble']['model'])
         grid = lib.math.new_calculate_all_ETPs(
@@ -2761,6 +2786,7 @@ class Store(object):
     def save_grid(self, config, grid):
         grid_meta = config_to_meta(config, 'makegrid')
         self._set_meta_and_data(config['key'], grid_meta, grid)
+        print("[+] Grid can be accessed with '--grid_label %s'" % grid_meta['makegrid_key'])
 
     def _validate_seq_names(self, sequences=None):
         """Returns valid seq_names in sequences or exits."""
@@ -2837,7 +2863,8 @@ class Store(object):
         variations = []
         for key in tqdm(keys, total=len(keys), desc="[%] Preparing data...", ncols=100, unit_scale=True, disable=(not progress)):
             #variations.append(np.array(self.data[key], dtype=np.int64))
-            variations.append(self.data[key])
+            if self._has_key(key):
+                variations.append(self.data[key])
         variation = np.concatenate(variations, axis=0)
         polarise_true = (
             (population_by_letter['A'] == meta['population_by_letter']['B']) and 
@@ -3000,13 +3027,13 @@ class Store(object):
                     # turn BED starts/ends into sites-array
                     sites = intervals_to_sites(intervals)
                     # turn sites-array into 2D np.array with block sites (or None)
-                    blocks = sites_to_blocks(sites, block_length, block_span) 
-                    if blocks is not None:
+                    block_sites = sites_to_blocks(sites, block_length, block_span, sample_set) 
+                    if block_sites is not None:
                         # subset gts of sample_set from gt_matrix (or None)
                         gts = subset_gt_matrix(meta_seqs, sample_set, 
-                            np.isin(pos, blocks, assume_unique=True), gt_matrix)
+                            np.isin(pos, block_sites, assume_unique=True), gt_matrix)
                         # get block arrays
-                        starts, ends, multiallelic, missing, monomorphic, variation = blocks_to_arrays(blocks, gts, pos)
+                        starts, ends, multiallelic, missing, monomorphic, variation = blocks_to_arrays(block_sites, gts, pos)
                         # save block arrays
                         blocks_raw, blocks_valid = self._set_blocks(seq_name, sample_set_idx, starts, ends, multiallelic, missing, monomorphic, variation, block_max_missing, block_max_multiallelic)
                         # record counts
@@ -3042,7 +3069,8 @@ class Store(object):
     def _set_blocks_meta(self, block_length, block_span, block_max_missing, block_max_multiallelic, 
             blocks_raw_by_sample_set_idx, blocks_by_sample_set_idx, blocks_by_sequence):
         meta_blocks = self._get_meta('blocks')
-        print('meta_blocks', type(meta_blocks), dict(meta_blocks))
+        if meta_blocks is None:
+            sys.exit("[X] No blocks could be generated from data given the parameters.")
         meta_blocks['length'] = block_length
         meta_blocks['span'] = block_span
         meta_blocks['max_missing'] = block_max_missing
@@ -3052,6 +3080,7 @@ class Store(object):
         meta_blocks['count_raw_by_sample_set_idx'] = dict(blocks_raw_by_sample_set_idx) # keys are strings
         meta_blocks['count_total'] = sum([count for count in blocks_by_sample_set_idx.values()])
         meta_blocks['count_total_raw'] = sum([count for count in blocks_raw_by_sample_set_idx.values()])
+        print('meta_blocks', type(meta_blocks), dict(meta_blocks))
 
     def _get_block_coordinates(self, sample_sets=None, sequences=None):
         sequences = self._validate_seq_names(sequences)
@@ -3093,7 +3122,7 @@ class Store(object):
         if not blockable_seqs:
             sys.exit("[X] Not enough blocks to make windows of this size (%s)." % (window_size_effective))
         print("[+] Making windows along %s sequences (%s sequences excluded)" % (len(blockable_seqs), len(unblockable_seqs)))
-        for seq_name in tqdm(blockable_seqs, total=len(blockable_seqs), desc="[%] Making windows", ncols=100):
+        for seq_name in tqdm(blockable_seqs, total=len(blockable_seqs), desc="[%] ", ncols=100):
             block_variation = self._get_variation(data_type='blocks', sample_sets=sample_sets, sequences=[seq_name])
             #print('block_variation.shape', block_variation.shape)
             block_starts, block_ends = self._get_block_coordinates(sample_sets=sample_sets, sequences=[seq_name])
@@ -3122,6 +3151,7 @@ class Store(object):
         meta_windows['size'] = window_size 
         meta_windows['step'] = window_step
         meta_windows['count'] = window_count
+        print("[+] Made %s window(s)" % format_count(meta_windows['count']))
 
 ####################### REPORTS ######################
 

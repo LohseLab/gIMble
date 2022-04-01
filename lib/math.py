@@ -917,11 +917,8 @@ def new_calculate_all_ETPs(gfEvaluatorObj, parameter_combinations, reference_pop
         shape='LOD'
         )
     all_ETPs = []
-    print("[+] Calculating probabilities for %s gridpoints" % len(scaled_parameter_combinations))
+    print("[+] Calculating probabilities of mutation configurations for %s gridpoints" % len(scaled_parameter_combinations))
     if processes==1:
-        #for parameter_combination in tqdm(scaled_parameter_combinations, desc=desc, ncols=100, disable=True):
-        #    print(parameter_combination)
-        #    all_ETPs.append(gfEvaluatorObj.evaluate_gf(parameter_combination, parameter_combination[sage.all.SR.var('theta')])) 
         for parameter_combination in tqdm(scaled_parameter_combinations, desc="[%]", ncols=100, disable=True):
             result = gfEvaluatorObj.evaluate_gf(parameter_combination, parameter_combination[sage.all.SR.var('theta')]) 
             all_ETPs.append(result)
@@ -932,6 +929,7 @@ def new_calculate_all_ETPs(gfEvaluatorObj, parameter_combinations, reference_pop
             for ETP in pool.starmap(gfEvaluatorObj.evaluate_gf, tqdm(args, total=len(scaled_parameter_combinations), ncols=100, desc="[%]")):
                 all_ETPs.append(ETP)
     return np.array(all_ETPs, dtype=np.float64)
+    
 """
 class Constructor(object):
     # [EQUATIONS.py]
