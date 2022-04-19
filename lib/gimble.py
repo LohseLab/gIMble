@@ -2477,7 +2477,6 @@ class Store(object):
         if grid_meta is None:
             sys.exit("[X] gimbleStore has no grid labelled %r." % config['makegrid_key'])
         grid = np.array(self._get_data(config['makegrid_key']), dtype=np.float64) # grid is likelihoods
-        print('grid.shape', grid.shape)
         config['grid_dict'] = grid_meta['grid_dict'] # grid_dict is params
         # Error if no data
         if sim_label:
@@ -2508,7 +2507,7 @@ class Store(object):
             config['gridsearch_keys'] = [self._get_key(task='gridsearch', data_label=config['data_label'], analysis_label=grid_meta['label'], parameter_label=idx) for idx in range(meta['max_idx'] + 1)]
         config['block_length_grid'] = grid_meta['block_length']
         #print('grid_meta', dict(grid_meta))
-        config['parameters_grid_points'] = grid_meta.get('parameters_grid_points', None)
+        config['parameters_grid_points'] = grid_meta.get('parameters_grid_points', grid.shape[0]) # grid.shape[0] fallback is for older zarr stores...
         # checking whether block_length in data and grid are compatible
         if not config['block_length_data'] == config['block_length_grid']:
             sys.exit("[X] Block lengths in data %r (%s) and grid %r (%s) are not compatible.." % (
