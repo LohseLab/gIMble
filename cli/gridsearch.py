@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gimble gridsearch -z <FILE> -g <STR> [-d <STR>|-s <STR>] [-n <INT> -c <INT> -f] [-h|--help]
+"""usage: gimble gridsearch -z <FILE> -g <STR> [-t <STR>|-s <STR>] [-n <INT> -c <INT> -f] [-h|--help]
                                             
                                             
     Options:
@@ -9,7 +9,7 @@
         
         -z, --zarr_file <FILE>                      Path to existing GimbleStore
         -g, --grid_label <STR>                      Label of makegrid run in GimbleStore
-        -d, --tally_label <STR>                     Tally label
+        -t, --tally_label <STR>                     Tally label
         -s, --sim_label <STR>                       Simulation label
         -n, --num_cores <INT>                       Number of cores [default: 1]
         -c, --chunksize <INT>                       Size of chunks to use in parallelisation 

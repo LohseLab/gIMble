@@ -13,7 +13,6 @@ import shutil
 import zarr
 import os
 import string
-#import loguru
 import collections
 import sys
 import warnings
@@ -24,7 +23,6 @@ from matplotlib.path import Path
 import matplotlib.patches as patches
 import cerberus
 import lib.simulate
-#import dask
 import hashlib 
 import fractions
 import copy
@@ -34,21 +32,6 @@ from timeit import default_timer as timer
 # np.set_printoptions(threshold=sys.maxsize)
 
 from lib.GeneratingFunction.gf import togimble
-
-#class DaskProgressBar(dask.callbacks.Callback):
-#    '''DaskProgressBar adapts dask.diagnostics.ProgressBar to behave like tqdm'''
-#    def __init__(self, **kwargs):
-#        self.desc = kwargs['desc']
-#        self.ncols = kwargs['ncols']
-#
-#    def _start_state(self, dsk, state):
-#        self._tqdm = tqdm(total=sum(len(state[k]) for k in ['ready', 'waiting', 'running', 'finished']), desc=self.desc, ncols=self.ncols)
-#
-#    def _posttask(self, key, result, dsk, state, worker_id):
-#        self._tqdm.update(1)
-#
-#    def _finish(self, dsk, state, errored):
-#        pass
 
 '''
 [Rules for better living]
@@ -325,18 +308,35 @@ def config_to_meta(config, task):
     - ZARR does not like np.int64 but np.float64 is ok 
     '''
     meta = {}
-    if task == 'tally':
-        meta['data_key'] = config['data_key']
-        meta['data_source'] = config['data_source']
-        meta['data_type'] = config['data_type']
-        meta['tally_key'] = config['tally_key']
-        meta['max_k'] = None if config['max_k'] is None else tuple([int(v) for v in config['max_k']])
+    if task == 'windows':
+        meta['window_size'] = config['window_size']
+        meta['window_step'] = config['window_step']
         meta['sample_sets'] = config['sample_sets']
-        meta['sequences'] = config['sequences']
-        meta['genome_file'] = config['genome_file']
-        meta['blocks'] = config['blocks']
-        meta['windows'] = config['windows']
-        meta['marginality'] = config['marginality']
+        meta['windows_key'] = config['windows_key']
+        meta['window_count'] = config['window_count']
+    if task == 'blocks':
+        meta['length'] = config['block_length']
+        meta['span'] = config['block_span']
+        meta['max_missing'] = config['block_max_missing']
+        meta['max_multiallelic'] = config['block_max_multiallelic']
+        meta['count_by_sample_set_idx'] = dict(config['blocks_by_sample_set_idx']) # keys are strings
+        meta['count_by_sequence'] = dict(config['blocks_by_sequence']) # keys are strings
+        meta['count_raw_by_sample_set_idx'] = dict(config['blocks_raw_by_sample_set_idx']) # keys are strings
+        meta['count_total'] = config['count_total']
+        meta['count_total_raw'] = config['count_total_raw']
+    if task == 'tally':
+        meta['data_ndims'] = config.get('data_ndims', 0) 
+        meta['data_key'] = config['data_key'] # where to find the data that went into tally
+        meta['data_source'] = config['data_source'] # meas | sims ?
+        meta['data_type'] = config['data_type'] 
+        meta['tally_key'] = config['tally_key'] # where to find the tally
+        meta['max_k'] = None if config['max_k'] is None else tuple([int(v) for v in config['max_k']])
+        meta['sample_sets'] = config.get('sample_sets', "NA")
+        meta['sequences'] = config.get('sequences', [])
+        meta['genome_file'] = config.get('genome_file', None)
+        meta['blocks'] = config.get('blocks', 0) 
+        meta['windows'] = config.get('windows', 0) 
+        meta['marginality'] = config.get('marginality', "NA")
         meta['block_length'] = config['block_length']
     if task == 'simulate':
         meta['max_idx'] = config['idx']
@@ -377,6 +377,7 @@ def config_to_meta(config, task):
         meta['max_k'] = list([int(k) for k in config['max_k']])
     if task == 'gridsearch':
         meta['makegrid_key'] = config['makegrid_key']
+        meta['grid_points'] = config['parameters_grid_points']
         meta['makegrid_label'] = config['makegrid_label']
         meta['batch_sites'] = config['batch_sites']
         meta['data_key'] = config['data_key']
@@ -577,11 +578,12 @@ def load_config(config_file, MODULE=None, CWD=None, VERSION=None):
     config = validator.normalized(parsee)
     np.random.seed(config['gimble']['random_seed'])
     config = get_config_pops(config)
-    config = get_config_kmax(config)
+    #config = get_config_kmax(config)
     config = get_config_model_events(config)
     config = get_config_model_parameters(config, MODULE)
     if MODULE == 'makegrid' or MODULE == 'simulate':
         config = expand_parameters(config)
+        config = get_config_kmax(config) # HAS TO BE CHECKED!
     if MODULE == 'simulate':
         config = get_config_simulate(config)
     if MODULE == 'optimize':
@@ -1199,6 +1201,10 @@ def intervals_to_sites(intervals):
 
 def sites_to_blocks(sites, block_length, block_span, sample_set, debug=False):
     # block_sites are 0-based, but they are SITES (numbering the bases) as opposed to coordinates (numbering between the bases)
+    # 0 1 2 3 4 5 6 BED
+    # A T G C A G
+    # 1 2 3 4 5 6  VCF
+    # 0 1 2 3 4 5  Scikit allel, sites
     if sites is None:
         return None
     max_gap = (block_span - block_length)
@@ -1208,13 +1214,13 @@ def sites_to_blocks(sites, block_length, block_span, sample_set, debug=False):
         block_sites = np.concatenate([
             x[:block_length * (x.shape[0] // block_length)].reshape(-1, block_length) 
                 for x in np.split(sites, np.where(np.diff(sites) > max_gap)[0] + 1)]) 
-    # no splitting
+    ## no splitting
     # block_sites = sites[:block_length * (sites.shape[0] // block_length)].reshape(-1, block_length)
-    # yes splitting
+    ## yes splitting
     # block_sites = np.concatenate([
     #    x[:block_length * (x.shape[0] // block_length)].reshape(-1, block_length) 
     #        for x in np.split(sites, np.where(np.diff(sites) > max_gap)[0] + 1)]) 
-    block_sites_valid_mask = (((block_sites[:, -1] - block_sites[:, 0] + 1)) <= block_span) # +1 is needed because block sites are sites
+    block_sites_valid_mask = (((block_sites[:, -1] - block_sites[:, 0] + 1)) <= block_span) # +1 is needed because block sites are sites (not coordinates)
     if debug:
         print('[+] sample_set', sample_set)
         print('[+] sites', sites)
@@ -1222,7 +1228,7 @@ def sites_to_blocks(sites, block_length, block_span, sample_set, debug=False):
         print('[+] blocks', block_sites[block_sites_valid_mask])
         print('[+] block_sites_valid_mask', block_sites_valid_mask)
         print('[+] block_sites_valid', (block_sites[:, -1] - block_sites[:, 0] + 1))
-        print('[+] sites=%s : blocks=%s success=%.2f%%' % (sites.shape[0], block_sites[block_sites_valid_mask].shape[0], success))
+        print('[+] sites=%s : blocks=%s success=%.2f' % (sites.shape[0], block_sites[block_sites_valid_mask].shape[0], success))
     if np.any(block_sites_valid_mask):
         return block_sites[block_sites_valid_mask]
     return None
@@ -1800,57 +1806,62 @@ def _gridsearch_sims_single(data, grids, fixed_param_grid, gridded_params, grid_
             df_fixed_param.to_csv(f'{label}_{name}_lnCL_dist.csv')
     return (df, df_fixed_param)
 
-def old_gridsearch_np(tally=None, grid=None):
-    '''returns 2d array of likelihoods of shape (windows, grid)'''
-    if grid is None or tally is None:
-        return None
-    tally = tally if isinstance(tally, np.ndarray) else np.array(tally)
-    grid_log = np.zeros(grid.shape, dtype=GRIDSEARCH_DTYPE)
-    print("[+] Initialising grid array ...")
-    np.log(grid, where=grid>0, out=grid_log)
-    print('grid.nbytes', grid.nbytes)
-    if tally.ndim == 4:
-        return np.squeeze(np.apply_over_axes(np.sum, (tally * grid_log), axes=[-4,-3,-2,-1]))
-    return np.squeeze(np.apply_over_axes(np.sum, (tally[:, None] * grid_log), axes=[-4,-3,-2,-1]))
+# def old_gridsearch_np(tally=None, grid=None):
+#     '''returns 2d array of likelihoods of shape (windows, grid)'''
+#     if grid is None or tally is None:
+#         return None
+#     tally = tally if isinstance(tally, np.ndarray) else np.array(tally)
+#     grid_log = np.zeros(grid.shape, dtype=GRIDSEARCH_DTYPE)
+#     print("[+] Initialising grid array ...")
+#     np.log(grid, where=grid>0, out=grid_log)
+#     print('grid.nbytes', grid.nbytes)
+#     if tally.ndim == 4:
+#         return np.squeeze(np.apply_over_axes(np.sum, (tally * grid_log), axes=[-4,-3,-2,-1]))
+#     return np.squeeze(np.apply_over_axes(np.sum, (tally[:, None] * grid_log), axes=[-4,-3,-2,-1]))
 
-def gridsearch_np(tally=None, grid=None):
-    '''returns 2d array of likelihoods of shape (windows, grid)'''
-    if grid is None or tally is None:
-        return None
-    tally = tally if isinstance(tally, np.ndarray) else np.array(tally)
-    if not tally.ndim == 4: # if tally.ndim == 5:
-        tally = tally[:, None]
-    #print('tally.shape', tally.shape)
-    #print('tally.dtype', tally.dtype)
-    #print('tally.nbytes', tally.nbytes)
-    print("[+] Initialising grid array ...")
-    grid = grid.astype(_return_np_type(grid))
-    grid_log = np.zeros(grid.shape, dtype=GRIDSEARCH_DTYPE)
-    np.log(grid, dtype=GRIDSEARCH_DTYPE, where=grid>0, out=grid_log)
-    #print('grid.shape', grid.shape)
-    #print('grid.nbytes', grid.nbytes)
-    #print('grid.dtype', grid.dtype)
-    product = tally * grid_log
-    #print('product.shape', product.shape)
-    #print('product.nbytes', product.nbytes)
-    #print('product.dtype', product.dtype)
-    return np.sum(product.reshape((product.shape[0], product.shape[1], np.prod(product.shape[2:]))), axis=-1)
+# def gridsearch_np(tally=None, grid=None):
+#     '''returns 2d array of likelihoods of shape (windows, grid)'''
+#     if grid is None or tally is None:
+#         return None
+#     tally = tally if isinstance(tally, np.ndarray) else np.array(tally)
+#     if not tally.ndim == 4: # if tally.ndim == 5:
+#         tally = tally[:, None]
+#     #print('tally.shape', tally.shape)
+#     #print('tally.dtype', tally.dtype)
+#     #print('tally.nbytes', tally.nbytes)
+#     print("[+] Initialising grid array ...")
+#     grid = grid.astype(_return_np_type(grid))
+#     grid_log = np.zeros(grid.shape, dtype=GRIDSEARCH_DTYPE)
+#     np.log(grid, dtype=GRIDSEARCH_DTYPE, where=grid>0, out=grid_log)
+#     #print('grid.shape', grid.shape)
+#     #print('grid.nbytes', grid.nbytes)
+#     #print('grid.dtype', grid.dtype)
+#     product = tally * grid_log
+#     #print('product.shape', product.shape)
+#     #print('product.nbytes', product.nbytes)
+#     #print('product.dtype', product.dtype)
+#     return np.sum(product.reshape((product.shape[0], product.shape[1], np.prod(product.shape[2:]))), axis=-1)
     
 def gridsearch_dask(tally=None, grid=None, num_cores=1, chunksize=500):
     '''returns 2d array of likelihoods of shape (windows, grid)'''
     if grid is None or tally is None:
         return None
     tally = tally if isinstance(tally, np.ndarray) else np.array(tally)
-    if not tally.ndim == 4: # if tally.ndim == 5:
-        tally = tally[:, None]
     grid_log = np.zeros(grid.shape)
     np.log(grid, where=grid>0, out=grid_log)
+    if tally.ndim == 5: # if tally.ndim == 5:
+        tally = tally[:, None]
+        tally_chunks = (chunksize, 1, tally.shape[-4], tally.shape[-3], tally.shape[-2], tally.shape[-1])
+        grid_chunks = (chunksize, grid_log.shape[-4], grid_log.shape[-3], grid_log.shape[-2], grid_log.shape[-1])
+    if tally.ndim == 4:
+        tally_chunks = (tally.shape[-4], tally.shape[-3], tally.shape[-2], tally.shape[-1])
+        grid_chunks = (chunksize, grid_log.shape[-4], grid_log.shape[-3], grid_log.shape[-2], grid_log.shape[-1])
     scheduler = 'processes' if num_cores > 1 else 'single-threaded'
     with warnings.catch_warnings():
         with dask.config.set(scheduler=scheduler, n_workers=num_cores):
             warnings.simplefilter("ignore")
-            tally = dask.array.from_array(tally, chunks=(chunksize, 1, tally.shape[-4], tally.shape[-3], tally.shape[-2], tally.shape[-1]))
-            grid_log = dask.array.from_array(grid_log, chunks=(chunksize, grid_log.shape[-4], grid_log.shape[-3], grid_log.shape[-2], grid_log.shape[-1]))
+            tally = dask.array.from_array(tally, chunks=tally_chunks)
+            grid_log = dask.array.from_array(grid_log, chunks=grid_chunks)
             product = dask.array.multiply(tally, grid_log)
             result = dask.array.sum(product.reshape((product.shape[0], product.shape[1], np.prod(product.shape[2:]))), axis=-1)
             with TqdmCallback(desc="[%] Performing gridsearch", ncols=100):
@@ -2031,24 +2042,58 @@ class Store(object):
         meta_intervals['intervals_count'] = intervals_count
         meta_intervals['intervals_span'] = intervals_span
 
+    def _preflight_blocks(self, block_length, block_span, block_max_multiallelic, block_max_missing, overwrite):
+        '''
+        [TODO]: allow for multiple block datasets
+        '''
+        if not self.has_stage('measure'):
+            sys.exit("[X] GStore %r has no data. Please run 'gimble measure'." % self.path)
+        if self.has_stage('blocks'):
+            if not overwrite:
+                sys.exit("[X] GStore %r already contains blocks.\n[X] These blocks => %r\n[X] Please specify '--force' to overwrite." % (self.path, self.get_stage('blocks')))
+            print('[-] GStore %r already contains blocks. But these will be overwritten...' % (self.path))
+            # wipe bsfs, windows, AND meta, since new blocks...
+            blocks_meta = self._get_meta('blocks')
+            if blocks_meta:
+                self._del_data_and_meta('blocks')
+                self._del_data_and_meta(blocks_meta['blocks_raw_tally_key'])
+            windows_meta = self._get_meta('windows')
+            if windows_meta:
+                self._del_data_and_meta('windows')
+                self._del_data_and_meta(windows_meta['windows_raw_tally_key'])
+                self._del_data_and_meta(windows_meta['windowsum_raw_tally_key'])
+        config = {
+            'blocks_key': 'blocks',
+            'block_length': block_length,
+            'block_span': block_span, 
+            'block_max_multiallelic': block_max_multiallelic, 
+            'block_max_missing': block_max_missing, 
+            'blocks_raw_by_sample_set_idx': collections.Counter(),   # all possible blocks
+            'blocks_by_sample_set_idx': collections.Counter(),       # all valid blocks => only these get saved to store
+            'blocks_by_sequence': collections.Counter(),             # all valid blocks 
+            'overwrite': overwrite
+            }
+        return config
+
     def blocks(self, block_length=64, block_span=128, block_max_multiallelic=3, block_max_missing=3, overwrite=False):
-        self._preflight_blocks(overwrite=overwrite)
-        print("[+] Blocking parameters = [-l %s -m %s -u %s -i %s]" % (
-            block_length, 
-            block_span, 
-            block_max_multiallelic, 
-            block_max_missing))
-        self._make_blocks(block_length, block_span, block_max_missing, block_max_multiallelic)
+        config = self._preflight_blocks(block_length, block_span, block_max_multiallelic, block_max_missing, overwrite)
+        config = self._make_blocks(config)
+        if config['count_total'] == 0:
+            sys.exit("[X] No blocks could be generated from data given the parameters.")
+        meta = config_to_meta(config, 'blocks')
+        self._set_meta(config['blocks_key'], meta=meta)
         # after making blocks, make tally 'raw' without kmax. This is needed for heterozygosity, d_xy, F_sts metrics, etc
-        self.tally('blocks', 'blocks_raw', None, 'X', None, None, overwrite=True, verbose=False)
+        meta['blocks_raw_tally_key'] = self.tally('blocks', 'blocks_raw', None, 'X', None, None, overwrite=True, verbose=False)
+        self._set_meta(config['blocks_key'], meta=meta)
 
     def windows(self, window_size=500, window_step=100, overwrite=False):
-        self._preflight_windows(overwrite)
-        print("[+] Window parameters = [-w %s -s %s]" % (window_size, window_step))
-        self._make_windows(window_size, window_step, sample_sets='X')
-        self.tally('windows', 'windows_raw', None, 'X', None, None, overwrite=True, verbose=False)
-        self.tally('windows', 'windowsum_raw', None, 'X', None, None, overwrite=True, verbose=False)
-
+        config = self._preflight_windows(window_size, window_step, overwrite)
+        config = self._make_windows(config)
+        meta = config_to_meta(config, 'windows')
+        self._set_meta(config['windows_key'], meta=meta)
+        meta['windows_raw_tally_key'] = self.tally('windows', 'windows_raw', None, 'X', None, None, overwrite=True, verbose=False)
+        meta['windowsum_raw_tally_key'] = self.tally('windows', 'windowsum_raw', None, 'X', None, None, overwrite=True, verbose=False)
+        
     def _preflight_simulate(self, config, overwrite):
         config['simulate_key'] = self._get_key(task='simulate', analysis_label=config['gimble']['label'])
         if not overwrite and self._has_key(config['simulate_key']):
@@ -2161,7 +2206,6 @@ class Store(object):
         elif config['data_type'] == 'optimize':
             self._write_optimize_tsv(config)
         elif config['data_type'] == 'windows':
-            #sys.exit("[X] Not implemented.")
             self._write_window_bed(config)
         elif config['data_type'] == 'gridsearch':
             self._write_gridsearch_bed(config)
@@ -2203,17 +2247,20 @@ class Store(object):
         print("[#] Wrote file %r." % config['filename'])
 
     def _write_window_bed(self, config):
+        print(config)
         meta_blocks = self._get_meta('blocks')
+        #print(dict(meta_blocks))
         meta_windows = self._get_meta('windows')
+        #print(dict(meta_windows))
         print("[+] Windows ...")
         query_meta_blocks = format_query_meta(meta_blocks, ignore_long=True)
-        print(query_meta_blocks)
-        query_meta_windows = format_query_meta(meta_blocks, ignore_long=True)
-        print(query_meta_windows)
+        #print(query_meta_blocks)
+        query_meta_windows = format_query_meta(meta_windows, ignore_long=True)
+        #print(query_meta_windows)
         #print("[+] Getting data for BED ...")
         sequences, starts, ends, index, pos_mean, pos_median, balance, mse_sample_set_cov = self._get_window_bed()
         #print("[+] Calculating popgen metrics ...")
-        tally = tally_variation(self._get_variation(data_type='windows', sample_sets='X', progress=False), form='tally')
+        tally = self._get_data(config['data_key'])
         pop_metrics = get_popgen_metrics(tally, sites=(meta_blocks['length'] * meta_windows['size']))
         int_bed = np.vstack([starts, ends, index, pos_mean, pos_median, pop_metrics, balance, mse_sample_set_cov]).T
         columns = ['sequence', 'start', 'end', 'index', 'pos_mean', 'pos_median', 'heterozygosity_A', 'heterozygosity_B', 'd_xy', 'f_st', 'balance', 'mse_sample_set_cov']
@@ -2231,51 +2278,51 @@ class Store(object):
         bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=columns, float_format='%.5f')
         return out_f
 
-    def dump_lncls(self, parameterObj):
-        unique_hash = parameterObj._get_unique_hash()
-        grids, grid_meta_dict = self._get_grid(unique_hash)
-        lncls_global, lncls_windows = self._get_lncls(unique_hash)
-        if isinstance(grid_meta_dict, list):
-            values_by_parameter = LOD_to_DOL(grid_meta_dict)
-            #values_by_parameter = grid_meta_dict_to_value_arrays_by_parameter(grid_meta_dict)
-        else:
-            values_by_parameter = grid_meta_dict #once everything works, values_by_parameter should be simply renamed
-        sequences, starts, ends, index = self._get_window_bed_columns()
-        parameter_names = [name for name in values_by_parameter.keys() if name != 'mu']
-        grid_meta_dict.pop('mu', None) #remove mu from grid_meta_dict
-        column_headers = ['sequence', 'start', 'end', 'index', 'lnCL'] + parameter_names + ['fixed']
-        dtypes = {'start': 'int64', 'end': 'int64', 'index': 'int64', 'lnCL': 'float64'}
-        for param in parameter_names:
-            dtypes[param] = 'float64'
-        MAX_PARAM_LENGTH = max([len(param) for param in parameter_names])
-        for parameter in tqdm(parameter_names, total=len(parameter_names), desc="[%] Writing output...", ncols=100, unit_scale=True): 
-            bed_dfs = []
-            out_f = '%s.%s.gridsearch.lnCls.%s_fixed.tsv' % (self.prefix, parameterObj.data_type, parameter)
-            fixed = np.full_like(lncls_windows.shape[0], parameter, dtype='<U%s' % MAX_PARAM_LENGTH)
-            for grid_meta_idxs in get_slice_grid_meta_idxs(grid_meta_dict=grid_meta_dict, lncls=lncls_windows, fixed_parameter=parameter, parameter_value=None):
-                best_likelihoods = lncls_windows[np.arange(lncls_windows.shape[0]), grid_meta_idxs]
-                best_params = np.array(list(zip(*grid_meta_dict.values())))[grid_meta_idxs]    
-                #line above replaces code until best_params = 
-                #meta_dicts = list(np.vectorize(grid_meta_dict.__getitem__)(grid_meta_idxs.astype(str)))
-                #columns = []
-                #for param in parameter_names:
-                #    column = []
-                #    for meta_dict in meta_dicts:
-                #        column.append(meta_dict[param])
-                #    columns.append(column)
-                #best_params = np.vstack(columns).T
-                int_bed = np.vstack([starts, ends, index, best_likelihoods, best_params.T]).T
-                header = ["# %s" % parameterObj._VERSION]
-                header += ["# %s" % "\t".join(column_headers)]
-                with open(out_f, 'w') as out_fh:
-                    out_fh.write("\n".join(header) + "\n")
-                bed_df = pd.DataFrame(data=int_bed, columns=column_headers[1:-1]).astype(dtype=dtypes)
-                bed_df['sequence'] = sequences
-                bed_df['fixed'] = fixed
-                # MUST be mode='a' otherwise header gets wiped ...
-                bed_dfs.append(bed_df)
-            df = pd.concat(bed_dfs, ignore_index=True, axis=0)
-            df.sort_values(['index'], ascending=[True]).to_csv(out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=column_headers)
+    # def dump_lncls(self, parameterObj):
+    #     unique_hash = parameterObj._get_unique_hash()
+    #     grids, grid_meta_dict = self._get_grid(unique_hash)
+    #     lncls_global, lncls_windows = self._get_lncls(unique_hash)
+    #     if isinstance(grid_meta_dict, list):
+    #         values_by_parameter = LOD_to_DOL(grid_meta_dict)
+    #         #values_by_parameter = grid_meta_dict_to_value_arrays_by_parameter(grid_meta_dict)
+    #     else:
+    #         values_by_parameter = grid_meta_dict #once everything works, values_by_parameter should be simply renamed
+    #     sequences, starts, ends, index = self._get_window_bed_columns()
+    #     parameter_names = [name for name in values_by_parameter.keys() if name != 'mu']
+    #     grid_meta_dict.pop('mu', None) #remove mu from grid_meta_dict
+    #     column_headers = ['sequence', 'start', 'end', 'index', 'lnCL'] + parameter_names + ['fixed']
+    #     dtypes = {'start': 'int64', 'end': 'int64', 'index': 'int64', 'lnCL': 'float64'}
+    #     for param in parameter_names:
+    #         dtypes[param] = 'float64'
+    #     MAX_PARAM_LENGTH = max([len(param) for param in parameter_names])
+    #     for parameter in tqdm(parameter_names, total=len(parameter_names), desc="[%] Writing output...", ncols=100, unit_scale=True): 
+    #         bed_dfs = []
+    #         out_f = '%s.%s.gridsearch.lnCls.%s_fixed.tsv' % (self.prefix, parameterObj.data_type, parameter)
+    #         fixed = np.full_like(lncls_windows.shape[0], parameter, dtype='<U%s' % MAX_PARAM_LENGTH)
+    #         for grid_meta_idxs in get_slice_grid_meta_idxs(grid_meta_dict=grid_meta_dict, lncls=lncls_windows, fixed_parameter=parameter, parameter_value=None):
+    #             best_likelihoods = lncls_windows[np.arange(lncls_windows.shape[0]), grid_meta_idxs]
+    #             best_params = np.array(list(zip(*grid_meta_dict.values())))[grid_meta_idxs]    
+    #             #line above replaces code until best_params = 
+    #             #meta_dicts = list(np.vectorize(grid_meta_dict.__getitem__)(grid_meta_idxs.astype(str)))
+    #             #columns = []
+    #             #for param in parameter_names:
+    #             #    column = []
+    #             #    for meta_dict in meta_dicts:
+    #             #        column.append(meta_dict[param])
+    #             #    columns.append(column)
+    #             #best_params = np.vstack(columns).T
+    #             int_bed = np.vstack([starts, ends, index, best_likelihoods, best_params.T]).T
+    #             header = ["# %s" % parameterObj._VERSION]
+    #             header += ["# %s" % "\t".join(column_headers)]
+    #             with open(out_f, 'w') as out_fh:
+    #                 out_fh.write("\n".join(header) + "\n")
+    #             bed_df = pd.DataFrame(data=int_bed, columns=column_headers[1:-1]).astype(dtype=dtypes)
+    #             bed_df['sequence'] = sequences
+    #             bed_df['fixed'] = fixed
+    #             # MUST be mode='a' otherwise header gets wiped ...
+    #             bed_dfs.append(bed_df)
+    #         df = pd.concat(bed_dfs, ignore_index=True, axis=0)
+    #         df.sort_values(['index'], ascending=[True]).to_csv(out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=column_headers)
 
     def _get_window_bed_columns(self):
         meta_seqs = self._get_meta('seqs')
@@ -2299,63 +2346,95 @@ class Store(object):
         return (sequences, starts, ends, index)
 
     def _write_gridsearch_bed(self, config):
+        '''
+        how should it work for sims? probably needs an additional output format
+        '''
+        #
         meta_gridsearch = self._get_meta(config['data_key'])
         #print('meta_gridsearch', dict(meta_gridsearch))
-        grids = DOL_to_LOD(meta_gridsearch['grid_dict'])
-        parameters = list(meta_gridsearch['grid_dict'].keys())
-        parameter_array = np.array([np.array(v) for k, v in meta_gridsearch['grid_dict'].items()]).T
-        #print(parameter_array)
-        grid_params = np.array([list(subdict.values()) for subdict in grids], dtype=np.float64)
-        #print('grid_params', grid_params.shape, grid_params)
-        sequences, starts, ends, index, pos_mean, pos_median, balance, mse_sample_set_cov = self._get_window_bed()
-        params_header = list(meta_gridsearch['grid_dict'].keys())
+        meta_tally = self._get_meta(meta_gridsearch['data_key'])
+        #print(dict(meta_tally))
+        # parameter_names := order of parameters in array
+        parameter_names = list(meta_gridsearch['grid_dict'].keys())
+        # parameter array := 2D : (gridpoints, parameters)
+        parameter_array = np.array([np.array(v, dtype=np.float64) for k, v in meta_gridsearch['grid_dict'].items()]).T
         out_fs = []
+        dtypes_by_field = { 'sequence': 'category', 
+                            'start': 'int64', 
+                            'end': 'int64', 
+                            'index': 'int64', 
+                            'pos_mean': 'float64', 
+                            'pos_median': 'float64', 
+                            'balance': 'float64', 
+                            'mse_sample_set_cov': 'float64', 
+                            'lnCL': 'float64'}
+        grid_points = meta_gridsearch.get('grid_points', parameter_array.shape[0])
+        data_ndims = meta_tally.get('data_ndims') 
+        windows_count = meta_tally['windows']
+        columns = []
+        if meta_tally['data_type'] == 'windows' and data_ndims == 5:
+            #columns += ['sequence', 'start', 'end', 'index', 'pos_mean', 'pos_median', 'balance', 'mse_sample_set_cov']
+            columns += ['start', 'end', 'index']
+            sequences, starts, ends, index, pos_mean, pos_median, balance, mse_sample_set_cov = self._get_window_bed()
         for gridsearch_key in meta_gridsearch['gridsearch_keys']:
-            print("[+] Writing data for gridsearch key %r ..." % gridsearch_key)
-            '''
-            lncls := (n,m) where 
-                    n := number of windows
-                    m := number of parameter combinations
-            '''
-            lncls = np.array(self._get_data(gridsearch_key))
-            #print('lncls', lncls.shape)
-            #print('grid_params', grid_params.T.shape, grid_params)
-            best_lncl = np.max(lncls, axis=lncls.ndim-1)
-            best_idx = np.argmax(lncls, axis=lncls.ndim-1)
-            best_params = grid_params[best_idx, :]
-            if lncls.ndim == 1:
-                columns = ['lnCL'] + params_header
-                dtypes = {column: 'float64' for column in columns}
-                int_bed = [best_lncl] + list(best_params)
-            else:
-                columns = ['sequence', 'start', 'end', 'index', 'pos_mean', 'pos_median', 'balance', 'mse_sample_set_cov', 'lnCL'] + params_header
-                int_bed = np.vstack([starts, ends, index, pos_mean, pos_median, balance, mse_sample_set_cov, best_lncl, best_params.T]).T
-                dtypes = {'start': 'int64', 'end': 'int64', 'index': 'int64', 'pos_mean': 'float64', 'pos_median': 'float64', 
-                    'balance': 'float64', 'mse_sample_set_cov': 'float64', 'lnCL': 'float64'}
-                for param in params_header:
-                    dtypes[param] = 'float64'
-            out_f = ('%s.bed' if not config['extended'] else '%s.extended.bed') % ("_".join(gridsearch_key.split("/")))
-            # write header
+            lncls = np.array(self._get_data(gridsearch_key)) # (w, gridpoints)
+            # np.tile is defined by (window_count, 1)) 
+            gridsearch_result_array = np.column_stack((np.tile(parameter_array, (windows_count, 1)), lncls.ravel()[:,np.newaxis]))
+            columns += parameter_names + ['lnCl']
+            dtypes = {field: dtypes_by_field.get(field, 'float64') for field in columns}
+            out_f = ('%s.bed.gz' if not config['extended'] else '%s.extended.bed.gz') % ("_".join(gridsearch_key.split("/")))
+            best_out_f = ('%s.best.bed' if not config['extended'] else '%s.extended.best.bed') % ("_".join(gridsearch_key.split("/")))
             header = ["# %s" % config['version']]
-            header += ["# %s" % "\t".join(columns)]
-            with open(out_f, 'w') as out_fh:
-                out_fh.write("\n".join(header) + "\n")
-            if lncls.ndim > 1:
-                bed_df = pd.DataFrame(data=int_bed, columns=columns[1:]).astype(dtype=dtypes)
-                bed_df['sequence'] = sequences
-                # MUST be mode='a' otherwise header gets wiped ...
-                bed_df.sort_values(['sequence', 'start'], ascending=[True, True])
-            else:
-                bed_df = pd.DataFrame(data=int_bed, columns=columns).astype(dtype=dtypes)
-            bed_df.to_csv(out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=columns)
-            print("[+] \tWrote %r ..." % out_f)
+            header += ["# %s" % "\t".join(['sequence'] + columns)]
+            with open(best_out_f, 'w') as best_out_fh:
+                best_out_fh.write("\n".join(header) + "\n")
+            #best_lncl = np.max(lncls, axis=lncls.ndim-1)
+            #best_idx = np.argmax(lncls, axis=lncls.ndim-1)
+            #best_params = parameter_array[best_idx, :]
+            #int_array = np.column_stack((np.repeat(np.column_stack((sequences, starts, ends, index)), grid_points, axis=0), gridsearch_result_array)) 
+            int_array = np.column_stack((np.repeat(np.column_stack((starts, ends, index)), grid_points, axis=0), gridsearch_result_array)) 
+            str_array = np.repeat(sequences, grid_points, axis=0)
+            int_df = pd.DataFrame(data=int_array, columns=columns).astype(dtype=dtypes)
+            int_df['sequence'] = str_array
+            int_df.to_csv(out_f, na_rep='NA', sep='\t', index=False, header=False, columns=['sequence'] + columns, compression='gzip')
+            best_idx = int_df.groupby(['index'])['lnCl'].transform(max) == int_df['lnCl']
+            int_df[best_idx].to_csv(best_out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=['sequence'] + columns)
+
             out_fs.append(out_f)
+            #if lncls.ndim == 1:
+            #    columns = ['lnCL'] + parameter_names
+            #    dtypes = {column: 'float64' for column in columns}
+            #    int_bed = [best_lncl] + list(best_params)
+            #else:
+            #    columns = ['sequence', 'start', 'end', 'index', 'pos_mean', 'pos_median', 'balance', 'mse_sample_set_cov', 'lnCL'] + parameter_names
+            #    int_bed = np.vstack([starts, ends, index, pos_mean, pos_median, balance, mse_sample_set_cov, best_lncl, best_params.T]).T
+            #    dtypes = {'start': 'int64', 'end': 'int64', 'index': 'int64', 'pos_mean': 'float64', 'pos_median': 'float64', 
+            #        'balance': 'float64', 'mse_sample_set_cov': 'float64', 'lnCL': 'float64'}
+            #    for param in parameter_names:
+            #        dtypes[param] = 'float64'
+            #out_f = ('%s.bed' if not config['extended'] else '%s.extended.bed') % ("_".join(gridsearch_key.split("/")))
+            ## write header
+            #header = ["# %s" % config['version']]
+            #header += ["# %s" % "\t".join(columns)]
+            #with open(out_f, 'w') as out_fh:
+            #    out_fh.write("\n".join(header) + "\n")
+            #if lncls.ndim > 1:
+            #    bed_df = pd.DataFrame(data=int_bed, columns=columns[1:]).astype(dtype=dtypes)
+            #    bed_df['sequence'] = sequences
+            #    # MUST be mode='a' otherwise header gets wiped ...
+            #    bed_df.sort_values(['sequence', 'start'], ascending=[True, True])
+            #else:
+            #    bed_df = pd.DataFrame(data=int_bed, columns=columns).astype(dtype=dtypes)
+            #print("[+] Writing data for gridsearch key %r ..." % gridsearch_key)
+            #bed_df.to_csv(out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=columns)
+            #print("[+] \tWrote %r ..." % out_f)
+            #out_fs.append(out_f)
         return out_fs
         #grids = DOL_to_LOD(meta_gridsearch['grid_dict'])
         ##for grid_idx, grid_dict in grid_meta_dict.items():
         ##    grids.append(list(grid_dict.values()))
-        #grid_params = np.array([list(subdict.values()) for subdict in grids] ,dtype=np.float64)
-        #best_params = grid_params[np.argmax(lncls, axis=1), :]
+        #parameter_array = np.array([list(subdict.values()) for subdict in grids] ,dtype=np.float64)
+        #best_params = parameter_array[np.argmax(lncls, axis=1), :]
         #best_likelihoods = np.max(lncls, axis=1)
         #delta_lncls = best_likelihoods - lncls[:, best_idx]
         #sequences, starts, ends, index = self._get_window_bed_columns() 
@@ -2427,6 +2506,7 @@ class Store(object):
             config['max_k'] = np.array(meta['max_k']) # INI values get overwritten by data ...
             config['gridsearch_keys'] = [self._get_key(task='gridsearch', data_label=config['data_label'], analysis_label=grid_meta['label'], parameter_label=idx) for idx in range(meta['max_idx'] + 1)]
         config['block_length_grid'] = grid_meta['block_length']
+        config['parameters_grid_points'] = grid_meta['parameters_grid_points']
         # checking whether block_length in data and grid are compatible
         if not config['block_length_data'] == config['block_length_grid']:
             sys.exit("[X] Block lengths in data %r (%s) and grid %r (%s) are not compatible.." % (
@@ -2565,6 +2645,7 @@ class Store(object):
 
     def _preflight_tally(self, data_source, data_label, max_k, sample_sets, sequence_ids, genome_file, overwrite):
         config = {
+            'data_ndims': 0,
             'data_key': 'windows' if data_source == 'windowsum' else data_source,
             'data_source': data_source,
             'data_type': 'windows' if data_source == 'windowsum' else data_source,
@@ -2597,6 +2678,8 @@ class Store(object):
         return config
         
     def tally(self, data_source, data_label, max_k, sample_sets, sequence_ids, genome_file, overwrite, verbose=True):
+        # still needs further refactoring to prevent .tally() for accessing hardcoded data and instead make .tally() use
+        # provided keys blocks_key/windows_key to access data
         config = self._preflight_tally(data_source, data_label, max_k, sample_sets, sequence_ids, genome_file, overwrite)
         variation = self._get_variation(data_type=config['data_type'], sample_sets=config['sample_sets'], sequences=config['sequences'], progress=verbose) 
         config['windows'] = variation.shape[0] if variation.ndim == 3 else 0
@@ -2614,6 +2697,7 @@ class Store(object):
         if config['data_type'] == 'windowsum':
             variation = variation.reshape(-1, variation.shape[-1])
         variation_tally = tally_variation(variation, form='bsfs', max_k=config['max_k'])
+        config['data_ndims'] = variation_tally.ndim
         self.save_tally(config, variation_tally, verbose)
         return config['tally_key']
 
@@ -2653,6 +2737,8 @@ class Store(object):
             if mod_label is not None:
                 return "%s/%s/%s/%s" % (task, data_label, analysis_label, mod_label)
             return "%s/%s/%s" % (task, data_label, analysis_label)
+        if task == 'windows':
+            return "windows" 
         return None
 
     def _has_key(self, key):
@@ -2928,8 +3014,9 @@ class Store(object):
     def _get_window_bed(self):
         meta_seqs = self._get_meta('seqs')
         meta_windows = self._get_meta('windows')
+        #print('meta_windows', dict(meta_windows))
         MAX_SEQNAME_LENGTH = max([len(seq_name)+1 for seq_name in meta_seqs['seq_names']])
-        window_count = meta_windows['count']
+        window_count = meta_windows['window_count']
         index = np.arange(window_count)
         sequences = np.zeros(window_count, dtype='<U%s' % MAX_SEQNAME_LENGTH)
         starts = np.zeros(window_count, dtype=np.int64)
@@ -2959,10 +3046,8 @@ class Store(object):
                 offset += _window_count
         return (sequences, starts, ends, index, pos_mean, pos_median, balance, mse_sample_set_cov)
 
-    def _preflight_windows(self, overwrite=False):
-        '''
-        [TODO]: allow for multiple window datasets
-        '''
+    def _preflight_windows(self, window_size, window_step, overwrite=False):
+        config = {'window_size': window_size, 'window_step': window_step, 'sample_sets': 'X'}
         if not self.has_stage('blocks'):
             sys.exit("[X] GStore %r has no blocks. Please run 'gimble blocks'." % self.path)
         if self.has_stage('windows'):
@@ -2970,21 +3055,9 @@ class Store(object):
                 sys.exit("[X] GStore %r already contains windows.\n[X] These windows => %r\n[X] Please specify '--force' to overwrite." % (self.path, self.get_stage('windows')))
             print('[-] GStore %r already contains windows. But these will be overwritten...' % (self.path))
             self._del_data_and_meta('windows')
-    
-    def _preflight_blocks(self, overwrite=False):
-        '''
-        [TODO]: allow for multiple block datasets
-        '''
-        if not self.has_stage('measure'):
-            sys.exit("[X] GStore %r has no data. Please run 'gimble measure'." % self.path)
-        if self.has_stage('blocks'):
-            if not overwrite:
-                sys.exit("[X] GStore %r already contains blocks.\n[X] These blocks => %r\n[X] Please specify '--force' to overwrite." % (self.path, self.get_stage('blocks')))
-            print('[-] GStore %r already contains blocks. But these will be overwritten...' % (self.path))
-            # wipe bsfs, windows, AND meta, since new blocks...
-            self._del_data_and_meta('blocks')
-            self._del_data_and_meta('windows')
-            self._del_data_and_meta('bsfs')
+        config['windows_key'] = self._get_key(task='windows') # one could allow for multiple windows sets by using labels here
+        config['window_count'] = 0
+        return config
 
     def _get_interval_coordinates(self, seq_name=None, sample_set=None):
         if seq_name is None:
@@ -3013,11 +3086,8 @@ class Store(object):
             assert pos.shape[0] == gt_matrix.shape[0] # check whether they are the same length ...
         return (pos, gt_matrix)
 
-    def _make_blocks(self, block_length, block_span, block_max_missing, block_max_multiallelic):
+    def _make_blocks(self, config):
         meta_seqs = self._get_meta('seqs')
-        blocks_raw_by_sample_set_idx = collections.Counter()   # all possible blocks
-        blocks_by_sample_set_idx = collections.Counter()       # all valid blocks => only these get saved to store
-        blocks_by_sequence = collections.Counter()             # all valid blocks 
         with tqdm(total=(len(meta_seqs['seq_names']) * len(meta_seqs['sample_sets'])), desc="[%] Building blocks ", ncols=100, unit_scale=True) as pbar:        
             for seq_name in meta_seqs['seq_names']:
                 pos, gt_matrix = self._get_variants(seq_name) # arrays or None
@@ -3027,7 +3097,7 @@ class Store(object):
                     # turn BED starts/ends into sites-array
                     sites = intervals_to_sites(intervals)
                     # turn sites-array into 2D np.array with block sites (or None)
-                    block_sites = sites_to_blocks(sites, block_length, block_span, sample_set) 
+                    block_sites = sites_to_blocks(sites, config['block_length'], config['block_span'], sample_set) 
                     if block_sites is not None:
                         # subset gts of sample_set from gt_matrix (or None)
                         gts = subset_gt_matrix(meta_seqs, sample_set, 
@@ -3035,21 +3105,15 @@ class Store(object):
                         # get block arrays
                         starts, ends, multiallelic, missing, monomorphic, variation = blocks_to_arrays(block_sites, gts, pos)
                         # save block arrays
-                        blocks_raw, blocks_valid = self._set_blocks(seq_name, sample_set_idx, starts, ends, multiallelic, missing, monomorphic, variation, block_max_missing, block_max_multiallelic)
+                        blocks_raw, blocks_valid = self._set_blocks(seq_name, sample_set_idx, starts, ends, multiallelic, missing, monomorphic, variation, config['block_max_missing'], config['block_max_multiallelic'])
                         # record counts
-                        blocks_raw_by_sample_set_idx[sample_set_idx] += blocks_raw
-                        blocks_by_sample_set_idx[sample_set_idx] += blocks_valid
-                        blocks_by_sequence[seq_name] += blocks_valid
+                        config['blocks_raw_by_sample_set_idx'][sample_set_idx] += blocks_raw
+                        config['blocks_by_sample_set_idx'][sample_set_idx] += blocks_valid
+                        config['blocks_by_sequence'][seq_name] += blocks_valid
                     pbar.update(1)
-        # save blocks meta
-        self._set_blocks_meta(
-            block_length, 
-            block_span, 
-            block_max_missing, 
-            block_max_multiallelic, 
-            blocks_raw_by_sample_set_idx, 
-            blocks_by_sample_set_idx,
-            blocks_by_sequence)
+        config['count_total'] = sum([count for count in config['blocks_by_sample_set_idx'].values()])
+        config['count_total_raw'] = sum([count for count in config['blocks_raw_by_sample_set_idx'].values()])
+        return config
 
     def _set_blocks(self, seq_name, sample_set_idx, starts, ends, multiallelic, 
             missing, monomorphic, variation, block_max_missing, block_max_multiallelic):
@@ -3066,21 +3130,22 @@ class Store(object):
         self.data.create_dataset(blocks_multiallelic_key, data=multiallelic[valid], overwrite=True)
         return (valid.shape[0], valid[valid==True].shape[0])
 
-    def _set_blocks_meta(self, block_length, block_span, block_max_missing, block_max_multiallelic, 
-            blocks_raw_by_sample_set_idx, blocks_by_sample_set_idx, blocks_by_sequence):
-        meta_blocks = self._get_meta('blocks')
-        if meta_blocks is None:
-            sys.exit("[X] No blocks could be generated from data given the parameters.")
-        meta_blocks['length'] = block_length
-        meta_blocks['span'] = block_span
-        meta_blocks['max_missing'] = block_max_missing
-        meta_blocks['max_multiallelic'] = block_max_multiallelic
-        meta_blocks['count_by_sample_set_idx'] = dict(blocks_by_sample_set_idx) # keys are strings
-        meta_blocks['count_by_sequence'] = dict(blocks_by_sequence) # keys are strings
-        meta_blocks['count_raw_by_sample_set_idx'] = dict(blocks_raw_by_sample_set_idx) # keys are strings
-        meta_blocks['count_total'] = sum([count for count in blocks_by_sample_set_idx.values()])
-        meta_blocks['count_total_raw'] = sum([count for count in blocks_raw_by_sample_set_idx.values()])
-        print('meta_blocks', type(meta_blocks), dict(meta_blocks))
+    #def _set_blocks_meta(self, block_length, block_span, block_max_missing, block_max_multiallelic, 
+    #        blocks_raw_by_sample_set_idx, blocks_by_sample_set_idx, blocks_by_sequence):
+    #    meta_blocks = self._get_meta('blocks')
+    #    print('meta_blocks', type(meta_blocks), dict(meta_blocks))
+    #    if meta_blocks is None:
+    #        sys.exit("[X] No blocks could be generated from data given the parameters.")
+    #    meta_blocks['length'] = block_length
+    #    meta_blocks['span'] = block_span
+    #    meta_blocks['max_missing'] = block_max_missing
+    #    meta_blocks['max_multiallelic'] = block_max_multiallelic
+    #    meta_blocks['count_by_sample_set_idx'] = dict(blocks_by_sample_set_idx) # keys are strings
+    #    meta_blocks['count_by_sequence'] = dict(blocks_by_sequence) # keys are strings
+    #    meta_blocks['count_raw_by_sample_set_idx'] = dict(blocks_raw_by_sample_set_idx) # keys are strings
+    #    meta_blocks['count_total'] = sum([count for count in blocks_by_sample_set_idx.values()])
+    #    meta_blocks['count_total_raw'] = sum([count for count in blocks_raw_by_sample_set_idx.values()])
+    #    print('meta_blocks', type(meta_blocks), dict(meta_blocks))
 
     def _get_block_coordinates(self, sample_sets=None, sequences=None):
         sequences = self._validate_seq_names(sequences)
@@ -3106,33 +3171,27 @@ class Store(object):
         block_sample_set_idxs = np.concatenate(block_sample_set_idxs, axis=0)
         return block_sample_set_idxs
 
-    def _make_windows(self, window_size, window_step, sample_sets='X'):
+    def _make_windows(self, config):
         meta_blocks = self._get_meta('blocks')
-        sample_set_idxs = np.array(self._get_sample_set_idxs(query=sample_sets), dtype=np.int64)
-        window_count = 0
-        window_size_effective = window_size #* sample_set_idxs.shape[0]
-        window_step_effective = window_step #* sample_set_idxs.shape[0]
-
+        sample_set_idxs = np.array(self._get_sample_set_idxs(query=config['sample_sets']), dtype=np.int64)
         blockable_seqs, unblockable_seqs = [], []
         for seq_name, block_count in meta_blocks['count_by_sequence'].items():
-            if block_count >= window_size_effective:
+            if block_count >= config['window_size']:
                 blockable_seqs.append(seq_name)
             else:
                 unblockable_seqs.append(seq_name)
         if not blockable_seqs:
-            sys.exit("[X] Not enough blocks to make windows of this size (%s)." % (window_size_effective))
+            sys.exit("[X] Not enough blocks to make windows of this size (%s)." % (config['window_size']))
         print("[+] Making windows along %s sequences (%s sequences excluded)" % (len(blockable_seqs), len(unblockable_seqs)))
         for seq_name in tqdm(blockable_seqs, total=len(blockable_seqs), desc="[%] ", ncols=100):
-            block_variation = self._get_variation(data_type='blocks', sample_sets=sample_sets, sequences=[seq_name])
-            #print('block_variation.shape', block_variation.shape)
-            block_starts, block_ends = self._get_block_coordinates(sample_sets=sample_sets, sequences=[seq_name])
-            #print('block_starts', block_starts)
-            #print('block_ends', block_ends)
-            block_sample_set_idxs = self._get_block_sample_set_idxs(sample_sets=sample_sets, sequences=[seq_name])
-            windows = blocks_to_windows(sample_set_idxs, block_variation, block_starts, block_ends, block_sample_set_idxs, window_size_effective, window_step_effective)
+            block_variation = self._get_variation(data_type='blocks', sample_sets=config['sample_sets'], sequences=[seq_name])
+            block_starts, block_ends = self._get_block_coordinates(sample_sets=config['sample_sets'], sequences=[seq_name])
+            block_sample_set_idxs = self._get_block_sample_set_idxs(sample_sets=config['sample_sets'], sequences=[seq_name])
+            windows = blocks_to_windows(sample_set_idxs, block_variation, block_starts, block_ends, block_sample_set_idxs, config['window_size'], config['window_step'])
             window_variation, window_starts, window_ends, window_pos_mean, window_pos_median, balance, mse_sample_set_cov = windows
-            window_count += self._set_windows(seq_name, window_variation, window_starts, window_ends, window_pos_mean, window_pos_median, balance, mse_sample_set_cov)
-        self._set_windows_meta(sample_set_idxs, window_size_effective, window_step_effective, window_count)
+            config['window_count'] += self._set_windows(seq_name, window_variation, window_starts, window_ends, window_pos_mean, window_pos_median, balance, mse_sample_set_cov)
+        print("[+] Made %s window(s). Saving results ..." % format_count(config['window_count']))
+        return config
 
     def _set_windows(self, seq_name, window_variation, window_starts, window_ends, window_pos_mean, window_pos_median, balance, mse_sample_set_cov):
         self.data.create_dataset("windows/%s/variation" % seq_name, data=window_variation, overwrite=True)
@@ -3144,14 +3203,16 @@ class Store(object):
         self.data.create_dataset("windows/%s/mse_sample_set_cov" % seq_name, data=mse_sample_set_cov, overwrite=True)
         return window_variation.shape[0]
 
-    def _set_windows_meta(self, sample_set_idxs, window_size, window_step, window_count):
-        meta_windows = self._get_meta('windows')
-        meta_windows['size_user'] = int(window_size / len(sample_set_idxs))
-        meta_windows['step_user'] = int(window_step / len(sample_set_idxs))
-        meta_windows['size'] = window_size 
-        meta_windows['step'] = window_step
-        meta_windows['count'] = window_count
-        print("[+] Made %s window(s)" % format_count(meta_windows['count']))
+    #def _set_windows_meta(self, config):
+    #    meta_windows = self._get_meta(config['windows_key'])
+    #    print(meta_window)
+    #    meta_windows['size_user'] = int(window_size / len(sample_set_idxs))
+    #    meta_windows['step_user'] = int(window_step / len(sample_set_idxs))
+    #    meta_windows['size'] = window_size 
+    #    meta_windows['step'] = window_step
+    #    meta_windows['count'] = window_count
+    #    self._set_meta(config['optimize_key'], meta=config_to_meta(config, 'optimize'))
+    #    print("[+] Made %s window(s)" % format_count(meta_windows['count']))
 
 ####################### REPORTS ######################
 
@@ -3285,8 +3346,8 @@ class Store(object):
         reportObj.add_line(prefix="[+]", left='[', center='Windows', right=']', fill='=')
         if self.has_stage('windows'):
             reportObj.add_line(prefix="[+]", left='windows')
-            reportObj.add_line(prefix="[+]", branch='F', fill=".", left="'-w %s -s %s'" % (meta_windows['size_user'], meta_windows['step_user']), right=' %s windows of inter-population (X) blocks' % (
-                format_count(meta_windows['count'])))
+            reportObj.add_line(prefix="[+]", branch='F', fill=".", left="'-w %s -s %s'" % (meta_windows['window_size'], meta_windows['window_step']), right=' %s windows of inter-population (X) blocks' % (
+                format_count(meta_windows['window_count'])))
         return reportObj
 
     def _get_tally_report(self, width):
