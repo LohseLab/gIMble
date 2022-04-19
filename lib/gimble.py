@@ -2506,8 +2506,8 @@ class Store(object):
             config['max_k'] = np.array(meta['max_k']) # INI values get overwritten by data ...
             config['gridsearch_keys'] = [self._get_key(task='gridsearch', data_label=config['data_label'], analysis_label=grid_meta['label'], parameter_label=idx) for idx in range(meta['max_idx'] + 1)]
         config['block_length_grid'] = grid_meta['block_length']
-        print('grid_meta', grid_meta)
-        config['parameters_grid_points'] = grid_meta['parameters_grid_points']
+        print('grid_meta', dict(grid_meta))
+        config['parameters_grid_points'] = grid_meta.get('parameters_grid_points', 
         # checking whether block_length in data and grid are compatible
         if not config['block_length_data'] == config['block_length_grid']:
             sys.exit("[X] Block lengths in data %r (%s) and grid %r (%s) are not compatible.." % (
