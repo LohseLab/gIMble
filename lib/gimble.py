@@ -2382,24 +2382,23 @@ class Store(object):
             gridsearch_result_array = np.column_stack((np.tile(parameter_array, (windows_count, 1)), lncls.ravel()[:,np.newaxis]))
             columns += parameter_names + ['lnCl']
             dtypes = {field: dtypes_by_field.get(field, 'float64') for field in columns}
-            out_f = ('%s.bed.gz' if not config['extended'] else '%s.extended.bed.gz') % ("_".join(gridsearch_key.split("/")))
-            best_out_f = ('%s.best.bed' if not config['extended'] else '%s.extended.best.bed') % ("_".join(gridsearch_key.split("/")))
             header = ["# %s" % config['version']]
             header += ["# %s" % "\t".join(['sequence'] + columns)]
-            with open(best_out_f, 'w') as best_out_fh:
-                best_out_fh.write("\n".join(header) + "\n")
-            #best_lncl = np.max(lncls, axis=lncls.ndim-1)
-            #best_idx = np.argmax(lncls, axis=lncls.ndim-1)
-            #best_params = parameter_array[best_idx, :]
-            #int_array = np.column_stack((np.repeat(np.column_stack((sequences, starts, ends, index)), grid_points, axis=0), gridsearch_result_array)) 
             int_array = np.column_stack((np.repeat(np.column_stack((starts, ends, index)), grid_points, axis=0), gridsearch_result_array)) 
             int_df = pd.DataFrame(data=int_array, columns=columns).astype(dtype=dtypes)
             int_df['sequence'] = np.repeat(sequences, grid_points, axis=0)
-            int_df.to_csv(out_f, na_rep='NA', sep='\t', index=False, header=False, columns=['sequence'] + columns, compression='gzip')
+            if config['extended']:
+                out_f = '%s.%s.extended.bed.gz' % (self.prefix, "_".join(gridsearch_key.split("/")))
+                with open(out_f, 'w') as out_fh:
+                    out_fh.write("\n".join(header) + "\n")
+                int_df.to_csv(out_f, na_rep='NA', sep='\t', index=False, header=False, columns=['sequence'] + columns, compression='gzip')
+                print("[+] \tWrote %r ..." % out_f)
+            best_out_f = '%s.%s.best.bed' % (self.prefix, "_".join(gridsearch_key.split("/")))
+            with open(best_out_f, 'w') as best_out_fh:
+                best_out_fh.write("\n".join(header) + "\n")
             best_idx = int_df.groupby(['index'])['lnCl'].transform(max) == int_df['lnCl']
             int_df[best_idx].to_csv(best_out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=['sequence'] + columns)
-
-            out_fs.append(out_f)
+            print("[+] \tWrote %r ..." % best_out_f)
             #if lncls.ndim == 1:
             #    columns = ['lnCL'] + parameter_names
             #    dtypes = {column: 'float64' for column in columns}
@@ -2428,7 +2427,7 @@ class Store(object):
             #bed_df.to_csv(out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=columns)
             #print("[+] \tWrote %r ..." % out_f)
             #out_fs.append(out_f)
-        return out_fs
+        
         #grids = DOL_to_LOD(meta_gridsearch['grid_dict'])
         ##for grid_idx, grid_dict in grid_meta_dict.items():
         ##    grids.append(list(grid_dict.values()))
