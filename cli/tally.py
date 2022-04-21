@@ -11,7 +11,6 @@
         
         -k, --maxk <STR>                            Max value for mutypes (values above get binned) [default: 2,2,2,2]
         -s, --sequence_ids <STR>                    Sequence IDs for which to tally blocks (comma-separated)
-        -S, --genome_file <FILE>                    File with sequence IDs for which to tally blocks
         -f, --overwrite                             Overwrite results in GimbleStore
 
         -h --help                                   show this
@@ -38,7 +37,7 @@ class TallyParameterObj(lib.gimble.ParameterObj):
         self.overwrite = args['--overwrite']
         self.sample_sets = 'X'
         self.sequence_ids = args['--sequence_ids']
-        self.genome_file = args['--genome_file']
+        self.genome_file = None
     
     def _get_data_source(self, data_source):
         error = "[X] '--data_source' for tally must be 'blocks', 'windows', or 'windowsum'. Not %r" % data_source

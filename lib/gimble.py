@@ -1013,7 +1013,7 @@ def get_popgen_metrics(array, sites=0):
     sites = (block_length * block_count)
     '''
     assert sites > 0, "sites must be positive integer"
-    array = array if array.ndim == 2 else bsfs_to_2d(array)
+    array = array if array.ndim == 2 else bsfs_to_2d(np.array(array))
     if array.shape[1] == 5: # block tally
         mutype_array = np.array(np.sum(array[:,0, np.newaxis] * array[:, 1:], axis=0)).reshape(-1, 4) # must be reshaped to 2D, so that indexing works
     elif array.shape[1] == 6: # window tally
@@ -2085,6 +2085,7 @@ class Store(object):
         # after making blocks, make tally 'raw' without kmax. This is needed for heterozygosity, d_xy, F_sts metrics, etc
         meta['blocks_raw_tally_key'] = self.tally('blocks', 'blocks_raw', None, 'X', None, None, overwrite=True, verbose=False)
         self._set_meta(config['blocks_key'], meta=meta)
+        meta_seqs = self._get_meta(config['blocks_key'])
 
     def windows(self, window_size=500, window_step=100, overwrite=False):
         config = self._preflight_windows(window_size, window_step, overwrite)
@@ -2093,6 +2094,7 @@ class Store(object):
         self._set_meta(config['windows_key'], meta=meta)
         meta['windows_raw_tally_key'] = self.tally('windows', 'windows_raw', None, 'X', None, None, overwrite=True, verbose=False)
         meta['windowsum_raw_tally_key'] = self.tally('windows', 'windowsum_raw', None, 'X', None, None, overwrite=True, verbose=False)
+        self._set_meta(config['windows_key'], meta=meta)
         
     def _preflight_simulate(self, config, overwrite):
         config['simulate_key'] = self._get_key(task='simulate', analysis_label=config['gimble']['label'])
@@ -2247,11 +2249,9 @@ class Store(object):
         print("[#] Wrote file %r." % config['filename'])
 
     def _write_window_bed(self, config):
-        print(config)
         meta_blocks = self._get_meta('blocks')
         #print(dict(meta_blocks))
         meta_windows = self._get_meta('windows')
-        #print(dict(meta_windows))
         print("[+] Windows ...")
         query_meta_blocks = format_query_meta(meta_blocks, ignore_long=True)
         #print(query_meta_blocks)
@@ -2260,8 +2260,10 @@ class Store(object):
         #print("[+] Getting data for BED ...")
         sequences, starts, ends, index, pos_mean, pos_median, balance, mse_sample_set_cov = self._get_window_bed()
         #print("[+] Calculating popgen metrics ...")
-        tally = self._get_data(config['data_key'])
-        pop_metrics = get_popgen_metrics(tally, sites=(meta_blocks['length'] * meta_windows['size']))
+        tally = self._get_data(meta_windows['windows_raw_tally_key'])
+        meta_tally = self._get_meta(meta_windows['windows_raw_tally_key'])
+
+        pop_metrics = get_popgen_metrics(tally, sites=(meta_tally['block_length'] * meta_windows['window_size']))
         int_bed = np.vstack([starts, ends, index, pos_mean, pos_median, pop_metrics, balance, mse_sample_set_cov]).T
         columns = ['sequence', 'start', 'end', 'index', 'pos_mean', 'pos_median', 'heterozygosity_A', 'heterozygosity_B', 'd_xy', 'f_st', 'balance', 'mse_sample_set_cov']
         header = ["# %s" % config['version'], "# %s" % "\t".join(columns)]
@@ -2275,7 +2277,8 @@ class Store(object):
             'd_xy': 'float64', 'f_st': 'float64', 'balance': 'float64'}
         bed_df = pd.DataFrame(data=int_bed, columns=columns[1:]).astype(dtype=dtypes)
         bed_df['sequence'] = sequences
-        bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=columns, float_format='%.5f')
+        #bed_df.sort_values(['sequence', 'start'], ascending=[True, True]).to_csv(out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=columns, float_format='%.5f')
+        bed_df.to_csv(out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=columns, float_format='%.5f')
         return out_f
 
     # def dump_lncls(self, parameterObj):
@@ -2349,11 +2352,8 @@ class Store(object):
         '''
         how should it work for sims? probably needs an additional output format
         '''
-        #
         meta_gridsearch = self._get_meta(config['data_key'])
-        #print('meta_gridsearch', dict(meta_gridsearch))
         meta_tally = self._get_meta(meta_gridsearch['data_key'])
-        #print(dict(meta_tally))
         # parameter_names := order of parameters in array
         parameter_names = list(meta_gridsearch['grid_dict'].keys())
         # parameter array := 2D : (gridpoints, parameters)
@@ -2393,9 +2393,8 @@ class Store(object):
             #best_params = parameter_array[best_idx, :]
             #int_array = np.column_stack((np.repeat(np.column_stack((sequences, starts, ends, index)), grid_points, axis=0), gridsearch_result_array)) 
             int_array = np.column_stack((np.repeat(np.column_stack((starts, ends, index)), grid_points, axis=0), gridsearch_result_array)) 
-            str_array = np.repeat(sequences, grid_points, axis=0)
             int_df = pd.DataFrame(data=int_array, columns=columns).astype(dtype=dtypes)
-            int_df['sequence'] = str_array
+            int_df['sequence'] = np.repeat(sequences, grid_points, axis=0)
             int_df.to_csv(out_f, na_rep='NA', sep='\t', index=False, header=False, columns=['sequence'] + columns, compression='gzip')
             best_idx = int_df.groupby(['index'])['lnCl'].transform(max) == int_df['lnCl']
             int_df[best_idx].to_csv(best_out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=['sequence'] + columns)
@@ -2669,13 +2668,12 @@ class Store(object):
         if not overwrite and self._has_key(config['tally_key']):
             sys.exit("[X] Tally with data_label %r already exist. Change the label or use '--overwrite'" % (data_label))
         # sort out sequences (this could be prettier)
-        config['sequences'] = list(self._get_meta('blocks')['count_by_sequence'].keys()) if config['sequences'] is None else [_ for _ in config['sequences'].split(",") if _]
-        if config['genome_file']:
-            try:
-                df = parse_csv(csv_f=config['genome_file'], sep="\t", usecols=[0], dtype={'sequence_id': 'category'}, header=None)
-                config['sequences'] = [item for sublist in df.values.tolist() for item in sublist] 
-            except:
-                sys.exit("[X] Could not parse %r. Should be list of sequence names." % config['genome_file'])
+        seq_names = self._get_meta('seqs')['seq_names']
+        if config['sequences'] is None:
+            config['sequences'] = seq_names
+        else:
+            sequences_user = set([_ for _ in config['sequences'].split(",") if _])
+            config['sequences'] = [seq_name for seq_name in seq_names if seq_name in sequences_user]
         return config
         
     def tally(self, data_source, data_label, max_k, sample_sets, sequence_ids, genome_file, overwrite, verbose=True):
@@ -3173,11 +3171,13 @@ class Store(object):
         return block_sample_set_idxs
 
     def _make_windows(self, config):
+        ### meta_seqs['seq_names'] => order
         meta_blocks = self._get_meta('blocks')
+        meta_seqs = self._get_meta('seqs')
         sample_set_idxs = np.array(self._get_sample_set_idxs(query=config['sample_sets']), dtype=np.int64)
         blockable_seqs, unblockable_seqs = [], []
-        for seq_name, block_count in meta_blocks['count_by_sequence'].items():
-            if block_count >= config['window_size']:
+        for seq_name in meta_seqs['seq_names']:
+            if meta_blocks['count_by_sequence'][seq_name] >= config['window_size']:
                 blockable_seqs.append(seq_name)
             else:
                 unblockable_seqs.append(seq_name)
