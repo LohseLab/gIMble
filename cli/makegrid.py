@@ -6,7 +6,7 @@
         -z, --zarr_file <FILE>           Path to existing GimbleStore
         -o, --outprefix <STR>            Prefix to use for new GimbleStore
         -c, --config_file <FILE>         Config file with model parameters
-        -f, --overwrite                  Overwrite grid in GimbleStore
+        -f, --force                      Force overwrite of grid in GimbleStore
         -n, --processes <INT>            Number of processes [default: 1] 
         
 """
@@ -30,7 +30,7 @@ class MakeGridParameterObj(lib.gimble.ParameterObj):
         self.prefix = self._get_prefix(args["--outprefix"])
         self.config_file = self._get_path(args['--config_file'])
         self.num_cores = self._get_int(args['--processes']) #number of workers for independent processes
-        self.overwrite = args['--overwrite']
+        self.overwrite = args['--force']
         self.config = lib.gimble.load_config(
             self.config_file, 
             self._MODULE, 
