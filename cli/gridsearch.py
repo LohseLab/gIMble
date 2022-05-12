@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gimble gridsearch -z <FILE> -g <STR> [-t <STR>|-s <STR>] [-n <INT> -c <INT> -f] [-h|--help]
+"""usage: gimble gridsearch -z <FILE> -g <STR> (-t <STR>|-s <STR>) [-n <INT> -c <INT> -f] [-h|--help]
                                             
                                             
     Options:
@@ -33,7 +33,7 @@ class GridsearchParameterObj(lib.gimble.ParameterObj):
         self.overwrite = args['--overwrite']
         self.num_cores = self._get_int(args['--num_cores'])    # number of workers for independent processes
         self.chunksize = self._get_int(args['--chunksize'])    # size of chunks in first dimension of tally/grid dask array 
-        
+
 def main(params):
     try:
         start_time = timer()
