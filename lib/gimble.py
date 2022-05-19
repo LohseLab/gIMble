@@ -233,7 +233,7 @@ def make_ini_configparser(version, task, model, label):
         config.set('simulate', 'scale', "")
         config.add_section('gridbased')
         config.set('gridbased', '# Specify gridsearch key to simulate data based on gridsearch results ')
-        config.set('gridbased', 'gridsearch_label', "")
+        config.set('gridbased', 'grid_label', "")
         config.set('gridbased', '# Parameter to fix to global optimum when performing window-wise parametric bootstrap (optional).')
         config.set('gridbased', 'fixed_parameter', "")
     # mu
@@ -598,6 +598,7 @@ def load_config(config_file, MODULE=None, CWD=None, VERSION=None):
     if MODULE == 'makegrid' or MODULE == 'simulate':
         config = get_config_kmax(config) # HAS TO BE CHECKED!
     if MODULE == 'simulate':
+        config = expand_parameters(config) 
         config = get_config_simulate(config)
     if MODULE == 'optimize':
         config = get_config_optimize(config)
@@ -846,7 +847,7 @@ def get_config_schema(module):
         }
         schema['parameters'] = {
             'type': 'dict', 'required':False, 'empty':True, 
-            'valuesrules': {'coerce':'float_or_empty'}}
+            'valuesrules': {'coerce':'float_or_list'}}
     return schema
 
 def _dict_product(parameter_dict):
