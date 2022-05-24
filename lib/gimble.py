@@ -2511,6 +2511,7 @@ class Store(object):
             data = self._get_sims_bsfs(config['data_key']) # data is an iterator across parameter combos
             meta = self._get_meta(config['data_key'])
             config['block_length_data'] = meta['parameters']['block_length']
+            config['batch_sites'] = meta['parameters']['block_length'] * meta['parameters']['blocks']
             config['max_k'] = np.array(meta['max_k']) # INI values get overwritten by data ...
             config['gridsearch_keys'] = [self._get_key(task='gridsearch', data_label=config['data_label'], analysis_label=grid_meta['label'], parameter_label=idx) for idx in range(meta['max_idx'] + 1)]
         config['block_length_grid'] = grid_meta['block_length']
