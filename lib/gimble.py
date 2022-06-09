@@ -2941,6 +2941,7 @@ class Store(object):
         """
         print("[?]", data_type, sample_sets, sequences, population_by_letter)
         meta = self._get_meta('seqs')
+        print('++ meta', dict(meta))
         sequences = self._validate_seq_names(sequences)
         if population_by_letter:
             assert (set(population_by_letter.values()) == set(meta['population_by_letter'].values())), 'population_by_letter %r does not equal populations in ZARR store (%r)' % (population_by_letter, meta['population_by_letter'])
