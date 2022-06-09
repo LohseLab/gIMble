@@ -2939,6 +2939,7 @@ class Store(object):
         -------
         out : ndarray, int, ndim (mutypes)
         """
+        print("[?]", data_type, sample_sets, sequences, population_by_letter)
         meta = self._get_meta('seqs')
         sequences = self._validate_seq_names(sequences)
         if population_by_letter:
