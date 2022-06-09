@@ -2958,7 +2958,7 @@ class Store(object):
             #variations.append(np.array(self.data[key], dtype=np.int64))
             if self._has_key(key):
                 variations.append(self.data[key])
-        print('variation', len(variation), type(variation), variation)
+        print('variations', len(variations), type(variations), variations)
         variation = np.concatenate(variations, axis=0)
         polarise_true = (
             (population_by_letter['A'] == meta['population_by_letter']['B']) and 
