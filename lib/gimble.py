@@ -652,13 +652,49 @@ def config_to_demes_graph(config, idxs=None):
                     rate=config['parameters_expanded']['me'][idx])            
         yield b.resolve()
 
-def config_to_demes_yaml(config, outputfile, idxs=None):
-    CWD = config['CWD']
-    outputstring = outputfile + '_{}.yaml'
+def config_to_demes_yaml(config, output_prefix, output_name, idxs=None):
+    output_name += '_{}.yaml'
     graphs = config_to_demes_graph(config, idxs)
     for idx, graph in enumerate(graphs):
-        with open(os.path.join(CWD, outputstring.format(str(idx))), 'w') as file:
+        with open(os.path.join(output_prefix, output_name.format(str(idx))), 'w') as file:
             demes.dump(graph, file, format='yaml')
+
+def meta_to_demes_graph(key, datastore):
+    #required: population_by_letter, winning parameter_combo, model
+    meta = datastore._get_meta(key).asdict()
+    module, *output_name = key.split('/')
+    if module == 'gridsearch':
+        #distinguish whether 'blocks' or 'windows'
+        #labelling: gridsearch/data_name/makegrid_name
+        meta = datastore._get_meta(meta['makegrid_key']).asdict()
+        gridsearch_key = key #or does this require modification
+        lncls = np.array(datastore._get_data(gridsearch_key))
+        idx_winning_parameters = np.argmax(lncls, axis=-1)
+        if len(lncls.shape)==1:
+            idx_winning_parameters = np.array([idx_winning_parameters], dtype=np.int64)
+        winning_parameters = {k:[v[i] for i in idx_winning_parameters] for k,v in meta['grid_dict'].items()}
+        meta['parameters_expanded'] = winning_parameters
+    
+    elif module == 'optimize':
+        meta_results = datastore._get_meta(key+'/0').asdict()
+        #some optimize results not floats
+        optimize_results = [
+            {
+                k:v for k,v in d.items() if isinstance(v, float)
+                    } 
+                        for d in meta_results['optimize_results']
+            ]
+        meta['parameters_expanded']  = LOD_to_DOL(optimize_results)    
+
+    else:
+        ValueError(f'Function not implemented for module {module}.')
+    
+    meta['gimble'] = {'model' : meta['model']}
+    meta['gimble']['task'] = 'query'
+    meta['populations'] = {'pop_ids' : ['A', 'B', 'A_B']}
+    idxs = range(len(meta['parameters_expanded']['Ne_A']))
+    meta = get_config_model_events(meta)
+    config_to_demes_yaml(meta, os.getcwd() , f'{module}_'+'_'.join(output_name), idxs=idxs)
 
 class ConfigCustomNormalizer(cerberus.Validator):
     def __init__(self, *args, **kwargs):
@@ -2221,7 +2257,7 @@ class Store(object):
         meta = config_to_meta(config, 'simulate_instance')
         self._set_meta_and_data(simulation_instance_key, meta, simulation_instance)
 
-    def _preflight_query(self, version, data_key, extended):
+    def _preflight_query(self, version, data_key, extended, to_demes):
         if not data_key:
             '''Still needs checking whether keys are found correctly for all modules
             # blocks √
@@ -2262,18 +2298,25 @@ class Store(object):
             sys.exit("[X] ZARR store %s has no data under the key %r." % (self.path, data_key))
         config['data_type'] = data_key.split("/")[0]
         config['extended'] = extended
+        config['demes'] = to_demes
         return config
 
-    def query(self, version, data_key, extended):
-        config = self._preflight_query(version, data_key, extended)
+    def query(self, version, data_key, extended, to_demes):
+        config = self._preflight_query(version, data_key, extended, to_demes)
         if config['data_type'] == 'tally':
             self._write_tally_tsv(config)
         elif config['data_type'] == 'optimize':
-            self._write_optimize_tsv(config)
+            if to_demes:
+                meta_to_demes_graph(data_key, self)    
+            else:
+                self._write_optimize_tsv(config)
         elif config['data_type'] == 'windows':
             self._write_window_bed(config)
         elif config['data_type'] == 'gridsearch':
-            self._write_gridsearch_bed(config)
+            if to_demes:
+                meta_to_demes_graph(data_key, self)
+            else:
+                self._write_gridsearch_bed(config)
         elif config['data_type'] == 'makegrid':
             meta = self._get_meta(config['data_key'])
             print(meta)
