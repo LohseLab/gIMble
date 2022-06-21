@@ -3354,9 +3354,12 @@ class Store(object):
         reportObj = ReportObj(width=width)
         reportObj.add_line(prefix="[+]", left='[', center='Windows', right=']', fill='=')
         if self.has_stage('windows'):
+            window_size = meta_windows.get('window_size', meta_windows.get('size', "N/A")) # fallback for previous metas
+            window_step = meta_windows.get('window_step', meta_windows.get('step', "N/A")) # fallback for previous metas
+            window_count = meta_windows.get('window_count', meta_windows.get('count', "N/A")) # fallback for previous metas
             reportObj.add_line(prefix="[+]", left='windows')
-            reportObj.add_line(prefix="[+]", branch='F', fill=".", left="'-w %s -s %s'" % (meta_windows['window_size'], meta_windows['window_step']), right=' %s windows of inter-population (X) blocks' % (
-                format_count(meta_windows['window_count'])))
+            reportObj.add_line(prefix="[+]", branch='F', fill=".", left="'-w %s -s %s'" % (window_size, window_step), right=' %s windows of inter-population (X) blocks' % (
+                format_count(window_count)))
         return reportObj
 
     def _get_tally_report(self, width):
