@@ -1946,7 +1946,7 @@ class Store(object):
             header=None)
         #meta = self._get_meta(measure_key)
         meta = self._get_meta('seqs')
-        meta['samples'] = samples_df['samples'].to_list()
+        meta['samples'] = [sample.rstrip() for sample in samples_df['samples'].to_list()]
         meta['populations'] = samples_df['populations'].to_list()
         meta['population_ids'] = sorted(set(samples_df['populations'].to_list()))
         meta['population_by_letter'] = {letter: population_id for population_id, letter in zip(meta['population_ids'], string.ascii_uppercase)}
@@ -2939,9 +2939,7 @@ class Store(object):
         -------
         out : ndarray, int, ndim (mutypes)
         """
-        print("[?]", data_type, sample_sets, sequences, population_by_letter)
         meta = self._get_meta('seqs')
-        print('++ meta', dict(meta))
         sequences = self._validate_seq_names(sequences)
         if population_by_letter:
             assert (set(population_by_letter.values()) == set(meta['population_by_letter'].values())), 'population_by_letter %r does not equal populations in ZARR store (%r)' % (population_by_letter, meta['population_by_letter'])
@@ -2960,7 +2958,6 @@ class Store(object):
             #variations.append(np.array(self.data[key], dtype=np.int64))
             if self._has_key(key):
                 variations.append(self.data[key])
-        print('variations', len(variations), type(variations), variations)
         variation = np.concatenate(variations, axis=0)
         polarise_true = (
             (population_by_letter['A'] == meta['population_by_letter']['B']) and 
