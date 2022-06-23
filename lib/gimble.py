@@ -2697,7 +2697,7 @@ class Store(object):
                 print("[+] Found %s blocks on %s sequence(s)." % (
                     format_count(config['blocks']), format_count(len(config['sequences'])))) 
             else:
-                print("[+] Found %s blocks in %s windows (%s blocks per window) on %s sequence(s)." % (
+                print("[+] Found %s blocks across %s (sliding) windows (%s blocks per window) on %s sequence(s)." % (
                     format_count(config['blocks']), format_count(config['windows']), format_count(variation.shape[1]), format_count(len(config['sequences'])))) 
             print('[+] Percentage of blocks treated as marginals (w/ kmax = %s) = %s' % (config['max_k'], config['marginality']))
             print("[+] Tally'ing variation data ... ")
