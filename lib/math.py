@@ -199,7 +199,7 @@ def config_to_gf(config):
     migration_rate = sage.all.var('M') if migration_direction else None
     exodus_direction = config['events'].get('exodus', None)
     exodus_rate = sage.all.var('J') if exodus_direction else None
-    mutype_labels = list(config['k_max'].keys())
+    mutype_labels = ["m_1", "m_2", "m_3", "m_4"] # list(config['k_max'].keys())
     gf = togimble.get_gf(sample_list, coalescence_rates, mutype_labels, migration_direction, migration_rate, exodus_direction, exodus_rate)
     return gf
 
