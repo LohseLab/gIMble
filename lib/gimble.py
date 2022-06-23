@@ -3332,7 +3332,7 @@ class Store(object):
                     format_percentage(1 - (meta_blocks['count_total'] / meta_blocks['count_total_raw']))))
             reportObj.add_line(prefix="[+]", branch="P", right="".join(
                 [c.rjust(column_just) for c in ["X", "A", "B"]]))
-            for label, key, branch in [('Mean BED interval sites in blocks (%) *', 'interval_coverage', 'T'),
+            for label, key, branch in [('BED interval sites in blocks (estimated %)', 'interval_coverage', 'T'),
                                        ('Total blocks', 'blocks_total', 'T'),
                                        ('Invariant blocks', 'blocks_invariant', 'T'),
                                        ('Four-gamete-violation blocks', 'blocks_fgv', 'T'),
