@@ -3023,7 +3023,7 @@ class Store(object):
         meta_windows = self._get_meta('windows')
         #print('meta_windows', dict(meta_windows))
         MAX_SEQNAME_LENGTH = max([len(seq_name)+1 for seq_name in meta_seqs['seq_names']])
-        window_count = meta_windows['window_count']
+        window_count = meta_windows.get('window_count', meta_windows.get('count'), 0)
         index = np.arange(window_count)
         sequences = np.zeros(window_count, dtype='<U%s' % MAX_SEQNAME_LENGTH)
         starts = np.zeros(window_count, dtype=np.int64)
