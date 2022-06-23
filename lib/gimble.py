@@ -1946,7 +1946,7 @@ class Store(object):
             header=None)
         #meta = self._get_meta(measure_key)
         meta = self._get_meta('seqs')
-        meta['samples'] = samples_df['samples'].to_list()
+        meta['samples'] = [sample.rstrip() for sample in samples_df['samples'].to_list()]
         meta['populations'] = samples_df['populations'].to_list()
         meta['population_ids'] = sorted(set(samples_df['populations'].to_list()))
         meta['population_by_letter'] = {letter: population_id for population_id, letter in zip(meta['population_ids'], string.ascii_uppercase)}
@@ -2697,7 +2697,7 @@ class Store(object):
                 print("[+] Found %s blocks on %s sequence(s)." % (
                     format_count(config['blocks']), format_count(len(config['sequences'])))) 
             else:
-                print("[+] Found %s blocks in %s windows (%s blocks per window) on %s sequence(s)." % (
+                print("[+] Found %s blocks across %s (sliding) windows (%s blocks per window) on %s sequence(s)." % (
                     format_count(config['blocks']), format_count(config['windows']), format_count(variation.shape[1]), format_count(len(config['sequences'])))) 
             print('[+] Percentage of blocks treated as marginals (w/ kmax = %s) = %s' % (config['max_k'], config['marginality']))
             print("[+] Tally'ing variation data ... ")
@@ -3023,7 +3023,7 @@ class Store(object):
         meta_windows = self._get_meta('windows')
         #print('meta_windows', dict(meta_windows))
         MAX_SEQNAME_LENGTH = max([len(seq_name)+1 for seq_name in meta_seqs['seq_names']])
-        window_count = meta_windows['window_count']
+        window_count = meta_windows.get('window_count', meta_windows.get('count'), 0)
         index = np.arange(window_count)
         sequences = np.zeros(window_count, dtype='<U%s' % MAX_SEQNAME_LENGTH)
         starts = np.zeros(window_count, dtype=np.int64)
@@ -3332,7 +3332,7 @@ class Store(object):
                     format_percentage(1 - (meta_blocks['count_total'] / meta_blocks['count_total_raw']))))
             reportObj.add_line(prefix="[+]", branch="P", right="".join(
                 [c.rjust(column_just) for c in ["X", "A", "B"]]))
-            for label, key, branch in [('Mean BED interval sites in blocks (%) *', 'interval_coverage', 'T'),
+            for label, key, branch in [('BED interval sites in blocks (estimated %)', 'interval_coverage', 'T'),
                                        ('Total blocks', 'blocks_total', 'T'),
                                        ('Invariant blocks', 'blocks_invariant', 'T'),
                                        ('Four-gamete-violation blocks', 'blocks_fgv', 'T'),
@@ -3354,9 +3354,12 @@ class Store(object):
         reportObj = ReportObj(width=width)
         reportObj.add_line(prefix="[+]", left='[', center='Windows', right=']', fill='=')
         if self.has_stage('windows'):
+            window_size = meta_windows.get('window_size', meta_windows.get('size', "N/A")) # fallback for previous metas
+            window_step = meta_windows.get('window_step', meta_windows.get('step', "N/A")) # fallback for previous metas
+            window_count = meta_windows.get('window_count', meta_windows.get('count', "N/A")) # fallback for previous metas
             reportObj.add_line(prefix="[+]", left='windows')
-            reportObj.add_line(prefix="[+]", branch='F', fill=".", left="'-w %s -s %s'" % (meta_windows['window_size'], meta_windows['window_step']), right=' %s windows of inter-population (X) blocks' % (
-                format_count(meta_windows['window_count'])))
+            reportObj.add_line(prefix="[+]", branch='F', fill=".", left="'-w %s -s %s'" % (window_size, window_step), right=' %s windows of inter-population (X) blocks' % (
+                format_count(window_count)))
         return reportObj
 
     def _get_tally_report(self, width):
