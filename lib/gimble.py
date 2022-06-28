@@ -2487,9 +2487,9 @@ class Store(object):
                 fixed_param_int_df = pd.DataFrame(data=fixed_param_int_array, columns=columns).astype(dtype=dtypes)
                 fixed_param_int_df['sequence'] = sequences
                 fixed_param_out_f = '%s.%s.fixed_param.%s.bed' % (self.prefix, "_".join(gridsearch_key.split("/")), config['fixed_param'])
-                with open(out_f, 'w') as out_fh:
-                    out_fh.write("\n".join(header) + "\n")
-                fixed_param_int_df.to_csv(out_f, na_rep='NA', sep='\t', index=False, header=True, columns=['sequence'] + columns)
+                with open(fixed_param_out_f, 'w') as fixed_param_out_fh:
+                    fixed_param_out_fh.write("\n".join(header) + "\n")
+                fixed_param_int_df.to_csv(fixed_param_out_f, na_rep='NA', sep='\t', index=False, header=True, columns=['sequence'] + columns)
                 print("[+] \tWrote %r ..." % fixed_param_out_f)
             sys.exit()
             if config['extended']:
