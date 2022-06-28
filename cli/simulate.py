@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """usage: gIMble simulate                   [-z DIR | -o DIR] -c FILE [-t INT]
-                                            [(-w STR [--fixed STR])] [-f] [-h|--help]
+                                            [-f] [-h|--help]
                                             
     Options:
         -h --help                                   show this
@@ -11,8 +11,6 @@
         -c, --config_file FILE                      Simulate config file (*.ini) 
         -t, --threads INT                           Threads [default: 1]
         -f, --overwrite                             Overwrite results in GimbleStore
-        -w, --window_wise_bootstrap STR             Label of lncls grid to perform window-wise parametric bootstrap on                 
-        --fixed STR                                 Parameter to fix to global optimum when performing window-wise parametric bootstrap
 """
 
 from timeit import default_timer as timer
@@ -43,7 +41,6 @@ class SimulateParameterObj(lib.gimble.ParameterObj):
         self.zstore = self._get_path(args["--zarr"])
         self.prefix = self._get_prefix(args["--outprefix"])
         self.threads = self._get_int(args["--threads"])
-        self.sim_grid = args["--window_wise_bootstrap"]
         self.overwrite = args['--overwrite']
         self.config = lib.gimble.load_config(
             self.config_file, 

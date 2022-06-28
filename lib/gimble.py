@@ -540,8 +540,7 @@ def get_config_simulate(config):
         config['simulate']['recombination_rate'] = 0.0
     config['gridbased']['grid_label'] = config['gridbased']['grid_label'].strip()
     config['gridbased']['fixed_parameter'] = config['gridbased']['fixed_parameter'].strip()
-    config['demographies'] = lib.simulate.make_demographies(config)
-    # if config['simulate']['num_linked_blocks'] is not specified, default to config['simulate']['blocks']
+    
     if not config['simulate']['num_linked_blocks']:
         config['simulate']['num_linked_blocks'] = config['simulate']['blocks']
     blocks_per_replicate = get_blocks_per_replicate(config['simulate']['blocks'], config['simulate']['num_linked_blocks']) 
@@ -549,10 +548,17 @@ def get_config_simulate(config):
     config['simulate']['blocks_per_replicate'] = blocks_per_replicate
     config['simulate']['sequence_length'] = sequence_length_per_replicate
     config['replicates'] = blocks_per_replicate.size * config['simulate']['replicates']
-    config['seeds'] = np.random.randint(1, 2 ** 32, (config.get('parameters_grid_points', 1), config['replicates'], 2))       
     if not config['gridbased']['grid_label']:
-        config['parameters_LOD'] = DOL_to_LOD(config['parameters_expanded'])
-        config['parameters'] = {**config['simulate'],**config['mu']} # is this necessary?
+        config = get_config_simulate_demographies(config)
+
+    return config
+
+def get_config_simulate_demographies(config): 
+    config['demographies'] = lib.simulate.make_demographies(config)
+    config['seeds'] = np.random.randint(1, 2 ** 32, (config.get('parameters_grid_points', 1), config['replicates'], 2))       
+    config['parameters_LOD'] = DOL_to_LOD(config['parameters_expanded'])
+    config['parameters'] = {**config['simulate'],**config['mu']} # is this necessary?
+    
     return config
 
 def get_blocks_per_replicate(num, part):
@@ -1695,14 +1701,17 @@ def _get_sim_grid_config(config, lncls_global, lncls_windows, meta, window_info=
         cutoff = 90 if cutoff=='' else cutoff
         #recmap with seq, start, end, rec_bin_value
         rec_map = _parse_recombination_map(config['simulate']['recombination_map'], cutoff, rbins, scale, store_window_df) 
+        config['parameters']['recombination_rate'] = -1
     else:
-        rec = config['simulate']['recombination_rate'] 
+        rec = config['simulate']['recombination_rate']
+        config['parameters']['recombination_rate'] = rec
     grid_meta_dict = {k:np.array(v) for k,v in meta['grid_dict'].items()} #why are these not numpy arrays?
     grid_to_sim, r, window_param_idx = _get_sim_grid(grid_meta_dict, lncls_global, lncls_windows, fixed_param_grid, rec, rec_map)
     if isinstance(rec_map, pd.DataFrame):
         config['simulate']['recombination_rate'] = tuple(r)
     #ready to overwrite config: 
     config['parameters_expanded'] = grid_to_sim
+    config['parameters_LOD'] = DOL_to_LOD(grid_to_sim)
     #print("## config", config['grid_points'])
     config['parameters_grid_points'] = len(next(iter(grid_to_sim.values()))) # this must be a bug
     config['window_param_idx'] = window_param_idx
@@ -2119,75 +2128,31 @@ class Store(object):
         if not overwrite and self._has_key(config['simulate_key']):
             sys.exit("[X] Simulated results with label %r already exist. Use '-f' to overwrite or change analysis label in the INI file." % 
                 (config['simulate_key']))
-        # deal with grid_label
-        print('preflight config', config)
         if config['gridbased']['grid_label']:
             if not self._has_key(config['gridbased']['grid_label']):
                 sys.exit("[X] ZARR store %s has no gridsearch results under the key %r." % (self.path, config['gridbased']['grid_label']))
-            meta_gridsearch = self._get_meta(config['gridbased']['grid_label'])
-            if not len(meta_gridsearch['gridsearch_keys']) == 1:
-                sys.exit('[X] ZARR store contains results of %s gridsearches under key %r. Key must point at one gridsearch result.' % (len(meta_gridsearch['gridsearch_keys']), meta_gridsearch['gridsearch_keys']))
-            parameter_array = np.array([np.array(v, dtype=np.float64) for k, v in meta_gridsearch['grid_dict'].items()]).T
-            print("meta_gridsearch", dict(meta_gridsearch))
-            for gridsearch_key in meta_gridsearch['gridsearch_keys']:
-                lncls = np.array(self._get_data(gridsearch_key)) # (w, gridpoints)
-                gridsearch_result_array = np.column_stack((np.tile(parameter_array, (lncls.shape[0], 1)), lncls.ravel()[:,np.newaxis]))
-            window_info = None if config['simulate']['recombination_map'] == '' else self._get_window_bed_columns()
-            fixed_param_grid = config['gridbased']['fixed_parameter'] if config['gridbased']['fixed_parameter']!='' else None
-            lncls_global = None
-            config['parameters_grid_points'] = config['grid_points']
-            config = _get_sim_grid_config(config, lncls_global, lncls, meta_gridsearch, window_info, fixed_param_grid)
-            print(config)
-            # meta_tally = self._get_meta(meta_gridsearch['data_key'])
-            # # parameter_names := order of parameters in array
-            # parameter_names = list(meta_gridsearch['grid_dict'].keys())
-            # # parameter array := 2D : (gridpoints, parameters)
-            # parameter_array = np.array([np.array(v, dtype=np.float64) for k, v in meta_gridsearch['grid_dict'].items()]).T
-            # out_fs = []
-            # dtypes_by_field = { 'sequence': 'category', 
-            #                     'start': 'int64', 
-            #                     'end': 'int64', 
-            #                     'index': 'int64', 
-            #                     'pos_mean': 'float64', 
-            #                     'pos_median': 'float64', 
-            #                     'balance': 'float64', 
-            #                     'mse_sample_set_cov': 'float64', 
-            #                     'lnCL': 'float64'}
-            # grid_points = meta_gridsearch.get('grid_points', parameter_array.shape[0])
-            # data_ndims = meta_tally.get('data_ndims') 
-            # windows_count = meta_tally['windows']
-            # columns = []
-            # if meta_tally['data_type'] == 'windows' and data_ndims == 5:
-            #     #columns += ['sequence', 'start', 'end', 'index', 'pos_mean', 'pos_median', 'balance', 'mse_sample_set_cov']
-            #     columns += ['start', 'end', 'index']
-            #     sequences, starts, ends, index, pos_mean, pos_median, balance, mse_sample_set_cov = self._get_window_bed()
-            # for gridsearch_key in meta_gridsearch['gridsearch_keys']:
-            #     lncls = np.array(self._get_data(gridsearch_key)) # (w, gridpoints)
-        #if config['gridbased']['grid_label'].strip()!='':
-        #    #check whether grid_label exists
-        #    key_4D = self._get_key(task='gridsearch', data_label='windows', analysis_label=config['gridbased']['grid_label'], mod_label='4D')
-        #    key_5D = self._get_key(task='gridsearch', data_label='windows', analysis_label=config['gridbased']['grid_label'], mod_label='5D')
-        #    if not self._has_key(key_5D):
-        #        sys.exit("[X] Provided grid label does not correspond to an existing grid. Run gridsearch first.")
-        #    else:
-        #        if config['simulate']['recombination_map']!='':
-        #            window_info = self._get_window_bed_columns()
-        #        else:
-        #            window_info = None
-        #        meta_5D = self._get_meta(key_5D)
-        #        lncls_global = self._get_data(key_4D)
-        #        lncls_windows = self._get_data(key_5D)
-        #        fixed_param_grid = config['gridbased']['fixed_parameter'] if config['gridbased']['fixed_parameter']!='' else None
-        #        config = _get_sim_grid_config(config, lncls_global, lncls_windows, meta_5D, window_info, fixed_param_grid)
-        #print('[+] Simulating %s replicate(s) of %s block(s) for %s parameter combinations' %
-        #    (config['simulate']['replicates'], config['simulate']['blocks'], config['parameters_grid_points']))
+            config = self._modify_config_simulate_gridbased(config)
+        return config
+
+    def _modify_config_simulate_gridbased(self, config):
+        meta_gridsearch = self._get_meta(config['gridbased']['grid_label'])
+        if not len(meta_gridsearch['gridsearch_keys']) == 1:
+            sys.exit('[X] ZARR store contains results of %s gridsearches under key %r. Key must point at one gridsearch result.' % (len(meta_gridsearch['gridsearch_keys']), meta_gridsearch['gridsearch_keys']))
+        parameter_array = np.array([np.array(v, dtype=np.float64) for k, v in meta_gridsearch['grid_dict'].items()]).T
+        for gridsearch_key in meta_gridsearch['gridsearch_keys']:
+            lncls = np.array(self._get_data(gridsearch_key)) # (w, gridpoints)
+            gridsearch_result_array = np.column_stack((np.tile(parameter_array, (lncls.shape[0], 1)), lncls.ravel()[:,np.newaxis]))
+        window_info = None if config['simulate']['recombination_map'] == '' else self._get_window_bed_columns()
+        fixed_param_grid = config['gridbased']['fixed_parameter'] if config['gridbased']['fixed_parameter']!='' else None
+        lncls_global = None
+        config = _get_sim_grid_config(config, lncls_global, lncls, meta_gridsearch, window_info, fixed_param_grid)
+        config = get_config_simulate_demographies(config)
+
         return config
 
     def simulate(self, config, threads, overwrite):
         print("[#] Preflight...")
-        print('config', config)
         config = self._preflight_simulate(config, overwrite)
-        print('config', config)
         print('[+] Simulating %s replicate(s) of %s block(s) for %s parameter combinations' %
             (config['simulate']['replicates'], config['simulate']['blocks'], config['parameters_grid_points']))
         for idx, simulation_instance in enumerate(
