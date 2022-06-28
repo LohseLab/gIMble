@@ -449,6 +449,7 @@ def get_config_model_parameters(config, module):
                     value_min, value_max, num=value_num, endpoint=True, dtype=np.float64)
                 if not value_min == 0 and parameter == 'me':
                     np.insert(config['parameters_np'][parameter], 0, 0)
+                    # check why it's not added!!!
             elif value_scale.startswith('log'):
                 if value_min == 0:
                     error_msg = ["[X] Min value for log-ranged parameter %r in config file can't be 0." % parameter]
@@ -471,6 +472,8 @@ def get_config_model_parameters(config, module):
             if module == 'makegrid':
                 sys.exit("[X] Config: Parameters must be FLOAT, or (MIN, MAX, STEPS, LIN|LOG).")
     #print('Config',config)
+    print(config)
+    sys.exit()
     return config
 
 def get_config_model_events(config):
@@ -2110,8 +2113,9 @@ class Store(object):
         config = self._make_windows(config)
         meta = config_to_meta(config, 'windows')
         self._set_meta(config['windows_key'], meta=meta)
+        print("[+] Computing additional data ...")
         meta['windows_raw_tally_key'] = self.tally('windows', 'windows_raw', None, 'X', None, None, overwrite=True, verbose=False)
-        meta['windowsum_raw_tally_key'] = self.tally('windows', 'windowsum_raw', None, 'X', None, None, overwrite=True, verbose=False)
+        #meta['windowsum_raw_tally_key'] = self.tally('windows', 'windowsum_raw', None, 'X', None, None, overwrite=True, verbose=False)
         self._set_meta(config['windows_key'], meta=meta)
         
     def _preflight_simulate(self, config, overwrite):
@@ -2120,7 +2124,6 @@ class Store(object):
             sys.exit("[X] Simulated results with label %r already exist. Use '-f' to overwrite or change analysis label in the INI file." % 
                 (config['simulate_key']))
         # deal with grid_label
-        print('preflight config', config)
         if config['gridbased']['grid_label']:
             if not self._has_key(config['gridbased']['grid_label']):
                 sys.exit("[X] ZARR store %s has no gridsearch results under the key %r." % (self.path, config['gridbased']['grid_label']))
@@ -2137,7 +2140,7 @@ class Store(object):
             lncls_global = None
             config['parameters_grid_points'] = config['grid_points']
             config = _get_sim_grid_config(config, lncls_global, lncls, meta_gridsearch, window_info, fixed_param_grid)
-            print(config)
+    
             # meta_tally = self._get_meta(meta_gridsearch['data_key'])
             # # parameter_names := order of parameters in array
             # parameter_names = list(meta_gridsearch['grid_dict'].keys())
@@ -2221,7 +2224,7 @@ class Store(object):
         meta = config_to_meta(config, 'simulate_instance')
         self._set_meta_and_data(simulation_instance_key, meta, simulation_instance)
 
-    def _preflight_query(self, version, data_key, extended):
+    def _preflight_query(self, version, data_key, extended, fixed_param):
         if not data_key:
             '''Still needs checking whether keys are found correctly for all modules
             # blocks √
@@ -2262,10 +2265,11 @@ class Store(object):
             sys.exit("[X] ZARR store %s has no data under the key %r." % (self.path, data_key))
         config['data_type'] = data_key.split("/")[0]
         config['extended'] = extended
+        config['fixed_param'] = fixed_param
         return config
 
-    def query(self, version, data_key, extended):
-        config = self._preflight_query(version, data_key, extended)
+    def query(self, version, data_key, extended, fixed_param):
+        config = self._preflight_query(version, data_key, extended, fixed_param)
         if config['data_type'] == 'tally':
             self._write_tally_tsv(config)
         elif config['data_type'] == 'optimize':
@@ -2275,8 +2279,7 @@ class Store(object):
         elif config['data_type'] == 'gridsearch':
             self._write_gridsearch_bed(config)
         elif config['data_type'] == 'makegrid':
-            meta = self._get_meta(config['data_key'])
-            print(meta)
+            print(self._get_meta(config['data_key']))
             sys.exit("[X] Output file not implemented.")
         elif config['data_type'] == 'simulate':
             self._write_tally_tsv(config)
@@ -2426,13 +2429,23 @@ class Store(object):
     def _write_gridsearch_bed(self, config):
         '''
         how should it work for sims? probably needs an additional output format
+
+        - windows vs blocks
+        - extended
+        - fixed+param
         '''
         meta_gridsearch = self._get_meta(config['data_key'])
+        # parameter array := 2D : (gridpoints, parameters)
+        parameter_array = np.array([np.array(v, dtype=np.float64) for k, v in meta_gridsearch['grid_dict'].items()]).T
         meta_tally = self._get_meta(meta_gridsearch['data_key'])
         # parameter_names := order of parameters in array
         parameter_names = list(meta_gridsearch['grid_dict'].keys())
-        # parameter array := 2D : (gridpoints, parameters)
-        parameter_array = np.array([np.array(v, dtype=np.float64) for k, v in meta_gridsearch['grid_dict'].items()]).T
+        if config['fixed_param']:
+            if not config['fixed_param'] in set(parameter_names):
+                sys.exit("[X] Parameter %r is not part of the grid %r\n\tAvailable parameters are: %s" % (
+                    config['fixed_param'], config['data_key'], ", ".join(parameter_names)))
+            # find index of fixed_param
+            fixed_param_idx = parameter_names.index(config['fixed_param'])
         out_fs = []
         dtypes_by_field = { 'sequence': 'category', 
                             'start': 'int64', 
@@ -2447,26 +2460,64 @@ class Store(object):
         data_ndims = meta_tally.get('data_ndims') 
         windows_count = meta_tally['windows']
         columns = []
-        if meta_tally['data_type'] == 'windows' and data_ndims == 5:
+        if meta_tally['data_type'] == 'windows':
             #columns += ['sequence', 'start', 'end', 'index', 'pos_mean', 'pos_median', 'balance', 'mse_sample_set_cov']
             columns += ['start', 'end', 'index']
             sequences, starts, ends, index, pos_mean, pos_median, balance, mse_sample_set_cov = self._get_window_bed()
         for gridsearch_key in meta_gridsearch['gridsearch_keys']:
             lncls = np.array(self._get_data(gridsearch_key)) # (w, gridpoints)
+            if config['fixed_param']:
+                # find indices that address the different levels of fixed_param
+                def get_lists_of_indices(fixed_param_array):
+                    idx_sort = np.argsort(fixed_param_array)
+                    sorted_fixed_param_array = fixed_param_array[idx_sort]
+                    vals, idx_start, count = np.unique(sorted_fixed_param_array, return_counts=True, return_index=True)
+                    res = np.split(idx_sort, idx_start[1:])
+                    return dict(zip(vals, res))
+                indices_by_fixed_param_value = get_lists_of_indices(parameter_array[:,fixed_param_idx])
+                columns += ["%s_%s" % (config['fixed_param'], fixed_param_value) for fixed_param_value in indices_by_fixed_param_value.keys()]
+                dtypes = {field: dtypes_by_field.get(field, 'float64') for field in columns}
+                header = ["# %s" % config['version']]
+                header += ["# %s" % "\t".join(['sequence'] + columns)]
+                # determine max lncls for these indices
+                max_lncls = np.zeros((windows_count, len(indices_by_fixed_param_value.keys())))
+                for fixed_param_idx, (fixed_param_value, fixed_param_indices) in enumerate(indices_by_fixed_param_value.items()):
+                    max_lncls[:, fixed_param_idx] = np.max(lncls[:,fixed_param_indices], axis=1)
+                fixed_param_int_array = np.column_stack((starts, ends, index, max_lncls))
+                fixed_param_int_df = pd.DataFrame(data=fixed_param_int_array, columns=columns).astype(dtype=dtypes)
+                fixed_param_int_df['sequence'] = sequences
+                fixed_param_out_f = '%s.%s.fixed_param.%s.bed' % (self.prefix, "_".join(gridsearch_key.split("/")), config['fixed_param'])
+                with open(out_f, 'w') as out_fh:
+                    out_fh.write("\n".join(header) + "\n")
+                fixed_param_int_df.to_csv(out_f, na_rep='NA', sep='\t', index=False, header=True, columns=['sequence'] + columns)
+                print("[+] \tWrote %r ..." % fixed_param_out_f)
+            sys.exit()
+            if config['extended']:
+                lncl_best_idx = np.argmax(lncls, axis=1)
+                gridsearch_result_array = np.column_stack((parameter_array[lncl_best_idx], lncls[-1 ,lncl_best_idx, np.newaxis]))
+                print("2 gridsearch_result_array", gridsearch_result_array)
+            
             # np.tile is defined by (window_count, 1)) 
             gridsearch_result_array = np.column_stack((np.tile(parameter_array, (windows_count, 1)), lncls.ravel()[:,np.newaxis]))
+            
             columns += parameter_names + ['lnCl']
             dtypes = {field: dtypes_by_field.get(field, 'float64') for field in columns}
             header = ["# %s" % config['version']]
             header += ["# %s" % "\t".join(['sequence'] + columns)]
+            # distinction between basic and --extended 
+            # basic: slice best early before adding window data
+            # for loop over gridpoints 
             int_array = np.column_stack((np.repeat(np.column_stack((starts, ends, index)), grid_points, axis=0), gridsearch_result_array)) 
             int_df = pd.DataFrame(data=int_array, columns=columns).astype(dtype=dtypes)
             int_df['sequence'] = np.repeat(sequences, grid_points, axis=0)
+
             if config['extended']:
-                out_f = '%s.%s.extended.bed.gz' % (self.prefix, "_".join(gridsearch_key.split("/")))
+                # out_f = '%s.%s.extended.bed.gz' % (self.prefix, "_".join(gridsearch_key.split("/")))
+                out_f = '%s.%s.extended.bed' % (self.prefix, "_".join(gridsearch_key.split("/")))
                 with open(out_f, 'w') as out_fh:
                     out_fh.write("\n".join(header) + "\n")
-                int_df.to_csv(out_f, na_rep='NA', sep='\t', index=False, header=False, columns=['sequence'] + columns, compression='gzip')
+                # int_df.to_csv(out_f, na_rep='NA', sep='\t', index=False, header=False, columns=['sequence'] + columns, compression='gzip')
+                int_df.to_csv(out_f, na_rep='NA', sep='\t', index=False, header=False, columns=['sequence'] + columns)
                 print("[+] \tWrote %r ..." % out_f)
             best_out_f = '%s.%s.best.bed' % (self.prefix, "_".join(gridsearch_key.split("/")))
             with open(best_out_f, 'w') as best_out_fh:
@@ -2701,7 +2752,7 @@ class Store(object):
                     format_count(config['blocks']), format_count(config['windows']), format_count(variation.shape[1]), format_count(len(config['sequences'])))) 
             print('[+] Percentage of blocks treated as marginals (w/ kmax = %s) = %s' % (config['max_k'], config['marginality']))
             print("[+] Tally'ing variation data ... ")
-        if config['data_type'] == 'windowsum':
+        if config['data_source'] == 'windowsum': # data_source, NOT data_type
             variation = variation.reshape(-1, variation.shape[-1])
         variation_tally = tally_variation(variation, form='bsfs', max_k=config['max_k'])
         config['data_ndims'] = variation_tally.ndim
@@ -3021,9 +3072,8 @@ class Store(object):
     def _get_window_bed(self):
         meta_seqs = self._get_meta('seqs')
         meta_windows = self._get_meta('windows')
-        #print('meta_windows', dict(meta_windows))
         MAX_SEQNAME_LENGTH = max([len(seq_name)+1 for seq_name in meta_seqs['seq_names']])
-        window_count = meta_windows.get('window_count', meta_windows.get('count', 0))
+        window_count = meta_windows.get('window_count', meta_windows.get('count', meta_windows.get('windows', 0)))
         index = np.arange(window_count)
         sequences = np.zeros(window_count, dtype='<U%s' % MAX_SEQNAME_LENGTH)
         starts = np.zeros(window_count, dtype=np.int64)
@@ -3061,6 +3111,7 @@ class Store(object):
             if not overwrite:
                 sys.exit("[X] GStore %r already contains windows.\n[X] These windows => %r\n[X] Please specify '--force' to overwrite." % (self.path, self.get_stage('windows')))
             print('[-] GStore %r already contains windows. But these will be overwritten...' % (self.path))
+            '''only deletes windows (NOT windows tallies)'''
             self._del_data_and_meta('windows')
         config['windows_key'] = self._get_key(task='windows') # one could allow for multiple windows sets by using labels here
         config['window_count'] = 0
