@@ -471,9 +471,6 @@ def get_config_model_parameters(config, module):
                 sys.exit("[X] Config: Parameters must be FLOAT, or (MIN, MAX).")
             if module == 'makegrid':
                 sys.exit("[X] Config: Parameters must be FLOAT, or (MIN, MAX, STEPS, LIN|LOG).")
-    #print('Config',config)
-    print(config)
-    sys.exit()
     return config
 
 def get_config_model_events(config):
@@ -2491,40 +2488,62 @@ class Store(object):
                     fixed_param_out_fh.write("\n".join(header) + "\n")
                 fixed_param_int_df.to_csv(fixed_param_out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=['sequence'] + columns)
                 print("[+] \tWrote %r ..." % fixed_param_out_f)
-            sys.exit()
-            if config['extended']:
-                lncl_best_idx = np.argmax(lncls, axis=1)
-                gridsearch_result_array = np.column_stack((parameter_array[lncl_best_idx], lncls[-1 ,lncl_best_idx, np.newaxis]))
-                print("2 gridsearch_result_array", gridsearch_result_array)
-            
-            # np.tile is defined by (window_count, 1)) 
-            gridsearch_result_array = np.column_stack((np.tile(parameter_array, (windows_count, 1)), lncls.ravel()[:,np.newaxis]))
             
             columns += parameter_names + ['lnCl']
             dtypes = {field: dtypes_by_field.get(field, 'float64') for field in columns}
             header = ["# %s" % config['version']]
             header += ["# %s" % "\t".join(['sequence'] + columns)]
-            # distinction between basic and --extended 
-            # basic: slice best early before adding window data
-            # for loop over gridpoints 
-            int_array = np.column_stack((np.repeat(np.column_stack((starts, ends, index)), grid_points, axis=0), gridsearch_result_array)) 
-            int_df = pd.DataFrame(data=int_array, columns=columns).astype(dtype=dtypes)
-            int_df['sequence'] = np.repeat(sequences, grid_points, axis=0)
-
             if config['extended']:
-                # out_f = '%s.%s.extended.bed.gz' % (self.prefix, "_".join(gridsearch_key.split("/")))
+                gridsearch_result_array = np.column_stack((np.tile(parameter_array, (windows_count, 1)), lncls.ravel()[:,np.newaxis]))
+                extended_int_array = np.column_stack((np.repeat(np.column_stack((starts, ends, index)), grid_points, axis=0), gridsearch_result_array)) 
+                extended_int_df = pd.DataFrame(data=extended_int_array, columns=columns).astype(dtype=dtypes)
+                extended_int_df['sequence'] = np.repeat(sequences, grid_points, axis=0)
                 out_f = '%s.%s.extended.bed' % (self.prefix, "_".join(gridsearch_key.split("/")))
                 with open(out_f, 'w') as out_fh:
                     out_fh.write("\n".join(header) + "\n")
-                # int_df.to_csv(out_f, na_rep='NA', sep='\t', index=False, header=False, columns=['sequence'] + columns, compression='gzip')
-                int_df.to_csv(out_f, na_rep='NA', sep='\t', index=False, header=False, columns=['sequence'] + columns)
+                extended_int_df.to_csv(out_f, na_rep='NA', sep='\t', index=False, mode='a', header=False, columns=['sequence'] + columns)
                 print("[+] \tWrote %r ..." % out_f)
+            lncl_best_idx = np.argmax(lncls, axis=1)
+            gridsearch_result_array = np.column_stack((parameter_array[lncl_best_idx], lncls[-1 ,lncl_best_idx, np.newaxis]))
+            int_array = np.column_stack((starts, ends, index, gridsearch_result_array)) 
+            int_df = pd.DataFrame(data=int_array, columns=columns).astype(dtype=dtypes)
+            int_df['sequence'] = np.repeat(sequences, grid_points, axis=0)
             best_out_f = '%s.%s.best.bed' % (self.prefix, "_".join(gridsearch_key.split("/")))
             with open(best_out_f, 'w') as best_out_fh:
                 best_out_fh.write("\n".join(header) + "\n")
             best_idx = int_df.groupby(['index'])['lnCl'].transform(max) == int_df['lnCl']
             int_df[best_idx].to_csv(best_out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=['sequence'] + columns)
             print("[+] \tWrote %r ..." % best_out_f)
+            
+
+            ## np.tile is defined by (window_count, 1)) 
+            #gridsearch_result_array = np.column_stack((np.tile(parameter_array, (windows_count, 1)), lncls.ravel()[:,np.newaxis]))
+            #
+            #columns += parameter_names + ['lnCl']
+            #dtypes = {field: dtypes_by_field.get(field, 'float64') for field in columns}
+            #header = ["# %s" % config['version']]
+            #header += ["# %s" % "\t".join(['sequence'] + columns)]
+            ## distinction between basic and --extended 
+            ## basic: slice best early before adding window data
+            ## for loop over gridpoints 
+            #int_array = np.column_stack((np.repeat(np.column_stack((starts, ends, index)), grid_points, axis=0), gridsearch_result_array)) 
+            #int_df = pd.DataFrame(data=int_array, columns=columns).astype(dtype=dtypes)
+            #int_df['sequence'] = np.repeat(sequences, grid_points, axis=0)
+#
+            #if config['extended']:
+            #    # out_f = '%s.%s.extended.bed.gz' % (self.prefix, "_".join(gridsearch_key.split("/")))
+            #    out_f = '%s.%s.extended.bed' % (self.prefix, "_".join(gridsearch_key.split("/")))
+            #    with open(out_f, 'w') as out_fh:
+            #        out_fh.write("\n".join(header) + "\n")
+            #    # int_df.to_csv(out_f, na_rep='NA', sep='\t', index=False, header=False, columns=['sequence'] + columns, compression='gzip')
+            #    int_df.to_csv(out_f, na_rep='NA', sep='\t', index=False, header=False, columns=['sequence'] + columns)
+            #    print("[+] \tWrote %r ..." % out_f)
+            #best_out_f = '%s.%s.best.bed' % (self.prefix, "_".join(gridsearch_key.split("/")))
+            #with open(best_out_f, 'w') as best_out_fh:
+            #    best_out_fh.write("\n".join(header) + "\n")
+            #best_idx = int_df.groupby(['index'])['lnCl'].transform(max) == int_df['lnCl']
+            #int_df[best_idx].to_csv(best_out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=['sequence'] + columns)
+            #print("[+] \tWrote %r ..." % best_out_f)
 
     def gridsearch_preflight(self, tally_label, sim_label, grid_label, overwrite):
         config = {}
