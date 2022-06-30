@@ -51,7 +51,7 @@ def plot_popgen_scan(bed_df, offset_by_sequence_id, bg_rectangles, out_prefix):
     fig = plt.figure(figsize=(16,4), dpi=200, frameon=True)
     ax = fig.add_subplot(111)
     for axvspan_min, axvspan_max in bg_rectangles:
-        plt.axvspan(axvspan_min, axvspan_max, color='lightgrey', zorder=-1)
+        plt.axvspan(axvspan_min, axvspan_max, color='whitesmoke', zorder=-1)
     ax.plot(bed_df['x'], bed_df['f_st'], color='black', alpha=1, linestyle='-', linewidth=0.1) 
     ax.scatter(bed_df['x'], bed_df['f_st'], color='black', s=0.1, alpha=1) 
     plt.tight_layout()
@@ -138,7 +138,6 @@ def parse_bed(bed_f):
     return (bed_df, out_prefix)
 
 def get_coordinates(genome_f):
-    # only these get plotted...
     genome_df = pd.read_csv(genome_f, sep="\t", usecols=[0,1], names=['sequence_id', 'sequence_length'], dtype={'sequence_id': 'category', 'sequence_length': 'int64'}, header=None)
     offset_by_sequence_id = {}
     offset = 0

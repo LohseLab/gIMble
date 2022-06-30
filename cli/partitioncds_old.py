@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: partitioncds               -f FILE -b FILE -v FILE [-e STR -o STR] [-h|--help] [-V|--version]
+"""usage: gimble partitioncds               -f FILE -b FILE -v FILE [-e STR -o STR] [-h|--help]
                                             
     Options:
         -h --help                                   show this
@@ -10,20 +10,25 @@
         -b, --bed_file FILE                         BED file
         -o, --outprefix STR                         Outprefix [default: gimble]
         -e, --exclude STR                           Sample IDs to exclude : '-e sample_A,sample_B'
-        -V, --version                               Print version
+
 """
 
 '''
 [To Do]
-- Some GFF3 have stop-codon as part of CDS, some do not 
-    - needs to have fallback parsing of stop_codon instances to infer stop_codon presence
-- make standalone
+- fix file parsing:
+    - should account for gziped/non-gziped VCF
 
+- ignore sample argument:
+    - should be possible to remove certain samples from VCF file
+
+- divide cli/lib code
 '''
 
 
 from timeit import default_timer as timer
 from docopt import docopt
+#import lib.gimblelog
+import lib.gimble
 import warnings
 import numpy as np
 import sys
@@ -35,7 +40,6 @@ import pandas as pd
 import zarr
 import itertools
 import shutil
-import pathlib
 
 DEGENERACIES = [0, 2, 3, 4]
 
@@ -112,16 +116,6 @@ def parse_fasta(fasta_file):
     print("[+] Found %s sequences..." % (len(sequence_by_id)))
     return sequence_by_id
 
-def format_proportion(fraction, precision=2):
-    if fraction in set(['-', 'N/A']):
-        return fraction
-    return "{:.{}f}".format(fraction, precision)
-
-def format_count(count):
-    if count in set(['-', 'N/A']):
-        return count
-    return "%s" % str(format(count, ',d'))
-
 def parse_bed(bed_file):
     print("[+] Parsing BED file...")
     try:
@@ -132,9 +126,9 @@ def parse_bed(bed_file):
     count_transcript = bed_df['transcript_id'].nunique()
     count_cds = len(bed_df.index)
     print("[+] Found %s CDSs in %s transcripts (%s CDS per transcript)..." % (
-                                        format_count(count_cds), 
-                                        format_count(count_transcript), 
-                                        format_proportion(count_cds / count_transcript)))
+                                        lib.gimble.format_count(count_cds), 
+                                        lib.gimble.format_count(count_transcript), 
+                                        lib.gimble.format_fraction(count_cds / count_transcript)))
     return bed_df
 
 def get_transcripts(parameterObj, sequence_by_id):
@@ -199,7 +193,7 @@ class TranscriptObj(object):
         codon = "".join(self.sequence[-3:])
         if AMINOACID_BY_CODON[codon] == 'X':
             return True
-        return True # essentially means not filtering on stop codons
+        return False
 
     def is_divisible_by_three(self):
         if self.sequence.shape[0] % 3 == 0:
@@ -214,25 +208,17 @@ class TranscriptObj(object):
     def __str__(self):
         return ">%s [%s:%s-%s(%s)]\n%s" % (self.transcript_id, self.sequence_id, self.start, self.end, self.orientation, self.sequence)
 
-class PartitioncdsParameterObj():
+class PartitioncdsParameterObj(lib.gimble.ParameterObj):
     '''Sanitises command line arguments and stores parameters'''
-    def __init__(self, args):
+    def __init__(self, params, args):
+        super().__init__(params)
         self.fasta_file = self._get_path(args['--fasta_file'], path=True)
         self.vcf_file = str(self._get_path(args['--vcf_file'], path=True))
         self.bed_file = self._get_path(args['--bed_file'], path=True)
         self.outprefix = args['--outprefix']
         self.samples_to_exclude = set(args['--exclude'].split(",")) if args['--exclude'] is not None else set([])
         self.tmp_dir = str(tempfile.mkdtemp(prefix='.tmp_gimble_', dir="."))
-
-    def _get_path(self, infile, path=False):
-        if infile is None:
-            return None
-        _path = pathlib.Path(infile).resolve()
-        if not _path.exists():
-            sys.exit("[X] File not found: %r" % str(infile))
-        if path:
-            return _path
-        return str(_path)
+        print(self.__dict__)
 
 def parse_vcf_file(parameterObj, sequence_ids, query_regions_by_sequence_id):
     print("[+] Parsing VCF file...")
@@ -313,8 +299,7 @@ def infer_degeneracy(parameterObj, transcriptObjs, zstore):
 
     for transcriptObj in tqdm(transcriptObjs, total=len(transcriptObjs), desc="[%] Checking for ORFs... ", ncols=150, position=0, leave=True):
         if not transcriptObj.is_orf():
-            #warnings.append("[-] Transcript %s has no ORF: START=%s, STOP=%s, DIVISIBLE_BY_3=%s (will be skipped)" % (transcriptObj.transcript_id, transcriptObj.has_start(), transcriptObj.has_stop(), transcriptObj.is_divisible_by_three()))
-            warnings.append("[-] Transcript %s has no ORF: START=%s, DIVISIBLE_BY_3=%s (will be skipped)" % (transcriptObj.transcript_id, transcriptObj.has_start(), transcriptObj.is_divisible_by_three()))
+            warnings.append("[-] Transcript %s has no ORF: START=%s, STOP=%s, DIVISIBLE_BY_3=%s (will be skipped)" % (transcriptObj.transcript_id, transcriptObj.has_start(), transcriptObj.has_stop(), transcriptObj.is_divisible_by_three()))
             beds_rejected.append(transcriptObj.bed)
         else:
             total_sites += transcriptObj.positions.shape[0]
@@ -389,12 +374,13 @@ def get_query_regions(transcriptObjs):
         query_regions_by_sequence_id[sequence_id] = np.concatenate(regions)
     return query_regions_by_sequence_id
 
-if __name__ == '__main__':
-    __version__ = '0.2'
+def main(params):
     try:
         start_time = timer()
-        args = docopt(__doc__, version="partitioncds v%s" % __version__)
-        parameterObj = PartitioncdsParameterObj(args)
+        args = docopt(__doc__)
+        #print(args)
+        #log = lib.log.get_logger(run_params)
+        parameterObj = PartitioncdsParameterObj(params, args)
         sequence_by_id = parse_fasta(parameterObj.fasta_file)
         transcriptObjs = get_transcripts(parameterObj, sequence_by_id)
         query_regions_by_sequence_id = get_query_regions(transcriptObjs)

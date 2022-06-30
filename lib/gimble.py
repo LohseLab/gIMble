@@ -2252,10 +2252,13 @@ class Store(object):
                 if len(key_list) == max_depth_by_key.get(module, None):
                     available_keys_by_category[category_by_module[module]].add("/".join(key_list[0:max_depth_by_key.get(key_list[0], 0)]))
             self.data.visit(data_key_finder)
-            print("[X] Please specify a label (-l) for which data to query. Available labels:")
-            for category, available_keys in available_keys_by_category.items():
-                print("# %s" % category)
-                print("- %s" % "\n- ".join(sorted(available_keys)))
+            if available_keys_by_category:
+                print("[X] Please specify a label (-l) for which data to query. Available labels:")
+                for category, available_keys in available_keys_by_category.items():
+                    print("# %s" % category)
+                    print("- %s" % "\n- ".join(sorted(available_keys)))
+            else:
+                print("[X] ZARR store %s seems to be empty." % self.path)
             sys.exit(1)
         config = {'data_key': data_key, 'version': version}
         if not self._has_key(data_key):
@@ -2488,7 +2491,6 @@ class Store(object):
                     fixed_param_out_fh.write("\n".join(header) + "\n")
                 fixed_param_int_df.to_csv(fixed_param_out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=['sequence'] + columns)
                 print("[+] \tWrote %r ..." % fixed_param_out_f)
-            
             columns += parameter_names + ['lnCl']
             dtypes = {field: dtypes_by_field.get(field, 'float64') for field in columns}
             header = ["# %s" % config['version']]
@@ -2507,7 +2509,7 @@ class Store(object):
             gridsearch_result_array = np.column_stack((parameter_array[lncl_best_idx], lncls[-1 ,lncl_best_idx, np.newaxis]))
             int_array = np.column_stack((starts, ends, index, gridsearch_result_array)) 
             int_df = pd.DataFrame(data=int_array, columns=columns).astype(dtype=dtypes)
-            int_df['sequence'] = np.repeat(sequences, grid_points, axis=0)
+            int_df['sequence'] = sequences
             best_out_f = '%s.%s.best.bed' % (self.prefix, "_".join(gridsearch_key.split("/")))
             with open(best_out_f, 'w') as best_out_fh:
                 best_out_fh.write("\n".join(header) + "\n")
