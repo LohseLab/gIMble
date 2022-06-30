@@ -393,7 +393,7 @@ def main(params):
     try:
         start_time = timer()
         args = docopt(__doc__)
-        #print(args)
+        print(args)
         #log = lib.log.get_logger(run_params)
         parameterObj = PartitioncdsParameterObj(params, args)
         sequence_by_id = parse_fasta(parameterObj.fasta_file)
