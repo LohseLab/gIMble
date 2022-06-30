@@ -216,7 +216,7 @@ class TranscriptObj(object):
 
 class PartitioncdsParameterObj():
     '''Sanitises command line arguments and stores parameters'''
-    def __init__(self, args):
+    def __init__(self, params, args):
         self.fasta_file = self._get_path(args['--fasta_file'], path=True)
         self.vcf_file = str(self._get_path(args['--vcf_file'], path=True))
         self.bed_file = self._get_path(args['--bed_file'], path=True)
