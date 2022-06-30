@@ -389,12 +389,13 @@ def get_query_regions(transcriptObjs):
         query_regions_by_sequence_id[sequence_id] = np.concatenate(regions)
     return query_regions_by_sequence_id
 
-if __name__ == '__main__':
-    __version__ = '0.2'
+def main(params):
     try:
         start_time = timer()
-        args = docopt(__doc__, version="partitioncds v%s" % __version__)
-        parameterObj = PartitioncdsParameterObj(args)
+        args = docopt(__doc__)
+        #print(args)
+        #log = lib.log.get_logger(run_params)
+        parameterObj = PartitioncdsParameterObj(params, args)
         sequence_by_id = parse_fasta(parameterObj.fasta_file)
         transcriptObjs = get_transcripts(parameterObj, sequence_by_id)
         query_regions_by_sequence_id = get_query_regions(transcriptObjs)
