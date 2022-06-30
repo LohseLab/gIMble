@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: partitioncds               -f FILE -b FILE -v FILE [-e STR -o STR] [-h|--help] [-V|--version]
+"""usage: gimble partitioncds               -f FILE -b FILE -v FILE [-e STR -o STR] [-h|--help] [-V|--version]
                                             
     Options:
         -h --help                                   show this
