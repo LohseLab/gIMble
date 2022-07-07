@@ -2481,7 +2481,7 @@ class Store(object):
                 header = ["# %s" % config['version']]
                 header += ["# %s" % "\t".join(['sequence'] + columns)]
                 # determine max lncls for these indices
-                max_lncls = np.zeros((windows_count, len(indices_by_fixed_param_value.keys())))
+                max_lncls = np.zeros((index.shape[0], len(indices_by_fixed_param_value.keys())))
                 print('starts.shape', starts.shape)
                 print('ends.shape', ends.shape) 
                 print('index.shape', index.shape)
