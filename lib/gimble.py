@@ -2483,6 +2483,10 @@ class Store(object):
                 max_lncls = np.zeros((windows_count, len(indices_by_fixed_param_value.keys())))
                 for fixed_param_idx, (fixed_param_value, fixed_param_indices) in enumerate(indices_by_fixed_param_value.items()):
                     max_lncls[:, fixed_param_idx] = np.max(lncls[:,fixed_param_indices], axis=1)
+                print('starts.shape', starts.shape)
+                print('ends.shape', ends.shape) 
+                print('index.shape', index.shape)
+                print('max_lncls.shape', max_lncls.shape)
                 fixed_param_int_array = np.column_stack((starts, ends, index, max_lncls))
                 fixed_param_int_df = pd.DataFrame(data=fixed_param_int_array, columns=columns).astype(dtype=dtypes)
                 fixed_param_int_df['sequence'] = sequences
