@@ -2459,11 +2459,12 @@ class Store(object):
         grid_points = meta_gridsearch.get('grid_points', parameter_array.shape[0])
         data_ndims = meta_tally.get('data_ndims') 
         windows_count = meta_tally['windows']
-        print(dict(meta_tally))
         columns = []
+        fixed_param_columns = []
         if meta_tally['data_type'] == 'windows':
             #columns += ['sequence', 'start', 'end', 'index', 'pos_mean', 'pos_median', 'balance', 'mse_sample_set_cov']
             columns += ['start', 'end', 'index']
+            fixed_param_columns += ['start', 'end', 'index']
             sequences, starts, ends, index, pos_mean, pos_median, balance, mse_sample_set_cov = self._get_window_bed()
         for gridsearch_key in meta_gridsearch['gridsearch_keys']:
             lncls = np.array(self._get_data(gridsearch_key)) # (w, gridpoints)
@@ -2476,10 +2477,10 @@ class Store(object):
                     res = np.split(idx_sort, idx_start[1:])
                     return dict(zip(vals, res))
                 indices_by_fixed_param_value = get_lists_of_indices(parameter_array[:,fixed_param_idx])
-                columns += ["%s_%s" % (config['fixed_param'], fixed_param_value) for fixed_param_value in indices_by_fixed_param_value.keys()]
-                dtypes = {field: dtypes_by_field.get(field, 'float64') for field in columns}
+                fixed_param_columns += ["%s_%s" % (config['fixed_param'], fixed_param_value) for fixed_param_value in indices_by_fixed_param_value.keys()]
+                dtypes = {field: dtypes_by_field.get(field, 'float64') for field in fixed_param_columns}
                 header = ["# %s" % config['version']]
-                header += ["# %s" % "\t".join(['sequence'] + columns)]
+                header += ["# %s" % "\t".join(['sequence'] + fixed_param_columns)]
                 # determine max lncls for these indices
                 max_lncls = np.zeros((windows_count, len(indices_by_fixed_param_value.keys())))
                 print('starts.shape', starts.shape)
@@ -2491,12 +2492,12 @@ class Store(object):
                     max_lncls[:, fixed_param_idx] = np.max(lncls[:,fixed_param_indices], axis=1)
                 print('max_lncls.shape', max_lncls.shape)
                 fixed_param_int_array = np.column_stack((starts, ends, index, max_lncls))
-                fixed_param_int_df = pd.DataFrame(data=fixed_param_int_array, columns=columns).astype(dtype=dtypes)
+                fixed_param_int_df = pd.DataFrame(data=fixed_param_int_array, columns=fixed_param_columns).astype(dtype=dtypes)
                 fixed_param_int_df['sequence'] = sequences
                 fixed_param_out_f = '%s.%s.fixed_param.%s.bed' % (self.prefix, "_".join(gridsearch_key.split("/")), config['fixed_param'])
                 with open(fixed_param_out_f, 'w') as fixed_param_out_fh:
                     fixed_param_out_fh.write("\n".join(header) + "\n")
-                fixed_param_int_df.to_csv(fixed_param_out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=['sequence'] + columns)
+                fixed_param_int_df.to_csv(fixed_param_out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=['sequence'] + fixed_param_columns)
                 print("[+] \tWrote %r ..." % fixed_param_out_f)
             columns += parameter_names + ['lnCl']
             dtypes = {field: dtypes_by_field.get(field, 'float64') for field in columns}
