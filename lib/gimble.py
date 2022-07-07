@@ -2459,6 +2459,7 @@ class Store(object):
         grid_points = meta_gridsearch.get('grid_points', parameter_array.shape[0])
         data_ndims = meta_tally.get('data_ndims') 
         windows_count = meta_tally['windows']
+        print(dict(meta_tally))
         columns = []
         if meta_tally['data_type'] == 'windows':
             #columns += ['sequence', 'start', 'end', 'index', 'pos_mean', 'pos_median', 'balance', 'mse_sample_set_cov']
