@@ -258,6 +258,13 @@ def make_ini_configparser(version, task, model, label):
 def get_model_name(model_file):
     return model_file.rstrip('.tsv').split('/')[-1]
 
+def fullprint(*args, **kwargs):
+    from pprint import pprint
+    opt = np.get_printoptions()
+    np.set_printoptions(threshold=np.inf)
+    pprint(*args, **kwargs)
+    np.set_printoptions(**opt)
+
 def write_config(version, model, task, label):
     config = make_ini_configparser(version, task, model, label)
     outfile = "gimble.%s.%s.%s.config.ini" % (task, model, label)
@@ -2277,8 +2284,7 @@ class Store(object):
         elif config['data_type'] == 'windows':
             self._write_window_bed(config)
         elif config['data_type'] == 'gridsearch':
-            self._write_gridsearch_results_old(config)
-            print('here...')
+            #self._write_gridsearch_results_old(config)
             self._write_gridsearch_results(config)
         elif config['data_type'] == 'makegrid':
             print(self._get_meta(config['data_key']))
@@ -2461,14 +2467,22 @@ class Store(object):
         '''
         gridsearch/windows_kmax2/grid_debug
         gridsearch/blocks.kmax2/grid_debug
+
+
+        To do:
+        - simplify
+        - check that indexing of parameters (T) and parameter values works
+            ~/git/gimble/gIMble query -z gimble.2chr_1M.2022_04_14.z -l gridsearch/windows_kmax2/grid_debug --fixed_param T
+        
+
         '''
         meta_gridsearch = self._get_meta(config['data_key'])
         meta_tally = self._get_meta(meta_gridsearch['data_key'])
         # parameter array := 2D : (gridpoints, parameters)
         parameter_names = list(meta_gridsearch['grid_dict'].keys())
         parameter_array = np.array([np.array(v, dtype=np.float64) for k, v in meta_gridsearch['grid_dict'].items()]).T
-        print('parameter_names', parameter_names)
-        print('parameter_array', parameter_array.shape)
+        #print('parameter_names', parameter_names)
+        #print('parameter_array', parameter_array.shape)
         out_fs = []
         grid_points = meta_gridsearch.get('grid_points', parameter_array.shape[0])
         data_ndims = meta_tally.get('data_ndims') 
@@ -2502,7 +2516,7 @@ class Store(object):
                             config['fixed_param'], config['data_key'], ", ".join(parameter_names)))
                     # find index of fixed_param
                     fixed_param_idx = parameter_names.index(config['fixed_param'])
-                    print('fixed_param_idx', parameter_names[fixed_param_idx], fixed_param_idx)
+                    #print('fixed_param_idx', parameter_names[fixed_param_idx], fixed_param_idx)
                     # find indices that address the different levels of fixed_param
                     def get_lists_of_indices(fixed_param_array):
                         idx_sort = np.argsort(fixed_param_array)
@@ -2511,14 +2525,21 @@ class Store(object):
                         res = np.split(idx_sort, idx_start[1:])
                         return dict(zip(vals, res))
                     indices_by_fixed_param_value = get_lists_of_indices(parameter_array[:,fixed_param_idx])
+                    #print('indices_by_fixed_param_value', indices_by_fixed_param_value)
                     fixed_param_columns += ["%s_%s" % (config['fixed_param'], fixed_param_value) for fixed_param_value in indices_by_fixed_param_value.keys()]
+                    #print('fixed_param_columns', fixed_param_columns)
                     dtypes = {field: dtypes_by_field.get(field, 'float64') for field in fixed_param_columns}
                     header = ["# %s" % config['version']]
                     header += ["# %s" % "\t".join(['sequence'] + fixed_param_columns)]
                     # determine max lncls for these indices
                     max_lncls = np.zeros((windows_count, len(indices_by_fixed_param_value.keys())))
+                    print('lncls', lncls.shape, lncls)
                     for fixed_param_idx, (fixed_param_value, fixed_param_indices) in enumerate(indices_by_fixed_param_value.items()):
-                        max_lncls[:, fixed_param_idx] = np.max(lncls[:,fixed_param_indices], axis=1)
+                        print(fixed_param_idx, (fixed_param_value, fixed_param_indices))
+                        fullprint(lncls[0:10, fixed_param_indices])
+                        max_lncls[:, fixed_param_idx] = np.max(lncls[:,fixed_param_indices], axis=-1)
+
+                    print('max_lncls', max_lncls.shape, fullprint(max_lncls[0:10,:]))
                     fixed_param_int_array = np.column_stack((starts, ends, index, max_lncls))
                     fixed_param_int_df = pd.DataFrame(data=fixed_param_int_array, columns=fixed_param_columns).astype(dtype=dtypes)
                     fixed_param_int_df['sequence'] = sequences
@@ -2541,20 +2562,32 @@ class Store(object):
                         out_fh.write("\n".join(header) + "\n")
                     extended_int_df.to_csv(out_f, na_rep='NA', sep='\t', index=False, mode='a', header=False, columns=['sequence'] + columns)
                     print("[+] \tWrote %r ..." % out_f)
+                lncls = np.array(self._get_data(gridsearch_key)) # (w, gridpoints)
+                print('lncls', lncls.shape, lncls[0:10,:])
                 lncl_best_idx = np.argmax(lncls, axis=1)
-                gridsearch_result_array = np.column_stack((parameter_array[lncl_best_idx], lncls[-1 ,lncl_best_idx, np.newaxis]))
+                print('lncl_best_idx', lncl_best_idx.shape, lncl_best_idx)
+                #best_lncls = np.take(lncls, lncl_best_idx)
+                best_lncls = lncls[np.arange(lncls.shape[0]), lncl_best_idx]
+                print('best_lncls', best_lncls.shape, best_lncls[0:10])
+                # THIS ABOVE WORKS, BUT SHOULD NOT BE INDEXED AGAIN BASED ON PANDAS !!!!!!!!!!!!!!!!!!
+                gridsearch_result_array = np.column_stack((parameter_array[lncl_best_idx], best_lncls))
+                #lncl_best_idx = np.argmax(lncls, axis=1)
+                #gridsearch_result_array = np.column_stack((parameter_array[lncl_best_idx], lncls[-1 ,lncl_best_idx, np.newaxis]))
                 int_array = np.column_stack((starts, ends, index, gridsearch_result_array)) 
                 int_df = pd.DataFrame(data=int_array, columns=columns).astype(dtype=dtypes)
                 int_df['sequence'] = sequences
                 best_out_f = '%s.%s.best.bed' % (self.prefix, "_".join(gridsearch_key.split("/")))
                 with open(best_out_f, 'w') as best_out_fh:
                     best_out_fh.write("\n".join(header) + "\n")
-                best_idx = int_df.groupby(['index'])['lnCl'].transform(max) == int_df['lnCl']
-                int_df[best_idx].to_csv(best_out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=['sequence'] + columns)
+                #best_idx = int_df.groupby(['index'])['lnCl'].transform(max) == int_df['lnCl']
+                #int_df[best_idx].to_csv(best_out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=['sequence'] + columns)
+                int_df.to_csv(best_out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=['sequence'] + columns)
                 print("[+] \tWrote %r ..." % best_out_f)
-
         else:
             pass
+
+
+        sys.exit()
         out_fs = []
         dtypes_by_field = { 'sequence': 'category', 
                             'start': 'int64', 
@@ -2618,8 +2651,15 @@ class Store(object):
                     out_fh.write("\n".join(header) + "\n")
                 extended_int_df.to_csv(out_f, na_rep='NA', sep='\t', index=False, mode='a', header=False, columns=['sequence'] + columns)
                 print("[+] \tWrote %r ..." % out_f)
-            lncl_best_idx = np.argmax(lncls, axis=1)
-            gridsearch_result_array = np.column_stack((parameter_array[lncl_best_idx], lncls[-1 ,lncl_best_idx, np.newaxis]))
+            print('lncls', lncls.shape, lncls)
+            lncl_best_idx = np.argmax(lncls, axis=-1)
+            print('lncl_best_idx', lncl_best_idx.shape, lncl_best_idx)
+            best_lncls = np.take(lncls, lncl_best_idx)
+            print('best_lncls', best_lncls.shape, best_lncls)
+            # THIS ABOVE WORKS, BUT SHOULD NOT BE INDEXED AGAIN BASED ON PANDAS !!!!!!!!!!!!!!!!!!
+            gridsearch_result_array = np.column_stack((parameter_array[lncl_best_idx], best_lncls))
+            #gridsearch_result_array = np.column_stack((parameter_array[lncl_best_idx], lncls[: ,lncl_best_idx, np.newaxis]))
+            print(gridsearch_result_array)
             int_array = np.column_stack((starts, ends, index, gridsearch_result_array)) 
             int_df = pd.DataFrame(data=int_array, columns=columns).astype(dtype=dtypes)
             int_df['sequence'] = sequences
