@@ -2492,6 +2492,8 @@ class Store(object):
 
         if meta_tally['data_ndims'] == 4: # blocks/windowsum
             dtypes_by_field = {}
+            for gridsearch_key in meta_gridsearch['gridsearch_keys']:
+
         elif meta_tally['data_ndims'] == 5: # windows/simulations
             dtypes_by_field = { 'sequence': 'category', 
                                 'start': 'int64', 
@@ -2510,13 +2512,14 @@ class Store(object):
             
             for gridsearch_key in meta_gridsearch['gridsearch_keys']:
                 lncls = np.array(self._get_data(gridsearch_key)) # (w, gridpoints)
+                print('lncls', lncls.shape, lncls)
                 if config['fixed_param']:
                     if not config['fixed_param'] in set(parameter_names):
                         sys.exit("[X] Parameter %r is not part of the grid %r\n\tAvailable parameters are: %s" % (
                             config['fixed_param'], config['data_key'], ", ".join(parameter_names)))
                     # find index of fixed_param
                     fixed_param_idx = parameter_names.index(config['fixed_param'])
-                    #print('fixed_param_idx', parameter_names[fixed_param_idx], fixed_param_idx)
+                    print('fixed_param_idx', parameter_names[fixed_param_idx], fixed_param_idx)
                     # find indices that address the different levels of fixed_param
                     def get_lists_of_indices(fixed_param_array):
                         idx_sort = np.argsort(fixed_param_array)
@@ -2525,9 +2528,9 @@ class Store(object):
                         res = np.split(idx_sort, idx_start[1:])
                         return dict(zip(vals, res))
                     indices_by_fixed_param_value = get_lists_of_indices(parameter_array[:,fixed_param_idx])
-                    #print('indices_by_fixed_param_value', indices_by_fixed_param_value)
+                    print('indices_by_fixed_param_value', indices_by_fixed_param_value)
                     fixed_param_columns += ["%s_%s" % (config['fixed_param'], fixed_param_value) for fixed_param_value in indices_by_fixed_param_value.keys()]
-                    #print('fixed_param_columns', fixed_param_columns)
+                    print('fixed_param_columns', fixed_param_columns)
                     dtypes = {field: dtypes_by_field.get(field, 'float64') for field in fixed_param_columns}
                     header = ["# %s" % config['version']]
                     header += ["# %s" % "\t".join(['sequence'] + fixed_param_columns)]
@@ -2535,7 +2538,7 @@ class Store(object):
                     max_lncls = np.zeros((windows_count, len(indices_by_fixed_param_value.keys())))
                     print('lncls', lncls.shape, lncls)
                     for fixed_param_idx, (fixed_param_value, fixed_param_indices) in enumerate(indices_by_fixed_param_value.items()):
-                        print(fixed_param_idx, (fixed_param_value, fixed_param_indices))
+                        #print(fixed_param_idx, (fixed_param_value, fixed_param_indices))
                         fullprint(lncls[0:10, fixed_param_indices])
                         max_lncls[:, fixed_param_idx] = np.max(lncls[:,fixed_param_indices], axis=-1)
 
@@ -2569,10 +2572,14 @@ class Store(object):
                 #best_lncls = np.take(lncls, lncl_best_idx)
                 best_lncls = lncls[np.arange(lncls.shape[0]), lncl_best_idx]
                 print('best_lncls', best_lncls.shape, best_lncls[0:10])
-                # THIS ABOVE WORKS, BUT SHOULD NOT BE INDEXED AGAIN BASED ON PANDAS !!!!!!!!!!!!!!!!!!
+                print('parameter_array[lncl_best_idx]', parameter_array[lncl_best_idx].shape, parameter_array[lncl_best_idx])
                 gridsearch_result_array = np.column_stack((parameter_array[lncl_best_idx], best_lncls))
+                print('gridsearch_result_array', gridsearch_result_array.shape, gridsearch_result_array)
                 #lncl_best_idx = np.argmax(lncls, axis=1)
                 #gridsearch_result_array = np.column_stack((parameter_array[lncl_best_idx], lncls[-1 ,lncl_best_idx, np.newaxis]))
+                print("starts", starts.shape, starts)
+                print("ends", ends.shape, ends)
+                print("index", index.shape, index)
                 int_array = np.column_stack((starts, ends, index, gridsearch_result_array)) 
                 int_df = pd.DataFrame(data=int_array, columns=columns).astype(dtype=dtypes)
                 int_df['sequence'] = sequences
@@ -2612,6 +2619,7 @@ class Store(object):
 
         for gridsearch_key in meta_gridsearch['gridsearch_keys']:
             lncls = np.array(self._get_data(gridsearch_key)) # (w, gridpoints)
+            print('lncls', lncls.shape, lncls)
             if config['fixed_param']:
                 # find indices that address the different levels of fixed_param
                 def get_lists_of_indices(fixed_param_array):
