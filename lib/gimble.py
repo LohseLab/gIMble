@@ -2492,8 +2492,7 @@ class Store(object):
 
         if meta_tally['data_ndims'] == 4: # blocks/windowsum
             dtypes_by_field = {}
-            for gridsearch_key in meta_gridsearch['gridsearch_keys']:
-
+            #for gridsearch_key in meta_gridsearch['gridsearch_keys']:
         elif meta_tally['data_ndims'] == 5: # windows/simulations
             dtypes_by_field = { 'sequence': 'category', 
                                 'start': 'int64', 
