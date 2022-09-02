@@ -2468,15 +2468,25 @@ def _get_sim_grid_fixed_rec(rec_rate, local_winning_fixed_param_idx, grid_meta_d
 
 
 def _parse_recombination_map(path, cutoff, bins, scale, store_df):
+    '''cut -f1,2,3 gimble.2chr_1M.2022_04_14.gridsearch_windows_kmax2_grid_debug_0.fixed_param.me.bed | grep -v '^#' | awk '{ print $0 "\t" rand()*8 }' > gimble.2chr_1M.2022_04_14.recmap.tsv'''
+    # format is "chr", "start", "end", "rec" (rec in cM/Mb !!!)
     hapmap = pd.read_csv(path, sep="\t", names=["chr", "start", "end", "rec"], header=0)
     hapmap = _validate_recombination_map(store_df, hapmap)
     hapmap = hapmap.sort_values("idx")
-    # from cM/Mb to rec/bp
+    # from cM/Mb to rec/bp (simulator needs rec/b) 
     hapmap["rec_scaled"] = hapmap["rec"] * 1e-8
     return _make_bins(hapmap, scale, cutoff, bins)
 
 
 def _make_bins(df, scale, cutoff=90, bins=10):
+    '''
+    assumptions: 
+    - rec rates are noisy to begin with
+    user specifies:
+    - should be a section in config file re recmap
+    - number of bins, 
+
+    '''
     clip_value = np.percentile(df["rec_scaled"], cutoff)
     df["rec_clipped"] = df["rec_scaled"].clip(lower=None, upper=clip_value)
     df["rec_clipped"].replace(0, np.nan, inplace=True)
@@ -3094,7 +3104,8 @@ class Store(object):
                 else None
             )
             lncls_global = None
-            config["parameters_grid_points"] = config["grid_points"]
+            print('config', config)
+            #config["parameters_grid_points"] = config["grid_points"]
             config = _get_sim_grid_config(
                 config,
                 lncls_global,
@@ -3195,7 +3206,7 @@ class Store(object):
         meta = config_to_meta(config, "simulate_instance")
         self._set_meta_and_data(simulation_instance_key, meta, simulation_instance)
 
-    def _preflight_query(self, version, data_key, extended, fixed_param):
+    def _preflight_query(self, version, data_key, extended, fixed_param, sliced_param):
         if not data_key:
             """Still needs checking whether keys are found correctly for all modules
             # blocks √
@@ -3254,10 +3265,25 @@ class Store(object):
         config["data_type"] = data_key.split("/")[0]
         config["extended"] = extended
         config["fixed_param"] = fixed_param
+        config["sliced_param"] = sliced_param
         return config
 
-    def query(self, version, data_key, extended, fixed_param):
-        config = self._preflight_query(version, data_key, extended, fixed_param)
+    def _format_grid(self, meta_makegrid):
+        grid_dict = meta_makegrid['grid_dict']
+        parameters = meta_makegrid['parameters']
+        grid_points = meta_makegrid['parameters_grid_points']
+        label = meta_makegrid['label']
+        key = meta_makegrid['makegrid_key']
+        output = ["[#] Grid : %s" % label, "[#] Label : %s" % key, "[#] Gridpoints: %s" % grid_points]
+        output.append("[#] Parameters:")
+        for parameter, string  in parameters.items():
+            output.append("[#]\t[%s]" % (parameter))
+            output.append("[#]\t- config := %s" % ", ".join([str(s) for s in string]))
+            output.append("[#]\t- values := %s" % (sorted(set(grid_dict[parameter]))))
+        return "\n".join(output)
+
+    def query(self, version, data_key, extended, fixed_param, sliced_param):
+        config = self._preflight_query(version, data_key, extended, fixed_param, sliced_param)
         if config["data_type"] == "tally":
             self._write_tally_tsv(config)
         elif config["data_type"] == "optimize":
@@ -3266,12 +3292,12 @@ class Store(object):
             self._write_window_bed(config)
         elif config["data_type"] == "gridsearch":
             # self._write_gridsearch_results_old(config)
-            #self._write_gridsearch_results_new(config)
-            self._write_gridsearch_results(config)
+            self._write_gridsearch_results_new(config)
+            # self._write_gridsearch_results(config)
             
         elif config["data_type"] == "makegrid":
-            print(self._get_meta(config["data_key"]))
-            sys.exit("[X] Output file not implemented.")
+            meta_makegrid = self._get_meta(config["data_key"])
+            print(self._format_grid(meta_makegrid))
         elif config["data_type"] == "simulate":
             self._write_tally_tsv(config)
         else:
@@ -3462,9 +3488,9 @@ class Store(object):
         meta_seqs = self._get_meta("seqs")
         meta_windows = self._get_meta("windows")
         MAX_SEQNAME_LENGTH = max([len(seq_name) for seq_name in meta_seqs["seq_names"]])
-        sequences = np.zeros(meta_windows["count"], dtype="<U%s" % MAX_SEQNAME_LENGTH)
-        starts = np.zeros(meta_windows["count"], dtype=np.int64)
-        ends = np.zeros(meta_windows["count"], dtype=np.int64)
+        sequences = np.zeros(meta_windows["window_count"], dtype="<U%s" % MAX_SEQNAME_LENGTH)
+        starts = np.zeros(meta_windows["window_count"], dtype=np.int64)
+        ends = np.zeros(meta_windows["window_count"], dtype=np.int64)
         offset = 0
         for seq_name in tqdm(
             meta_seqs["seq_names"],
@@ -3484,7 +3510,7 @@ class Store(object):
                     window_count, seq_name, dtype="<U%s" % MAX_SEQNAME_LENGTH
                 )
                 offset += window_count
-        index = np.arange(meta_windows["count"], dtype=np.int64)
+        index = np.arange(meta_windows["window_count"], dtype=np.int64)
         return (sequences, starts, ends, index)
 
     def _get_fixed_param_array(lncls):
@@ -3545,36 +3571,85 @@ class Store(object):
     def _get_4d_gridsearch_result(self):
         pass
 
-    def _get_indices_by_fixed_param_value(self, config, parameter_names, parameter_array):
+    def _get_indices_by_sliced_param_value(self, config, parameter_names, parameter_array):
         try:
-            fixed_param_idx = parameter_names.index(config["fixed_param"])
+            sliced_param_idx = parameter_names.index(config["sliced_param"])
         except ValueError:
             sys.exit(
                 "[X] Parameter %r is not part of the grid %r\n\tAvailable parameters are: %s"
                 % (
-                    config["fixed_param"],
+                    config["sliced_param"],
                     config["data_key"],
                     ", ".join(parameter_names),
                 )
             ) 
-        print(
-            "fixed_param_idx",
-            parameter_names[fixed_param_idx],
-            fixed_param_idx,
-        ) 
-        def get_lists_of_indices(fixed_param_array):
-            idx_sort = np.argsort(fixed_param_array)
-            sorted_fixed_param_array = fixed_param_array[idx_sort]
+        def get_lists_of_indices(sliced_param_array):
+            idx_sort = np.argsort(sliced_param_array)
+            sorted_sliced_param_array = sliced_param_array[idx_sort]
             vals, idx_start, count = np.unique(
-                sorted_fixed_param_array,
+                sorted_sliced_param_array,
                 return_counts=True,
                 return_index=True,
             )
             res = np.split(idx_sort, idx_start[1:])
-            return {"%s_%s" % (config["fixed_param"], value): indices for value, indices in dict(zip(vals, res)).items()}
+            return {"%s=%s" % (config["sliced_param"], value): indices for value, indices in dict(zip(vals, res)).items()}
 
-        indices_by_fixed_param_value = get_lists_of_indices(parameter_array[:, fixed_param_idx])
-        return indices_by_fixed_param_value
+        indices_by_sliced_param_value = get_lists_of_indices(parameter_array[:, sliced_param_idx])
+        return indices_by_sliced_param_value
+
+    def _get_fixed_param_index(self, config, parameter_names, parameter_array, meta_makegrid):
+        fixed_param_mask = np.zeros(parameter_array.shape, dtype=bool)
+        for param, value in config['fixed_param'].items(): 
+            try:
+                fixed_param_idx = parameter_names.index(param)
+                fixed_param_mask[:,fixed_param_idx] = (parameter_array[:,fixed_param_idx]==value)
+            except ValueError:
+                print("[X] --fixed_param %r not part of grid %r." % (param, meta_makegrid['makegrid_label']))
+        fixed_param_index = np.zeros(parameter_array.shape[0], dtype=bool)
+        # only those rows which have as many "True" values as parameters were specified... 
+        fixed_param_index = np.sum(fixed_param_mask,axis=1)==len(config['fixed_param'])
+        if not np.any(fixed_param_index):
+            sys.exit(
+                "[X] Specified parameter combination: %r ... \n[X] Not found in grid:\n%s" % (
+                    ", ".join(["%s=%s" % (param, value) for param, value in config['fixed_param'].items()]), 
+                    self._format_grid(meta_makegrid))
+            )
+        return fixed_param_index
+
+    def _write_sliced_gridsearch_bed(self, header, lncls, indices_by_sliced_param_value, bed_columns, sequence_array, start_array, end_array, index_array, base_fn, config):
+        sliced_columns = list(indices_by_sliced_param_value.keys())
+        sliced_lncls = np.zeros(
+            (index_array.shape[0], len(indices_by_sliced_param_value.keys()))
+        )
+        for sliced_param_idx, (
+            sliced_param_value,
+            sliced_param_indices,
+        ) in enumerate(indices_by_sliced_param_value.items()):
+            sliced_lncls[:, sliced_param_idx] = np.max(
+                    lncls[:, sliced_param_indices], axis=-1
+            )
+        sliced_df = pd.DataFrame(
+            data=np.vstack([
+                sequence_array, 
+                start_array, 
+                end_array, 
+                index_array, 
+                sliced_lncls.T]).T, columns=bed_columns + sliced_columns)
+        sliced_out_f = "%s.sliced_param.%s.bed" % (
+            base_fn, config["sliced_param"],
+        )
+        with open(sliced_out_f, "w") as sliced_out_fh:
+            sliced_out_header = header + ["# %s" % "\t".join(bed_columns + sliced_columns)]
+            sliced_out_fh.write("\n".join(sliced_out_header) + "\n")
+        sliced_df.to_csv(
+            sliced_out_f,
+            na_rep="NA",
+            mode="a",
+            sep="\t",
+            index=False,
+            header=False
+        )
+        print("[+] \tWrote %r ..." % sliced_out_f)
 
     def _write_gridsearch_results_new(self, config):
         """
@@ -3585,6 +3660,7 @@ class Store(object):
         gridsearch/windowsum.kmax2/grid_debug
         """
         meta_gridsearch = self._get_meta(config["data_key"])
+        meta_makegrid = self._get_meta(meta_gridsearch["makegrid_key"])
         meta_tally = self._get_meta(meta_gridsearch["data_key"])
         data_ndims = meta_tally.get("data_ndims")
         windows_count = meta_tally["windows"]
@@ -3595,15 +3671,136 @@ class Store(object):
             ]
         ).T
         grid_points = meta_gridsearch.get("grid_points", parameter_array.shape[0])
-        out_fs = []
         columns = []
         fixed_param_columns = []
-
-        # deal with fixed param if it exists
+        header = ["# %s" % config["version"]]
+        if config["sliced_param"]:
+            indices_by_sliced_param_value = self._get_indices_by_sliced_param_value(config, parameter_names, parameter_array)     
         if config["fixed_param"]:
-            indices_by_fixed_param_value = self._get_indices_by_fixed_param_value(config, parameter_names, parameter_array)
-            print("indices_by_fixed_param_value", indices_by_fixed_param_value)
-
+            # uses same columns as overall 'best' ...
+            fixed_param_index = self._get_fixed_param_index(config, parameter_names, parameter_array, meta_makegrid)
+        parameter_columns = parameter_names + ["lnCl"]
+        if meta_tally["data_ndims"] == 5:
+            sequence_array, start_array, end_array, index_array = self._get_window_bed_columns()
+            bed_columns = ["sequence", "start", "end", "index"]
+            for gridsearch_key in meta_gridsearch["gridsearch_keys"]:
+                base_fn = "%s.%s" % (self.prefix, "_".join(gridsearch_key.split("/")))
+                lncls = np.array(self._get_data(gridsearch_key))  # (w, gridpoints)
+                #print("lncls", lncls.shape, lncls)
+                if config["sliced_param"]:
+                    self._write_sliced_gridsearch_bed(header, lncls, indices_by_sliced_param_value, bed_columns, sequence_array, start_array, end_array, index_array, base_fn, config)
+                if config["fixed_param"]:
+                    # subset only those that coincide with fixed param ... 
+                    lncls_fixed = lncls[:,fixed_param_index]
+                    lncls_fixed_max_idx = np.argmax(lncls_fixed, axis=1)
+                    lncls_fixed_max = lncls_fixed[np.arange(lncls_fixed.shape[0]), lncls_fixed_max_idx]
+                    lncls_fixed_max_parameters = parameter_array[fixed_param_index][lncls_fixed_max_idx]
+                    fixed_param_df = pd.DataFrame(
+                        data=np.vstack([
+                            sequence_array, 
+                            start_array, 
+                            end_array, 
+                            index_array, 
+                            lncls_fixed_max_parameters.T, 
+                            lncls_fixed_max]).T, columns=bed_columns + parameter_columns)
+                    fixed_param_out_f = "%s.fixed_param.%s.bed" % (base_fn, ".".join(["%s_%s" % (param, str(value).replace(".", "_")) for param, value in config["fixed_param"].items()]))
+                    with open(fixed_param_out_f, "w") as fixed_param_out_fh:
+                        fixed_param_out_header = header + ["# --fixed_param %s" % ",".join(["%s=%s" % (param, value) for param, value in config["fixed_param"].items()])] + ["# %s" % "\t".join(bed_columns + parameter_columns)]
+                        fixed_param_out_fh.write("\n".join(fixed_param_out_header) + "\n")
+                    fixed_param_df.to_csv(
+                        fixed_param_out_f,
+                        na_rep="NA",
+                        mode="a",
+                        sep="\t",
+                        index=False,
+                        header=False,
+                    )
+                    print("[+] \tWrote %s ..." % fixed_param_out_f)
+                lncls_max_idx = np.argmax(lncls, axis=1)
+                lncls_max = lncls[np.arange(lncls.shape[0]), lncls_max_idx]
+                lncls_max_parameters = parameter_array[lncls_max_idx]
+                lncls_max_df = pd.DataFrame(
+                        data=np.vstack([
+                            sequence_array, 
+                            start_array, 
+                            end_array, 
+                            index_array, 
+                            lncls_max_parameters.T, 
+                            lncls_max]).T, columns=bed_columns + parameter_columns)
+                lncls_max_out_f = "%s.best.bed" % base_fn
+                with open(lncls_max_out_f, "w") as lncls_max_out_fh:
+                    lncls_max_out_header = header + ["# %s" % "\t".join(bed_columns + parameter_columns)]
+                    lncls_max_out_fh.write("\n".join(lncls_max_out_header) + "\n")
+                lncls_max_df.to_csv(
+                    lncls_max_out_f,
+                    na_rep="NA",
+                    mode="a",
+                    sep="\t",
+                    index=False,
+                    header=False,
+                )
+                print("[+] \tWrote %s ..." % lncls_max_out_f)
+        
+        if meta_tally["data_ndims"] == 4:
+            tsv_columns = ["windows", "blocks"]
+            for gridsearch_key in meta_gridsearch["gridsearch_keys"]:
+                base_fn = "%s.%s" % (self.prefix, "_".join(gridsearch_key.split("/")))
+                lncls = np.array(self._get_data(gridsearch_key))  # (w, gridpoints)
+                print("lncls", lncls.shape, lncls)
+                if config["sliced_param"]:
+                    self._write_sliced_gridsearch_bed(header, lncls, indices_by_sliced_param_value, bed_columns, sequence_array, start_array, end_array, index_array, base_fn, config)
+                if config["fixed_param"]:
+                    # subset only those that coincide with fixed param ... 
+                    lncls_fixed = lncls[:,fixed_param_index]
+                    lncls_fixed_max_idx = np.argmax(lncls_fixed, axis=1)
+                    lncls_fixed_max = lncls_fixed[np.arange(lncls_fixed.shape[0]), lncls_fixed_max_idx]
+                    lncls_fixed_max_parameters = parameter_array[fixed_param_index][lncls_fixed_max_idx]
+                    fixed_param_df = pd.DataFrame(
+                        data=np.vstack([
+                            sequence_array, 
+                            start_array, 
+                            end_array, 
+                            index_array, 
+                            lncls_fixed_max_parameters.T, 
+                            lncls_fixed_max]).T, columns=bed_columns + parameter_columns)
+                    fixed_param_out_f = "%s.fixed_param.%s.bed" % (base_fn, ".".join(["%s_%s" % (param, str(value).replace(".", "_")) for param, value in config["fixed_param"].items()]))
+                    with open(fixed_param_out_f, "w") as fixed_param_out_fh:
+                        fixed_param_out_header = header + ["# --fixed_param %s" % ",".join(["%s=%s" % (param, value) for param, value in config["fixed_param"].items()])] + ["# %s" % "\t".join(bed_columns + parameter_columns)]
+                        fixed_param_out_fh.write("\n".join(fixed_param_out_header) + "\n")
+                    fixed_param_df.to_csv(
+                        fixed_param_out_f,
+                        na_rep="NA",
+                        mode="a",
+                        sep="\t",
+                        index=False,
+                        header=False,
+                    )
+                    print("[+] \tWrote %s ..." % fixed_param_out_f)
+                lncls_max_idx = np.argmax(lncls, axis=1)
+                lncls_max = lncls[np.arange(lncls.shape[0]), lncls_max_idx]
+                lncls_max_parameters = parameter_array[lncls_max_idx]
+                lncls_max_df = pd.DataFrame(
+                        data=np.vstack([
+                            sequence_array, 
+                            start_array, 
+                            end_array, 
+                            index_array, 
+                            lncls_max_parameters.T, 
+                            lncls_max]).T, columns=bed_columns + parameter_columns)
+                lncls_max_out_f = "%s.best.bed" % base_fn
+                with open(lncls_max_out_f, "w") as lncls_max_out_fh:
+                    lncls_max_out_header = header + ["# %s" % "\t".join(bed_columns + parameter_columns)]
+                    lncls_max_out_fh.write("\n".join(lncls_max_out_header) + "\n")
+                lncls_max_df.to_csv(
+                    lncls_max_out_f,
+                    na_rep="NA",
+                    mode="a",
+                    sep="\t",
+                    index=False,
+                    header=False,
+                )
+                print("[+] \tWrote %s ..." % lncls_max_out_f)
+        sys.exit("[+] Done.")
         if meta_tally["data_ndims"] == 4:  # blocks/windowsum
             dtypes_by_field = {}
             for gridsearch_key in meta_gridsearch["gridsearch_keys"]:
@@ -3650,41 +3847,10 @@ class Store(object):
                 lncls = np.array(self._get_data(gridsearch_key))  # (w, gridpoints)
                 print("lncls", lncls.shape, lncls)
                 if config["fixed_param"]:
-                    if not config["fixed_param"] in set(parameter_names):
-                        sys.exit(
-                            "[X] Parameter %r is not part of the grid %r\n\tAvailable parameters are: %s"
-                            % (
-                                config["fixed_param"],
-                                config["data_key"],
-                                ", ".join(parameter_names),
-                            )
-                        )
-                    # find index of fixed_param
-                    fixed_param_idx = parameter_names.index(config["fixed_param"])
-                    print(
-                        "fixed_param_idx",
-                        parameter_names[fixed_param_idx],
-                        fixed_param_idx,
-                    )
-                    # find indices that address the different levels of fixed_param
-                    def get_lists_of_indices(fixed_param_array):
-                        idx_sort = np.argsort(fixed_param_array)
-                        sorted_fixed_param_array = fixed_param_array[idx_sort]
-                        vals, idx_start, count = np.unique(
-                            sorted_fixed_param_array,
-                            return_counts=True,
-                            return_index=True,
-                        )
-                        res = np.split(idx_sort, idx_start[1:])
-                        return dict(zip(vals, res))
-
-                    indices_by_fixed_param_value = get_lists_of_indices(
-                        parameter_array[:, fixed_param_idx]
-                    )
-                    print("indices_by_fixed_param_value", indices_by_fixed_param_value)
+                    print("indices_by_sliced_param_value", indices_by_sliced_param_value)
                     fixed_param_columns += [
                         "%s_%s" % (config["fixed_param"], fixed_param_value)
-                        for fixed_param_value in indices_by_fixed_param_value.keys()
+                        for fixed_param_value in indices_by_sliced_param_value.keys()
                     ]
                     print("fixed_param_columns", fixed_param_columns)
                     dtypes = {
@@ -3695,15 +3861,14 @@ class Store(object):
                     header += ["# %s" % "\t".join(["sequence"] + fixed_param_columns)]
                     # determine max lncls for these indices
                     max_lncls = np.zeros(
-                        (windows_count, len(indices_by_fixed_param_value.keys()))
+                        (windows_count, len(indices_by_sliced_param_value.keys()))
                     )
                     print("lncls", lncls.shape, lncls)
                     for fixed_param_idx, (
                         fixed_param_value,
                         fixed_param_indices,
-                    ) in enumerate(indices_by_fixed_param_value.items()):
+                    ) in enumerate(indices_by_sliced_param_value.items()):
                         # print(fixed_param_idx, (fixed_param_value, fixed_param_indices))
-                        fullprint(lncls[0:10, fixed_param_indices])
                         max_lncls[:, fixed_param_idx] = np.max(
                             lncls[:, fixed_param_indices], axis=-1
                         )
@@ -3904,6 +4069,7 @@ class Store(object):
             for gridsearch_key in meta_gridsearch["gridsearch_keys"]:
                 lncls = np.array(self._get_data(gridsearch_key))  # (w, gridpoints)
                 #print("lncls", lncls.shape, lncls)
+                config["fixed_param"] = config["sliced_param"]
                 if config["fixed_param"]:
                     if not config["fixed_param"] in set(parameter_names):
                         sys.exit(
@@ -4617,6 +4783,7 @@ class Store(object):
             % (config["makegrid_label"], config["data_label"])
         )
         for key, (idx, tally) in zip(config["gridsearch_keys"], data):
+            print("tally", tally,shape, )
             gridsearch_dask_result = gridsearch_dask(
                 tally=tally, grid=grid, num_cores=num_cores, chunksize=chunksize
             )

@@ -1,17 +1,26 @@
-"""usage: gimbl query                    -z <DIR> [-l <STR>] [--extended] [--fixed_param STR] [-h|--help]
+"""usage: gimbl query                    -z <DIR> [-l <STR>] [--sliced STR] [--fixed STR] [-h|--help]
                                             
         -z, --zarr_f DIR                 ZARR datastore
         -l, --label <STR>                Data label
         
         Gridsearch results
-        --extended                       Write "extended" table (all parameters!)
-        --fixed_param STR                  Write "fixed_parameter" table
-
+        --sliced STR                     Write "sliced_parameter" table with best lnCL result for each slice of parameter values, e.g.:
+                                            '--sliced me'
+                                            '--sliced Ne_A'
+                                            ... 
+                                            MUST match parameters in the grid
+        --fixed STR                      Write "fixed_parameter" table with best lnCL result for fixed parameter values, e.g.: 
+                                            '--fixed me=0.0'
+                                            '--fixed me=0.0,Ne_A=100000'
+                                            '--fixed me=0.0,Ne_A=100000,Ne_B=200000'
+                                            ...
+                                            MUST match parameters and values of the grid
         -h --help                        show this
 """
 from timeit import default_timer as timer
 from docopt import docopt
 import lib.gimble
+import sys
 
 class QueryParameterObj(lib.gimble.ParameterObj):
     '''Sanitises command line arguments and stores parameters.'''
@@ -20,20 +29,29 @@ class QueryParameterObj(lib.gimble.ParameterObj):
         super().__init__(params)
         self.zstore = self._get_path(args['--zarr_f'])
         self.data_key = args['--label']
-        self.extended = args['--extended']
-        self.fixed_param = args['--fixed_param']
+        self.extended = False # args['--extended']
+        self.sliced_param = args['--sliced']
+        self.fixed_param = args['--fixed']
+        if self.fixed_param:
+            try:
+                self.fixed_param = {element.split("=")[0]: float(element.split("=")[1]) for element in args['--fixed'].split(",") if element}
+            except (ValueError, IndexError):
+                sys.exit("[X] '--fixed' is not in the right format.")
 
 def main(params):
     try:
         start_time = timer()
         args = docopt(__doc__)
         parameterObj = QueryParameterObj(params, args)
+        #print("parameterObj", parameterObj.__dict__)
+
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore)
         gimbleStore.query(
             parameterObj._VERSION,
             parameterObj.data_key,
             parameterObj.extended,
-            parameterObj.fixed_param
+            parameterObj.fixed_param,
+            parameterObj.sliced_param
             )
         print("[*] Total runtime was %s" % (lib.gimble.format_time(timer() - start_time)))
     except KeyboardInterrupt:
