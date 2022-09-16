@@ -3649,7 +3649,7 @@ class Store(object):
             index=False,
             header=False
         )
-        print("[+] \tWrote %r ..." % sliced_out_f)
+        print("[+] \tWrote %s ..." % sliced_out_f)
 
     def _write_gridsearch_results_new(self, config):
         """
@@ -3663,7 +3663,6 @@ class Store(object):
         meta_makegrid = self._get_meta(meta_gridsearch["makegrid_key"])
         meta_tally = self._get_meta(meta_gridsearch["data_key"])
         data_ndims = meta_tally.get("data_ndims")
-        windows_count = meta_tally["windows"]
         parameter_names = list(meta_gridsearch["grid_dict"].keys())
         parameter_array = np.array(
             [
@@ -3861,7 +3860,7 @@ class Store(object):
                     header += ["# %s" % "\t".join(["sequence"] + fixed_param_columns)]
                     # determine max lncls for these indices
                     max_lncls = np.zeros(
-                        (windows_count, len(indices_by_sliced_param_value.keys()))
+                        (lncls.shape[0], len(indices_by_sliced_param_value.keys()))
                     )
                     print("lncls", lncls.shape, lncls)
                     for fixed_param_idx, (
@@ -3907,7 +3906,7 @@ class Store(object):
                 if config["extended"]:
                     gridsearch_result_array = np.column_stack(
                         (
-                            np.tile(parameter_array, (windows_count, 1)),
+                            np.tile(parameter_array, (lncls.shape[0], 1)),
                             lncls.ravel()[:, np.newaxis],
                         )
                     )

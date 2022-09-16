@@ -1,18 +1,18 @@
-"""usage: gimbl query                    -z <DIR> [-l <STR>] [--sliced STR] [--fixed STR] [-h|--help]
+"""usage: gimbl query                    -z <DIR> [-l <STR>] [--sliced STR] [--constrain STR] [-h|--help]
                                             
         -z, --zarr_f DIR                 ZARR datastore
         -l, --label <STR>                Data label
         
         Gridsearch results
-        --sliced STR                     Write "sliced_parameter" table with best lnCL result for each slice of parameter values, e.g.:
+        --sliced STR                    Write "sliced_parameter" table with best lnCL result for each slice of parameter values, e.g.:
                                             '--sliced me'
                                             '--sliced Ne_A'
                                             ... 
-                                            MUST match parameters in the grid
-        --fixed STR                      Write "fixed_parameter" table with best lnCL result for fixed parameter values, e.g.: 
-                                            '--fixed me=0.0'
-                                            '--fixed me=0.0,Ne_A=100000'
-                                            '--fixed me=0.0,Ne_A=100000,Ne_B=200000'
+                                        MUST match parameters in the grid
+        --constrain STR                 Write table with best lnCL result for constrained parameter values, e.g.: 
+                                            '--constrained me=0.0'
+                                            '--constrained me=0.0,Ne_A=100000'
+                                            '--constrained me=0.0,Ne_A=100000,Ne_B=200000'
                                             ...
                                             MUST match parameters and values of the grid
         -h --help                        show this
@@ -31,10 +31,11 @@ class QueryParameterObj(lib.gimble.ParameterObj):
         self.data_key = args['--label']
         self.extended = False # args['--extended']
         self.sliced_param = args['--sliced']
-        self.fixed_param = args['--fixed']
+        self.fixed_param = args['--constrain']
+        print(self.fixed_param)
         if self.fixed_param:
             try:
-                self.fixed_param = {element.split("=")[0]: float(element.split("=")[1]) for element in args['--fixed'].split(",") if element}
+                self.fixed_param = {element.split("=")[0]: float(element.split("=")[1]) for element in self.fixed_param.split(",") if element}
             except (ValueError, IndexError):
                 sys.exit("[X] '--fixed' is not in the right format.")
 
@@ -44,7 +45,6 @@ def main(params):
         args = docopt(__doc__)
         parameterObj = QueryParameterObj(params, args)
         #print("parameterObj", parameterObj.__dict__)
-
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore)
         gimbleStore.query(
             parameterObj._VERSION,
