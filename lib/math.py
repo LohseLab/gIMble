@@ -200,48 +200,49 @@ def config_to_gf(config):
     exodus_direction = config['events'].get('exodus', None)
     exodus_rate = sage.all.var('J') if exodus_direction else None
     mutype_labels = ["m_1", "m_2", "m_3", "m_4"] # list(config['k_max'].keys())
-    print('sample_list', sample_list)
-    print('coalescence_rates', coalescence_rates)
-    print('mutype_labels', mutype_labels)
-    print('migration_direction', migration_direction)
-    print('migration_rate', migration_rate)
-    print('exodus_direction', exodus_direction)
-    print('exodus_rate', exodus_rate)
-    # gf = togimble.get_gf(sample_list, coalescence_rates, mutype_labels, migration_direction, migration_rate, exodus_direction, exodus_rate)
-    import agemo
+    # print('sample_list', sample_list)
+    # print('coalescence_rates', coalescence_rates)
+    # print('mutype_labels', mutype_labels)
+    # print('migration_direction', migration_direction)
+    # print('migration_rate', migration_rate)
+    # print('exodus_direction', exodus_direction)
+    # print('exodus_rate', exodus_rate)
+    gf = togimble.get_gf(sample_list, coalescence_rates, mutype_labels, migration_direction, migration_rate, exodus_direction, exodus_rate)
+    # import agemo
     # does the order of sample_configuration matter for agemo? 
+
     # What is a case where first element is non-empty?
     
 
+    # # sample_configuration = [(), ('a', 'a'), ('b', 'b')]
     # sample_configuration = [(), ('a', 'a'), ('b', 'b')]
-    sample_configuration = [(), ('a', 'a'), ('b', 'b')]
-    #sample_configuration_alt = [('a', 'a'), ('b', 'b'), ()]
-    btc = agemo.BranchTypeCounter(sample_configuration)
-    
-    ### mig_events
-    mig_event_AB = agemo.MigrationEvent(3, 1, 2) # IM_AB ?
-    mig_event_BA = agemo.MigrationEvent(3, 2, 1) # IM_BA ?
-    mig_event_AB_alt = agemo.MigrationEvent(3, 0, 1) # M_AB ?
-    mig_event_BA_alt = agemo.MigrationEvent(3, 1, 0) # M_AB ?
-    mig_event = mig_event_BA
-    ### split_events
-    population_split_event_AB = agemo.PopulationSplitEvent(4, 0, 1, 2)
-    population_split_event_equivalent = agemo.PopulationSplitEvent(4, 0, 2, 1) # switching derived?
-    population_split_event_alt = agemo.PopulationSplitEvent(4, 2, 0, 1)
-    population_split_event_alt_equivalent = agemo.PopulationSplitEvent(4, 2, 1, 0) # switching derived?
-    population_split_event = population_split_event_AB
-    events = [mig_event, population_split_event]
-    gf = agemo.GfMatrixObject(btc, events)
-    # How to get BTC/MTC based on real data?
-    print('gf', gf.__dict__)
-    print('BTC', btc.__dict__)
-    mutype_shape = (4,) * len(btc)
-    mtc = agemo.MutationTypeCounter(btc, mutype_shape)
-    print('MTC', mtc.__dict__)
-    bsfs_eval = agemo.BSFSEvaluator(gf, mtc)
-    print(bsfs_eval.__dict__)
-    import sys
-    sys.exit("Fin.")
+    # #sample_configuration_alt = [('a', 'a'), ('b', 'b'), ()]
+    # btc = agemo.BranchTypeCounter(sample_configuration)
+
+    # ### mig_events
+    # mig_event_AB = agemo.MigrationEvent(3, 1, 2) # IM_AB ?
+    # mig_event_BA = agemo.MigrationEvent(3, 2, 1) # IM_BA ?
+    # mig_event_AB_alt = agemo.MigrationEvent(3, 0, 1) # M_AB ?
+    # mig_event_BA_alt = agemo.MigrationEvent(3, 1, 0) # M_AB ?
+    # mig_event = mig_event_BA
+    # ### split_events
+    # population_split_event_AB = agemo.PopulationSplitEvent(4, 0, 1, 2)
+    # population_split_event_equivalent = agemo.PopulationSplitEvent(4, 0, 2, 1) # switching derived?
+    # population_split_event_alt = agemo.PopulationSplitEvent(4, 2, 0, 1)
+    # population_split_event_alt_equivalent = agemo.PopulationSplitEvent(4, 2, 1, 0) # switching derived?
+    # population_split_event = population_split_event_AB
+    # events = [mig_event, population_split_event]
+    # gf = agemo.GfMatrixObject(btc, events)
+    # # How to get BTC/MTC based on real data?
+    # print('gf', gf.__dict__)
+    # print('BTC', btc.__dict__)
+    # mutype_shape = (4,) * len(btc)
+    # mtc = agemo.MutationTypeCounter(btc, mutype_shape)
+    # print('MTC', mtc.__dict__)
+    # bsfs_eval = agemo.BSFSEvaluator(gf, mtc)
+    # print(bsfs_eval.__dict__)
+    # import sys
+    # sys.exit("Fin.")
     return gf
 
 # def config_to_gf_before(model, mutype_labels, sync_pops=None):
