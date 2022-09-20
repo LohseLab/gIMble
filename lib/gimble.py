@@ -3669,6 +3669,9 @@ class Store(object):
                 np.array(v, dtype=np.float64) for k, v in meta_gridsearch["grid_dict"].items()
             ]
         ).T
+        print('meta_gridsearch', dict(meta_gridsearch))
+        print('meta_makegrid', dict(meta_makegrid))
+        print('meta_tally', dict(meta_tally))
         grid_points = meta_gridsearch.get("grid_points", parameter_array.shape[0])
         columns = []
         fixed_param_columns = []
@@ -3679,6 +3682,7 @@ class Store(object):
             # uses same columns as overall 'best' ...
             fixed_param_index = self._get_fixed_param_index(config, parameter_names, parameter_array, meta_makegrid)
         parameter_columns = parameter_names + ["lnCl"]
+        print()
         if meta_tally["data_ndims"] == 5:
             sequence_array, start_array, end_array, index_array = self._get_window_bed_columns()
             bed_columns = ["sequence", "start", "end", "index"]
