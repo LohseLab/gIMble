@@ -3671,6 +3671,7 @@ class Store(object):
         ).T
         print('meta_gridsearch', dict(meta_gridsearch))
         print('meta_makegrid', dict(meta_makegrid))
+        print('counter', collections.Counter(meta_makegrid['grid_dict']))
         print('meta_tally', dict(meta_tally))
         grid_points = meta_gridsearch.get("grid_points", parameter_array.shape[0])
         columns = []

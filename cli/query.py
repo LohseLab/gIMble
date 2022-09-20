@@ -32,7 +32,6 @@ class QueryParameterObj(lib.gimble.ParameterObj):
         self.extended = False # args['--extended']
         self.sliced_param = args['--sliced']
         self.fixed_param = args['--constrain']
-        print(self.fixed_param)
         if self.fixed_param:
             try:
                 self.fixed_param = {element.split("=")[0]: float(element.split("=")[1]) for element in self.fixed_param.split(",") if element}
