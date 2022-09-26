@@ -687,12 +687,17 @@ def get_config_simulate(config):
         )
     )
     if isinstance(config["simulate"]["recombination_rate"], str):
+        print('config["simulate"]["recombination_rate"]', config["simulate"]["recombination_rate"])
         config["simulate"]["recombination_rate"] = 0.0
     config["gridbased"]["grid_label"] = config["gridbased"]["grid_label"].strip()
     config["gridbased"]["fixed_parameter"] = config["gridbased"][
         "fixed_parameter"
     ].strip()
+    # lib.simulate.make_demographies relies on 
+    #   lib.gimble.config_to_demes_graph()
+    #   and on config["parameters_grid_points"] (will probably fail if not present)
     config["demographies"] = lib.simulate.make_demographies(config)
+    #print('config["demographies"]', [x for x in config["demographies"]])
     # if config['simulate']['num_linked_blocks'] is not specified, default to config['simulate']['blocks']
     if not config["simulate"]["num_linked_blocks"]:
         config["simulate"]["num_linked_blocks"] = config["simulate"]["blocks"]
@@ -704,7 +709,12 @@ def get_config_simulate(config):
     )
     config["simulate"]["blocks_per_replicate"] = blocks_per_replicate
     config["simulate"]["sequence_length"] = sequence_length_per_replicate
+    # print("blocks_per_replicate", blocks_per_replicate.size, blocks_per_replicate)
+    # blocks_per_replicate 3 [239 239  22] if blocks = 500 and num_linked_blocks 239
     config["replicates"] = blocks_per_replicate.size * config["simulate"]["replicates"]
+    # print('config["replicates"]', config["replicates"])
+    # config["replicates"] 33654 if replicates = 11218
+    ### DRL: so the "real" simulation would be 11218 replicates of 50000 blocks and 500 linked blocks ?
     config["seeds"] = np.random.randint(
         1, 2**32, (config.get("parameters_grid_points", 1), config["replicates"], 2)
     )
@@ -714,6 +724,7 @@ def get_config_simulate(config):
             **config["simulate"],
             **config["mu"],
         }  # is this necessary?
+
     return config
 
 
@@ -778,6 +789,13 @@ def load_config(config_file, MODULE=None, CWD=None, VERSION=None):
 
 
 def config_to_demes_graph(config, idxs=None):
+    '''
+    INIs based on
+    - n gridpoints will create generator that will yield n Demography objects 
+    - fixed values will create generator that will yield 1 Demography object
+    if they were not generators than all book keeping could be done through Demography objects
+    ToDo: remove generator logic
+    '''
     # using demes: all events are defined  forwards in time!
     pop_path = "simulate" if config["gimble"]["task"] == "simulate" else "populations"
     if idxs == None:
@@ -2231,28 +2249,28 @@ class ParameterObj(object):
         """active"""
         return hashlib.md5(str(d).encode()).hexdigest()
 
-    def _get_unique_hash(self, return_dict=False, module=None):
-        """passive"""
-        module = module if module else self._MODULE
-        to_hash = copy.deepcopy(self.config)
-        # print('to_hash', to_hash)
-        if module in set(["makegrid", "gridsearch", "query"]):
-            del to_hash["simulations"]
-            if "kmax_by_mutype" in to_hash:
-                del to_hash["--kmax_by_mutype"]
-            if "recombination" in to_hash["parameters"]:
-                del to_hash["parameters"]["recombination"]
-        elif module == "simulate":
-            pass
-        else:
-            ValueError("Not implemented yet.")
-        del to_hash["population_by_letter"]
-        for pop_name in ["A", "B"]:
-            del to_hash["populations"][pop_name]
-        del to_hash["gimble"]
-        if return_dict:
-            return (hashlib.md5(str(to_hash).encode()).hexdigest(), to_hash)
-        return hashlib.md5(str(to_hash).encode()).hexdigest()
+    # def _get_unique_hash(self, return_dict=False, module=None):
+        # """passive"""
+        # module = module if module else self._MODULE
+        # to_hash = copy.deepcopy(self.config)
+        print('to_hash', to_hash)
+        # if module in set(["makegrid", "gridsearch", "query"]):
+            # del to_hash["simulations"]
+            # if "kmax_by_mutype" in to_hash:
+                # del to_hash["--kmax_by_mutype"]
+            # if "recombination" in to_hash["parameters"]:
+                # del to_hash["parameters"]["recombination"]
+        # elif module == "simulate":
+            # pass
+        # else:
+            # ValueError("Not implemented yet.")
+        # del to_hash["population_by_letter"]
+        # for pop_name in ["A", "B"]:
+            # del to_hash["populations"][pop_name]
+        # del to_hash["gimble"]
+        # if return_dict:
+            # return (hashlib.md5(str(to_hash).encode()).hexdigest(), to_hash)
+        # return hashlib.md5(str(to_hash).encode()).hexdigest()
 
     def _expand_params(self, remove=None):
         if len(self.config["parameters"]) > 0:
@@ -3063,6 +3081,40 @@ class Store(object):
                 % (config["simulate_key"])
             )
         # deal with grid_label
+        if not config["gridbased"]["grid_label"]:
+            # start here with the recombination map
+            print('##### -+ config', config)
+            path = config['simulate']['recombination_map']
+            bins = config["simulate"]["number_bins"]
+            cutoff = config["simulate"]["cutoff"]
+            scale = config["simulate"]["scale"]
+            def parse_recombination_bed(path):
+                # format is "chr", "start", "end", "rec" (rec in cM/Mb !!!)
+                recombination_df = pd.read_csv(path, sep="\t", names=["chr", "start", "end", "rec"], header=0)
+                # from cM/Mb to rec/bp (simulator needs rec/b) 
+                recombination_df["rec_scaled"] = recombination_df["rec"] * 1e-8
+                return recombination_df
+            def bin_recombination_df(recombination_df, cutoff=90, bins=10, scale='lin'):        
+                recombination_df["rec_binned"] = recombination_df["rec_scaled"].clip(
+                    lower=None, upper=np.percentile(recombination_df["rec_scaled"], cutoff))
+                # binning should be performed without rec_scaled=0, therefore it gets set to np.nan
+                recombination_df["rec_binned"].replace(0, np.nan, inplace=True)
+                bin_edges = np.linspace(
+                    recombination_df["rec_binned"].min(), 
+                    recombination_df["rec_binned"].max(), 
+                    num=bins + 1)
+                labels = [
+                    (bstop + bstart) / 2 for bstart, bstop in zip(bin_edges[:-1], bin_edges[1:])
+                ]
+                recombination_df["rec_binned"] = pd.cut(recombination_df["rec_binned"], bins, labels=labels).astype(
+                    float
+                )
+                recombination_df["rec_binned"].replace(np.nan, 0.0, inplace=True)
+                return recombination_df
+            recombination_df = parse_recombination_bed(path)
+            recombination_df = bin_recombination_df(recombination_df, cutoff, bins, scale)
+            config['simulate']['recombination_rate'] = tuple(recombination_df['rec_binned'])
+            #config = self._get_sim_grid_config(config, lncls_global, lncls_windows, meta_5D, window_info, fixed_param_grid)
         if config["gridbased"]["grid_label"]:
             if not self._has_key(config["gridbased"]["grid_label"]):
                 sys.exit(
@@ -3106,6 +3158,7 @@ class Store(object):
             lncls_global = None
             print('config', config)
             #config["parameters_grid_points"] = config["grid_points"]
+            print("# _get_sim_grid_config()")
             config = _get_sim_grid_config(
                 config,
                 lncls_global,
@@ -3114,50 +3167,6 @@ class Store(object):
                 window_info,
                 fixed_param_grid,
             )
-
-            # meta_tally = self._get_meta(meta_gridsearch['data_key'])
-            # # parameter_names := order of parameters in array
-            # parameter_names = list(meta_gridsearch['grid_dict'].keys())
-            # # parameter array := 2D : (gridpoints, parameters)
-            # parameter_array = np.array([np.array(v, dtype=np.float64) for k, v in meta_gridsearch['grid_dict'].items()]).T
-            # out_fs = []
-            # dtypes_by_field = { 'sequence': 'category',
-            #                     'start': 'int64',
-            #                     'end': 'int64',
-            #                     'index': 'int64',
-            #                     'pos_mean': 'float64',
-            #                     'pos_median': 'float64',
-            #                     'balance': 'float64',
-            #                     'mse_sample_set_cov': 'float64',
-            #                     'lnCL': 'float64'}
-            # grid_points = meta_gridsearch.get('grid_points', parameter_array.shape[0])
-            # data_ndims = meta_tally.get('data_ndims')
-            # windows_count = meta_tally['windows']
-            # columns = []
-            # if meta_tally['data_type'] == 'windows' and data_ndims == 5:
-            #     #columns += ['sequence', 'start', 'end', 'index', 'pos_mean', 'pos_median', 'balance', 'mse_sample_set_cov']
-            #     columns += ['start', 'end', 'index']
-            #     sequences, starts, ends, index, pos_mean, pos_median, balance, mse_sample_set_cov = self._get_window_bed()
-            # for gridsearch_key in meta_gridsearch['gridsearch_keys']:
-            #     lncls = np.array(self._get_data(gridsearch_key)) # (w, gridpoints)
-        # if config['gridbased']['grid_label'].strip()!='':
-        #    #check whether grid_label exists
-        #    key_4D = self._get_key(task='gridsearch', data_label='windows', analysis_label=config['gridbased']['grid_label'], mod_label='4D')
-        #    key_5D = self._get_key(task='gridsearch', data_label='windows', analysis_label=config['gridbased']['grid_label'], mod_label='5D')
-        #    if not self._has_key(key_5D):
-        #        sys.exit("[X] Provided grid label does not correspond to an existing grid. Run gridsearch first.")
-        #    else:
-        #        if config['simulate']['recombination_map']!='':
-        #            window_info = self._get_window_bed_columns()
-        #        else:
-        #            window_info = None
-        #        meta_5D = self._get_meta(key_5D)
-        #        lncls_global = self._get_data(key_4D)
-        #        lncls_windows = self._get_data(key_5D)
-        #        fixed_param_grid = config['gridbased']['fixed_parameter'] if config['gridbased']['fixed_parameter']!='' else None
-        #        config = _get_sim_grid_config(config, lncls_global, lncls_windows, meta_5D, window_info, fixed_param_grid)
-        # print('[+] Simulating %s replicate(s) of %s block(s) for %s parameter combinations' %
-        #    (config['simulate']['replicates'], config['simulate']['blocks'], config['parameters_grid_points']))
         return config
 
     def simulate(self, config, threads, overwrite):

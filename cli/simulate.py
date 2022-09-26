@@ -32,7 +32,7 @@ _get_sim_grid:
 - this is about the results of a grid search, right?
 - it's defined at least twice
 
-'''
+'''                                                    
 
 class SimulateParameterObj(lib.gimble.ParameterObj):
     """Sanitises command line arguments and stores parameters."""
