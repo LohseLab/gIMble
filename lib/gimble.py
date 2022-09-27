@@ -3087,7 +3087,7 @@ class Store(object):
             path = config['simulate']['recombination_map']
             bins = config["simulate"]["number_bins"]
             cutoff = config["simulate"]["cutoff"]
-            scale = config["simulate"]["scale"]
+            scale = config["simulate"]["scale"] # should be removed
             def parse_recombination_bed(path):
                 # format is "chr", "start", "end", "rec" (rec in cM/Mb !!!)
                 recombination_df = pd.read_csv(path, sep="\t", names=["chr", "start", "end", "rec"], header=0)
@@ -3112,9 +3112,14 @@ class Store(object):
                 recombination_df["rec_binned"].replace(np.nan, 0.0, inplace=True)
                 return recombination_df
             recombination_df = parse_recombination_bed(path)
-            recombination_df = bin_recombination_df(recombination_df, cutoff, bins, scale)
-            config['simulate']['recombination_rate'] = tuple(recombination_df['rec_binned'])
+            if cutoff and bins and scale:
+                recombination_df = bin_recombination_df(recombination_df, cutoff, bins, scale)
+                recombination_rates = recombination_df['rec_binned']
+            else:
+                recombination_rates = recombination_df['rec_scaled']
+            config['simulate']['recombination_rate'] = tuple(recombination_rates)
             #config = self._get_sim_grid_config(config, lncls_global, lncls_windows, meta_5D, window_info, fixed_param_grid)
+        
         if config["gridbased"]["grid_label"]:
             if not self._has_key(config["gridbased"]["grid_label"]):
                 sys.exit(
@@ -3301,6 +3306,8 @@ class Store(object):
             self._write_window_bed(config)
         elif config["data_type"] == "gridsearch":
             # self._write_gridsearch_results_old(config)
+            self._write_gridsearch_results_sims(config)
+            sys.exit()
             self._write_gridsearch_results_new(config)
             # self._write_gridsearch_results(config)
             
@@ -3660,6 +3667,65 @@ class Store(object):
         )
         print("[+] \tWrote %s ..." % sliced_out_f)
 
+    def _write_gridsearch_results_sims(self, config):
+        '''TEMPORARY'''
+        # windows = replicates
+        # needs recombination rate added
+        # 
+        meta_gridsearch = self._get_meta(config["data_key"])
+        meta_makegrid = self._get_meta(meta_gridsearch["makegrid_key"])
+        meta_tally = self._get_meta(meta_gridsearch["data_key"])
+        data_ndims = meta_tally.get("data_ndims", 5)
+        parameter_names = list(meta_gridsearch["grid_dict"].keys())
+        parameter_array = np.array(
+            [
+                np.array(v, dtype=np.float64) for k, v in meta_gridsearch["grid_dict"].items()
+            ]
+        ).T
+        #print('meta_gridsearch', dict(meta_gridsearch))
+        #print('meta_makegrid', dict(meta_makegrid))
+        #print('counter', collections.Counter(meta_makegrid['grid_dict']))
+        grid_points = meta_gridsearch.get("grid_points", parameter_array.shape[0])
+        columns = []
+        fixed_param_columns = []
+        header = ["# %s" % config["version"]]
+        parameter_columns = parameter_names + ["lnCl"]
+        if data_ndims == 5:
+            replicates = 1
+            windows = meta_tally['parameters']['replicates']
+            replicate_idx_array = np.repeat(replicates, windows).astype(np.int64)
+            window_idx_array = np.arange(windows).astype(np.int64)
+            bed_columns = ["replicate_idx", "window_idx"]
+            for gridsearch_key in meta_gridsearch["gridsearch_keys"]:
+                base_fn = "%s.%s" % (self.prefix, "_".join(gridsearch_key.split("/")))
+                lncls = np.array(self._get_data(gridsearch_key))  # (w, gridpoints)
+                #print("lncls", lncls.shape, lncls)
+                lncls_max_idx = np.argmax(lncls, axis=1)
+                lncls_max = lncls[np.arange(lncls.shape[0]), lncls_max_idx]
+                lncls_max_parameters = parameter_array[lncls_max_idx]
+                lncls_max_df = pd.DataFrame(
+                        data=np.vstack([
+                            replicate_idx_array,
+                            window_idx_array, 
+                            lncls_max_parameters.T, 
+                            lncls_max]).T, columns=bed_columns + parameter_columns)
+                lncls_max_df['replicate_idx'].astype(np.int64)
+                lncls_max_df['window_idx'].astype(np.int64)
+                lncls_max_out_f = "%s.best.bed" % base_fn
+                with open(lncls_max_out_f, "w") as lncls_max_out_fh:
+                    lncls_max_out_header = header + ["# %s" % "\t".join(bed_columns + parameter_columns)]
+                    lncls_max_out_fh.write("\n".join(lncls_max_out_header) + "\n")
+                lncls_max_df.to_csv(
+                    lncls_max_out_f,
+                    na_rep="NA",
+                    mode="a",
+                    sep="\t",
+                    index=False,
+                    header=False,
+                )
+                print("[+] \tWrote %s ..." % lncls_max_out_f)
+   
+
     def _write_gridsearch_results_new(self, config):
         """
         # 5d
@@ -3671,16 +3737,16 @@ class Store(object):
         meta_gridsearch = self._get_meta(config["data_key"])
         meta_makegrid = self._get_meta(meta_gridsearch["makegrid_key"])
         meta_tally = self._get_meta(meta_gridsearch["data_key"])
-        data_ndims = meta_tally.get("data_ndims")
+        data_ndims = meta_tally.get("data_ndims", None)
         parameter_names = list(meta_gridsearch["grid_dict"].keys())
         parameter_array = np.array(
             [
                 np.array(v, dtype=np.float64) for k, v in meta_gridsearch["grid_dict"].items()
             ]
         ).T
-        print('meta_gridsearch', dict(meta_gridsearch))
-        print('meta_makegrid', dict(meta_makegrid))
-        print('counter', collections.Counter(meta_makegrid['grid_dict']))
+        #print('meta_gridsearch', dict(meta_gridsearch))
+        #print('meta_makegrid', dict(meta_makegrid))
+        #print('counter', collections.Counter(meta_makegrid['grid_dict']))
         print('meta_tally', dict(meta_tally))
         grid_points = meta_gridsearch.get("grid_points", parameter_array.shape[0])
         columns = []
@@ -3692,8 +3758,7 @@ class Store(object):
             # uses same columns as overall 'best' ...
             fixed_param_index = self._get_fixed_param_index(config, parameter_names, parameter_array, meta_makegrid)
         parameter_columns = parameter_names + ["lnCl"]
-        print()
-        if meta_tally["data_ndims"] == 5:
+        if data_ndims == 5:
             sequence_array, start_array, end_array, index_array = self._get_window_bed_columns()
             bed_columns = ["sequence", "start", "end", "index"]
             for gridsearch_key in meta_gridsearch["gridsearch_keys"]:
@@ -4747,7 +4812,9 @@ class Store(object):
         else:
             data = self._get_sims_bsfs(
                 config["data_key"]
-            )  # data is an iterator across parameter combos
+            )  
+
+            # data is an iterator across parameter combos
             meta = self._get_meta(config["data_key"])
             config["block_length_data"] = meta["parameters"]["block_length"]
             config["batch_sites"] = (
@@ -4796,7 +4863,6 @@ class Store(object):
             % (config["makegrid_label"], config["data_label"])
         )
         for key, (idx, tally) in zip(config["gridsearch_keys"], data):
-            print("tally", tally,shape, )
             gridsearch_dask_result = gridsearch_dask(
                 tally=tally, grid=grid, num_cores=num_cores, chunksize=chunksize
             )
