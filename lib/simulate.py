@@ -24,8 +24,8 @@ def run_sims(config, threads=1, discrete=True, disable_tqdm=False):
 	seeds = config['seeds']
 	if isinstance(recombination_rates, float):
 		recombination_rates = itertools.repeat(recombination_rates)
-	for idx, (demography,rec_rate, seed) in enumerate(tqdm(
-		zip(demographies,recombination_rates, seeds),
+	for idx, (demography, rec_rate, seed) in enumerate(tqdm(
+		zip(demographies, recombination_rates, seeds),
 		desc='Overall simulation progress',
 		ncols=100, 
 		unit_scale=True, 
@@ -33,6 +33,7 @@ def run_sims(config, threads=1, discrete=True, disable_tqdm=False):
 		disable=disable_tqdm
 		)
 	):
+		print("IDX", idx)
 		if threads > 1:
 			result_list = run_sim_parallel(
 				seed, 
@@ -75,6 +76,10 @@ def run_sims(config, threads=1, discrete=True, disable_tqdm=False):
 def sim_worker(seed, blocks, recombination_rate, samples, demography, ploidy, block_length, comparisons, max_k, mutation_rate, mutation_model, discrete):
 	ancestry_seed, mutation_seed = seed
 	sequence_length = block_length * blocks
+	print("# WORKER")
+	print("sequence_length", sequence_length)
+	print("recombination_rate", recombination_rate)
+	print("ancestry_seed", ancestry_seed)
 	#run simulation:
 	ts = msprime.sim_ancestry(
 		samples=samples, 
@@ -220,4 +225,5 @@ def all_interpopulation_comparisons(*popsizes):
 	return list(itertools.product(range(popA), range(popA, popA + popB)))
 
 def make_demographies(config):
-	return (msprime.Demography.from_demes(graph) for graph in lib.gimble.config_to_demes_graph(config))
+	#return (msprime.Demography.from_demes(graph) for graph in lib.gimble.config_to_demes_graph(config)) # generator
+	return [msprime.Demography.from_demes(graph) for graph in lib.gimble.config_to_demes_graph(config)] # list !!!

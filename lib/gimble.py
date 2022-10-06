@@ -437,6 +437,7 @@ def config_to_meta(config, task):
         if config["gridbased"]["grid_label"] != "":
             meta["grid_label"] = config["gridbased"]["grid_label"]
             meta["window_param_idx"] = tuple(int(i) for i in config["window_param_idx"])
+        meta["parameters"]["recombination_rate"] = config["simulate"]["recombination_rate"]
     if task == "simulate_instance":
         meta["max_k"] = tuple([int(v) for v in config["max_k"]])
         meta["idx"] = config["idx"]
@@ -453,13 +454,12 @@ def config_to_meta(config, task):
             for k, v in config["parameters"].items()
         }
         meta["discrete_genome"] = config["simulate"]["discrete_genome"]
-        if not (
-            isinstance(config["parameters"]["recombination_rate"], float)
-            or isinstance(config["parameters"]["recombination_rate"], int)
-        ):
-            meta["parameters"]["recombination_rate"] = config["parameters"][
-                "recombination_rate"
-            ][config["idx"]]
+        # removed since better to do this as simulate
+        # if not (
+        #     isinstance(config["simulate"]["recombination_rate"], float)
+        #     or isinstance(config["simulate"]["recombination_rate"], int)
+        # ):
+        #     meta["parameters"]["recombination_rate"] = config["simulate"]["recombination_rate"][config["idx"]]
     if task == "makegrid":
         meta["makegrid_key"] = config["key"]
         meta["makegrid_label"] = config["makegrid_label"]
@@ -641,6 +641,7 @@ def get_config_kmax(config):
 
 
 def expand_parameters(config):
+    '''config should be simplified so that checks are easier'''
     if "populations" in config and len(config["populations"]["sync_pop_ids"]) > 0:
         to_sync = ["Ne_%s" % pop for pop in config["populations"]["sync_pop_ids"][1:]]
         sync_to = "Ne_%s" % config["populations"]["sync_pop_ids"][0]
@@ -653,6 +654,9 @@ def expand_parameters(config):
     cartesian_product = itertools.product(*parameters_np.values())
     rearranged_product = list(zip(*cartesian_product))
     config["parameters_grid_points"] = len(rearranged_product[0])
+    print('cartesian_product', cartesian_product)
+    print('rearranged_product', rearranged_product)
+    print('config', config)
     config["parameters_expanded"] = {
         k: np.array(v, dtype=np.float64)
         for k, v in zip(parameters_np.keys(), rearranged_product)
@@ -675,20 +679,17 @@ def get_config_optimize(config):
 
 
 def get_config_simulate(config):
+    def cartesian_product(sample_size_A, sample_size_B):
+        return list(
+            itertools.product(
+                range(sample_size_A),
+                range(sample_size_A, sample_size_A + sample_size_B))
+            )
     # interpopulation sample pairs
-    config["simulate"]["comparisons"] = list(
-        itertools.product(
-            range(config["simulate"]["sample_size_A"]),
-            range(
-                config["simulate"]["sample_size_A"],
-                config["simulate"]["sample_size_A"]
-                + config["simulate"]["sample_size_B"],
-            ),
-        )
-    )
-    if isinstance(config["simulate"]["recombination_rate"], str):
-        print('config["simulate"]["recombination_rate"]', config["simulate"]["recombination_rate"])
-        config["simulate"]["recombination_rate"] = 0.0
+    config["simulate"]["comparisons"] = cartesian_product(
+        config["simulate"]["sample_size_A"],
+        config["simulate"]["sample_size_B"])
+    # gridsearch result 
     config["gridbased"]["grid_label"] = config["gridbased"]["grid_label"].strip()
     config["gridbased"]["fixed_parameter"] = config["gridbased"][
         "fixed_parameter"
@@ -698,23 +699,23 @@ def get_config_simulate(config):
     #   and on config["parameters_grid_points"] (will probably fail if not present)
     config["demographies"] = lib.simulate.make_demographies(config)
     #print('config["demographies"]', [x for x in config["demographies"]])
-    # if config['simulate']['num_linked_blocks'] is not specified, default to config['simulate']['blocks']
+    
+    ### THIS NEEDS TO BE CLEANED UP
     if not config["simulate"]["num_linked_blocks"]:
         config["simulate"]["num_linked_blocks"] = config["simulate"]["blocks"]
-    blocks_per_replicate = get_blocks_per_replicate(
-        config["simulate"]["blocks"], config["simulate"]["num_linked_blocks"]
-    )
-    sequence_length_per_replicate = (
-        blocks_per_replicate * config["simulate"]["block_length"]
-    )
-    config["simulate"]["blocks_per_replicate"] = blocks_per_replicate
-    config["simulate"]["sequence_length"] = sequence_length_per_replicate
-    # print("blocks_per_replicate", blocks_per_replicate.size, blocks_per_replicate)
-    # blocks_per_replicate 3 [239 239  22] if blocks = 500 and num_linked_blocks 239
-    config["replicates"] = blocks_per_replicate.size * config["simulate"]["replicates"]
-    # print('config["replicates"]', config["replicates"])
-    # config["replicates"] 33654 if replicates = 11218
-    ### DRL: so the "real" simulation would be 11218 replicates of 50000 blocks and 500 linked blocks ?
+    # blocks_per_replicate = get_blocks_per_replicate(
+    #    config["simulate"]["blocks"], config["simulate"]["num_linked_blocks"]
+    # )
+    # sequence_length_per_replicate = (
+    #     blocks_per_replicate * config["simulate"]["block_length"]
+    # )
+    # config["simulate"]["blocks_per_replicate"] = blocks_per_replicate
+    config["simulate"]["blocks_per_replicate"] = np.array([config["simulate"]["blocks"]])
+    # config["simulate"]["sequence_length"] = sequence_length_per_replicate
+    config["simulate"]["sequence_length"] = config["simulate"]["block_length"] * config["simulate"]["blocks"] 
+    # config["replicates"] = blocks_per_replicate.size * config["simulate"]["replicates"]
+    config["replicates"] = config["simulate"]["replicates"]
+    # seeds are integers 1 .. 2**32 shape (grid_points, replicates, 2) 
     config["seeds"] = np.random.randint(
         1, 2**32, (config.get("parameters_grid_points", 1), config["replicates"], 2)
     )
@@ -3080,10 +3081,10 @@ class Store(object):
                 "[X] Simulated results with label %r already exist. Use '-f' to overwrite or change analysis label in the INI file."
                 % (config["simulate_key"])
             )
-        # deal with grid_label
-        if not config["gridbased"]["grid_label"]:
-            # start here with the recombination map
-            print('##### -+ config', config)
+        ### recombination
+        
+        if config['simulate']['recombination_map']:
+            # recombination map, number of rows determines number of "Windows" later on ...
             path = config['simulate']['recombination_map']
             bins = config["simulate"]["number_bins"]
             cutoff = config["simulate"]["cutoff"]
@@ -3106,9 +3107,9 @@ class Store(object):
                 labels = [
                     (bstop + bstart) / 2 for bstart, bstop in zip(bin_edges[:-1], bin_edges[1:])
                 ]
-                recombination_df["rec_binned"] = pd.cut(recombination_df["rec_binned"], bins, labels=labels).astype(
-                    float
-                )
+                recombination_df["rec_binned"] = pd.cut(
+                    recombination_df["rec_binned"], bins, labels=labels
+                    ).astype(float)
                 recombination_df["rec_binned"].replace(np.nan, 0.0, inplace=True)
                 return recombination_df
             recombination_df = parse_recombination_bed(path)
@@ -3118,8 +3119,13 @@ class Store(object):
             else:
                 recombination_rates = recombination_df['rec_scaled']
             config['simulate']['recombination_rate'] = tuple(recombination_rates)
-            #config = self._get_sim_grid_config(config, lncls_global, lncls_windows, meta_5D, window_info, fixed_param_grid)
-        
+        elif config['simulate']['recombination_rate']:
+            # static recombination value as list (will be itertools.cycled in run_sims())
+            # config['simulate']['recombination_rate'] = [config['simulate']['recombination_rate']]
+            config['simulate']['recombination_rate'] = itertools.repeat(config['simulate']['recombination_rate'])
+        else:
+            # no recombination value (will be itertools.cycled in run_sims())
+            config['simulate']['recombination_rate'] = itertools.repeat(0)
         if config["gridbased"]["grid_label"]:
             if not self._has_key(config["gridbased"]["grid_label"]):
                 sys.exit(
@@ -3176,9 +3182,7 @@ class Store(object):
 
     def simulate(self, config, threads, overwrite):
         print("[#] Preflight...")
-        print("config", config)
         config = self._preflight_simulate(config, overwrite)
-        print("config", config)
         print(
             "[+] Simulating %s replicate(s) of %s block(s) for %s parameter combinations"
             % (
