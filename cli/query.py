@@ -1,4 +1,4 @@
-"""usage: gimbl query                    -z <DIR> [-l <STR>] [--sliced STR] [--constrain STR] [-h|--help]
+"""usage: gimbl query                    -z <DIR> [-l <STR>] [--sliced STR] [--constrained STR] [-h|--help]
                                             
         -z, --zarr_f DIR                 ZARR datastore
         -l, --label <STR>                Data label
@@ -9,7 +9,7 @@
                                             '--sliced Ne_A'
                                             ... 
                                         MUST match parameters in the grid
-        --constrain STR                 Write table with best lnCL result for constrained parameter values, e.g.: 
+        --constrained STR                 Write table with best lnCL result for constrained parameter values, e.g.: 
                                             '--constrained me=0.0'
                                             '--constrained me=0.0,Ne_A=100000'
                                             '--constrained me=0.0,Ne_A=100000,Ne_B=200000'
@@ -31,12 +31,12 @@ class QueryParameterObj(lib.gimble.ParameterObj):
         self.data_key = args['--label']
         self.extended = False # args['--extended']
         self.sliced_param = args['--sliced']
-        self.fixed_param = args['--constrain']
+        self.fixed_param = args['--constrained']
         if self.fixed_param:
             try:
                 self.fixed_param = {element.split("=")[0]: float(element.split("=")[1]) for element in self.fixed_param.split(",") if element}
             except (ValueError, IndexError):
-                sys.exit("[X] '--fixed' is not in the right format.")
+                sys.exit("[X] '--constrained' is not in the right format.")
 
 def main(params):
     try:
