@@ -1,18 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gIMble simulate                   [-z DIR | -o DIR] -c FILE [-t INT]
-                                            [(-w STR [--fixed STR])] [-f] [-h|--help]
+"""usage: gIMble simulate                   (-z DIR | -o STR) -c FILE [-t INT -f] [-h|--help]
                                             
     Options:
         -h --help                                   show this
         -z, --zarr DIR                              Path to zarr store
-        -o, --outprefix DIR                         Prefix to make new zarr store
+        -o, --outprefix STR                         Prefix to make new zarr store
         -c, --config_file FILE                      Simulate config file (*.ini) 
         -t, --threads INT                           Threads [default: 1]
         -f, --overwrite                             Overwrite results in GimbleStore
-        -w, --window_wise_bootstrap STR             Label of lncls grid to perform window-wise parametric bootstrap on                 
-        --fixed STR                                 Parameter to fix to global optimum when performing window-wise parametric bootstrap
+        
 """
 
 from timeit import default_timer as timer
@@ -21,17 +19,44 @@ import lib.gimble
 import lib.simulate
 
 '''
-# why are these needed?
- -g, --grid                                  
- --fixed STR                                 Parameter to fix to global optimum
+usage: gimble simulate             (-z DIR | -o STR) [-t INT -f] [-h|--help]
+                                            
+    Options:
+        -h --help                                   show this
+        -z, --zarr DIR                              Path to zarr store
+        -o, --outprefix STR                         Prefix to make new zarr store
+        -c, --config_file FILE                      Simulate config file (*.ini) 
+        -t, --threads INT                           Threads [default: 1]
+        -f, --overwrite                             Overwrite results in GimbleStore
 
-# simulations_labels is provided in config file under label
-# when running optimize/gridsearch, there needs to be a field for simulations_label
+        [Gridsearch based]
+        --gridsearch_key 
+        --constraint
+    
+        [Recombination]
+        --recombination_rate
+        --recombination_map 
 
-_get_sim_grid: 
-- this is about the results of a grid search, right?
-- it's defined at least twice
+        [Model]
+        --model=STR
+        --Ne_A=FLOAT
+        --Ne_B=FLOAT
+        --Ne_AB=FLOAT
+        --T=FLOAT
+        --me=FLOAT
+        --mu=FLOAT
+        --seed=INT
 
+        [Data]
+        --replicates
+        --windows 
+        --blocks
+        --block_length
+        --max_k
+        --ploidy
+        --samples_A 
+        --samples_B
+        --discrete_genome
 '''                                                    
 
 class SimulateParameterObj(lib.gimble.ParameterObj):
@@ -43,7 +68,7 @@ class SimulateParameterObj(lib.gimble.ParameterObj):
         self.zstore = self._get_path(args["--zarr"])
         self.prefix = self._get_prefix(args["--outprefix"])
         self.threads = self._get_int(args["--threads"])
-        self.sim_grid = args["--window_wise_bootstrap"]
+        #self.sim_grid = args["--window_wise_bootstrap"]
         self.overwrite = args['--overwrite']
         self.config = lib.gimble.load_config(
             self.config_file, 

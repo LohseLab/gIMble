@@ -64,6 +64,10 @@ from lib.GeneratingFunction.gf import togimble
         - mutuple pcp
 """
 
+###
+RECOMBINATION_SCALER = 1e-8
+###
+
 PURPLE = "#4F3D63"
 
 DFRM = "[──"
@@ -254,7 +258,7 @@ def make_ini_configparser(version, task, model, label):
         config.set("simulate", "# Blocks")
         config.set("simulate", "blocks", "")
         config.set("simulate", "block_length", "")
-        config.set("simulate", "num_linked_blocks", "")
+        config.set("simulate", "windows", "")
         config.set("simulate", "# Number of replicates")
         config.set("simulate", "replicates", "")
         config.set("simulate", "# Number of samples per population")
@@ -407,9 +411,7 @@ def config_to_meta(config, task):
         meta["count_total_raw"] = config["count_total_raw"]
     if task == "tally":
         meta["data_ndims"] = config.get("data_ndims", 0)
-        meta["data_key"] = config[
-            "data_key"
-        ]  # where to find the data that went into tally
+        meta["data_key"] = config["data_key"]  # where to find the data that went into tally
         meta["data_source"] = config["data_source"]  # meas | sims ?
         meta["data_type"] = config["data_type"]
         meta["tally_key"] = config["tally_key"]  # where to find the tally
@@ -426,30 +428,31 @@ def config_to_meta(config, task):
         meta["marginality"] = config.get("marginality", "NA")
         meta["block_length"] = config["block_length"]
     if task == "simulate":
-        meta["max_idx"] = config["idx"]
+        meta['data_source'] = 'sims'
+        meta['data_label'] = config['gimble']['label']
         meta["max_k"] = tuple([int(v) for v in config["max_k"]])
         meta["replicates"] = config["replicates"]
-        meta["parameters_LOD"] = config["parameters_LOD"]
-        meta["parameters"] = {
-            k: (tuple(v.tolist()) if isinstance(v, np.ndarray) else v)
-            for k, v in config["parameters"].items()
-        }
+        #meta["parameters_LOD"] = config["parameters_LOD"]
+        meta["parameters"] = [modelObj.get_parameter_dict() for modelObj in config['simulate']['demographies']]
         meta["discrete_genome"] = config["simulate"]["discrete_genome"]
-        if config["gridbased"]["grid_label"] != "":
-            meta["grid_label"] = config["gridbased"]["grid_label"]
-            meta["window_param_idx"] = tuple(int(i) for i in config["window_param_idx"])
-        meta["parameters"]["recombination_rate"] = config["simulate"]["recombination_rate"]
+        meta["grid_label"] = config["gridbased"]["grid_label"]
+        meta['blocks'] = config['simulate']['blocks']
+        meta['block_length'] = config['simulate']['block_length']
+        meta['sequence_length'] = config['simulate']['sequence_length']
+        meta['windows'] = config['simulate']['windows']
+        meta['mu'] = config['mu']['mu']
+        meta["recombination_rate"] = config["simulate"]["recombination_rate"]
     if task == "simulate_instance":
         meta["max_k"] = tuple([int(v) for v in config["max_k"]])
         meta["idx"] = config["idx"]
         meta["ancestry_seeds"] = tuple(
-            [int(s) for s in config["seeds"][config["idx"]][:, 0]]
+            [int(s) for s in config["simulate"]["ancestry_seeds_by_replicate"][config["idx"]]]
         )
         meta["mutation_seeds"] = tuple(
-            [int(s) for s in config["seeds"][config["idx"]][:, 1]]
+            [int(s) for s in config["simulate"]["mutation_seeds_by_replicate"][config["idx"]]]
         )
         meta["replicates"] = config["replicates"]
-        meta["parameters_LOD"] = config["parameters_LOD"][config["idx"]]
+        #meta["parameters_LOD"] = config["parameters_LOD"][config["idx"]]
         meta["parameters"] = {
             k: (tuple(v.tolist()) if isinstance(v, np.ndarray) else v)
             for k, v in config["parameters"].items()
@@ -688,6 +691,15 @@ class ModelObj(object):
         self.events = self.get_events()
         self.demography = self.get_demography()
 
+    def get_parameter_dict(self):
+        return {
+            'model': self.model, 
+            'Ne_A': self.Ne_A, 
+            'Ne_B': self.Ne_B, 
+            'Ne_A_B': self.Ne_A_B, 
+            'me': self.me, 
+            'T': self.T}
+
     def validate_model(self, model):
         if model not in set(self._SUPPORTED_MODELS):
             return sys.exit("[X] Model %s is not supported. Supported models are: %s" % (model, ", ".join(self._SUPPORTED_MODELS)))
@@ -765,25 +777,19 @@ def get_config_simulate(config):
     # new demographies 
 
     #config["demographies"] = [msprime.Demography.from_demes(graph) for graph in config_to_demes_graph(config)]
-    ### THIS NEEDS TO BE CLEANED UP
-    if not config["simulate"]["num_linked_blocks"]:
-        config["simulate"]["num_linked_blocks"] = config["simulate"]["blocks"]
-    # blocks_per_replicate = get_blocks_per_replicate(
-    #    config["simulate"]["blocks"], config["simulate"]["num_linked_blocks"]
-    # )
     # sequence_length_per_replicate = (
     #     blocks_per_replicate * config["simulate"]["block_length"]
     # )
     # config["simulate"]["blocks_per_replicate"] = blocks_per_replicate
-    config["simulate"]["blocks_per_replicate"] = np.array([config["simulate"]["blocks"]])
+    #config["simulate"]["blocks_per_replicate"] = np.array([config["simulate"]["blocks"]])
     # config["simulate"]["sequence_length"] = sequence_length_per_replicate
     config["simulate"]["sequence_length"] = config["simulate"]["block_length"] * config["simulate"]["blocks"] 
     # config["replicates"] = blocks_per_replicate.size * config["simulate"]["replicates"]
     config["replicates"] = config["simulate"]["replicates"]
     # seeds are integers 1 .. 2**32 shape (grid_points, replicates, 2) 
-    config["seeds"] = np.random.randint(
-        1, 2**32, (config.get("parameters_grid_points", 1), config["replicates"], 2)
-    )
+    #config["seeds"] = np.random.randint(
+    #    1, 2**32, (config.get("parameters_grid_points", 1), config["replicates"], 2)
+    #)
     if not config["gridbased"]["grid_label"]:
         config["parameters_LOD"] = DOL_to_LOD(config["parameters_expanded"])
         config["parameters"] = {
@@ -831,6 +837,7 @@ def load_config(config_file, MODULE=None, CWD=None, VERSION=None):
             % validator_error_string
         )
     config = validator.normalized(parsee)
+    ### THIS SETS GLOBAL SEED
     np.random.seed(config["gimble"]["random_seed"])
     config = get_config_pops(config)
     # config = get_config_kmax(config)
@@ -1228,7 +1235,7 @@ def get_config_schema(module):
                     "type": "integer",
                     "coerce": int,
                 },
-                "num_linked_blocks": {
+                "windows": {
                     "required": True,
                     "empty": True,
                     "min": 1,
@@ -2673,44 +2680,6 @@ def _gridsearch_sims_single(
             df_fixed_param.to_csv(f"{label}_{name}_lnCL_dist.csv")
     return (df, df_fixed_param)
 
-
-# def old_gridsearch_np(tally=None, grid=None):
-#     '''returns 2d array of likelihoods of shape (windows, grid)'''
-#     if grid is None or tally is None:
-#         return None
-#     tally = tally if isinstance(tally, np.ndarray) else np.array(tally)
-#     grid_log = np.zeros(grid.shape, dtype=GRIDSEARCH_DTYPE)
-#     print("[+] Initialising grid array ...")
-#     np.log(grid, where=grid>0, out=grid_log)
-#     print('grid.nbytes', grid.nbytes)
-#     if tally.ndim == 4:
-#         return np.squeeze(np.apply_over_axes(np.sum, (tally * grid_log), axes=[-4,-3,-2,-1]))
-#     return np.squeeze(np.apply_over_axes(np.sum, (tally[:, None] * grid_log), axes=[-4,-3,-2,-1]))
-
-# def gridsearch_np(tally=None, grid=None):
-#     '''returns 2d array of likelihoods of shape (windows, grid)'''
-#     if grid is None or tally is None:
-#         return None
-#     tally = tally if isinstance(tally, np.ndarray) else np.array(tally)
-#     if not tally.ndim == 4: # if tally.ndim == 5:
-#         tally = tally[:, None]
-#     #print('tally.shape', tally.shape)
-#     #print('tally.dtype', tally.dtype)
-#     #print('tally.nbytes', tally.nbytes)
-#     print("[+] Initialising grid array ...")
-#     grid = grid.astype(_return_np_type(grid))
-#     grid_log = np.zeros(grid.shape, dtype=GRIDSEARCH_DTYPE)
-#     np.log(grid, dtype=GRIDSEARCH_DTYPE, where=grid>0, out=grid_log)
-#     #print('grid.shape', grid.shape)
-#     #print('grid.nbytes', grid.nbytes)
-#     #print('grid.dtype', grid.dtype)
-#     product = tally * grid_log
-#     #print('product.shape', product.shape)
-#     #print('product.nbytes', product.nbytes)
-#     #print('product.dtype', product.dtype)
-#     return np.sum(product.reshape((product.shape[0], product.shape[1], np.prod(product.shape[2:]))), axis=-1)
-
-
 def gridsearch_dask(tally=None, grid=None, num_cores=1, chunksize=500):
     """returns 2d array of likelihoods of shape (windows, grid)"""
     if grid is None or tally is None:
@@ -2834,8 +2803,10 @@ class Store(object):
         meta["samples"] = [
             sample.rstrip() for sample in samples_df["samples"].to_list()
         ]
-        meta["populations"] = samples_df["populations"].to_list()
-        meta["population_ids"] = sorted(set(samples_df["populations"].to_list()))
+        meta["populations"] = [
+            population.rstrip() for population in samples_df["populations"].to_list()
+        ]
+        meta["population_ids"] = sorted(set(meta["populations"]))
         meta["population_by_letter"] = {
             letter: population_id
             for population_id, letter in zip(
@@ -3123,7 +3094,6 @@ class Store(object):
         config = self._make_windows(config)
         meta = config_to_meta(config, "windows")
         self._set_meta(config["windows_key"], meta=meta)
-        print("[+] Computing additional data ...")
         meta["windows_raw_tally_key"] = self.tally(
             "windows",
             "windows_raw",
@@ -3137,7 +3107,7 @@ class Store(object):
         # meta['windowsum_raw_tally_key'] = self.tally('windows', 'windowsum_raw', None, 'X', None, None, overwrite=True, verbose=False)
         self._set_meta(config["windows_key"], meta=meta)
 
-    def _preflight_simulate(self, config, overwrite):
+    def _preflight_simulate(self, config, threads, overwrite):
         '''
         --simulate_key
         [--recombination_map [--bins --cutoff]] | --windows [--recombination_rate]
@@ -3147,20 +3117,15 @@ class Store(object):
         NOT SURE
             - reference_pop_id
         
-        1. check key uniqueness
-        2. recombination_rates
-        3. demographies
-
         '''
-        config["simulate_key"] = self._get_key(
-            task="simulate", analysis_label=config["gimble"]["label"]
-        )
+        config['num_cores'] = threads
+        config["simulate_key"] = "simulate/%s" % config["gimble"]["label"]
         if not overwrite and self._has_key(config["simulate_key"]):
             sys.exit(
                 "[X] Simulated results with label %r already exist. Use '-f' to overwrite or change analysis label in the INI file."
                 % (config["simulate_key"])
             )
-        config['simulate']['windows'] = 10 # HARDCODED HERE, NEEDS TO BE ADDED TO MAKECONFIG/CONFIGPARSER!!!
+        
         ### recombination
         if config['simulate']['recombination_map']:
             # recombination map, number of rows determines number of "Windows" later on ...
@@ -3170,9 +3135,9 @@ class Store(object):
             scale = config["simulate"]["scale"] # should be removed
             def parse_recombination_bed(path):
                 # format is "chr", "start", "end", "rec" (rec in cM/Mb !!!)
-                recombination_df = pd.read_csv(path, sep="\t", names=["chr", "start", "end", "rec"], header=0)
+                recombination_df = pd.read_csv(path, sep="\t", names=["chr", "start", "end", "rec"], header=None)
                 # from cM/Mb to rec/bp (simulator needs rec/b) 
-                recombination_df["rec_scaled"] = recombination_df["rec"] * 1e-8
+                recombination_df["rec_scaled"] = recombination_df["rec"] * RECOMBINATION_SCALER
                 return recombination_df
             def bin_recombination_df(recombination_df, cutoff=90, bins=10, scale='lin'):        
                 recombination_df["rec_binned"] = recombination_df["rec_scaled"].clip(
@@ -3198,14 +3163,14 @@ class Store(object):
             else:
                 recombination_rates = recombination_df['rec_scaled']
             config['simulate']['recombination_rate'] = tuple(recombination_rates)
-            config['simulate']['windows'] = len(config['simulate']['recombination_rate'])
+            # windows get overwritten by recombination regions
+            config['simulate']['windows'] = len(config['simulate']['recombination_rate']) 
         elif config['simulate']['recombination_rate']:
-            # static recombination value as list (will be itertools.cycled in run_sims())
-            # config['simulate']['recombination_rate'] = [config['simulate']['recombination_rate']]
-            config['simulate']['recombination_rate'] = itertools.repeat(config['simulate']['recombination_rate'])
+            # if recombination_rate (instead of recombination_map), then windows define how many
+            config['simulate']['recombination_rate'] = [config['simulate']['recombination_rate'] * RECOMBINATION_SCALER] * config['simulate']['windows']
         else:
-            # no recombination value (will be itertools.cycled in run_sims())
-            config['simulate']['recombination_rate'] = itertools.repeat(0)
+            # no recombination value: recombination rate is 0
+            config['simulate']['recombination_rate'] = [0] * config['simulate']['windows']
         def get_demographies_from_gridsearch(gridsearch_label, gridsearch_constraint={}):
             meta_gridsearch = self._get_meta(gridsearch_label)
             meta_makegrid = self._get_meta(meta_gridsearch["makegrid_key"])
@@ -3231,119 +3196,102 @@ class Store(object):
                     modelObjs.append(modelObj)
             if len(modelObjs) == 0:
                 sys.exit("[X] get_demographies_from_gridsearch() was unsuccessful...")
-            print("[+] Simulations based on %s parameter combinations will be carried out." % len(modelObjs))
             return modelObjs
         def get_demographies_from_config(config):
-            modelObj = ModelObj(model=config['gimble']['model'], **config['parameters_LOD'][0])
-            return itertools.repeat(modelObj)
+            '''returns list of N modelObjs, where N = number of windows '''
+            #model=None, Ne_A=None, Ne_B=None, Ne_A_B=None, me=None, T=None
+            return [ModelObj(model=config['gimble']['model'], **config['parameters_LOD'][0])] * config['simulate']['windows']  
+        def check_key(key, category=None):
+            meta = self._get_meta(key)
+            if meta:
+                return key
+            available_keys_by_category = collections.defaultdict(set)
+            max_depth_by_key = {
+                "blocks": 1,
+                "windows": 1,
+                "tally": 2,
+                "makegrid": 2,
+                "optimize": 3,
+                "gridsearch": 3,
+                "simulate": 3,
+            }
+            category_by_module = {
+                "blocks": "measure",
+                "windows": "measure",
+                "tally": "tally",
+                "makegrid": "makegrid",
+                "simulate": "simulate",
+                "optimize": "optimize",
+                "gridsearch": "gridsearch",
+            }
+
+            def data_key_finder(path):
+                key_list = str(path).split("/")
+                module = key_list[0]
+                if len(key_list) == max_depth_by_key.get(module, None):
+                    available_keys_by_category[category_by_module[module]].add(
+                        "/".join(key_list[0 : max_depth_by_key.get(key_list[0], 0)])
+                    )
+
+            self.data.visit(data_key_finder)
+            if available_keys_by_category:
+                if category and category in available_keys_by_category:
+                    print(
+                        "[X] %s label %r not found in store. Available labels:" % (category, key)
+                    )
+                    print("\t%s" % "\n\t".join(sorted(available_keys_by_category[category])))
+                else:
+                    print(
+                        "[X] Label %r not found in store. Available labels:" % key
+                    )
+                    for category, available_keys in available_keys_by_category.items():
+                        print("# %s" % category)
+                        print("- %s" % "\n- ".join(sorted(available_keys)))
+            else:
+                print("[X] ZARR store %s seems to be empty." % self.path)
+            sys.exit(1)
+
         def get_demographies(config):
-            gridsearch_constraint = {'me': 0} # config["gridbased"].get("fixed", {})
             gridsearch_label = config["gridbased"]["grid_label"]
             if gridsearch_label:
+                gridsearch_constraint = config["gridbased"].get("fixed", {'me': 0}) 
+                gridsearch_label = check_key(gridsearch_label, 'gridsearch')
                 return get_demographies_from_gridsearch(gridsearch_label, gridsearch_constraint)
             return get_demographies_from_config(config)
         config['simulate']['demographies'] = get_demographies(config)
-        sys.exit("HERE.")
-        config["gridbased"]["grid_label"]
-        # if config["gridbased"]["grid_label"]:
-        #     if not self._has_key(config["gridbased"]["grid_label"]):
-        #         sys.exit(
-        #             "[X] ZARR store %s has no gridsearch results under the key %r."
-        #             % (self.path, config["gridbased"]["grid_label"])
-        #         )
-        #     meta_gridsearch = self._get_meta(config["gridbased"]["grid_label"])
-        #     if not len(meta_gridsearch["gridsearch_keys"]) == 1:
-        #         sys.exit(
-        #             "[X] ZARR store contains results of %s gridsearches under key %r. Key must point at one gridsearch result."
-        #             % (
-        #                 len(meta_gridsearch["gridsearch_keys"]),
-        #                 meta_gridsearch["gridsearch_keys"],
-        #             )
-        #         )
-        #     parameter_array = np.array(
-        #         [
-        #             np.array(v, dtype=np.float64)
-        #             for k, v in meta_gridsearch["grid_dict"].items()
-        #         ]
-        #     ).T
-        #     print("meta_gridsearch", dict(meta_gridsearch))
-        #     for gridsearch_key in meta_gridsearch["gridsearch_keys"]:
-        #         lncls = np.array(self._get_data(gridsearch_key))  # (w, gridpoints)
-        #         gridsearch_result_array = np.column_stack(
-        #             (
-        #                 np.tile(parameter_array, (lncls.shape[0], 1)),
-        #                 lncls.ravel()[:, np.newaxis],
-        #             )
-        #         )
-        #     window_info = (
-        #         None
-        #         if config["simulate"]["recombination_map"] == ""
-        #         else self._get_window_bed_columns()
-        #     )
-        #     fixed_param_grid = (
-        #         config["gridbased"]["fixed_parameter"]
-        #         if config["gridbased"]["fixed_parameter"] != ""
-        #         else None
-        #     )
-        #     lncls_global = None
-        #     print('config', config)
-        #     #config["parameters_grid_points"] = config["grid_points"]
-        #     print("# _get_sim_grid_config()")
-        #     config = _get_sim_grid_config(
-        #         config,
-        #         lncls_global,
-        #         lncls,
-        #         meta_gridsearch,
-        #         window_info,
-        #         fixed_param_grid,
-        #     )
+        if not config['simulate']['windows'] == len(config['simulate']['demographies']):
+            print("[-] Warning: Number of Windows (rec and demographies) don't match. Will be truncated.")
+            config['simulate']['demographies'] = config['simulate']['demographies'][0:config['simulate']['windows']]
+        print("[+] Simulating %s replicates of %s window(s) of %s blocks" % 
+            (config['simulate']['replicates'],
+            config['simulate']['windows'],
+            config['simulate']['blocks'] 
+            ))
+
+        # assert that window_count == demographies == recombination 
+        # seeds based on windows for each replicate 
+        config['simulate']['ancestry_seeds_by_replicate'] = {replicate_idx: np.random.randint(1, 2**32, config['simulate']['windows']) for replicate_idx in range(config['simulate']['replicates'])}
+        config['simulate']['mutation_seeds_by_replicate'] = {replicate_idx: np.random.randint(1, 2**32, config['simulate']['windows']) for replicate_idx in range(config['simulate']['replicates'])}
         return config
 
     def simulate(self, config, threads, overwrite):
         print("[#] Preflight...")
-        config = self._preflight_simulate(config, overwrite)
-        #print(
-        #    "[+] Simulating %s replicate(s) of %s block(s) for %s parameter combinations"
-        #    % (
-        #        config["simulate"]["replicates"],
-        #        config["simulate"]["blocks"],
-        #        config["parameters_grid_points"],
-        #    )
-        #)
-        lib.simulate.new_simulate(config)
-        sys.exit("new_simulate() ... done")
-        for idx, simulation_instance in enumerate(
-            lib.simulate.run_sims(
-                config, threads, discrete=config["simulate"]["discrete_genome"]
-            )
-        ):
-            self._save_simulation_instance(config, simulation_instance, idx)
-        self._save_simulation_meta(config)
-        # we need particular subset of details to be saved
-        # self.data[f"sims/{config['gimble']['label']}"].attrs.put(global_info_ancestry)
+        config = self._preflight_simulate(config, threads, overwrite)
+        tally_by_replicate_idx = lib.simulate.new_simulate(config)
+        for idx, tally in tally_by_replicate_idx.items():
+            self._save_simulate_instance(config, tally, idx)
+        self._save_simulate_meta(config)
+        print("[+] Simulation saved under %r" % config['simulate_key'])
 
-        # needed for --grid flag check this
-        # gimbleStore.data[f'sims/{group_name}'].attrs['fixed_param_grid'] = parameterObj.fixed_param_grid
+    def _save_simulate_meta(self, config):
+        simulate_meta = config_to_meta(config, "simulate")
+        self._set_meta(config["simulate_key"], simulate_meta)
 
-        # writing report (has to be fixed/should be part of info)
-        # try:
-        #     print(self._get_sims_report(width=100, label=config['gimble']['label']))
-        # except UnicodeEncodeError:
-        #     print(self._get_sims_report(width=100, label=config['gimble']['label']).__repr__().encode('utf-8')) #temp fix for my environment
-
-    def _save_simulation_meta(self, config):
-        meta = config_to_meta(config, "simulate")
-        self._set_meta(config["simulate_key"], meta)
-
-    def _save_simulation_instance(self, config, simulation_instance, idx):
-        simulation_instance_key = self._get_key(
-            task="simulate",
-            analysis_label=config["gimble"]["label"],
-            parameter_label=idx,
-        )
-        config["idx"] = idx
-        meta = config_to_meta(config, "simulate_instance")
-        self._set_meta_and_data(simulation_instance_key, meta, simulation_instance)
+    def _save_simulate_instance(self, config, tally, idx):
+        simulate_instance_key = "%s/%s" % (config['simulate_key'], idx)
+        config['idx'] = idx
+        simulate_instance_meta = config_to_meta(config, "simulate_instance")
+        self._set_meta_and_data(simulate_instance_key, simulate_instance_meta, tally)
 
     def _preflight_query(self, version, data_key, extended, fixed_param, sliced_param):
         if not data_key:
@@ -3430,12 +3378,7 @@ class Store(object):
         elif config["data_type"] == "windows":
             self._write_window_bed(config)
         elif config["data_type"] == "gridsearch":
-            # self._write_gridsearch_results_old(config)
-            # self._write_gridsearch_results_sims(config)
             self._write_gridsearch_results_new(config)
-            sys.exit()
-            # self._write_gridsearch_results(config)
-            
         elif config["data_type"] == "makegrid":
             meta_makegrid = self._get_meta(config["data_key"])
             print(self._format_grid(meta_makegrid))
@@ -3476,16 +3419,17 @@ class Store(object):
             """intermediate fix until we figure out how to retrieve simulate tallies properly..."""
             sys.exit("[X] %r does not point to a tally." % config["data_key"])
         config["data"] = np.array(data)
-        print('config["data"]', type(config["data"]), config["data"].shape, config["data"])
+        # print('config["data"]', type(config["data"]), config["data"].shape, config["data"])
         config["meta"] = dict(self._get_meta(config["data_key"]))
         print("[+] Tally ...")
         print(format_query_meta(config["meta"]))
         config["header"] = ["count", "m_1", "m_2", "m_3", "m_4"]
         if config["data"].ndim == 5:
-            if config["data_type"] == "tally":
-                config["header"] = ["window_idx"] + config["header"]
-            else:
-                config["header"] = ["replicate_idx"] + config["header"]
+            config["header"] = ["window_idx"] + config["header"]
+            #if config["data_type"] == "tally":
+            #    config["header"] = ["window_idx"] + config["header"]
+            #else:
+            #    config["header"] = ["window_idx"] + config["header"]
         config["filename"] = "%s.%s.tsv" % (
             self.prefix,
             config["data_key"].replace("/", "_"),
@@ -3793,14 +3737,105 @@ class Store(object):
         )
         print("[+] \tWrote %s ..." % sliced_out_f)
 
+    def _write_fixed_gridsearch_bed(self, config, header, parameter_columns, base_fn, lncls, bed_columns, fixed_param_index, parameter_array, sequence_array, start_array, end_array, index_array):
+        # subset only those that coincide with fixed param ... 
+        lncls_fixed = lncls[:,fixed_param_index]
+        lncls_fixed_max_idx = np.argmax(lncls_fixed, axis=1)
+        lncls_fixed_max = lncls_fixed[np.arange(lncls_fixed.shape[0]), lncls_fixed_max_idx]
+        lncls_fixed_max_parameters = parameter_array[fixed_param_index][lncls_fixed_max_idx]
+        fixed_param_df = pd.DataFrame(
+            data=np.vstack([
+                sequence_array, 
+                start_array, 
+                end_array, 
+                index_array, 
+                lncls_fixed_max_parameters.T, 
+                lncls_fixed_max]).T, columns=bed_columns + parameter_columns)
+        fixed_param_out_f = "%s.fixed_param.%s.bed" % (base_fn, ".".join(["%s_%s" % (param, str(value).replace(".", "_")) for param, value in config["fixed_param"].items()]))
+        with open(fixed_param_out_f, "w") as fixed_param_out_fh:
+            fixed_param_out_header = header + ["# --fixed_param %s" % ",".join(["%s=%s" % (param, value) for param, value in config["fixed_param"].items()])] + ["# %s" % "\t".join(bed_columns + parameter_columns)]
+            fixed_param_out_fh.write("\n".join(fixed_param_out_header) + "\n")
+        fixed_param_df.to_csv(
+            fixed_param_out_f,
+            na_rep="NA",
+            mode="a",
+            sep="\t",
+            index=False,
+            header=False,
+        )
+        print("[+] \tWrote %s ..." % fixed_param_out_f)
+
+    def _write_sliced_gridsearch_sims(self, header, lncls, indices_by_sliced_param_value, columns, base_fn, config, replicate_idx_array, window_idx_array, recombination_rate_array):
+        sliced_columns = list(indices_by_sliced_param_value.keys())
+        sliced_lncls = np.zeros(
+            (window_idx_array.shape[0], len(indices_by_sliced_param_value.keys()))
+        )
+        for sliced_param_idx, (
+            sliced_param_value,
+            sliced_param_indices,
+        ) in enumerate(indices_by_sliced_param_value.items()):
+            sliced_lncls[:, sliced_param_idx] = np.max(
+                    lncls[:, sliced_param_indices], axis=-1
+            )
+        sliced_df = pd.DataFrame(
+            data=np.vstack([
+                replicate_idx_array, window_idx_array, recombination_rate_array, 
+                sliced_lncls.T]).T, columns=columns + sliced_columns)
+        sliced_out_f = "%s.sliced_param.%s.bed" % (
+            base_fn, config["sliced_param"],
+        )
+        with open(sliced_out_f, "w") as sliced_out_fh:
+            sliced_out_header = header + ["# %s" % "\t".join(columns + sliced_columns)]
+            sliced_out_fh.write("\n".join(sliced_out_header) + "\n")
+        sliced_df.to_csv(
+            sliced_out_f,
+            na_rep="NA",
+            mode="a",
+            sep="\t",
+            index=False,
+            header=False
+        )
+        print("[+] \tWrote %s ..." % sliced_out_f)
+
+    def _write_fixed_gridsearch_sims(self, config, header, parameter_columns, base_fn, lncls, columns, fixed_param_index, parameter_array, replicate_idx_array, window_idx_array, recombination_rate_array):
+        # subset only those that coincide with fixed param ... 
+        lncls_fixed = lncls[:,fixed_param_index]
+        lncls_fixed_max_idx = np.argmax(lncls_fixed, axis=1)
+        lncls_fixed_max = lncls_fixed[np.arange(lncls_fixed.shape[0]), lncls_fixed_max_idx]
+        lncls_fixed_max_parameters = parameter_array[fixed_param_index][lncls_fixed_max_idx]
+        fixed_param_df = pd.DataFrame(
+            data=np.vstack([
+                replicate_idx_array,  
+                window_idx_array, 
+                recombination_rate_array, 
+                lncls_fixed_max_parameters.T, 
+                lncls_fixed_max]).T, columns=columns + parameter_columns)
+        fixed_param_out_f = "%s.fixed_param.%s.bed" % (base_fn, ".".join(["%s_%s" % (param, str(value).replace(".", "_")) for param, value in config["fixed_param"].items()]))
+        with open(fixed_param_out_f, "w") as fixed_param_out_fh:
+            fixed_param_out_header = header + ["# --fixed_param %s" % ",".join(["%s=%s" % (param, value) for param, value in config["fixed_param"].items()])] + ["# %s" % "\t".join(columns + parameter_columns)]
+            fixed_param_out_fh.write("\n".join(fixed_param_out_header) + "\n")
+        fixed_param_df.to_csv(
+            fixed_param_out_f,
+            na_rep="NA",
+            mode="a",
+            sep="\t",
+            index=False,
+            header=False,
+        )
+        print("[+] \tWrote %s ..." % fixed_param_out_f)
+
     def _write_gridsearch_results_sims(self, config):
         '''TEMPORARY'''
         # windows = replicates
         # needs recombination rate added
         # 
+        print("_write_gridsearch_results_sims")
         meta_gridsearch = self._get_meta(config["data_key"])
-        #meta_makegrid = self._get_meta(meta_gridsearch["makegrid_key"])
+        print("\nmeta_gridsearch", dict(meta_gridsearch))
+        meta_makegrid = self._get_meta(meta_gridsearch["makegrid_key"])
+        print("\nmeta_makegrid", dict(meta_makegrid))
         meta_tally = self._get_meta(meta_gridsearch["data_key"])
+        print("\nmeta_tally", dict(meta_tally))
         data_ndims = meta_tally.get("data_ndims", 5)
         parameter_names = list(meta_gridsearch["grid_dict"].keys())
         parameter_array = np.array(
@@ -3813,15 +3848,25 @@ class Store(object):
         fixed_param_columns = []
         header = ["# %s" % config["version"]]
         parameter_columns = parameter_names + ["lnCl"]
+        if config["sliced_param"]:
+            indices_by_sliced_param_value = self._get_indices_by_sliced_param_value(config, parameter_names, parameter_array)     
+        if config["fixed_param"]:
+            fixed_param_index = self._get_fixed_param_index(config["fixed_param"], parameter_names, parameter_array, meta_makegrid)
         if data_ndims == 5:
-            replicates = 1
-            windows = meta_tally['parameters']['replicates']
-            replicate_idx_array = np.repeat(replicates, windows).astype(np.int64)
-            window_idx_array = np.arange(windows).astype(np.int64)
-            bed_columns = ["replicate_idx", "window_idx"]
+            replicates = meta_tally['replicates']
+            windows = meta_tally['windows']
+            replicate_idx_array = np.repeat(replicates, windows)
+            window_idx_array = np.arange(windows)
+            recombination_rate_array = np.array(meta_tally['recombination_rate'])
+            columns = ["replicate_idx", "window_idx", "recombination_rate"]
             for gridsearch_key in meta_gridsearch["gridsearch_keys"]:
                 base_fn = "%s.%s" % (self.prefix, "_".join(gridsearch_key.split("/")))
                 lncls = np.array(self._get_data(gridsearch_key))  # (w, gridpoints)
+                if config["sliced_param"]:
+                    self._write_sliced_gridsearch_sims(header, lncls, indices_by_sliced_param_value, columns, base_fn, config, replicate_idx_array, window_idx_array, recombination_rate_array)
+                if config["fixed_param"]:
+                    self._write_fixed_gridsearch_sims(config, header, parameter_columns, base_fn, lncls, columns, fixed_param_index, parameter_array, replicate_idx_array, window_idx_array, recombination_rate_array)
+
                 #print("lncls", lncls.shape, lncls)
                 lncls_max_idx = np.argmax(lncls, axis=1)
                 lncls_max = lncls[np.arange(lncls.shape[0]), lncls_max_idx]
@@ -3830,13 +3875,14 @@ class Store(object):
                         data=np.vstack([
                             replicate_idx_array,
                             window_idx_array, 
+                            recombination_rate_array,
                             lncls_max_parameters.T, 
-                            lncls_max]).T, columns=bed_columns + parameter_columns)
-                lncls_max_df['replicate_idx'].astype(np.int64)
-                lncls_max_df['window_idx'].astype(np.int64)
+                            lncls_max]).T, columns=columns + parameter_columns)
+                lncls_max_df['replicate_idx'].astype('int64')
+                lncls_max_df['window_idx'].astype('int64')
                 lncls_max_out_f = "%s.best.bed" % base_fn
                 with open(lncls_max_out_f, "w") as lncls_max_out_fh:
-                    lncls_max_out_header = header + ["# %s" % "\t".join(bed_columns + parameter_columns)]
+                    lncls_max_out_header = header + ["# %s" % "\t".join(columns + parameter_columns)]
                     lncls_max_out_fh.write("\n".join(lncls_max_out_header) + "\n")
                 lncls_max_df.to_csv(
                     lncls_max_out_f,
@@ -3847,7 +3893,7 @@ class Store(object):
                     header=False,
                 )
                 print("[+] \tWrote %s ..." % lncls_max_out_f)
-   
+        sys.exit("[+] Done.")
 
     def _write_gridsearch_results_new(self, config):
         """
@@ -3858,8 +3904,13 @@ class Store(object):
         gridsearch/windowsum.kmax2/grid_debug
         """
         meta_gridsearch = self._get_meta(config["data_key"])
+        if meta_gridsearch['data_source'] == 'sims':
+            self._write_gridsearch_results_sims(config)
+        print("\nmeta_gridsearch", dict(meta_gridsearch))
         meta_makegrid = self._get_meta(meta_gridsearch["makegrid_key"])
+        print("\nmeta_makegrid", dict(meta_makegrid))
         meta_tally = self._get_meta(meta_gridsearch["data_key"])
+        print("\nmeta_tally", dict(meta_tally))
         data_ndims = meta_tally.get("data_ndims", None)
         parameter_names = list(meta_gridsearch["grid_dict"].keys())
         parameter_array = np.array(
@@ -3867,10 +3918,7 @@ class Store(object):
                 np.array(v, dtype=np.float64) for k, v in meta_gridsearch["grid_dict"].items()
             ]
         ).T
-        #print('meta_gridsearch', dict(meta_gridsearch))
-        #print('meta_makegrid', dict(meta_makegrid))
-        #print('counter', collections.Counter(meta_makegrid['grid_dict']))
-        print('meta_tally', dict(meta_tally))
+        # Gridsearch based on SIMS
         grid_points = meta_gridsearch.get("grid_points", parameter_array.shape[0])
         columns = []
         fixed_param_columns = []
@@ -3891,32 +3939,7 @@ class Store(object):
                 if config["sliced_param"]:
                     self._write_sliced_gridsearch_bed(header, lncls, indices_by_sliced_param_value, bed_columns, sequence_array, start_array, end_array, index_array, base_fn, config)
                 if config["fixed_param"]:
-                    # subset only those that coincide with fixed param ... 
-                    lncls_fixed = lncls[:,fixed_param_index]
-                    lncls_fixed_max_idx = np.argmax(lncls_fixed, axis=1)
-                    lncls_fixed_max = lncls_fixed[np.arange(lncls_fixed.shape[0]), lncls_fixed_max_idx]
-                    lncls_fixed_max_parameters = parameter_array[fixed_param_index][lncls_fixed_max_idx]
-                    fixed_param_df = pd.DataFrame(
-                        data=np.vstack([
-                            sequence_array, 
-                            start_array, 
-                            end_array, 
-                            index_array, 
-                            lncls_fixed_max_parameters.T, 
-                            lncls_fixed_max]).T, columns=bed_columns + parameter_columns)
-                    fixed_param_out_f = "%s.fixed_param.%s.bed" % (base_fn, ".".join(["%s_%s" % (param, str(value).replace(".", "_")) for param, value in config["fixed_param"].items()]))
-                    with open(fixed_param_out_f, "w") as fixed_param_out_fh:
-                        fixed_param_out_header = header + ["# --fixed_param %s" % ",".join(["%s=%s" % (param, value) for param, value in config["fixed_param"].items()])] + ["# %s" % "\t".join(bed_columns + parameter_columns)]
-                        fixed_param_out_fh.write("\n".join(fixed_param_out_header) + "\n")
-                    fixed_param_df.to_csv(
-                        fixed_param_out_f,
-                        na_rep="NA",
-                        mode="a",
-                        sep="\t",
-                        index=False,
-                        header=False,
-                    )
-                    print("[+] \tWrote %s ..." % fixed_param_out_f)
+                    self._write_fixed_gridsearch_bed(config, header, parameter_columns, base_fn, lncls, bed_columns, fixed_param_index, parameter_array, sequence_array, start_array, end_array, index_array)
                 lncls_max_idx = np.argmax(lncls, axis=1)
                 lncls_max = lncls[np.arange(lncls.shape[0]), lncls_max_idx]
                 lncls_max_parameters = parameter_array[lncls_max_idx]
@@ -3942,7 +3965,7 @@ class Store(object):
                 )
                 print("[+] \tWrote %s ..." % lncls_max_out_f)
         
-        if meta_tally["data_ndims"] == 4:
+        if data_ndims == 4:
             tsv_columns = ["windows", "blocks"]
             for gridsearch_key in meta_gridsearch["gridsearch_keys"]:
                 base_fn = "%s.%s" % (self.prefix, "_".join(gridsearch_key.split("/")))
@@ -4873,47 +4896,38 @@ class Store(object):
     # int_df[best_idx].to_csv(best_out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=['sequence'] + columns)
     # print("[+] \tWrote %r ..." % best_out_f)
 
-    def gridsearch_preflight(self, tally_label, sim_label, grid_label, overwrite):
+    def gridsearch_preflight(self, tally_key, sim_label, grid_key, overwrite):
         config = {}
         config["gridsearch_time"] = "None"  # just so that it initialised for later
         # first deal with grid
-        config["makegrid_key"] = self._get_key(
-            task="makegrid", analysis_label=grid_label
-        )
+        config["makegrid_key"] = grid_key
         grid_meta = self._get_meta(config["makegrid_key"])
         if grid_meta is None:
             sys.exit(
                 "[X] gimbleStore has no grid labelled %r." % config["makegrid_key"]
             )
-        config["makegrid_label"] = grid_meta["label"]
         grid = np.array(
             self._get_data(config["makegrid_key"]), dtype=np.float64
         )  # grid is likelihoods
         config["grid_dict"] = grid_meta["grid_dict"]  # grid_dict is params
+        config["makegrid_label"] = grid_meta["makegrid_label"]
         # Error if no data
         if sim_label:
             config["data_source"] = "sims"
-            config["data_label"] = sim_label
-            config["data_key"] = self._get_key(
-                task="simulate", analysis_label=config["data_label"]
-            )
-        if tally_label:
+            config["data_key"] = sim_label
+            sim_meta = self._get_meta(config["data_key"])
+            config["data_label"] = sim_meta['data_label']
+        if tally_key:
             config["data_source"] = "meas"
-            config["data_label"] = tally_label
-            config["data_key"] = self._get_key(
-                task="tally", data_label=config["data_label"]
-            )
+            config["data_label"] = "/".join(tally_key.split("/")[1:])
+            config["data_key"] = tally_key
         if not self._has_key(config["data_key"]):
             sys.exit("[X] No data found with label %r." % config["data_label"])
-        config["gridsearch_key"] = self._get_key(
-            task="gridsearch",
-            data_label=config["data_label"],
-            analysis_label=grid_label,
-        )
+        config["gridsearch_key"] = "gridsearch/%s/%s" % (config["data_label"], config["makegrid_label"])
         if not overwrite and self._has_key(config["gridsearch_key"]):
             sys.exit(
                 "[X] Gridsearch results with grid label %r on data %r already exist. Use '-f' to replace."
-                % (grid_label, config["data_label"])
+                % (config["makegrid_label"], config["data_label"])
             )
         if config["data_source"] == "meas":
             data = ((0, self._get_data(config["data_key"])) for _ in (0,))
@@ -4939,22 +4953,18 @@ class Store(object):
 
             # data is an iterator across parameter combos
             meta = self._get_meta(config["data_key"])
-            config["block_length_data"] = meta["parameters"]["block_length"]
+            print("meta", dict(meta))
+            config["block_length_data"] = meta['block_length']
             config["batch_sites"] = (
-                meta["parameters"]["block_length"] * meta["parameters"]["blocks"]
+                meta['block_length'] * meta["blocks"]
             )
             config["max_k"] = np.array(
                 meta["max_k"]
             )  # INI values get overwritten by data ...
-            config["gridsearch_keys"] = [
-                self._get_key(
-                    task="gridsearch",
-                    data_label=config["data_label"],
-                    analysis_label=grid_meta["label"],
-                    parameter_label=idx,
-                )
-                for idx in range(meta["max_idx"] + 1)
+            config["gridsearch_keys"] = ["gridsearch/%s/%s/%s" % (config["data_label"], config['makegrid_label'], idx)
+                for idx in range(meta["replicates"])
             ]
+            print(config["gridsearch_keys"])
         config["block_length_grid"] = grid_meta["block_length"]
         # print('grid_meta', dict(grid_meta))
         config["parameters_grid_points"] = grid_meta.get(
@@ -4974,13 +4984,13 @@ class Store(object):
         return (config, data, grid)
 
     def gridsearch(
-        self, tally_label, sim_label, grid_label, num_cores, chunksize, overwrite
+        self, tally_key, sim_key, grid_key, num_cores, chunksize, overwrite
     ):
         print("[+] Gathering data for gridsearch ...")
         config, data, grid = self.gridsearch_preflight(
-            tally_label, sim_label, grid_label, overwrite
+            tally_key, sim_key, grid_key, overwrite
         )
-        # print(config, data, grid)
+        print("flight config", config)
         print(
             "[+] Searching with grid %r along tally %r ..."
             % (config["makegrid_label"], config["data_label"])
@@ -5071,7 +5081,7 @@ class Store(object):
     def _preflight_optimize(
         self,
         config,
-        sim_label,
+        sim_key,
         tally_label,
         num_cores,
         start_point,
@@ -5918,7 +5928,7 @@ class Store(object):
         meta_seqs = self._get_meta("seqs")
         with tqdm(
             total=(len(meta_seqs["seq_names"]) * len(meta_seqs["sample_sets"])),
-            desc="[%] Building blocks ",
+            desc="[%] Making pair-blocks",
             ncols=100,
             unit_scale=True,
         ) as pbar:
@@ -6455,6 +6465,7 @@ class Store(object):
         return reportObj
 
     def _get_windows_report(self, width):
+        print(dict(self.data['windows'].attrs))
         meta_windows = self._get_meta("windows")
         reportObj = ReportObj(width=width)
         reportObj.add_line(
