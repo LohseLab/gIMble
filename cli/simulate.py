@@ -29,15 +29,7 @@ usage: gimble simulate             (-z DIR | -o STR) [-t INT -f] [-h|--help]
         -t, --threads INT                           Threads [default: 1]
         -f, --overwrite                             Overwrite results in GimbleStore
 
-        [Gridsearch based]
-        --gridsearch_key 
-        --constraint
-    
-        [Recombination]
-        --recombination_rate
-        --recombination_map 
-
-        [Model]
+        [Model based]
         --model=STR
         --Ne_A=FLOAT
         --Ne_B=FLOAT
@@ -46,6 +38,14 @@ usage: gimble simulate             (-z DIR | -o STR) [-t INT -f] [-h|--help]
         --me=FLOAT
         --mu=FLOAT
         --seed=INT
+        
+        [Gridsearch based]
+        --gridsearch_key 
+        --constraint
+    
+        [Recombination]
+        --recombination_rate
+        --recombination_map 
 
         [Data]
         --replicates
