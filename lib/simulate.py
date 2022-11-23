@@ -216,24 +216,42 @@ def poolcontext(*args, **kwargs):
     yield pool
     pool.terminate()
 
+# def new_simulate_collections(config):
+#     simulate_jobs = get_sim_args(config)
+#     simulate_windows_by_replicate = collections.defaultdict(list) # unsorted list
+#     if config['num_cores'] <= 1:
+#         for simulate_job in tqdm(simulate_jobs):
+#             simulate_window = simulate_call(simulate_job)
+#             #print("simulate_window", simulate_window)
+#             simulate_windows_by_replicate[simulate_window['replicate_idx']].append(simulate_window)
+#     else:
+#         with poolcontext(processes=config['num_cores']) as pool:
+#             for simulate_window in tqdm(pool.imap_unordered(simulate_call, simulate_jobs), total=len(simulate_jobs)):
+#                 simulate_windows_by_replicate[simulate_window['replicate_idx']].append(simulate_window)
+    
+#     # sanitize results
+#     tally_by_replicate_idx = {}
+#     for replicate_idx, windows in simulate_windows_by_replicate.items():
+#         tallies = [tally['bsfs'] for tally in sorted(windows, key=lambda k: (k['window_idx']))]
+
+#         tally_by_replicate_idx[replicate_idx] = np.array(tallies)
+#     return tally_by_replicate_idx
+
 def new_simulate(config):
     simulate_jobs = get_sim_args(config)
     simulate_windows_by_replicate = collections.defaultdict(list) # unsorted list
+    tallies = np.zeros(tuple([config['simulate']['replicates'], config['simulate']['windows']] + list(config['max_k'] + 2)))
+    # save tallies as numpy arrays directly!!!
     if config['num_cores'] <= 1:
         for simulate_job in tqdm(simulate_jobs):
             simulate_window = simulate_call(simulate_job)
-            simulate_windows_by_replicate[simulate_window['replicate_idx']].append(simulate_window)
+            #print("simulate_window", simulate_window)
+            tallies[simulate_window['replicate_idx']][simulate_window['window_idx']] = simulate_window['bsfs']
     else:
         with poolcontext(processes=config['num_cores']) as pool:
             for simulate_window in tqdm(pool.imap_unordered(simulate_call, simulate_jobs), total=len(simulate_jobs)):
-                simulate_windows_by_replicate[simulate_window['replicate_idx']].append(simulate_window)
-    
-    # sanitize results
-    tally_by_replicate_idx = {}
-    for replicate_idx, windows in simulate_windows_by_replicate.items():
-        tallies = [tally['bsfs'] for tally in sorted(windows, key=lambda k: (k['window_idx']))]
-        tally_by_replicate_idx[replicate_idx] = np.array(tallies)
-    return tally_by_replicate_idx
+                tallies[simulate_window['replicate_idx']][simulate_window['window_idx']] = simulate_window['bsfs']
+    return tallies
 
 # def run_sim_parallel(seeds, recombination_rate, samples, demography, ploidy, block_length, comparisons, max_k, mutation_rate, mutation_model, discrete, blocks_per_replicate, disable_tqdm, idx, threads):
 #     with concurrent.futures.ProcessPoolExecutor(max_workers=threads) as pool:

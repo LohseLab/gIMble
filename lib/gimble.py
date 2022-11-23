@@ -446,7 +446,6 @@ def config_to_meta(config, task):
     if task == "simulate_instance":
         meta["max_k"] = tuple([int(v) for v in config["max_k"]])
         meta["idx"] = config["idx"]
-        meta["windowsum_key"] = config["windowsum_key"]
         meta["ancestry_seeds"] = tuple(
             [int(s) for s in config["simulate"]["ancestry_seeds_by_replicate"][config["idx"]]]
         )
@@ -3279,11 +3278,16 @@ class Store(object):
     def simulate(self, config, threads, overwrite):
         print("[#] Preflight...")
         config = self._preflight_simulate(config, threads, overwrite)
-        tally_by_replicate_idx = lib.simulate.new_simulate(config)
-        for idx, tally in tally_by_replicate_idx.items():
-            self._save_simulate_instance(config, tally, idx)
+        tallies = lib.simulate.new_simulate(config)
+        for replicate_idx in range(config['simulate']['replicates']):
+            self._save_simulate_instance(config, tallies[replicate_idx], replicate_idx)
         self._save_simulate_meta(config)
+        # tally_by_replicate_idx = lib.simulate.new_simulate_collections(config)
+        # for idx, tally in tally_by_replicate_idx.items():
+        #     self._save_simulate_instance(config, tally, idx)
+        # self._save_simulate_meta(config)
         print("[+] Simulation saved under %r" % config['simulate_key'])
+
 
     def _save_simulate_meta(self, config):
         simulate_meta = config_to_meta(config, "simulate")
