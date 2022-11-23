@@ -114,17 +114,17 @@ def get_sim_args(config):
     # - window_idx, replicate_idx, parameters of demography, seeds, ...
     # Query gridsearch (best model, slicing):
     # - window_idx, replicate_idx, recombination, as in data
-    constant_params = {
-        'blocks': config['simulate']['blocks'],
-        'samples': {'A': config['simulate']['sample_size_A'], 'B': config['simulate']['sample_size_B']},
-        'ploidy': config['simulate']['ploidy'],
-        'block_length': config['simulate']['block_length'],
-        'comparisons': config['simulate']['comparisons'],
-        'max_k': config['max_k'],
-        'mutation_rate': config['mu']['mu'],
-        'mutation_model': 'infinite_alleles',
-        'discrete_genome': config['simulate']['discrete_genome']
-        }
+    # constant_params = {
+    #     'blocks': config['simulate']['blocks'],
+    #     'samples': {'A': config['simulate']['sample_size_A'], 'B': config['simulate']['sample_size_B']},
+    #     'ploidy': config['simulate']['ploidy'],
+    #     'block_length': config['simulate']['block_length'],
+    #     'comparisons': config['simulate']['comparisons'],
+    #     'max_k': config['max_k'],
+    #     'mutation_rate': config['mu']['mu'],
+    #     'mutation_model': 'infinite_alleles',
+    #     'discrete_genome': config['simulate']['discrete_genome']
+    #     }
     simulate_jobs = []
     for replicate_idx in range(config['simulate']['replicates']):
         ancestry_seeds = config['simulate']['ancestry_seeds_by_replicate'][replicate_idx]
@@ -145,19 +145,30 @@ def get_sim_args(config):
                 mutation_seed,
                 demography.demography,
                 recombination_rate,
-                constant_params['blocks'],
-                constant_params['samples'],
-                constant_params['ploidy'],
-                constant_params['block_length'],
-                constant_params['comparisons'],
-                constant_params['max_k'], 
-                constant_params['mutation_rate'], 
-                constant_params['mutation_model'], 
-                constant_params['discrete_genome']])
+                #constant_params['blocks'],
+                #constant_params['samples'],
+                #constant_params['ploidy'],
+                #constant_params['block_length'],
+                #constant_params['comparisons'],
+                #constant_params['max_k'], 
+                #constant_params['mutation_rate'], 
+                #constant_params['mutation_model'], 
+                #constant_params['discrete_genome']
+                ])
     return simulate_jobs
     
 def simulate_call(simulate_job):
-    window_idx, replicate_idx, ancestry_seed, mutation_seed, demography, recombination_rate, blocks, samples, ploidy, block_length, comparisons, max_k, mutation_rate, mutation_model, discrete_genome = simulate_job
+    #window_idx, replicate_idx, ancestry_seed, mutation_seed, demography, recombination_rate, blocks, samples, ploidy, block_length, comparisons, max_k, mutation_rate, mutation_model, discrete_genome = simulate_job
+    window_idx, replicate_idx, ancestry_seed, mutation_seed, demography, recombination_rate = simulate_job
+    blocks = constant_params['blocks']
+    samples = constant_params['samples']
+    ploidy = constant_params['ploidy']
+    block_length = constant_params['block_length']
+    comparisons = constant_params['comparisons']
+    max_k = constant_params['max_k'] 
+    mutation_rate = constant_params['mutation_rate'] 
+    mutation_model = constant_params['mutation_model'] 
+    discrete_genome = constant_params['discrete_genome']
     sequence_length = block_length * blocks
     #run simulation:
     ts = msprime.sim_ancestry(
@@ -207,8 +218,8 @@ def simulate_call(simulate_job):
     # #    print_nlopt_line(dataset_idx, nlopt_iterations[dataset_idx], likelihood, unscaled_values_by_parameter, elapsed)
     # return likelihood
 
-SIMULATE_QUEUE = multiprocessing.Queue()
-SIMULATE_ITERATIONS_MANAGER = multiprocessing.Manager()
+#SIMULATE_QUEUE = multiprocessing.Queue()
+#SIMULATE_ITERATIONS_MANAGER = multiprocessing.Manager()
 
 @contextlib.contextmanager
 def poolcontext(*args, **kwargs):
@@ -238,8 +249,20 @@ def poolcontext(*args, **kwargs):
 #     return tally_by_replicate_idx
 
 def new_simulate(config):
+    global constant_params
+    constant_params = {
+        'blocks': config['simulate']['blocks'],
+        'samples': {'A': config['simulate']['sample_size_A'], 'B': config['simulate']['sample_size_B']},
+        'ploidy': config['simulate']['ploidy'],
+        'block_length': config['simulate']['block_length'],
+        'comparisons': config['simulate']['comparisons'],
+        'max_k': config['max_k'],
+        'mutation_rate': config['mu']['mu'],
+        'mutation_model': 'infinite_alleles',
+        'discrete_genome': config['simulate']['discrete_genome']
+        }
     simulate_jobs = get_sim_args(config)
-    simulate_windows_by_replicate = collections.defaultdict(list) # unsorted list
+    #simulate_windows_by_replicate = collections.defaultdict(list) # unsorted list
     tallies = np.zeros(tuple([config['simulate']['replicates'], config['simulate']['windows']] + list(config['max_k'] + 2)))
     # save tallies as numpy arrays directly!!!
     if config['num_cores'] <= 1:
