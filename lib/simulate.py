@@ -126,11 +126,12 @@ def get_sim_args(config):
     #     'discrete_genome': config['simulate']['discrete_genome']
     #     }
     simulate_jobs = []
+
+    recombination_rates = config['simulate']['recombination_rate']
+    demographies = [demography.demography for demography in config['simulate']['demographies']]
     for replicate_idx in range(config['simulate']['replicates']):
         ancestry_seeds = config['simulate']['ancestry_seeds_by_replicate'][replicate_idx]
         mutation_seeds = config['simulate']['mutation_seeds_by_replicate'][replicate_idx]
-        demographies = config['simulate']['demographies']
-        recombination_rates = config['simulate']['recombination_rate']
         for window_idx, demography, recombination_rate, ancestry_seed, mutation_seed in zip(
             range(config['simulate']['windows']), 
             demographies,
@@ -143,7 +144,8 @@ def get_sim_args(config):
                 replicate_idx,
                 ancestry_seed,
                 mutation_seed,
-                demography.demography,
+                #demography.demography,
+                demography,
                 recombination_rate,
                 #constant_params['blocks'],
                 #constant_params['samples'],
@@ -160,15 +162,15 @@ def get_sim_args(config):
 def simulate_call(simulate_job):
     #window_idx, replicate_idx, ancestry_seed, mutation_seed, demography, recombination_rate, blocks, samples, ploidy, block_length, comparisons, max_k, mutation_rate, mutation_model, discrete_genome = simulate_job
     window_idx, replicate_idx, ancestry_seed, mutation_seed, demography, recombination_rate = simulate_job
-    blocks = constant_params['blocks']
-    samples = constant_params['samples']
-    ploidy = constant_params['ploidy']
-    block_length = constant_params['block_length']
-    comparisons = constant_params['comparisons']
-    max_k = constant_params['max_k'] 
-    mutation_rate = constant_params['mutation_rate'] 
-    mutation_model = constant_params['mutation_model'] 
-    discrete_genome = constant_params['discrete_genome']
+    blocks = CONSTANT_PARAMS['blocks']
+    samples = CONSTANT_PARAMS['samples']
+    ploidy = CONSTANT_PARAMS['ploidy']
+    block_length = CONSTANT_PARAMS['block_length']
+    comparisons = CONSTANT_PARAMS['comparisons']
+    max_k = CONSTANT_PARAMS['max_k'] 
+    mutation_rate = CONSTANT_PARAMS['mutation_rate'] 
+    mutation_model = CONSTANT_PARAMS['mutation_model'] 
+    discrete_genome = CONSTANT_PARAMS['discrete_genome']
     sequence_length = block_length * blocks
     #run simulation:
     ts = msprime.sim_ancestry(
@@ -249,8 +251,8 @@ def poolcontext(*args, **kwargs):
 #     return tally_by_replicate_idx
 
 def new_simulate(config):
-    global constant_params
-    constant_params = {
+    global CONSTANT_PARAMS
+    CONSTANT_PARAMS = {
         'blocks': config['simulate']['blocks'],
         'samples': {'A': config['simulate']['sample_size_A'], 'B': config['simulate']['sample_size_B']},
         'ploidy': config['simulate']['ploidy'],
@@ -265,6 +267,7 @@ def new_simulate(config):
     #simulate_windows_by_replicate = collections.defaultdict(list) # unsorted list
     tallies = np.zeros(tuple([config['simulate']['replicates'], config['simulate']['windows']] + list(config['max_k'] + 2)))
     # save tallies as numpy arrays directly!!!
+    print("[+] Running simulations...")
     if config['num_cores'] <= 1:
         for simulate_job in tqdm(simulate_jobs):
             simulate_window = simulate_call(simulate_job)
