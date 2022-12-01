@@ -84,15 +84,6 @@ get_base_rate:
 
 '''
 
-#NLOPT_EXIT_CODES = {
-#    1: 'optimum found', 
-#    2: 'stopvalue reached',
-#    3: 'tolerance on lnCL reached',
-#    4: 'tolerance on parameter vector reached',
-#    5: 'max number of evaluations reached',
-#    6: 'max computation time was reached'
-#    }
-
 NLOPT_EXIT_CODE = {
      1: 'NLOPT_SUCCESS',
      2: 'NLOPT_STOPVAL_REACHED',

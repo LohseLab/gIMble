@@ -2678,13 +2678,12 @@ def gridsearch_dask(tally=None, grid=None, num_cores=1, chunksize=500):
     """returns 2d array of likelihoods of shape (windows, grid)"""
     if grid is None or tally is None:
         return None
-    tally = tally if isinstance(tally, np.ndarray) else np.array(tally)
+    #print("# tally.ndim", tally.ndim, tally.shape, tally.dtype)
+    tally = tally if isinstance(tally, np.ndarray) else np.array(tally, dtype='int64')
     grid_log = np.zeros(grid.shape)
     np.log(grid, where=grid > 0, out=grid_log)
-    if tally.ndim == 5:  # if tally.ndim == 5:
-        #print("#1 tally.shape", tally.shape)
+    if tally.ndim == 5:
         tally = tally[:, np.newaxis]
-        #print("## tally.shape", tally.shape)
         tally_chunks = (
             chunksize,
             1,
@@ -2701,10 +2700,8 @@ def gridsearch_dask(tally=None, grid=None, num_cores=1, chunksize=500):
             grid_log.shape[-1],
         )
     if tally.ndim == 4:
-        #print("#2 tally.shape", tally.shape)
         tally = np.expand_dims(tally, axis=0)
         tally = np.expand_dims(tally, axis=0)
-        #print("## tally.shape", tally.shape)
         tally_chunks = (1,
             1,
             tally.shape[-4],
@@ -2719,8 +2716,6 @@ def gridsearch_dask(tally=None, grid=None, num_cores=1, chunksize=500):
             grid_log.shape[-2],
             grid_log.shape[-1],
         )
-    #print("tally.shape", tally.shape)
-    #print("grid_log.shape", grid_log.shape)
     scheduler = "processes" if num_cores > 1 else "single-threaded"
     with warnings.catch_warnings():
         with dask.config.set(scheduler=scheduler, n_workers=num_cores):
@@ -2728,15 +2723,14 @@ def gridsearch_dask(tally=None, grid=None, num_cores=1, chunksize=500):
             tally = dask.array.from_array(tally, chunks=tally_chunks)
             grid_log = dask.array.from_array(grid_log, chunks=grid_chunks)
             product = dask.array.multiply(tally, grid_log)
-            result = dask.array.sum(
-                product.reshape(
-                    (product.shape[0], product.shape[1], np.prod(product.shape[2:]))
-                ),
-                axis=-1,
-            )
+            # product:
+            # - keep first two dimensions (product.shape[0], product.shape[1])
+            # - reshape to the prod of remaining dimensions: np.prod((4,4,4,4)) = 256 
+            product = product.reshape((product.shape[0], product.shape[1], np.prod(product.shape[2:])))
+            #print("# product.ndim", product.ndim, product.shape, product.dtype, product)
+            result = dask.array.sum(product, axis=-1)
             with TqdmCallback(desc="[%] Performing gridsearch", ncols=100):
                 out = result.compute()
-            #print("out.shape", out.shape)
             return out
 
 
@@ -4981,7 +4975,7 @@ class Store(object):
             meta = self._get_meta(config["data_key"])
             if windowsum:
                 data = [(idx, np.sum(tally, axis=0)) for idx, tally in self.data[config["data_key"]].arrays()]
-                config["data_label"] = "%s.windowsum" % config["data_label"]
+                #config["data_label"] = "%s.windowsum" % config["data_label"]
             else:
                 data = [(idx, tally) for idx, tally in self.data[config["data_key"]].arrays()]
             config["block_length_data"] = meta['block_length']
@@ -5021,6 +5015,7 @@ class Store(object):
             "[+] Searching with grid %r along tally %r ..."
             % (config["makegrid_label"], config["data_label"])
         )
+        replicates = config.get('replicates', 0)
         for key, (idx, tally) in zip(config["gridsearch_keys"], data_generator):
             # print("tally", type(tally), tally.shape)
             gridsearch_dask_result = gridsearch_dask(
@@ -5044,7 +5039,8 @@ class Store(object):
         self,
         config,
         sim_key,
-        tally_label,
+        windowsum,
+        tally_key,
         num_cores,
         start_point,
         max_iterations,
@@ -5057,89 +5053,161 @@ class Store(object):
         config["xtol_rel"] = xtol_rel
         config["ftol_rel"] = ftol_rel
         config["optimize_time"] = "None"  # just so that it initialised for later
+
         # Error if no data
-        config["data_source"] = "sims" if sim_label else "meas"
-        config["data_label"] = sim_label or tally_label
-        if sim_label:
-            config["data_key"] = self._get_key(
-                task="simulate", analysis_label=config["data_label"]
-            )
-        if tally_label:
-            config["data_key"] = self._get_key(
-                task="tally", data_label=config["data_label"]
-            )
+        config["data_key"] = sim_key if sim_key else tally_key
+        config["data_source"] = "sims" if sim_key else "meas"
+        config["data_label"] = config["data_key"].split("/")[1] if not windowsum else "%s.windowsum" % config["data_key"].split("/")[1]
         if not self._has_key(config["data_key"]):
-            sys.exit("[X] gimbleStore has no %r." % config["data_key"])
-        # Error if results clash
-        config["optimize_key"] = self._get_key(
-            task="optimize",
-            data_label=config["data_label"],
-            analysis_label=config["gimble"]["label"],
-        )
+            sys.exit("[X] No data found with label %r." % config["data_label"])
+        config["optimize_label"] = config["gimble"]["label"]
+        config["optimize_key"] = "optimize/%s/%s" % (config["data_label"], config["optimize_label"])
         if not overwrite and self._has_key(config["optimize_key"]):
             sys.exit(
                 "[X] Analysis with label %r on data %r already exist. Change the label in the config file or use '--force'"
-                % (config["gimble"]["label"], config["data_label"])
+                % (config["optimize_label"],  config["data_key"])
             )
-        # get data (this could be a separate function, also needed for gridsearch)
+        print("config", config)
+        data_meta = self._get_meta(config["data_key"])
+        config["max_k"] = np.array(data_meta["max_k"])  # INI values get overwritten by data ...
+        config["block_length"] = data_meta["block_length"]
         if config["data_source"] == "meas":
             data = ((0, self._get_data(config["data_key"])) for _ in (0,))
-            meta = self._get_meta(config["data_key"])
-            config["block_length"] = meta["block_length"]
-            config["max_k"] = np.array(
-                meta["max_k"]
-            )  # INI values get overwritten by data ...
-            config["optimize_keys"] = [
-                self._get_key(
-                    task="optimize",
-                    data_label=config["data_label"],
-                    analysis_label=config["gimble"]["label"],
-                    parameter_label=idx,
-                )
-                for idx in range(1)
-            ]
         else:
-            data = self._get_sims_bsfs(
-                config["data_key"]
-            )  # data is an iterator across parameter combos
-            meta = self._get_meta(config["data_key"])
-            config["block_length"] = meta["parameters"]["block_length"]
-            config["max_k"] = np.array(
-                meta["max_k"]
-            )  # INI values get overwritten by data ...
-            config["optimize_keys"] = [
-                self._get_key(
-                    task="optimize",
-                    data_label=config["data_label"],
-                    analysis_label=config["gimble"]["label"],
-                    parameter_label=idx,
-                )
-                for idx in range(meta["max_idx"] + 1)
-            ]
+            data = self._get_sims_bsfs(config["data_key"])  # data is an iterator across parameter combos
         # start point
+        STARTPOINT = {
+            'midpoint' : np.mean(np.vstack((config["parameter_combinations_lowest"], config["parameter_combinations_highest"])), axis=0),
+            'random': np.random.uniform(low=config["parameter_combinations_lowest"], high=config["parameter_combinations_highest"])
+        }
         config["start_point_method"] = start_point
-        if start_point == "midpoint":
-            config["start_point"] = np.mean(
-                np.vstack(
-                    (
-                        config["parameter_combinations_lowest"],
-                        config["parameter_combinations_highest"],
-                    )
-                ),
-                axis=0,
-            )
-        if start_point == "random":
-            # np.random.seed(config['gimble']['random_seed'])
-            config["start_point"] = np.random.uniform(
-                low=config["parameter_combinations_lowest"],
-                high=config["parameter_combinations_highest"],
-            )
+        config["start_point"] = STARTPOINT[start_point]
+        return (data, config)
+
+        # config["gridsearch_key"] = "gridsearch/%s/%s" % (config["data_label"], config["makegrid_label"])
+        # if not overwrite and self._has_key(config["gridsearch_key"]):
+        #     sys.exit(
+        #         "[X] Gridsearch results with grid label %r on data %r already exist. Use '-f' to replace."
+        #         % (config["makegrid_label"], config["data_label"])
+        #     )
+        # if config["data_source"] == "meas":
+        #     # data is an iterator
+        #     data = [(0, self._get_data(config["data_key"])) for _ in (0,)]
+        #     meta = self._get_meta(config["data_key"])
+        #     config["block_length_data"] = meta["block_length"]
+        #     config["batch_sites"] = meta["block_length"] * meta["blocks"]
+        #     config["max_k"] = np.array(meta["max_k"])  
+        #     config["gridsearch_keys"] = ["gridsearch/%s/%s/0" % (config["data_label"], config['makegrid_label'])]
+        # else:
+        #     # data is an iterator
+        #     meta = self._get_meta(config["data_key"])
+        #     if windowsum:
+        #         data = [(idx, np.sum(tally, axis=0)) for idx, tally in self.data[config["data_key"]].arrays()]
+        #         config["data_label"] = "%s.windowsum" % config["data_label"]
+        #     else:
+        #         data = [(idx, tally) for idx, tally in self.data[config["data_key"]].arrays()]
+        #     config["block_length_data"] = meta['block_length']
+        #     config["batch_sites"] = (meta['block_length'] * meta["blocks"])
+        #     config["max_k"] = np.array(meta["max_k"])  
+        #     config["gridsearch_keys"] = ["gridsearch/%s/%s/%s" % (config["data_label"], config['makegrid_label'], idx)
+        #         for idx in range(meta["replicates"])
+        #     ]
+        # config['data_ndims'] = data[0][1].ndim
+        # config["block_length_grid"] = grid_meta["block_length"]
+        # # print('grid_meta', dict(grid_meta))
+        # config["parameters_grid_points"] = grid_meta.get(
+        #     "parameters_grid_points", grid.shape[0]
+        # )  # grid.shape[0] fallback is for older zarr stores...
+        # # checking whether block_length in data and grid are compatible
+        # if not config["block_length_data"] == config["block_length_grid"]:
+        #     sys.exit(
+        #         "[X] Block lengths in data %r (%s) and grid %r (%s) are not compatible.."
+        #         % (
+        #             data_label,
+        #             config["block_length_data"],
+        #             grid_label,
+        #             config["block_length_grid"],
+        #         )
+        #     )
+        # return (config, data, grid)
+        # Error if no data
+        # print("data_key", config["data_key"])
+        # if not self._has_key(config["data_key"]):
+        #     sys.exit("[X] gimbleStore has no %r." % config["data_key"])
+        # data_meta = self._get_meta(config["data_key"])
+        # print("data_meta", dict(data_meta))
+        # config["data_source"] = "sims" if sim_key else "meas"
+        # config["data_label"] = config["data_key"].replace("/", ".")
+        # config["optimize_label"] = config["gimble"]["label"]
+        
+        # # Error if results clash
+        # config["optimize_key"] = self._get_key(
+        #     task="optimize",
+        #     data_label=config["data_label"],
+        #     analysis_label=config["gimble"]["label"],
+        # )
+        # print("config", config)
+        # if not overwrite and self._has_key(config["optimize_key"]):
+        #     sys.exit(
+        #         "[X] Analysis with label %r on data %r already exist. Change the label in the config file or use '--force'"
+        #         % (config["gimble"]["label"], config["data_label"])
+        #     )
+        # # get data (this could be a separate function, also needed for gridsearch)
+        # if config["data_source"] == "meas":
+        #     data = ((0, self._get_data(config["data_key"])) for _ in (0,))
+        #     meta = self._get_meta(config["data_key"])
+        #     config["block_length"] = meta["block_length"]
+        #     config["max_k"] = np.array(
+        #         meta["max_k"]
+        #     )  # INI values get overwritten by data ...
+        #     config["optimize_keys"] = [
+        #         self._get_key(
+        #             task="optimize",
+        #             data_label=config["data_label"],
+        #             analysis_label=config["gimble"]["label"],
+        #             parameter_label=idx,
+        #         )
+        #         for idx in range(1)
+        #     ]
+        # else:
+        #     data = self._get_sims_bsfs(
+        #         config["data_key"]
+        #     )  # data is an iterator across parameter combos
+        #     meta = self._get_meta(config["data_key"])
+        #     print('meta', dict(meta))
+        #     config["block_length"] = meta["block_length"]
+        #     config["max_k"] = np.array(
+        #         meta["max_k"]
+        #     )  # INI values get overwritten by data ...
+        #     # config["optimize_key"] only make optimize key and the individual replicates get added later 
+        #     # needs to be homogenized with MEAS
+
+        #     config["optimize_key"] = "optimize/%s/%s" % (config["data_label"], config["optimize_label"])
+        # # start point
+        # config["start_point_method"] = start_point
+        # if start_point == "midpoint":
+        #     config["start_point"] = np.mean(
+        #         np.vstack(
+        #             (
+        #                 config["parameter_combinations_lowest"],
+        #                 config["parameter_combinations_highest"],
+        #             )
+        #         ),
+        #         axis=0,
+        #     )
+        # if start_point == "random":
+        #     # np.random.seed(config['gimble']['random_seed'])
+        #     config["start_point"] = np.random.uniform(
+        #         low=config["parameter_combinations_lowest"],
+        #         high=config["parameter_combinations_highest"],
+        #     )
         return (data, config)
 
     def optimize(
         self,
         config,
         sim_label,
+        windowsum,
         tally_label,
         num_cores,
         start_point,
@@ -5151,6 +5219,7 @@ class Store(object):
         data, config = self._preflight_optimize(
             config,
             sim_label,
+            windowsum,
             tally_label,
             num_cores,
             start_point,

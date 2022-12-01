@@ -2,14 +2,16 @@
 # -*- coding: utf-8 -*-
 
 """
-usage: gimble optimize                  -z FILE -c FILE (-s STR | -t STR) 
+usage: gimble optimize                  -z FILE -c FILE (-t <STR>|-s <STR> [-w])
                                         [--xtol FLOAT --ftol FLOAT -i INT] [-n INT] [-p STR]
                                         [-f] [-h|--help]
 
     -z, --zarr_file FILE                            ZARR Datastore
     -c, --config_file FILE                          INI config file
-    -s, --sim_label STR                             Label of simulation run in ZARR store (requires 'simulate' data)
-    -t, --tally_label STR                           Label of tally in ZARR store (requires 'tally' data)
+    -t, --tally_label STR                           Label of tally in ZARR store ('tally/...')
+    -s, --sim_label STR                             Label of simulation run in ZARR store ('simulate/...')
+    -w, --windowsum                                 Apply optimize to windowsum(s) of simulated, window'ed data
+                                                        [default: False]
 
     Stopping criteria of optimization
         -i, --max_iterations INT                    Maximum number of iterations to perform when 
@@ -41,6 +43,7 @@ class OptimizeParameterObj(lib.gimble.ParameterObj):
         super().__init__(params)
         self.zstore = self._get_path(args['--zarr_file'])
         self.sim_label = args['--sim_label']
+        self.windowsum = args['--windowsum']
         self.tally_label = args['--tally_label']
         self.config_file = self._get_path(args['--config_file'])
 
@@ -69,6 +72,7 @@ def main(params):
         gimbleStore.optimize(
             config=parameterObj.config,
             sim_label=parameterObj.sim_label,
+            windowsum=parameterObj.windowsum,
             tally_label=parameterObj.tally_label,
             num_cores=parameterObj.num_cores,
             start_point=parameterObj.start_point,

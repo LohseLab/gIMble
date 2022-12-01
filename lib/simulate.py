@@ -109,24 +109,7 @@ def get_sim_args(config):
     # CONSTANTS : blocks, samples, ploidy, block_length, comparisons, max_k, mutation_rate, mutation_model, discrete
     # VARIABLES : seeds, recombination_rates, demographies (if grid)
     # sim_key: the simulation
-
-    # Query tally: 
-    # - window_idx, replicate_idx, parameters of demography, seeds, ...
-    # Query gridsearch (best model, slicing):
-    # - window_idx, replicate_idx, recombination, as in data
-    # constant_params = {
-    #     'blocks': config['simulate']['blocks'],
-    #     'samples': {'A': config['simulate']['sample_size_A'], 'B': config['simulate']['sample_size_B']},
-    #     'ploidy': config['simulate']['ploidy'],
-    #     'block_length': config['simulate']['block_length'],
-    #     'comparisons': config['simulate']['comparisons'],
-    #     'max_k': config['max_k'],
-    #     'mutation_rate': config['mu']['mu'],
-    #     'mutation_model': 'infinite_alleles',
-    #     'discrete_genome': config['simulate']['discrete_genome']
-    #     }
     simulate_jobs = []
-
     recombination_rates = config['simulate']['recombination_rate']
     demographies = [demography.demography for demography in config['simulate']['demographies']]
     for replicate_idx in range(config['simulate']['replicates']):
@@ -138,24 +121,13 @@ def get_sim_args(config):
             recombination_rates, 
             ancestry_seeds, 
             mutation_seeds):
-            #idx += 1
             simulate_jobs.append([
                 window_idx, 
                 replicate_idx,
                 ancestry_seed,
                 mutation_seed,
-                #demography.demography,
                 demography,
                 recombination_rate,
-                #constant_params['blocks'],
-                #constant_params['samples'],
-                #constant_params['ploidy'],
-                #constant_params['block_length'],
-                #constant_params['comparisons'],
-                #constant_params['max_k'], 
-                #constant_params['mutation_rate'], 
-                #constant_params['mutation_model'], 
-                #constant_params['discrete_genome']
                 ])
     return simulate_jobs
     
@@ -171,7 +143,7 @@ def simulate_call(simulate_job):
     mutation_rate = CONSTANT_PARAMS['mutation_rate'] 
     mutation_model = CONSTANT_PARAMS['mutation_model'] 
     discrete_genome = CONSTANT_PARAMS['discrete_genome']
-    sequence_length = block_length * blocks
+    sequence_length = CONSTANT_PARAMS['block_length'] * CONSTANT_PARAMS['blocks']
     #run simulation:
     ts = msprime.sim_ancestry(
         samples=samples, 
