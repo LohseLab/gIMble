@@ -4,7 +4,6 @@ import numpy as np
 import msprime
 import allel
 import zarr
-import concurrent.futures
 import contextlib
 from tqdm import tqdm
 import itertools
@@ -109,9 +108,22 @@ def get_sim_args(config):
     # CONSTANTS : blocks, samples, ploidy, block_length, comparisons, max_k, mutation_rate, mutation_model, discrete
     # VARIABLES : seeds, recombination_rates, demographies (if grid)
     # sim_key: the simulation
+    global CONSTANT_PARAMS
+    CONSTANT_PARAMS = {
+        'blocks': config['simulate']['blocks'],
+        'samples': {'A': config['simulate']['sample_size_A'], 'B': config['simulate']['sample_size_B']},
+        'ploidy': config['simulate']['ploidy'],
+        'block_length': config['simulate']['block_length'],
+        'comparisons': config['simulate']['comparisons'],
+        'max_k': config['max_k'],
+        'mutation_rate': config['mu']['mu'],
+        'mutation_model': 'infinite_alleles',
+        'discrete_genome': config['simulate']['discrete_genome']
+        }
     simulate_jobs = []
     recombination_rates = config['simulate']['recombination_rate']
     demographies = [demography.demography for demography in config['simulate']['demographies']]
+    # print([demography.get_parameter_dict() for demography in config['simulate']['demographies']])
     for replicate_idx in range(config['simulate']['replicates']):
         ancestry_seeds = config['simulate']['ancestry_seeds_by_replicate'][replicate_idx]
         mutation_seeds = config['simulate']['mutation_seeds_by_replicate'][replicate_idx]
@@ -132,7 +144,7 @@ def get_sim_args(config):
     return simulate_jobs
     
 def simulate_call(simulate_job):
-    #window_idx, replicate_idx, ancestry_seed, mutation_seed, demography, recombination_rate, blocks, samples, ploidy, block_length, comparisons, max_k, mutation_rate, mutation_model, discrete_genome = simulate_job
+    '''simulate call for 1 window'''
     window_idx, replicate_idx, ancestry_seed, mutation_seed, demography, recombination_rate = simulate_job
     blocks = CONSTANT_PARAMS['blocks']
     samples = CONSTANT_PARAMS['samples']
@@ -171,29 +183,6 @@ def simulate_call(simulate_job):
     bsfs = generate_bsfs(genotype_matrix, positions, comparisons, max_k, blocks, sequence_length)
     return {'window_idx': window_idx, 'replicate_idx': replicate_idx, 'bsfs': bsfs}
 
-# def simulate_function(nlopt_values, grad, gfEvaluatorObj, dataset, dataset_idx, config, nlopt_iterations, verbose):
-    # global NLOPT_LOG_QUEUE
-    # nlopt_traceback = None
-    # nlopt_iterations[dataset_idx] += 1 
-    # scaled_values_by_symbol, scaled_values_by_parameter, unscaled_values_by_parameter, block_length = scale_nlopt_values(nlopt_values, config)
-    # try:
-    #     ETPs = gfEvaluatorObj.evaluate_gf(scaled_values_by_symbol, scaled_values_by_symbol[sage.all.SR.var('theta')])
-    #     likelihood = calculate_composite_likelihood(ETPs, dataset)
-    # except Exception as exception:
-    #     nlopt_log_iteration_tuple = get_nlopt_log_iteration_tuple(dataset_idx, nlopt_iterations[dataset_idx], block_length, 'N/A', scaled_values_by_parameter, unscaled_values_by_parameter)
-    #     nlopt_traceback = traceback.format_exc(exception)
-    #     NLOPT_LOG_QUEUE.put((nlopt_log_iteration_tuple, nlopt_traceback))
-    # nlopt_log_iteration_tuple = get_nlopt_log_iteration_tuple(dataset_idx, nlopt_iterations[dataset_idx], block_length, likelihood, scaled_values_by_parameter, unscaled_values_by_parameter)
-    # NLOPT_LOG_QUEUE.put((nlopt_log_iteration_tuple, nlopt_traceback))
-    # #if verbose:
-    # #    elapsed = lib.gimble.format_time(timer() - start_time)
-    # #    #process_idx = multiprocessing.current_process()._identity
-    # #    #print_nlopt_line(dataset_idx, nlopt_iterations[dataset_idx], likelihood, unscaled_values_by_parameter, elapsed, process_idx)
-    # #    print_nlopt_line(dataset_idx, nlopt_iterations[dataset_idx], likelihood, unscaled_values_by_parameter, elapsed)
-    # return likelihood
-
-#SIMULATE_QUEUE = multiprocessing.Queue()
-#SIMULATE_ITERATIONS_MANAGER = multiprocessing.Manager()
 
 @contextlib.contextmanager
 def poolcontext(*args, **kwargs):
@@ -201,55 +190,25 @@ def poolcontext(*args, **kwargs):
     yield pool
     pool.terminate()
 
-# def new_simulate_collections(config):
-#     simulate_jobs = get_sim_args(config)
-#     simulate_windows_by_replicate = collections.defaultdict(list) # unsorted list
-#     if config['num_cores'] <= 1:
-#         for simulate_job in tqdm(simulate_jobs):
-#             simulate_window = simulate_call(simulate_job)
-#             #print("simulate_window", simulate_window)
-#             simulate_windows_by_replicate[simulate_window['replicate_idx']].append(simulate_window)
-#     else:
-#         with poolcontext(processes=config['num_cores']) as pool:
-#             for simulate_window in tqdm(pool.imap_unordered(simulate_call, simulate_jobs), total=len(simulate_jobs)):
-#                 simulate_windows_by_replicate[simulate_window['replicate_idx']].append(simulate_window)
-    
-#     # sanitize results
-#     tally_by_replicate_idx = {}
-#     for replicate_idx, windows in simulate_windows_by_replicate.items():
-#         tallies = [tally['bsfs'] for tally in sorted(windows, key=lambda k: (k['window_idx']))]
-
-#         tally_by_replicate_idx[replicate_idx] = np.array(tallies)
-#     return tally_by_replicate_idx
-
-def new_simulate(config):
-    global CONSTANT_PARAMS
-    CONSTANT_PARAMS = {
-        'blocks': config['simulate']['blocks'],
-        'samples': {'A': config['simulate']['sample_size_A'], 'B': config['simulate']['sample_size_B']},
-        'ploidy': config['simulate']['ploidy'],
-        'block_length': config['simulate']['block_length'],
-        'comparisons': config['simulate']['comparisons'],
-        'max_k': config['max_k'],
-        'mutation_rate': config['mu']['mu'],
-        'mutation_model': 'infinite_alleles',
-        'discrete_genome': config['simulate']['discrete_genome']
-        }
-    simulate_jobs = get_sim_args(config)
-    #simulate_windows_by_replicate = collections.defaultdict(list) # unsorted list
-    tallies = np.zeros(tuple([config['simulate']['replicates'], config['simulate']['windows']] + list(config['max_k'] + 2)))
-    # save tallies as numpy arrays directly!!!
-    print("[+] Running simulations...")
-    if config['num_cores'] <= 1:
-        for simulate_job in tqdm(simulate_jobs):
-            simulate_window = simulate_call(simulate_job)
-            #print("simulate_window", simulate_window)
-            tallies[simulate_window['replicate_idx']][simulate_window['window_idx']] = simulate_window['bsfs']
-    else:
-        with poolcontext(processes=config['num_cores']) as pool:
-            for simulate_window in tqdm(pool.imap_unordered(simulate_call, simulate_jobs), total=len(simulate_jobs)):
-                tallies[simulate_window['replicate_idx']][simulate_window['window_idx']] = simulate_window['bsfs']
-    return tallies
+#def new_simulate(config):
+#    simulate_jobs = get_sim_args(config)
+#    #simulate_windows_by_replicate = collections.defaultdict(list) # unsorted list
+#    tallies = np.zeros(tuple([config['simulate']['replicates'], config['simulate']['windows']] + list(config['max_k'] + 2)))
+#    print("tallies.shape", tallies.shape)
+#    # save tallies as numpy arrays directly!!!
+#    print("[+] Running simulations...")
+#
+#    if config['num_cores'] <= 1:
+#        for simulate_job in tqdm(simulate_jobs):
+#            simulate_window = simulate_call(simulate_job)
+#            #print("simulate_window", simulate_window)
+#            tallies[simulate_window['replicate_idx']][simulate_window['window_idx']] = simulate_window['bsfs']
+#    else:
+#        with poolcontext(processes=config['num_cores']) as pool:
+#            for simulate_window in tqdm(pool.imap_unordered(simulate_call, simulate_jobs), total=len(simulate_jobs)):
+#                tallies[simulate_window['replicate_idx']][simulate_window['window_idx']] = simulate_window['bsfs']
+#    
+#    return tallies
 
 # def run_sim_parallel(seeds, recombination_rate, samples, demography, ploidy, block_length, comparisons, max_k, mutation_rate, mutation_model, discrete, blocks_per_replicate, disable_tqdm, idx, threads):
 #     with concurrent.futures.ProcessPoolExecutor(max_workers=threads) as pool:
@@ -320,12 +279,33 @@ def generate_bsfs(genotype_matrix, positions, comparisons, max_k, blocks, total_
     num_comparisons = len(comparisons)
     result = np.zeros((num_comparisons, blocks, len(max_k)), dtype=np.int64)
     # generate all comparisons
+    for idx, pair in enumerate(comparisons):
+        block_sites = np.arange(total_length, dtype=np.int64).reshape(blocks, -1)
+        subset_genotype_array = sa_genotype_array.subset(sel0=None, sel1=pair) 
+        *_, variation = lib.gimble.blocks_to_arrays(block_sites, subset_genotype_array, positions)
+        result[idx] = variation
+    result = result.reshape(-1, result.shape[-1])
+    # bsfs = lib.gimble.tally_variation(result, form='bsfs', max_k=max_k)
+    # count mutuples (clipping at k_max, if supplied)
+    mutuples, counts = np.unique(np.clip(result, 0, max_k+1), return_counts=True, axis=0)
+    # define out based on max values for each column
+    dtype = lib.gimble._return_np_type(counts)
+    out = np.zeros(tuple(max_k + 2), dtype)
+    # assign values
+    out[tuple(mutuples.T)] = counts
+    return out
 
+def generate_bsfs_bckp(genotype_matrix, positions, comparisons, max_k, blocks, total_length):
+    sa_genotype_array = allel.GenotypeArray(genotype_matrix)
+    num_comparisons = len(comparisons)
+    result = np.zeros((num_comparisons, blocks, len(max_k)), dtype=np.int64)
+    # generate all comparisons
     for idx, pair in enumerate(comparisons):
         block_sites = np.arange(total_length, dtype=np.int64).reshape(blocks, -1)
         new_positions_variant_bool = np.isin(
             positions, block_sites, assume_unique=True
             )
+        #print("new_positions_variant_bool", new_positions_variant_bool.shape, np.all(new_positions_variant_bool))
         subset_genotype_array = sa_genotype_array.subset(new_positions_variant_bool, pair) #all variants are included
         *redundant, variation = lib.gimble.blocks_to_arrays(block_sites, subset_genotype_array, positions)
         result[idx] = variation
@@ -335,6 +315,7 @@ def generate_bsfs(genotype_matrix, positions, comparisons, max_k, blocks, total_
     mutuples, counts = np.unique(np.clip(result, 0, max_k+1), return_counts=True, axis=0)
     # define out based on max values for each column
     dtype = lib.gimble._return_np_type(counts)
+
     out = np.zeros(tuple(max_k + 2), dtype)
     # assign values
     out[tuple(mutuples.T)] = counts
@@ -358,7 +339,7 @@ def _combine_chunks(result_list, chunks):
 
 def get_genotypes(ts, ploidy, num_samples):
     if ts.num_mutations == 0:
-        return np.zeros((1,num_samples, ploidy), dtype=np.uint8)
+        return np.zeros((1, num_samples, ploidy), dtype=np.uint8)
     shape = (ts.num_sites, num_samples, ploidy)
     return np.reshape(ts.genotype_matrix(), shape)
 

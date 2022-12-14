@@ -17,6 +17,8 @@ import collections
 import sys
 import warnings
 import pathlib
+import contextlib
+import multiprocessing
 import configparser
 import matplotlib.pyplot as plt
 from matplotlib.path import Path
@@ -92,6 +94,11 @@ MUTYPES = ["m_1", "m_2", "m_3", "m_4"]
 GRIDSEARCH_DTYPE = np.float32  # -3.4028235e+38 ... 3.4028235e+38
 # GRIDSEARCH_DTYPE=np.float64 # -1.7976931348623157e+308 ... 1.7976931348623157e+308
 
+@contextlib.contextmanager
+def poolcontext(*args, **kwargs):
+    pool = multiprocessing.Pool(*args, **kwargs)
+    yield pool
+    pool.terminate()
 
 class ReportObj(object):
     """Report class for making reports"""
@@ -675,6 +682,7 @@ def get_config_optimize(config):
 class ModelObj(object):
     def __init__(self, model=None, Ne_A=None, Ne_B=None, Ne_A_B=None, me=None, T=None):
         self._SUPPORTED_MODELS = ["DIV", "IM_BA", "IM_AB", "MIG_BA", "IM_BA"]
+        # print("ModelObj.__init__(): ", "model", model, "Ne_A", Ne_A, "Ne_B", Ne_B, "Ne_A_B", Ne_A_B, "me", me, "T", T)
         self.model = self.validate_model(model)
         self.Ne_A = Ne_A
         self.Ne_B = Ne_B
@@ -728,24 +736,29 @@ class ModelObj(object):
             graph = demes.Builder(time_units="generations")
             graph.add_deme("A", ancestors=["A_B"], defaults=dict(epoch=dict(start_size=self.Ne_A, end_size=self.Ne_A)))
             graph.add_deme("B", ancestors=["A_B"], defaults=dict(epoch=dict(start_size=self.Ne_B, end_size=self.Ne_B)))
+            '''Source and destination demes refer to individuals migrating forwards in time.'''
             graph.add_migration(source="A", dest="B", rate=self.me)
         elif self.model == "MIG_BA":
             graph = demes.Builder(time_units="generations")
             graph.add_deme("A", ancestors=["A_B"], defaults=dict(epoch=dict(start_size=self.Ne_A, end_size=self.Ne_A)))
             graph.add_deme("B", ancestors=["A_B"], defaults=dict(epoch=dict(start_size=self.Ne_B, end_size=self.Ne_B)))
+            '''Source and destination demes refer to individuals migrating forwards in time.'''
             graph.add_migration(source="B", dest="A", rate=self.me)
         elif self.model == "IM_AB":
             graph = demes.Builder(time_units="generations")
             graph.add_deme("A_B", epochs=[dict(end_time=self.T, start_size=self.Ne_A_B, end_size=self.Ne_A_B)])
             graph.add_deme("A", ancestors=["A_B"], defaults=dict(epoch=dict(start_size=self.Ne_A, end_size=self.Ne_A)))
             graph.add_deme("B", ancestors=["A_B"], defaults=dict(epoch=dict(start_size=self.Ne_B, end_size=self.Ne_B)))
+            '''Source and destination demes refer to individuals migrating forwards in time.'''
             graph.add_migration(source="A", dest="B", rate=self.me)
         elif self.model == "IM_BA":
             graph = demes.Builder(time_units="generations")
             graph.add_deme("A_B", epochs=[dict(end_time=self.T, start_size=self.Ne_A_B, end_size=self.Ne_A_B)])
             graph.add_deme("A", ancestors=["A_B"], defaults=dict(epoch=dict(start_size=self.Ne_A, end_size=self.Ne_A)))
             graph.add_deme("B", ancestors=["A_B"], defaults=dict(epoch=dict(start_size=self.Ne_B, end_size=self.Ne_B)))
+            '''Source and destination demes refer to individuals migrating forwards in time.'''
             graph.add_migration(source="B", dest="A", rate=self.me)
+            
         else:
             pass
         return msprime.Demography.from_demes(graph.resolve())
@@ -794,22 +807,22 @@ def get_config_simulate(config):
     return config
 
 
-def get_blocks_per_replicate(num, part):
-    """
-    >>> get_blocks_per_replicate(64, 64)
-    array([64], dtype=uint64)
-    >>> get_blocks_per_replicate(64, 63)
-    array([63,  1], dtype=uint64)
-    >>> get_blocks_per_replicate(64, 32)
-    array([32, 32], dtype=uint64)
-    >>> get_blocks_per_replicate(64, 73)
-    array([64], dtype=uint64)"""
-    num_entries = math.ceil(num / part)
-    result = np.full(num_entries, fill_value=part, dtype=np.uint64)
-    floor = num // part
-    if num_entries != floor:
-        result[-1] = num - floor * part
-    return result
+# def get_blocks_per_replicate(num, part):
+#     """
+#     >>> get_blocks_per_replicate(64, 64)
+#     array([64], dtype=uint64)
+#     >>> get_blocks_per_replicate(64, 63)
+#     array([63,  1], dtype=uint64)
+#     >>> get_blocks_per_replicate(64, 32)
+#     array([32, 32], dtype=uint64)
+#     >>> get_blocks_per_replicate(64, 73)
+#     array([64], dtype=uint64)"""
+#     num_entries = math.ceil(num / part)
+#     result = np.full(num_entries, fill_value=part, dtype=np.uint64)
+#     floor = num // part
+#     if num_entries != floor:
+#         result[-1] = num - floor * part
+#     return result
 
 
 def load_config(config_file, MODULE=None, CWD=None, VERSION=None):
@@ -2016,7 +2029,7 @@ def tally_variation(variation, form="bsfs", max_k=None):
         mutuples_unique, counts = np.unique(mutuples, return_counts=True, axis=0)
         dtype = _return_np_type(counts)
         if form == "bsfs":
-            out = np.zeros(tuple(np.max(mutuples, axis=0) + 1), dtype)
+            out = np.zeros(tuple(max_k + 1), dtype)
             out[tuple(mutuples_unique.T)] = counts
         elif form == "tally":
             out = np.concatenate(
@@ -3197,8 +3210,12 @@ class Store(object):
             return modelObjs
         def get_demographies_from_config(config):
             '''returns list of N modelObjs, where N = number of windows '''
-            #model=None, Ne_A=None, Ne_B=None, Ne_A_B=None, me=None, T=None
-            return [ModelObj(model=config['gimble']['model'], **config['parameters_LOD'][0])] * config['simulate']['windows']  
+            #print("config['parameters_LOD']", config['parameters_LOD'])
+            demographies = [ModelObj(model=config['gimble']['model'], **config['parameters_LOD'][0])] * config['simulate']['windows']  
+            for demography in demographies:
+                print(demography.get_parameter_dict())
+            #sys.exit()
+            return demographies
         def check_key(key, category=None):
             meta = self._get_meta(key)
             if meta:
@@ -3272,16 +3289,40 @@ class Store(object):
     def simulate(self, config, threads, overwrite):
         print("[#] Preflight...")
         config = self._preflight_simulate(config, threads, overwrite)
-        tallies = lib.simulate.new_simulate(config)
+        simulate_jobs = lib.simulate.get_sim_args(config)
+        # create empty arrays in zarr store
         for replicate_idx in range(config['simulate']['replicates']):
-            self._save_simulate_instance(config, tallies[replicate_idx], replicate_idx)
-        self._save_simulate_meta(config)
-        # tally_by_replicate_idx = lib.simulate.new_simulate_collections(config)
-        # for idx, tally in tally_by_replicate_idx.items():
-        #     self._save_simulate_instance(config, tally, idx)
-        # self._save_simulate_meta(config)
+            replicate_key = "%s/%s" % (config['simulate_key'], replicate_idx)
+            replicate_shape = tuple([config['simulate']['windows']] + list(config['max_k'] + 2))
+            self.data.create_dataset(replicate_key, shape=replicate_shape, dtype='i8', overwrite=True)
+        print("[+] Running simulations...")
+        if config['num_cores'] <= 1:
+            for simulate_job in tqdm(simulate_jobs):
+                simulate_window = lib.simulate.simulate_call(simulate_job)
+                replicate_key = "%s/%s" % (config['simulate_key'], simulate_window['replicate_idx'])
+                self.data[replicate_key][simulate_window['window_idx']] = simulate_window['bsfs']
+        else:
+            with poolcontext(processes=config['num_cores']) as pool:
+                for simulate_window in tqdm(pool.imap_unordered(lib.simulate.simulate_call, simulate_jobs), total=len(simulate_jobs)):
+                    replicate_key = "%s/%s" % (config['simulate_key'], simulate_window['replicate_idx'])
+                    self.data[replicate_key][simulate_window['window_idx']] = simulate_window['bsfs']
+        for replicate_idx in range(config['simulate']['replicates']):
+            config['idx'] = replicate_idx
+            simulate_instance_meta = config_to_meta(config, "simulate_instance")
+            replicate_key = "%s/%s" % (config['simulate_key'], replicate_idx)
+            self.data[replicate_key].attrs.put(simulate_instance_meta)
+        simulate_meta = config_to_meta(config, "simulate")
+        self._set_meta(config["simulate_key"], simulate_meta)
         print("[+] Simulation saved under %r" % config['simulate_key'])
 
+    #def simulate(self, config, threads, overwrite):
+    #    print("[#] Preflight...")
+    #    config = self._preflight_simulate(config, threads, overwrite)
+    #    tallies = lib.simulate.new_simulate(config)
+    #    for replicate_idx in range(config['simulate']['replicates']):
+    #        self._save_simulate_instance(config, tallies[replicate_idx], replicate_idx)
+    #    self._save_simulate_meta(config)
+    #    print("[+] Simulation saved under %r" % config['simulate_key'])
 
     def _save_simulate_meta(self, config):
         simulate_meta = config_to_meta(config, "simulate")
@@ -3382,12 +3423,35 @@ class Store(object):
         elif config["data_type"] == "gridsearch":
             self._write_gridsearch_results_new(config)
         elif config["data_type"] == "makegrid":
-            meta_makegrid = self._get_meta(config["data_key"])
-            print(self._format_grid(meta_makegrid))
+            self._write_makegrid(config)
         elif config["data_type"] == "simulate":
             self._write_tally_tsv(config)
         else:
             sys.exit("[X] Not implemented.")
+
+    def _write_makegrid(self, config):
+        '''should create folder with TSVs of each gridpoint'''
+        meta_makegrid = self._get_meta(config["data_key"])
+        print(self._format_grid(meta_makegrid))
+        grid = np.array(self._get_data(meta_makegrid['makegrid_key']))
+        grid_2d = self._grid_2d(grid)
+        parameter_names = list(meta_makegrid["grid_dict"].keys())
+        parameter_array = np.array([np.array(v, dtype=np.float64) for k, v in meta_makegrid["grid_dict"].items()]).T
+        dtypes = {"grid_idx": "int64","P": "float64","m1": "int64","m2": "int64","m3": "int64","m4": "int64"}
+        columns = ["grid_idx", "P", "m1", "m2", "m3", "m4"]
+        for idx in range(parameter_array.shape[0]):
+            fn = "%s.%s.tsv" % (meta_makegrid['makegrid_label'], ".".join(["%s=%s" % (name, float(value)) for name, value in zip(parameter_names, parameter_array[idx])]))
+            pd.DataFrame(data=grid_2d[grid_2d[:,0]==idx], columns=columns).astype(dtype=dtypes).to_csv(fn, header=True, index=False, sep="\t")
+            print("[#] Wrote file %r." % fn)
+
+    def _grid_2d(self, grid):
+        idxs = np.nonzero(grid>-10) # should capture all values..
+        idxs_array = np.array(idxs).T
+        rows = idxs_array.shape[0] # number of rows in array (based on gridpoints and kmax)
+        first = idxs_array[:,0].reshape(rows, 1) # gridpoint idx
+        second = grid[idxs].reshape(rows, 1) # float in grid
+        third = idxs_array[:,1:] # mutuple
+        return np.concatenate([first, second, third], axis=1)
 
     def _write_optimize_tsv(self, config):
         optimize_meta = dict(self._get_meta(config["data_key"]))
@@ -4974,7 +5038,8 @@ class Store(object):
             # data is an iterator
             meta = self._get_meta(config["data_key"])
             if windowsum:
-                data = [(idx, np.sum(tally, axis=0)) for idx, tally in self.data[config["data_key"]].arrays()]
+                data = [(idx, np.sum(tally, axis=0, dtype=np.int64)) for idx, tally in self.data[config["data_key"]].arrays()]
+                print([(idx, d[0][0][0][0]) for idx, d in data])
                 #config["data_label"] = "%s.windowsum" % config["data_label"]
             else:
                 data = [(idx, tally) for idx, tally in self.data[config["data_key"]].arrays()]
@@ -5067,7 +5132,6 @@ class Store(object):
                 "[X] Analysis with label %r on data %r already exist. Change the label in the config file or use '--force'"
                 % (config["optimize_label"],  config["data_key"])
             )
-        print("config", config)
         data_meta = self._get_meta(config["data_key"])
         config["max_k"] = np.array(data_meta["max_k"])  # INI values get overwritten by data ...
         config["block_length"] = data_meta["block_length"]
