@@ -142,7 +142,48 @@ def get_sim_args(config):
                 recombination_rate,
                 ])
     return simulate_jobs
-    
+
+def get_sim_args_by_replicate_idx(config):
+    print("[+] Preparing simulations...")
+    # MODIFIERS : windows/recombination_rates, demographies (if grid)
+    # CONSTANTS : blocks, samples, ploidy, block_length, comparisons, max_k, mutation_rate, mutation_model, discrete
+    # VARIABLES : seeds, recombination_rates, demographies (if grid)
+    # sim_key: the simulation
+    global CONSTANT_PARAMS
+    CONSTANT_PARAMS = {
+        'blocks': config['simulate']['blocks'],
+        'samples': {'A': config['simulate']['sample_size_A'], 'B': config['simulate']['sample_size_B']},
+        'ploidy': config['simulate']['ploidy'],
+        'block_length': config['simulate']['block_length'],
+        'comparisons': config['simulate']['comparisons'],
+        'max_k': config['max_k'],
+        'mutation_rate': config['mu']['mu'],
+        'mutation_model': 'infinite_alleles',
+        'discrete_genome': config['simulate']['discrete_genome']
+        }
+    simulate_jobs_by_replicate_idx = collections.defaultdict(list)
+    recombination_rates = config['simulate']['recombination_rate']
+    demographies = [demography.demography for demography in config['simulate']['demographies']]
+    # print([demography.get_parameter_dict() for demography in config['simulate']['demographies']])
+    for replicate_idx in range(config['simulate']['replicates']):
+        ancestry_seeds = config['simulate']['ancestry_seeds_by_replicate'][replicate_idx]
+        mutation_seeds = config['simulate']['mutation_seeds_by_replicate'][replicate_idx]
+        for window_idx, demography, recombination_rate, ancestry_seed, mutation_seed in zip(
+            range(config['simulate']['windows']), 
+            demographies,
+            recombination_rates, 
+            ancestry_seeds, 
+            mutation_seeds):
+            simulate_jobs_by_replicate_idx[replicate_idx].append([
+                window_idx, 
+                replicate_idx,
+                ancestry_seed,
+                mutation_seed,
+                demography,
+                recombination_rate,
+                ])
+    return simulate_jobs_by_replicate_idx
+
 def simulate_call(simulate_job):
     '''simulate call for 1 window'''
     window_idx, replicate_idx, ancestry_seed, mutation_seed, demography, recombination_rate = simulate_job

@@ -3212,8 +3212,8 @@ class Store(object):
             '''returns list of N modelObjs, where N = number of windows '''
             #print("config['parameters_LOD']", config['parameters_LOD'])
             demographies = [ModelObj(model=config['gimble']['model'], **config['parameters_LOD'][0])] * config['simulate']['windows']  
-            for demography in demographies:
-                print(demography.get_parameter_dict())
+            #for demography in demographies:
+            #    print(demography.get_parameter_dict())
             #sys.exit()
             return demographies
         def check_key(key, category=None):
@@ -3286,7 +3286,7 @@ class Store(object):
         config['simulate']['mutation_seeds_by_replicate'] = {replicate_idx: np.random.randint(1, 2**32, config['simulate']['windows']) for replicate_idx in range(config['simulate']['replicates'])}
         return config
 
-    def simulate(self, config, threads, overwrite):
+    def simulate_old(self, config, threads, overwrite):
         print("[#] Preflight...")
         config = self._preflight_simulate(config, threads, overwrite)
         simulate_jobs = lib.simulate.get_sim_args(config)
@@ -3315,6 +3315,36 @@ class Store(object):
         self._set_meta(config["simulate_key"], simulate_meta)
         print("[+] Simulation saved under %r" % config['simulate_key'])
 
+    def simulate(self, config, threads, overwrite):
+        print("[#] Preflight...")
+        config = self._preflight_simulate(config, threads, overwrite)
+        simulate_jobs_by_replicate_idx = lib.simulate.get_sim_args_by_replicate_idx(config)
+        # create empty arrays in zarr store
+        print("[+] Running simulations...")
+        with tqdm(total=(config['simulate']['windows'] * config['simulate']['replicates']), desc="[%] Simulating", ncols=100, unit_scale=True) as pbar:
+            for replicate_idx in range(config['simulate']['replicates']):
+                replicate_key = "%s/%s" % (config['simulate_key'], replicate_idx)
+                replicate_shape = tuple([config['simulate']['windows']] + list(config['max_k'] + 2))
+                self.data.create_dataset(replicate_key, shape=replicate_shape, dtype='i8', overwrite=True)
+                if config['num_cores'] <= 1:
+                    for simulate_job in simulate_jobs_by_replicate_idx[replicate_idx]:
+                        simulate_window = lib.simulate.simulate_call(simulate_job)
+                        replicate_key = "%s/%s" % (config['simulate_key'], simulate_window['replicate_idx'])
+                        self.data[replicate_key][simulate_window['window_idx']] = simulate_window['bsfs']
+                        pbar.update(1)
+                else:
+                    with poolcontext(processes=config['num_cores']) as pool:
+                        for simulate_window in pool.imap_unordered(lib.simulate.simulate_call, simulate_jobs_by_replicate_idx[replicate_idx]):
+                            replicate_key = "%s/%s" % (config['simulate_key'], simulate_window['replicate_idx'])
+                            self.data[replicate_key][simulate_window['window_idx']] = simulate_window['bsfs']
+                            pbar.update(1)
+                config['idx'] = replicate_idx
+                simulate_instance_meta = config_to_meta(config, "simulate_instance")
+                replicate_key = "%s/%s" % (config['simulate_key'], replicate_idx)
+                self.data[replicate_key].attrs.put(simulate_instance_meta)
+        simulate_meta = config_to_meta(config, "simulate")
+        self._set_meta(config["simulate_key"], simulate_meta)
+        print("[+] Simulation saved under %r" % config['simulate_key'])
     #def simulate(self, config, threads, overwrite):
     #    print("[#] Preflight...")
     #    config = self._preflight_simulate(config, threads, overwrite)
