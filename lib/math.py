@@ -187,6 +187,7 @@ def config_to_gf(config):
     coalescence_rates = [sage.all.var(rate) for rate in config['events']['coalescence']]
     coalescence_rates = [sage.all.var(rate) for rate in ['C_A', 'C_B', 'C_A_B']]
     migration_direction = config['events'].get('migration', None)
+    #print("migration_direction", migration_direction)
     migration_rate = sage.all.var('M') if migration_direction else None
     exodus_direction = config['events'].get('exodus', None)
     exodus_rate = sage.all.var('J') if exodus_direction else None
