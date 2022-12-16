@@ -726,6 +726,10 @@ class ModelObj(object):
             }.get(self.model, None)
 
     def get_demography(self):
+        '''
+        in demes, source and destination of migration is specified FW in time
+        in gimble, source and destination of migration is specified BW in time
+        '''
         graph = demes.Builder(time_units="generations")
         if self.model == "DIV":
             graph = demes.Builder(time_units="generations")
@@ -737,28 +741,31 @@ class ModelObj(object):
             graph.add_deme("A", ancestors=["A_B"], defaults=dict(epoch=dict(start_size=self.Ne_A, end_size=self.Ne_A)))
             graph.add_deme("B", ancestors=["A_B"], defaults=dict(epoch=dict(start_size=self.Ne_B, end_size=self.Ne_B)))
             '''Source and destination demes refer to individuals migrating forwards in time.'''
-            graph.add_migration(source="A", dest="B", rate=self.me)
+            # graph.add_migration(source="A", dest="B", rate=self.me)
+            graph.add_migration(source="B", dest="A", rate=self.me)
         elif self.model == "MIG_BA":
             graph = demes.Builder(time_units="generations")
             graph.add_deme("A", ancestors=["A_B"], defaults=dict(epoch=dict(start_size=self.Ne_A, end_size=self.Ne_A)))
             graph.add_deme("B", ancestors=["A_B"], defaults=dict(epoch=dict(start_size=self.Ne_B, end_size=self.Ne_B)))
             '''Source and destination demes refer to individuals migrating forwards in time.'''
-            graph.add_migration(source="B", dest="A", rate=self.me)
+            # graph.add_migration(source="B", dest="A", rate=self.me)
+            graph.add_migration(source="A", dest="B", rate=self.me)
         elif self.model == "IM_AB":
             graph = demes.Builder(time_units="generations")
             graph.add_deme("A_B", epochs=[dict(end_time=self.T, start_size=self.Ne_A_B, end_size=self.Ne_A_B)])
             graph.add_deme("A", ancestors=["A_B"], defaults=dict(epoch=dict(start_size=self.Ne_A, end_size=self.Ne_A)))
             graph.add_deme("B", ancestors=["A_B"], defaults=dict(epoch=dict(start_size=self.Ne_B, end_size=self.Ne_B)))
             '''Source and destination demes refer to individuals migrating forwards in time.'''
-            graph.add_migration(source="A", dest="B", rate=self.me)
+            # graph.add_migration(source="A", dest="B", rate=self.me)
+            graph.add_migration(source="B", dest="A", rate=self.me)
         elif self.model == "IM_BA":
             graph = demes.Builder(time_units="generations")
             graph.add_deme("A_B", epochs=[dict(end_time=self.T, start_size=self.Ne_A_B, end_size=self.Ne_A_B)])
             graph.add_deme("A", ancestors=["A_B"], defaults=dict(epoch=dict(start_size=self.Ne_A, end_size=self.Ne_A)))
             graph.add_deme("B", ancestors=["A_B"], defaults=dict(epoch=dict(start_size=self.Ne_B, end_size=self.Ne_B)))
             '''Source and destination demes refer to individuals migrating forwards in time.'''
-            graph.add_migration(source="B", dest="A", rate=self.me)
-            
+            # graph.add_migration(source="B", dest="A", rate=self.me)
+            graph.add_migration(source="A", dest="B", rate=self.me)
         else:
             pass
         return msprime.Demography.from_demes(graph.resolve())
@@ -3321,21 +3328,20 @@ class Store(object):
         simulate_jobs_by_replicate_idx = lib.simulate.get_sim_args_by_replicate_idx(config)
         # create empty arrays in zarr store
         print("[+] Running simulations...")
-        with tqdm(total=(config['simulate']['windows'] * config['simulate']['replicates']), desc="[%] Simulating", ncols=100, unit_scale=True) as pbar:
+        with tqdm(total=(config['simulate']['windows'] * config['simulate']['replicates']), desc="[%] Simulating", ncols=100) as pbar:
             for replicate_idx in range(config['simulate']['replicates']):
                 replicate_key = "%s/%s" % (config['simulate_key'], replicate_idx)
                 replicate_shape = tuple([config['simulate']['windows']] + list(config['max_k'] + 2))
-                self.data.create_dataset(replicate_key, shape=replicate_shape, dtype='i8', overwrite=True)
+                #self.data.create_dataset(key, data=zarr.zeros(pileup_shape, chunks=(chunk_size, len(fields)), dtype='i8'), overwrite=True)
+                self.data.create_dataset(replicate_key, data=zarr.zeros(replicate_shape), dtype='i8', overwrite=True)
                 if config['num_cores'] <= 1:
                     for simulate_job in simulate_jobs_by_replicate_idx[replicate_idx]:
                         simulate_window = lib.simulate.simulate_call(simulate_job)
-                        replicate_key = "%s/%s" % (config['simulate_key'], simulate_window['replicate_idx'])
                         self.data[replicate_key][simulate_window['window_idx']] = simulate_window['bsfs']
                         pbar.update(1)
                 else:
                     with poolcontext(processes=config['num_cores']) as pool:
                         for simulate_window in pool.imap_unordered(lib.simulate.simulate_call, simulate_jobs_by_replicate_idx[replicate_idx]):
-                            replicate_key = "%s/%s" % (config['simulate_key'], simulate_window['replicate_idx'])
                             self.data[replicate_key][simulate_window['window_idx']] = simulate_window['bsfs']
                             pbar.update(1)
                 config['idx'] = replicate_idx
