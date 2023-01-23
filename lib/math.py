@@ -9,6 +9,7 @@ import pandas as pd
 import sys, os
 import sage.all
 import functools
+import copy
 from functools import partial
 from functools import partialmethod
 from timeit import default_timer as timer
@@ -182,10 +183,9 @@ def param_generator(pcentre, pmin, pmax, psamples, distr):
 
 def config_to_gf(config):
     sample_list = [('a','a'),('b','b'),()] #currently hard-coded
-    # config['events']['coalescence'] has same order as config['populations']['pop_ids']
-    # e.g. ['C_A', 'C_s', 'C_s'] if pop_ids = ['A', 'B', 'A_B'] and sync_pop_sizes = ['A_B', 'B']
-    coalescence_rates = [sage.all.var(rate) for rate in config['events']['coalescence']]
-    coalescence_rates = [sage.all.var(rate) for rate in ['C_A', 'C_B', 'C_A_B']]
+
+    ## coalescence_rates do not include C_s (if sync_pop) because sync happens during scaling
+    coalescence_rates = [sage.all.var(rate) for rate in ['C_A', 'C_B', 'C_A_B']] 
     migration_direction = config['events'].get('migration', None)
     #print("migration_direction", migration_direction)
     migration_rate = sage.all.var('M') if migration_direction else None
@@ -443,6 +443,7 @@ def scale_nlopt_values(nlopt_values, config):
     mu = config['mu']['mu']
     nlopt_values_by_parameter = {k: v for k, v in zip(config['parameters_bounded'], nlopt_values)}      # unscaled
     # inject sync'ed Ne's
+    # print('nlopt_values_by_parameter', nlopt_values_by_parameter)
     if 'Ne_s' in nlopt_values_by_parameter:
         sync_pop_value = nlopt_values_by_parameter['Ne_s']
         for pop_id in config['populations']['sync_pop_ids']:
@@ -608,6 +609,121 @@ def get_nlopt_args(gfEvaluatorObj, dataset, config):
         return [(nlopt_params, 0, functools.partial(likelihood_function, gfEvaluatorObj=gfEvaluatorObj, dataset=dataset, 
                     dataset_idx=0, config=config, nlopt_iterations=nlopt_iterations, verbose=True))]
 
+def get_agemo_nlopt_args(dataset, config):
+    print("[+] Preparing likelihood functions for optimization...")
+    nlopt_params = {
+        'start_point': config['nlopt_start_point'],
+        'lower_bound': config['parameter_combinations_lowest'],
+        'upper_bound': config['parameter_combinations_highest'],
+        'maxeval': config['max_iterations'],
+        'xtol_rel': config['xtol_rel'],
+        'ftol_rel': config['ftol_rel']}
+    gimbleDemographyInstance = lib.gimble.ModelObj(
+                model=config['gimble']['model'], 
+                mu=config['mu']['mu'], 
+                ref_pop="Ne_%s" % config['populations']['reference_pop_id'], 
+                block_length=config['block_length'], 
+                kmax=config['max_k'])
+    print(gimbleDemographyInstance)
+    return [(
+        nlopt_params, 
+        i, 
+        functools.partial(
+            agemo_likelihood_function, 
+            dataset=(dataset if nlopt_chains == 1 else dataset[i]),
+            dataset_idx=i, 
+            config=config, 
+            gimbleDemographyInstance=copy.deepcopy(gimbleDemographyInstance), 
+            nlopt_iterations=np.zeros(nlopt_chains, dtype=np.uint16), verbose=True)
+        ) for i in range(nlopt_chains)]
+
+def agemo_calculate_composite_likelihood(ETPs, data):
+    assert ETPs.shape == data.shape, "[X] Incompatible shapes in calculate_composite_likelihood(): ETPs (%s) vs data (%s)" % (ETPs.shape, data.shape)
+    ETP_log = np.zeros(ETPs.shape, dtype=np.float64)
+    np.log(ETPs, where=ETPs>0, out=ETP_log)
+    return np.sum(ETP_log * data)
+
+#def agemo_likelihood_function(nlopt_values, grad, gfEvaluatorObj, dataset, dataset_idx, config, nlopt_iterations, verbose):
+def agemo_likelihood_function(nlopt_values, grad, gimbleDemographyInstance, dataset, dataset_idx, config, nlopt_iterations, verbose):
+    global NLOPT_LOG_QUEUE
+    nlopt_traceback = None
+    nlopt_iterations[dataset_idx] += 1
+    theta_branch, var, time = gimbleDemographyInstance.get_agemo_values()
+    ETPs = EVALUATOR.evaluate(theta_branch, var, time=time)
+    likelihood = agemo_calculate_composite_likelihood(ETPs, dataset)
+    # scaled_values_by_symbol, scaled_values_by_parameter, unscaled_values_by_parameter, block_length = scale_nlopt_values(nlopt_values, config)
+    # try:
+    #     gimbleDemographyInstance.set_parameters_from_array(nlopt_values)
+    #     theta_branch, var, time = gimbleDemographyInstance.get_agemo_values()
+    #     ETPs = EVALUATOR.evaluate(theta_branch, var, time=time)
+    #     likelihood = agemo_calculate_composite_likelihood(ETPs, dataset)
+    # except Exception as exception:
+    #     nlopt_log_iteration_tuple = get_nlopt_log_iteration_tuple(dataset_idx, nlopt_iterations[dataset_idx], gimbleDemographyInstance.block_length, 'N/A', scaled_values_by_parameter, unscaled_values_by_parameter)
+    #     nlopt_traceback = traceback.format_exc(exception)
+    #     NLOPT_LOG_QUEUE.put((nlopt_log_iteration_tuple, nlopt_traceback))
+    nlopt_log_iteration_tuple = get_nlopt_log_iteration_tuple(dataset_idx, nlopt_iterations[dataset_idx], gimbleDemographyInstance.block_length, likelihood, scaled_values_by_parameter, unscaled_values_by_parameter)
+    NLOPT_LOG_QUEUE.put((nlopt_log_iteration_tuple, nlopt_traceback))
+    #if verbose:
+    #    elapsed = lib.gimble.format_time(timer() - start_time)
+    #    #process_idx = multiprocessing.current_process()._identity
+    #    #print_nlopt_line(dataset_idx, nlopt_iterations[dataset_idx], likelihood, unscaled_values_by_parameter, elapsed, process_idx)
+    #    print_nlopt_line(dataset_idx, nlopt_iterations[dataset_idx], likelihood, unscaled_values_by_parameter, elapsed)
+    return likelihood
+
+def agemo_optimize(evaluator_agemo, data_idx, data, config):
+    global EVALUATOR
+    EVALUATOR = evaluator_agemo
+    nlopt_runs = get_agemo_nlopt_args(data, config)
+    nlopt_results = []
+    # Setup nlopt_logger/tqdm
+    nlopt_log_fn, nlopt_log_header = get_nlopt_log_fn(data_idx, config)
+    nlopt_log_iteration_tuples = NLOPT_LOG_ITERATIONS_MANAGER.list()
+    nlopt_log_process = multiprocessing.Process(target=nlopt_logger, args=(nlopt_log_fn, nlopt_log_header, nlopt_log_iteration_tuples, len(nlopt_runs)))
+    nlopt_log_process.start()
+    if config['num_cores'] <= 1:
+        for nlopt_run in nlopt_runs:
+            nlopt_results.append(agemo_nlopt_call(nlopt_run))
+    else:
+        with poolcontext(processes=config['num_cores']) as pool:
+            for nlopt_result in pool.imap_unordered(agemo_nlopt_call, nlopt_runs):
+                nlopt_results.append(nlopt_result)
+    # clean up logger
+    NLOPT_LOG_QUEUE.put((None, None))
+    nlopt_log_process.join()
+    # sanitize results
+    optimize_result = get_optimize_result(config, nlopt_results, nlopt_log_header, nlopt_log_iteration_tuples)
+    return optimize_result
+
+def agemo_nlopt_call(args):
+    global NLOPT_LOG_QUEUE
+    nlopt_params, dataset_idx, agemo_likelihood_function = args
+    num_optimization_parameters = len(nlopt_params['start_point'])
+    opt = nlopt.opt(nlopt.LN_NELDERMEAD, num_optimization_parameters)
+    opt.set_lower_bounds(nlopt_params['lower_bound'])
+    opt.set_upper_bounds(nlopt_params['upper_bound'])
+    opt.set_max_objective(agemo_likelihood_function)
+    opt.set_xtol_rel(nlopt_params['xtol_rel'])
+    # TODO: xtol_weights needs to be revisited ... 
+    if nlopt_params['xtol_rel'] > 0:
+        # assigning weights to address size difference between params
+        xtol_weights = 1/(len(nlopt_params['start_point']) * nlopt_params['start_point'])
+        opt.set_x_weights(xtol_weights)
+    opt.set_ftol_rel(nlopt_params['ftol_rel'])
+    print("opt.get_xtol_rel()", opt.get_xtol_rel())
+    print("opt.get_xtol_abs()", opt.get_xtol_abs())
+    print("opt.get_ftol_rel()", opt.get_ftol_rel())
+    print("opt.get_ftol_abs()", opt.get_ftol_abs())
+    print("opt.get_x_weights()", opt.get_x_weights())
+    opt.set_maxeval(nlopt_params['maxeval'])
+    optimum = opt.optimize(nlopt_params['start_point'])
+    nlopt_result = {
+        'dataset_idx': dataset_idx,
+        'nlopt_optimum': opt.last_optimum_value(),
+        'nlopt_values': optimum,
+        'nlopt_status': NLOPT_EXIT_CODE[opt.last_optimize_result()]}
+    print(nlopt_result)
+    NLOPT_LOG_QUEUE.put(nlopt_result)
+    return nlopt_result
 
 def optimize(gfEvaluatorObj, data_idx, data, config):
     # Prepare args for nlopt
@@ -939,6 +1055,24 @@ def scale_parameters(parameter_dict, reference_pop, block_length, mu, input_scal
     else:
         raise ValueError(f'scale_parameters() not implemented for shape: {shape}')
 
+def get_parameter_arrays(modelObjs):
+    pass
+
+def calculate_probabilities(evaluator, modelObjs):
+    list_of_parameters_arrays = get_parameter_arrays(modelObjs)
+    print("[+] Calculating probabilities for %s points in parameter space" % len(scaled_parameter_combinations))
+    if processes==1:
+        for parameter_combination in tqdm(scaled_parameter_combinations, desc="[%]", ncols=100, disable=True):
+            result = gfEvaluatorObj.evaluate_gf(parameter_combination, parameter_combination[sage.all.SR.var('theta')]) 
+            all_ETPs.append(result)
+                
+    else:
+        args = ((param_combo, param_combo[sage.all.SR.var('theta')]) for param_combo in scaled_parameter_combinations)
+        with multiprocessing.Pool(processes=processes) as pool:
+            for ETP in pool.starmap(gfEvaluatorObj.evaluate_gf, tqdm(args, total=len(scaled_parameter_combinations), ncols=100, desc="[%]")):
+                all_ETPs.append(ETP)
+    return np.array(all_ETPs, dtype=np.float64)
+
 def new_calculate_all_ETPs(gfEvaluatorObj, parameter_combinations, reference_pop, block_length, mu, processes=1, verbose=False):
     scaled_parameter_combinations = scale_parameters(
         parameter_combinations, 
@@ -950,10 +1084,14 @@ def new_calculate_all_ETPs(gfEvaluatorObj, parameter_combinations, reference_pop
         symbolic=True, 
         shape='LOD'
         )
+    print("# scaled_parameter_combinations")
+    for d in scaled_parameter_combinations:
+        print({k: float(v) for k, v in d.items()})
+
     all_ETPs = []
     print("[+] Calculating probabilities of mutation configurations for %s gridpoints" % len(scaled_parameter_combinations))
     if processes==1:
-        for parameter_combination in tqdm(scaled_parameter_combinations, desc="[%]", ncols=100, disable=True):
+        for parameter_combination in tqdm(scaled_parameter_combinations, desc="[%]", ncols=100):
             result = gfEvaluatorObj.evaluate_gf(parameter_combination, parameter_combination[sage.all.SR.var('theta')]) 
             all_ETPs.append(result)
                 

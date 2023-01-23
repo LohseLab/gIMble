@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: plot_gridsearch               -b FILE [-h|--help]
+"""usage: plot_gridsearch               -b FILE [-f INT] [-l INT] [-h|--help]
                                             
     Options:
         -b, --bed_f FILE                 BED file
-
+        -f, --column_first INT           First column (0-based) to include in barchart [default: 4]
+        -l, --column_last INT            Last column (0-based) to include in barchart 
         -h --help                        show this
 """
 
@@ -15,6 +16,7 @@ from docopt import docopt
 import matplotlib.pyplot as plt
 import matplotlib as mat
 import sys
+import collections
 mat.use("agg")
 
 COLOR_HISTOGRAM = 'orange'
@@ -24,6 +26,7 @@ COLOR_AXES = 'grey'
 LEGEND_FONTSIZE = 10
 AXES_TICKS_FONTSIZE = 8
 AXES_LABELS_FONTSIZE = 8
+MAX_BINS = 500
 
 # MATPLOTLIB PARAMS
 mat.rcParams['text.color'] = COLOR_AXES
@@ -79,11 +82,34 @@ def parse_bed(bed_f):
     out_prefix = ".".join(bed_f.split(".")[:-1])
     return (bed_df, out_prefix)
 
-def plot_distributions(bed_df, out_prefix):
-    parameter_cols = bed_df.columns[4:]
-    fig, ax = plt.subplots(nrows=len(parameter_cols), ncols=1, sharey=False, sharex=False, figsize=(5,2*len(parameter_cols)))
+def check_parameters(args):
+    args_clean = {}
+    if not args['--column_last'] is None:
+        try:
+            args['--column_last'] = int(args['--column_last'])
+        except ValueError:
+            sys.exit('[X] Invalid value for --column_last : %r' % args['--column_last'])
+    try:
+        args['--column_first'] = int(args['--column_first'])
+    except ValueError:
+        sys.exit('[X] Invalid value for --column_first : %r' % args['--column_first'])
+    return args
+
+def plot_distributions(bed_df, out_prefix, first_col, last_col):
+    parameter_cols = bed_df.columns[first_col:last_col]
+    bins_by_parameter = {}
     for idx, parameter in enumerate(parameter_cols):
         bins = len(bed_df[parameter].unique())
+        if bins == 1:
+            print("[+] Ignoring column %r ... constant value" % parameter)
+        elif bins < MAX_BINS:
+            print("[+] Plotting column %r" % parameter)
+            bins_by_parameter[parameter] = bins
+        else:
+            print("[+] Plotting column %r ... adjusting bins to 100" % (parameter))
+            bins_by_parameter[parameter] = 100
+    fig, ax = plt.subplots(nrows=len(bins_by_parameter), ncols=1, sharey=False, sharex=False, figsize=(5,3*len(bins_by_parameter)))
+    for idx, (parameter, bins) in enumerate(bins_by_parameter.items()):
         ax[idx].hist(bed_df[parameter], bins=bins, color='lightgrey', alpha=0.8, linestyle='-', linewidth=1, label=parameter) 
         ax[idx].set_xlabel(parameter)
         ax[idx].set_ylabel('Count')
@@ -94,13 +120,14 @@ def plot_distributions(bed_df, out_prefix):
     plt.close(fig)
 
 if __name__ == '__main__':
-    __version__ = 0.1
+    __version__ = 0.3
     try:
         start_time = timer()
         args = docopt(__doc__)
+        args = check_parameters(args)
         bed_df, out_prefix = parse_bed(args['--bed_f'])
-        plot_distributions(bed_df, out_prefix)
-        plot_windows(bed_df, out_prefix)
-        plot_scatter(bed_df, out_prefix)
+        plot_distributions(bed_df, out_prefix, args['--column_first'], args['--column_last'])
+        #plot_windows(bed_df, out_prefix)
+        #plot_scatter(bed_df, out_prefix)
     except KeyboardInterrupt:
         exit(-1)

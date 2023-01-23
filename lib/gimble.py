@@ -32,6 +32,8 @@ import lib.math
 import tabulate
 from timeit import default_timer as timer
 
+import agemo
+import lib.optimize
 import msprime
 # np.set_printoptions(threshold=sys.maxsize)
 
@@ -497,27 +499,26 @@ def config_to_meta(config, task):
         meta["data_ndims"] = config["data_ndims"]
     if task == "optimize":
         meta["optimize_key"] = config["optimize_key"]
-        meta["optimize_keys"] = config["optimize_keys"]
-        meta["random_seed"] = config["gimble"]["random_seed"]
+        meta["random_seed"] = config["random_seed"]
         meta["data_source"] = config["data_source"]
         meta["data_key"] = config["data_key"]
-        meta["start_point_method"] = config["start_point_method"]
-        meta["start_point"] = list([float(k) for k in config["start_point"]])
-        meta["population_by_letter"] = config["populations"]["population_by_letter"]
-        meta["reference_pop_id"] = config["populations"]["reference_pop_id"]
+        meta["start_point_method"] = config["nlopt_start_point_method"]
+        meta["start_point"] = list([float(k) for k in config["nlopt_start_point"]])
+        #meta["population_by_letter"] = config["population_by_letter"]
         meta["optimize_time"] = config["optimize_time"]
-        meta["max_iterations"] = config["max_iterations"]
-        meta["xtol_rel"] = config["xtol_rel"]
-        meta["ftol_rel"] = config["ftol_rel"]
-        meta["parameters"] = config["parameters"]
-        meta["parameters"]["fixed"] = config["parameters_fixed"]
-        meta["parameters"]["bounded"] = config["parameters_bounded"]
+        meta["lower_bound"] = config["nlopt_lower_bound"]
+        meta["upper_bound"] = config["nlopt_upper_bound"]
+        meta["max_iterations"] = config["nlopt_maxeval"]
+        meta["xtol_rel"] = config["nlopt_xtol_rel"]
+        meta["ftol_rel"] = config["nlopt_ftol_rel"]
+        meta["parameters_fixed"] = config["nlopt_parameters_fixed"]
+        meta["parameters_bounded"] = config["nlopt_parameters_bound"]
         meta["block_length"] = config["block_length"]
-        meta["mu"] = config["mu"]["mu"]
-        meta["label"] = config["gimble"]["label"]
-        meta["model"] = config["gimble"]["model"]
-        meta["reference_pop_id"] = config["populations"]["reference_pop_id"]
-        meta["sync_pop_ids"] = config["populations"]["sync_pop_ids"]
+        meta["mu"] = config["mu"]
+        meta["label"] = config["optimize_label"]
+        meta["model"] = config["model"]
+        meta["reference_pop_id"] = config["ref_pop"]
+        meta["sync_pop_ids"] = config["sync_pops"]
     return meta
 
 
@@ -680,40 +681,110 @@ def get_config_optimize(config):
     return config
 
 class ModelObj(object):
-    def __init__(self, model=None, Ne_A=None, Ne_B=None, Ne_A_B=None, me=None, T=None):
-        self._SUPPORTED_MODELS = ["DIV", "IM_BA", "IM_AB", "MIG_BA", "IM_BA"]
-        # print("ModelObj.__init__(): ", "model", model, "Ne_A", Ne_A, "Ne_B", Ne_B, "Ne_A_B", Ne_A_B, "me", me, "T", T)
+    def __init__(self, model=None, Ne_A=None, Ne_B=None, Ne_A_B=None, me=None, T=None, mu=None, ref_pop=None, sync_pops=None, block_length=None, kmax=None):
+        self._SUPPORTED_MODELS = ["DIV", "IM_BA", "IM_AB", "MIG_BA", "MIG_AB"]
         self.model = self.validate_model(model)
+        self.order_of_parameters = self.get_order_of_parameters()
+
+        self.pop_ids = set(self.order_of_parameters) - set(['me', 'T'])
+        self.mu = mu
+        self.block_length = block_length
+        self.sync_pops = self.validate_sync_pops(sync_pops)
+        self.ref_pop = self.validate_ref_pop(ref_pop)
+        self.kmax = self.validate_kmax(kmax)
+        #
         self.Ne_A = Ne_A
         self.Ne_B = Ne_B
         self.Ne_A_B = Ne_A_B
         self.me = me
         self.T = T
-        self.populations = self.get_populations()
-        self.events = self.get_events()
-        self.demography = self.get_demography()
 
-    def get_parameter_dict(self):
-        return {
-            'model': self.model, 
-            'Ne_A': self.Ne_A, 
-            'Ne_B': self.Ne_B, 
-            'Ne_A_B': self.Ne_A_B, 
-            'me': self.me, 
-            'T': self.T}
+        self.fixed_parameters = self.get_fixed_parameters()
+
+    def __str__(self):
+        return "GimbleDemographyInstance(%s)" % (", ".join(["=".join([k, str(v)]) for k, v in self.get_parameter_dict(nones=False).items()]))
+
+    def __repr__(self):
+        return "GimbleDemographyInstance(%s)" % (", ".join(["=".join([k, str(v)]) for k, v in self.get_parameter_dict(nones=True).items()]))
+
+    def get_fixed_parameters(self):
+        return set([p for p in self.order_of_parameters if getattr(self, p) is not None])
+
+    def scale_parameters(self, values_by_parameter={}):
+        SCALING_FACTOR = 2
+        values_by_parameter_scaled = {}
+        values_by_parameter_unscaled = {}
+        parameters_self = set([parameter for parameter in self.order_of_parameters if getattr(self, parameter, None) is not None])
+        parameters_args = set(values_by_parameter.keys())
+        parameters_missing = set(self.order_of_parameters) - parameters_self - parameters_args - set(self.sync_pops)
+        if not parameters_missing:
+            ref_pop = self.ref_pop if not self.ref_pop in self.sync_pops else "Ne_s"
+            ref_Ne_value = getattr(self, ref_pop, values_by_parameter.get(ref_pop, None))
+            values_by_parameter_scaled['theta_branch'] = SCALING_FACTOR * ref_Ne_value * self.mu * self.block_length # 2Ne*mu
+            for parameter in self.order_of_parameters:
+                param = 'Ne_s' if parameter in self.sync_pops else parameter
+                value = values_by_parameter[param] if param in values_by_parameter else getattr(self, param)
+                if param.startswith("Ne"):
+                    values_by_parameter_scaled[parameter] = ref_Ne_value / value
+                    values_by_parameter_unscaled[parameter] = value
+                elif param.startswith("me"):
+                    values_by_parameter_scaled[parameter] = SCALING_FACTOR * ref_Ne_value * value
+                    values_by_parameter_unscaled[parameter] = value
+                elif param.startswith("T"):
+                    values_by_parameter_scaled[parameter] = 0 if self.T is None else self.T / (SCALING_FACTOR * ref_Ne_value) 
+                    values_by_parameter_unscaled[parameter] = value
+                else:
+                    raise ValueError('[X] Unknown parameter %r with value %r' % (parameter, unscaled_value))
+        return (values_by_parameter_scaled, values_by_parameter_unscaled)
+
+    def get_agemo_values(self, scaled_values_by_parameter={}):
+        '''Ne_s comes from nlopt_parameters'''
+        if not scaled_values_by_parameter:
+            scaled_values_by_parameter, values_by_parameter_unscaled = self.scale_parameters()
+        theta_along_branchtypes = np.full(len(self.kmax), scaled_values_by_parameter['theta_branch'], dtype=np.float64) # len(branch_type_object)
+        time = scaled_values_by_parameter['T']
+        var_values = []
+        for parameter in self.order_of_parameters:
+            value = scaled_values_by_parameter[parameter]
+            if parameter.startswith("Ne") or parameter.startswith("me"):
+                var_values.append(value)
+        var = np.hstack([np.array(var_values, dtype=np.float64), theta_along_branchtypes])
+        return (scaled_values_by_parameter['theta_branch'], var, time)
+
+    def get_parameter_dict(self, nones=False):
+        if nones:
+            return {key: value for key, value in self.__dict__.items() if not key.startswith("_")}    
+        return {key: value for key, value in self.__dict__.items() if not key.startswith("_") and not value is None}
+
+    def validate_sync_pops(self, sync_pops): 
+        if sync_pops is None:
+            return []
+        pops_invalid = [pop for pop in sync_pops if not pop in self.pop_ids]
+        if pops_invalid:
+            return sys.exit("[X] Syncing of population sizes in analysis not possible: %r not valid for model %r (%s)" % (", ".join(pops_invalid), self.model, ", ".join(self.pop_ids)))
+        return sync_pops
+
+    def validate_ref_pop(self, ref_pop):
+        if ref_pop in self.pop_ids:
+            return ref_pop
+        return sys.exit("[X] Reference population %r not valid for model: %r" % (ref_pop, self.model))
+
+    def validate_kmax(self, kmax):
+        '''needs some validation once format is decided upon'''
+        return kmax
 
     def validate_model(self, model):
         if model not in set(self._SUPPORTED_MODELS):
             return sys.exit("[X] Model %s is not supported. Supported models are: %s" % (model, ", ".join(self._SUPPORTED_MODELS)))
         return model
     
-    def get_populations(self):
+    def get_order_of_parameters(self):
         return {
-            "DIV": ['A', 'B', 'A_B'],
-            "MIG_AB": ['A', 'B'],
-            "MIG_BA": ['A', 'B'],
-            "IM_AB": ['A', 'B', 'A_B'],
-            "IM_BA": ['A', 'B', 'A_B'],
+            "DIV": ['Ne_A_B', 'Ne_A', 'Ne_B', 'T'],
+            "MIG_AB": ['Ne_A', 'Ne_B', 'me'],
+            "MIG_BA": ['Ne_A', 'Ne_B', 'me'],
+            "IM_AB": ['Ne_A_B', 'Ne_A', 'Ne_B', 'me', 'T'],
+            "IM_BA": ['Ne_A_B', 'Ne_A', 'Ne_B', 'me', 'T'],
             }.get(self.model, None)
 
     def get_events(self):
@@ -741,14 +812,14 @@ class ModelObj(object):
             graph.add_deme("A", ancestors=["A_B"], defaults=dict(epoch=dict(start_size=self.Ne_A, end_size=self.Ne_A)))
             graph.add_deme("B", ancestors=["A_B"], defaults=dict(epoch=dict(start_size=self.Ne_B, end_size=self.Ne_B)))
             '''Source and destination demes refer to individuals migrating forwards in time.'''
-            # graph.add_migration(source="A", dest="B", rate=self.me)
+            # graph.add_migration(source="A", dest="B", rate=self.me) # wrong
             graph.add_migration(source="B", dest="A", rate=self.me)
         elif self.model == "MIG_BA":
             graph = demes.Builder(time_units="generations")
             graph.add_deme("A", ancestors=["A_B"], defaults=dict(epoch=dict(start_size=self.Ne_A, end_size=self.Ne_A)))
             graph.add_deme("B", ancestors=["A_B"], defaults=dict(epoch=dict(start_size=self.Ne_B, end_size=self.Ne_B)))
             '''Source and destination demes refer to individuals migrating forwards in time.'''
-            # graph.add_migration(source="B", dest="A", rate=self.me)
+            # graph.add_migration(source="B", dest="A", rate=self.me) # wrong
             graph.add_migration(source="A", dest="B", rate=self.me)
         elif self.model == "IM_AB":
             graph = demes.Builder(time_units="generations")
@@ -756,7 +827,7 @@ class ModelObj(object):
             graph.add_deme("A", ancestors=["A_B"], defaults=dict(epoch=dict(start_size=self.Ne_A, end_size=self.Ne_A)))
             graph.add_deme("B", ancestors=["A_B"], defaults=dict(epoch=dict(start_size=self.Ne_B, end_size=self.Ne_B)))
             '''Source and destination demes refer to individuals migrating forwards in time.'''
-            # graph.add_migration(source="A", dest="B", rate=self.me)
+            # graph.add_migration(source="A", dest="B", rate=self.me) # wrong
             graph.add_migration(source="B", dest="A", rate=self.me)
         elif self.model == "IM_BA":
             graph = demes.Builder(time_units="generations")
@@ -764,7 +835,7 @@ class ModelObj(object):
             graph.add_deme("A", ancestors=["A_B"], defaults=dict(epoch=dict(start_size=self.Ne_A, end_size=self.Ne_A)))
             graph.add_deme("B", ancestors=["A_B"], defaults=dict(epoch=dict(start_size=self.Ne_B, end_size=self.Ne_B)))
             '''Source and destination demes refer to individuals migrating forwards in time.'''
-            # graph.add_migration(source="B", dest="A", rate=self.me)
+            # graph.add_migration(source="B", dest="A", rate=self.me) # wrong
             graph.add_migration(source="A", dest="B", rate=self.me)
         else:
             pass
@@ -2131,9 +2202,50 @@ def _optimize_describe_df(df, label):
     )
     summary.to_csv(f"{label}_summary.csv")
 
+class RunArgs(object):
+    def __init__(self, env, args):
+        self.gimble_dir = env["path"]
+        self.version = env["version"]
+        self.module = env["module"]
+        self.cwd = env["cwd"]
+        self.debug = env["cwd"]
+        #
+        self.data_path = args.get('--store', None)
+        self.max_k = self._get_max_k(args.get('--max_k', None))
+        self.overwrite = args.get('--overwrite', None)
+        self.processes = args.get('--processes', None)
+        #
+        self.tally_source = args.get('--tally_source', None)
+        self.tally_label = args.get('--tally_label', None)
+        self.tally_sample_sets = args.get('--tally_sample_sets', None)
+        self.tally_sequence_ids = args.get('--tally_sequence_ids', None)
 
+        self.simulate_label = args.get('--simulate_label', None)
+        self.samples_A = None
+
+        self.block_length = args.get('--block_length', None)
+        self.block_span = args.get('--block_span', None)
+        self.block_max_multiallelic = args.get('--block_max_multiallelic', None)
+        self.block_max_missing = args.get('--block_max_missing', None)
+
+        self.window_size = self._get_int((args['--window_size']))
+        self.window_step = self._get_int((args['--window_step']))
+
+        self.query_key = args.get('--query_key', None)
+        self.sliced_param = args.get('--sliced_parameters', None)
+        self.fixed_param = args.get('--fixed_parameters', None)
+
+        # self.sim_label = args['--sim_label']
+        # self.windowsum = args['--windowsum']
+        # # self.tally_label = args['--tally_label']
+        # self.max_iterations = self._get_int(args['--max_iterations'])
+        # self.xtol_rel = self._get_float(args['--xtol'])
+        # self.ftol_rel = self._get_float(args['--ftol'])
+        # self.num_cores = self._get_int(args['--num_cores'])    # number of workers for independent processes
+        # self.start_point = self._check_start_point(args['--start_point'])
+        # self.force = args['--force']
+        # self.config = lib.gimble.load_config(self.config_file, self._MODULE, self._CWD, self._VERSION)
 class ParameterObj(object):
-    # [INPUTLIB]
     """Superclass ParameterObj"""
 
     def __init__(self, params):
@@ -2161,36 +2273,6 @@ class ParameterObj(object):
     def _dict_zip(self, pdict):
         """DRL: if this is only used once, no need for being separate function"""
         return [dict(zip(pdict, x)) for x in zip(*pdict.values())]
-
-    # def _get_blocks_length(self):
-    #     warnings.warn(
-    #         "lib.gimble._get_blocks_length() is deprecated.", DeprecationWarning
-    #     )
-    #     blocks_length_zarr = None
-    #     blocks_length_ini = self._get_int(
-    #         self.config["mu"]["blocklength"], ret_none=True
-    #     )
-    #     if self.zstore:
-    #         gimbleStore = lib.gimble.Store(
-    #             path=self.zstore, create=False, overwrite=False
-    #         )
-    #         meta_blocks = gimbleStore._get_meta("blocks")
-    #         if isinstance(meta_blocks, dict):
-    #             blocks_length_zarr = meta_blocks.get("length", None)
-    #     if blocks_length_zarr and blocks_length_ini:
-    #         if blocks_length_zarr != blocks_length_ini:
-    #             print(
-    #                 "[-] Block length in INI and gimbleStore differ. Using block length from INI : %s b"
-    #                 % blocks_length_ini
-    #             )
-    #             return blocks_length_ini
-    #         return blocks_length_zarr
-    #     if blocks_length_zarr:
-    #         return blocks_length_zarr
-    #     if blocks_length_ini:
-    #         return blocks_length_ini
-    #     else:
-    #         sys.exit("[X] Blocklength needs to be specified in ini file.")
 
     def _get_int(self, string, ret_none=False):
         try:
@@ -3276,7 +3358,7 @@ class Store(object):
         def get_demographies(config):
             gridsearch_label = config["gridbased"]["grid_label"]
             if gridsearch_label:
-                gridsearch_constraint = config["gridbased"].get("fixed", {'me': 0}) ### has to work
+                gridsearch_constraint = config["gridbased"].get("fixed", {}) ### has to work
                 gridsearch_label = check_key(gridsearch_label, 'gridsearch')
                 return get_demographies_from_gridsearch(gridsearch_label, gridsearch_constraint)
             return get_demographies_from_config(config)
@@ -5075,7 +5157,7 @@ class Store(object):
             meta = self._get_meta(config["data_key"])
             if windowsum:
                 data = [(idx, np.sum(tally, axis=0, dtype=np.int64)) for idx, tally in self.data[config["data_key"]].arrays()]
-                print([(idx, d[0][0][0][0]) for idx, d in data])
+                #print([(idx, d[0][0][0][0]) for idx, d in data])
                 #config["data_label"] = "%s.windowsum" % config["data_label"]
             else:
                 data = [(idx, tally) for idx, tally in self.data[config["data_key"]].arrays()]
@@ -5118,6 +5200,7 @@ class Store(object):
         )
         replicates = config.get('replicates', 0)
         for key, (idx, tally) in zip(config["gridsearch_keys"], data_generator):
+            print('tally.shape', tally.shape)
             # print("tally", type(tally), tally.shape)
             gridsearch_dask_result = gridsearch_dask(
                 tally=tally, grid=grid, num_cores=num_cores, chunksize=chunksize
@@ -5136,6 +5219,110 @@ class Store(object):
     #        self._set_meta_and_data(config['gridsearch_key_5D'], gridsearch_meta, gridsearch_5D_result)
     #    print("[+] Saved gridsearch results.")
 
+    def _preflight_agemo_optimize(
+        self,
+        config,
+        sim_key,
+        windowsum,
+        tally_key,
+        num_cores,
+        start_point,
+        max_iterations,
+        xtol_rel,
+        ftol_rel,
+        overwrite,
+    ):
+        print("[config]", config)
+    
+        # emulating args ...
+        agemo_config = {
+            'model': config['gimble']['model'],
+            'random_seed': config['gimble']['random_seed'],
+            'Ne_A': list(config['parameters']['Ne_A']),
+            'Ne_B': list(config['parameters']['Ne_B']),
+            'Ne_A_B': list(config['parameters']['Ne_A_B']),
+            'me': list(config['parameters']['me']),
+            'T': list(config['parameters']['T']),
+            'mu': config['mu']['mu'],
+            'ref_pop': "Ne_%s" % config['populations']['reference_pop_id'],
+            'sync_pops': ["Ne_%s" % pop for pop in config['populations']['sync_pop_ids']],
+            'nlopt_start_point_method': start_point,
+            'nlopt_maxeval': max_iterations,
+            'nlopt_xtol_rel': xtol_rel,
+            'nlopt_ftol_rel': ftol_rel,
+            'nlopt_processes': num_cores,
+            'optimize_time' : None,
+            'optimize_label': config["gimble"]["label"],
+        }
+        
+        # labels/keys
+        agemo_config["data_key"] = (sim_key or tally_key)
+        agemo_config["data_source"] = "sims" if sim_key else "meas"
+        agemo_config["data_label"] = agemo_config["data_key"].split("/")[1] if not windowsum else "%s.windowsum" % agemo_config["data_key"].split("/")[1]
+        if not self._has_key(agemo_config["data_key"]):
+            sys.exit("[X] No data found with label %r." % agemo_config["data_label"])
+        agemo_config["optimize_key"] = "optimize/%s/%s" % (agemo_config["data_label"], agemo_config["optimize_label"])
+        if not overwrite and self._has_key(agemo_config["optimize_key"]):
+            sys.exit(
+                "[X] Analysis with label %r on data %r already exist. Change the label in the config file or use '--force'"
+                % (agemo_config["optimize_label"],  agemo_config["data_key"])
+            )
+        # data
+        data_meta = self._get_meta(agemo_config["data_key"])
+        agemo_config["max_k"] = np.array(data_meta["max_k"])
+        agemo_config["block_length"] = data_meta["block_length"]
+        if agemo_config["data_source"] == "meas":
+            data = ((0, self._get_data(agemo_config["data_key"])) for _ in (0,))
+            agemo_config["nlopt_chains"] = data_meta['windows'] if data_meta['data_ndims'] == 5 else 1 # blocks/windowsum => 1, windows => n
+            agemo_config["nlopt_runs"] = 1
+        else:
+            data = [(idx, tally) if not windowsum else (idx, np.sum(tally, axis=0)) for idx, tally in self.data[agemo_config["data_key"]].arrays()]
+            agemo_config["nlopt_chains"] = data_meta['windows'] if not windowsum else 1
+            agemo_config["nlopt_runs"] = data_meta['replicates'] 
+
+        # demography
+        gimbleDemographyInstance = ModelObj(
+                model=agemo_config['model'], 
+                mu=agemo_config['mu'], 
+                ref_pop=agemo_config['ref_pop'], 
+                block_length=agemo_config['block_length'], 
+                sync_pops=agemo_config['sync_pops'],
+                Ne_A=agemo_config['Ne_A'][0] if len(agemo_config['Ne_A']) == 1 else None,
+                Ne_B=agemo_config['Ne_B'][0] if len(agemo_config['Ne_B']) == 1 else None,
+                Ne_A_B=agemo_config['Ne_A_B'][0] if len(agemo_config['Ne_A_B']) == 1 else None,
+                me=agemo_config['me'][0] if len(agemo_config['me']) == 1 else None,
+                T=agemo_config['T'][0] if len(agemo_config['T']) == 1 else None,
+                kmax=agemo_config['max_k'])
+        agemo_config['gimbleDemographyInstance'] = gimbleDemographyInstance
+        # NLOPT parameters
+        agemo_config['nlopt_parameters'] = []
+        agemo_config['nlopt_parameters_fixed'] = list(gimbleDemographyInstance.fixed_parameters)
+        agemo_config['nlopt_parameters_bound'] = []
+        agemo_config['nlopt_lower_bound'] = []
+        agemo_config['nlopt_upper_bound'] = []
+        sync_done = False
+        for parameter in gimbleDemographyInstance.order_of_parameters:
+            if len(agemo_config[parameter]) == 2:
+                agemo_config['nlopt_parameters_bound'].append(parameter)
+                if parameter in gimbleDemographyInstance.sync_pops:
+                    if not sync_done:
+                        agemo_config['nlopt_parameters'].append('Ne_s')
+                        agemo_config['nlopt_lower_bound'].append(min(agemo_config[parameter]))
+                        agemo_config['nlopt_upper_bound'].append(max(agemo_config[parameter]))
+                        sync_done = True
+                else:
+                    agemo_config['nlopt_parameters'].append(parameter)
+                    agemo_config['nlopt_lower_bound'].append(min(agemo_config[parameter]))
+                    agemo_config['nlopt_upper_bound'].append(max(agemo_config[parameter]))
+        startpoints = {
+            'midpoint' : np.mean(np.vstack((agemo_config['nlopt_lower_bound'], agemo_config['nlopt_upper_bound'])), axis=0),
+            'random': np.random.uniform(low=agemo_config['nlopt_lower_bound'], high=agemo_config['nlopt_upper_bound'])
+        }
+        agemo_config['nlopt_start_point'] = startpoints[agemo_config['nlopt_start_point_method']]
+        
+        print("[agemo_config]", agemo_config)
+        return (data, agemo_config)
+
     def _preflight_optimize(
         self,
         config,
@@ -5149,11 +5336,13 @@ class Store(object):
         ftol_rel,
         overwrite,
     ):
+
         config["num_cores"] = num_cores
         config["max_iterations"] = max_iterations
         config["xtol_rel"] = xtol_rel
         config["ftol_rel"] = ftol_rel
         config["optimize_time"] = "None"  # just so that it initialised for later
+        ### modelObjs are not created here but when they come out of NLOPT!!!!!!!!!!!!!
 
         # Error if no data
         config["data_key"] = sim_key if sim_key else tally_key
@@ -5184,126 +5373,52 @@ class Store(object):
         config["start_point"] = STARTPOINT[start_point]
         return (data, config)
 
-        # config["gridsearch_key"] = "gridsearch/%s/%s" % (config["data_label"], config["makegrid_label"])
-        # if not overwrite and self._has_key(config["gridsearch_key"]):
-        #     sys.exit(
-        #         "[X] Gridsearch results with grid label %r on data %r already exist. Use '-f' to replace."
-        #         % (config["makegrid_label"], config["data_label"])
-        #     )
-        # if config["data_source"] == "meas":
-        #     # data is an iterator
-        #     data = [(0, self._get_data(config["data_key"])) for _ in (0,)]
-        #     meta = self._get_meta(config["data_key"])
-        #     config["block_length_data"] = meta["block_length"]
-        #     config["batch_sites"] = meta["block_length"] * meta["blocks"]
-        #     config["max_k"] = np.array(meta["max_k"])  
-        #     config["gridsearch_keys"] = ["gridsearch/%s/%s/0" % (config["data_label"], config['makegrid_label'])]
-        # else:
-        #     # data is an iterator
-        #     meta = self._get_meta(config["data_key"])
-        #     if windowsum:
-        #         data = [(idx, np.sum(tally, axis=0)) for idx, tally in self.data[config["data_key"]].arrays()]
-        #         config["data_label"] = "%s.windowsum" % config["data_label"]
-        #     else:
-        #         data = [(idx, tally) for idx, tally in self.data[config["data_key"]].arrays()]
-        #     config["block_length_data"] = meta['block_length']
-        #     config["batch_sites"] = (meta['block_length'] * meta["blocks"])
-        #     config["max_k"] = np.array(meta["max_k"])  
-        #     config["gridsearch_keys"] = ["gridsearch/%s/%s/%s" % (config["data_label"], config['makegrid_label'], idx)
-        #         for idx in range(meta["replicates"])
-        #     ]
-        # config['data_ndims'] = data[0][1].ndim
-        # config["block_length_grid"] = grid_meta["block_length"]
-        # # print('grid_meta', dict(grid_meta))
-        # config["parameters_grid_points"] = grid_meta.get(
-        #     "parameters_grid_points", grid.shape[0]
-        # )  # grid.shape[0] fallback is for older zarr stores...
-        # # checking whether block_length in data and grid are compatible
-        # if not config["block_length_data"] == config["block_length_grid"]:
-        #     sys.exit(
-        #         "[X] Block lengths in data %r (%s) and grid %r (%s) are not compatible.."
-        #         % (
-        #             data_label,
-        #             config["block_length_data"],
-        #             grid_label,
-        #             config["block_length_grid"],
-        #         )
-        #     )
-        # return (config, data, grid)
-        # Error if no data
-        # print("data_key", config["data_key"])
-        # if not self._has_key(config["data_key"]):
-        #     sys.exit("[X] gimbleStore has no %r." % config["data_key"])
-        # data_meta = self._get_meta(config["data_key"])
-        # print("data_meta", dict(data_meta))
-        # config["data_source"] = "sims" if sim_key else "meas"
-        # config["data_label"] = config["data_key"].replace("/", ".")
-        # config["optimize_label"] = config["gimble"]["label"]
-        
-        # # Error if results clash
-        # config["optimize_key"] = self._get_key(
-        #     task="optimize",
-        #     data_label=config["data_label"],
-        #     analysis_label=config["gimble"]["label"],
-        # )
-        # print("config", config)
-        # if not overwrite and self._has_key(config["optimize_key"]):
-        #     sys.exit(
-        #         "[X] Analysis with label %r on data %r already exist. Change the label in the config file or use '--force'"
-        #         % (config["gimble"]["label"], config["data_label"])
-        #     )
-        # # get data (this could be a separate function, also needed for gridsearch)
-        # if config["data_source"] == "meas":
-        #     data = ((0, self._get_data(config["data_key"])) for _ in (0,))
-        #     meta = self._get_meta(config["data_key"])
-        #     config["block_length"] = meta["block_length"]
-        #     config["max_k"] = np.array(
-        #         meta["max_k"]
-        #     )  # INI values get overwritten by data ...
-        #     config["optimize_keys"] = [
-        #         self._get_key(
-        #             task="optimize",
-        #             data_label=config["data_label"],
-        #             analysis_label=config["gimble"]["label"],
-        #             parameter_label=idx,
-        #         )
-        #         for idx in range(1)
-        #     ]
-        # else:
-        #     data = self._get_sims_bsfs(
-        #         config["data_key"]
-        #     )  # data is an iterator across parameter combos
-        #     meta = self._get_meta(config["data_key"])
-        #     print('meta', dict(meta))
-        #     config["block_length"] = meta["block_length"]
-        #     config["max_k"] = np.array(
-        #         meta["max_k"]
-        #     )  # INI values get overwritten by data ...
-        #     # config["optimize_key"] only make optimize key and the individual replicates get added later 
-        #     # needs to be homogenized with MEAS
-
-        #     config["optimize_key"] = "optimize/%s/%s" % (config["data_label"], config["optimize_label"])
-        # # start point
-        # config["start_point_method"] = start_point
-        # if start_point == "midpoint":
-        #     config["start_point"] = np.mean(
-        #         np.vstack(
-        #             (
-        #                 config["parameter_combinations_lowest"],
-        #                 config["parameter_combinations_highest"],
-        #             )
-        #         ),
-        #         axis=0,
-        #     )
-        # if start_point == "random":
-        #     # np.random.seed(config['gimble']['random_seed'])
-        #     config["start_point"] = np.random.uniform(
-        #         low=config["parameter_combinations_lowest"],
-        #         high=config["parameter_combinations_highest"],
-        #     )
-        return (data, config)
-
     def optimize(
+        self,
+        config,
+        sim_label,
+        windowsum,
+        tally_label,
+        num_cores,
+        start_point,
+        max_iterations,
+        xtol_rel,
+        ftol_rel,
+        overwrite,
+    ):
+        data, config = self._preflight_agemo_optimize(
+            config,
+            sim_label,
+            windowsum,
+            tally_label,
+            num_cores,
+            start_point,
+            max_iterations,
+            xtol_rel,
+            ftol_rel,
+            overwrite,
+        )
+        optimize_analysis_start_time = timer()  # used for saving elapsed time in meta
+        print("[+] Constructing GeneratingFunction...")
+        print("[+] Agemo ...")
+        evaluator_agemo = self.get_agemo_evaluator(
+            model=config['model'], 
+            kmax=config["max_k"])
+        print("[+] Starting %s NLOPT optimization(s) with %s chain(s)..." % (config["nlopt_runs"], config["nlopt_chains"]))
+        for data_idx, dataset in data:
+            optimize_instance_start_time = timer()
+            optimize_result = lib.optimize.agemo_optimize(
+                evaluator_agemo, data_idx, dataset, config
+            )
+            optimize_time = format_time(timer() - optimize_instance_start_time)
+            self.save_optimize_instance(
+                data_idx, config, optimize_result, optimize_time, overwrite
+            )
+        config["optimize_time"] = format_time(timer() - optimize_analysis_start_time)
+        self._set_meta(config["optimize_key"], meta=config_to_meta(config, "optimize"))
+        print("[+] Optimization results saved under label %r" % config["optimize_key"])
+
+    def optimize_gf(
         self,
         config,
         sim_label,
@@ -5328,6 +5443,7 @@ class Store(object):
             ftol_rel,
             overwrite,
         )
+        print("[config]", config)
         optimize_analysis_start_time = timer()  # used for saving elapsed time in meta
         print("[+] Constructing GeneratingFunction...")
         gf = lib.math.config_to_gf(config)
@@ -5361,8 +5477,7 @@ class Store(object):
     def save_optimize_instance(
         self, data_idx, config, optimize_result, optimize_time, overwrite
     ):
-        data_idx = int(data_idx)
-        optimize_key = config["optimize_keys"][data_idx]
+        optimize_key = config["optimize_key"][int(data_idx)]
         optimize_meta = {}
         optimize_meta["nlopt_log_iteration_header"] = optimize_result[
             "nlopt_log_iteration_header"
@@ -5681,6 +5796,7 @@ class Store(object):
     #     out[tuple(mutuples.T)] = counts
     #     return out
 
+
     def _preflight_makegrid(self, config, overwrite):
         key = self._get_key(task="makegrid", analysis_label=config["gimble"]["label"])
         if not overwrite and self._has_key(key):
@@ -5690,15 +5806,71 @@ class Store(object):
             )
         config["key"] = key
         config["makegrid_label"] = config["gimble"]["label"]
+        ### DOL_to_LOD will determine the ORDER of gridpoints!!! (be sure to keep)
+        parameter_LOD = DOL_to_LOD(config['parameters_expanded'])
+        model_instances = []
+        for model_dict in parameter_LOD:
+            model_instance = ModelObj(
+                model=config['gimble']['model'], 
+                Ne_A=model_dict.get('Ne_A', None), 
+                Ne_B=model_dict.get('Ne_B', None), 
+                Ne_A_B=model_dict.get('Ne_A_B', None), 
+                me=model_dict.get('me', None), 
+                T=model_dict.get('T', None),
+                mu=config['mu']['mu'], 
+                ref_pop="Ne_%s" % config['populations']['reference_pop_id'], 
+                block_length=config['mu']['block_length'], 
+                kmax=config['max_k']) 
+            model_instances.append(model_instance)
+        config['model_instances'] = model_instances
+        config['agemo_parameters'] = [model_instance.get_agemo_values() for model_instance in model_instances]
         return config
 
-    def makegrid(self, config, num_cores, overwrite):
-        # print(self.data.tree())
+    def makegrid(self, config, num_cores, overwrite, agemo=True):
         config = self._preflight_makegrid(config, overwrite)
         print(
             "[+] Grid of %s parameter-grid-points will be prepared..."
             % config["parameters_grid_points"]
         )
+        if agemo:
+            print("[+] Agemo ...")
+            evaluator_agemo = self.get_agemo_evaluator(
+                model=config['gimble']['model'], 
+                kmax=config["max_k"])
+            grid = self.evaluate_grid(evaluator_agemo, config['agemo_parameters'], processes=num_cores, verbose=False)
+        else:
+            print("[+] GF ...")
+            evaluator_gf = self.get_gf_evaluator(config)
+            grid = lib.math.new_calculate_all_ETPs(
+                evaluator_gf,
+                config["parameters_expanded"],
+                config["populations"]["reference_pop_id"],
+                config["mu"]["block_length"],
+                config["mu"]["mu"],
+                processes=num_cores,
+                verbose=False,
+            )
+        self.save_grid(config, grid)
+
+    def evaluate_grid(self, evaluator_agemo, agemo_parameters, processes=1, verbose=False):
+        if verbose:
+            for parameter in agemo_parameters:
+                print(float(parameter[0]), [float(x) for x in parameter[1]], float(parameter[2]))
+        all_ETPs = []
+        print("[+] Calculating probabilities of mutation configurations for %s gridpoints" % len(agemo_parameters))
+        if processes==1:
+            for agemo_parameter in tqdm(agemo_parameters, desc="[%]", ncols=100):
+                theta_branch, var, time = agemo_parameter
+                result = evaluator_agemo.evaluate(theta_branch, var, time=time) 
+                all_ETPs.append(result)
+                    
+        else:
+            with multiprocessing.Pool(processes=processes) as pool:
+                for ETP in pool.starmap(evaluator_agemo.evaluate, tqdm(agemo_parameters, ncols=100, desc="[%]")):
+                    all_ETPs.append(ETP)
+        return np.array(all_ETPs, dtype=np.float64)
+
+    def get_gf_evaluator(self, config):
         gf = lib.math.config_to_gf(config)
         gfEvaluatorObj = togimble.gfEvaluator(
             gf,
@@ -5709,20 +5881,39 @@ class Store(object):
                 (2, 3),
             ],
         )
-        print(
-            "[+] Equations for model %r have been generated."
-            % config["gimble"]["model"]
-        )
-        grid = lib.math.new_calculate_all_ETPs(
-            gfEvaluatorObj,
-            config["parameters_expanded"],
-            config["populations"]["reference_pop_id"],
-            config["mu"]["block_length"],
-            config["mu"]["mu"],
-            processes=num_cores,
-            verbose=False,
-        )
-        self.save_grid(config, grid)
+        return gfEvaluatorObj
+
+    def get_agemo_evaluator(self, model=None, kmax=None):
+        mutation_shape = tuple(kmax + 2)
+        if model == "DIV":
+            sample_configuration = [(), ('a', 'a'), ('b', 'b')]
+            events = [agemo.PopulationSplitEvent(len(sample_configuration), 0, 1, 2)]
+        if model == "MIG_AB":
+            sample_configuration = [('a', 'a'), ('b', 'b')]
+            events = [agemo.MigrationEvent(len(sample_configuration), 1, 2)]
+        if model == "MIG_BA":
+            sample_configuration = [('a', 'a'), ('b', 'b')]
+            events = [agemo.MigrationEvent(len(sample_configuration), 2, 1)]
+        if model == "IM_AB":
+            sample_configuration = [(), ('a', 'a'), ('b', 'b')]
+            events = [
+                agemo.MigrationEvent(len(sample_configuration), 1, 2),
+                agemo.PopulationSplitEvent(len(sample_configuration) + 1, 0, 1, 2)]
+        if model == "IM_BA":
+            sample_configuration = [(), ('a', 'a'), ('b', 'b')]
+            events = [
+                agemo.MigrationEvent(len(sample_configuration), 2, 1),
+                agemo.PopulationSplitEvent(len(sample_configuration) + 1, 0, 1, 2)]
+        # Default order of branches is different and therefor needs to be adjusted:
+        # - agemo : {'a': 0, 'abb': 0, 'b': 1, 'aab': 1, 'aa': 2, 'bb': 2, 'ab': 3} ... [hetA, hetB, fixed, hetAB]
+        # - gimble : {'a': 1, 'abb': 1, 'b': 0, 'aab': 0, 'aa': 2, 'bb': 2, 'ab': 3} ... [hetB, hetA, hetAB, fixed]
+        branchtype_dict = {'a': 1, 'abb': 1, 'b': 0, 'aab': 0, 'aa': 3, 'bb': 3, 'ab': 2}
+        branch_type_object = agemo.BranchTypeCounter(sample_configuration, branchtype_dict=branchtype_dict)
+        num_branchtypes = len(branch_type_object)
+        mutation_type_object = agemo.MutationTypeCounter(branch_type_object, mutation_shape)
+        gf = agemo.GfMatrixObject(branch_type_object, events)
+        evaluator = agemo.BSFSEvaluator(gf, mutation_type_object)
+        return evaluator
 
     def save_grid(self, config, grid):
         grid_meta = config_to_meta(config, "makegrid")
@@ -5860,9 +6051,11 @@ class Store(object):
             variation[..., [0, 1]] = variation[..., [1, 0]]
         return variation
 
-    def _get_sims_bsfs(self, key):
+    def _get_sims_bsfs(self, key, generator=True):
         if self._has_key(key):
-            return self.data[key].arrays()
+            if generator:
+                return self.data[key].arrays()
+            return self.data[key]
         return None
 
     def _init_store(self, create, overwrite):
