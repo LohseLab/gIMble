@@ -712,6 +712,7 @@ class ModelObj(object):
 
     def scale_parameters(self, values_by_parameter={}):
         SCALING_FACTOR = 2
+        print('values_by_parameter', values_by_parameter)
         values_by_parameter_scaled = {}
         values_by_parameter_unscaled = {}
         parameters_self = set([parameter for parameter in self.order_of_parameters if getattr(self, parameter, None) is not None])
