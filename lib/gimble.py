@@ -5200,7 +5200,7 @@ class Store(object):
         )
         replicates = config.get('replicates', 0)
         for key, (idx, tally) in zip(config["gridsearch_keys"], data_generator):
-            print('tally.shape', tally.shape)
+            #print('tally.shape', tally.shape)
             # print("tally", type(tally), tally.shape)
             gridsearch_dask_result = gridsearch_dask(
                 tally=tally, grid=grid, num_cores=num_cores, chunksize=chunksize
@@ -5293,6 +5293,7 @@ class Store(object):
                 me=agemo_config['me'][0] if len(agemo_config['me']) == 1 else None,
                 T=agemo_config['T'][0] if len(agemo_config['T']) == 1 else None,
                 kmax=agemo_config['max_k'])
+        print('gimbleDemographyInstance', gimbleDemographyInstance)
         agemo_config['gimbleDemographyInstance'] = gimbleDemographyInstance
         # NLOPT parameters
         agemo_config['nlopt_parameters'] = []
