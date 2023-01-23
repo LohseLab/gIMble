@@ -46,8 +46,8 @@ def get_nlopt_log_iteration_tuple(dataset_idx, iteration, block_length, likeliho
 def get_nlopt_log_fn(data_idx, config):
     # optimize_meta = lib.gimble.config_to_meta(config, 'optimize') # could be used to populate header further with data
     nlopt_log_header = ["dataset_idx", 'iteration', 'block_length', 'likelihood']
-    nlopt_log_header += ['%s_unscaled' % parameter for parameter in config['gimbleDemographyInstance'].order_of_parameters]
     nlopt_log_header += ['%s_scaled' % parameter for parameter in config['gimbleDemographyInstance'].order_of_parameters]
+    nlopt_log_header += ['%s_unscaled' % parameter for parameter in config['gimbleDemographyInstance'].order_of_parameters]
     nlopt_log_fn = "gimble.optimize.%s.%s.%s.log" % (config['optimize_label'], data_idx, datetime.datetime.now().strftime("%Y%m%d_%H%M%S"))
     print("[+] Trajectories of optimization(s) are written to %r" % nlopt_log_fn)
     with open(nlopt_log_fn, 'w') as nlopt_log_fh:
