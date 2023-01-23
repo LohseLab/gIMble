@@ -38,9 +38,11 @@ def poolcontext(*args, **kwargs):
 def get_nlopt_log_iteration_tuple(dataset_idx, iteration, block_length, likelihood, scaled_values_by_parameter, unscaled_values_by_parameter):
     nlopt_log_iteration = [dataset_idx, iteration, block_length, likelihood]
     for parameter, scaled_value in scaled_values_by_parameter.items():
-        nlopt_log_iteration.append(float(scaled_value)) 
+        if not parameter.startswith("theta"):
+            nlopt_log_iteration.append(float(scaled_value)) 
     for parameter, unscaled_value in unscaled_values_by_parameter.items():
-        nlopt_log_iteration.append(float(unscaled_value)) 
+        if not parameter.startswith("theta"):
+            nlopt_log_iteration.append(float(unscaled_value)) 
     return tuple(nlopt_log_iteration)
 
 def get_nlopt_log_fn(data_idx, config):
@@ -81,6 +83,7 @@ def nlopt_logger(nlopt_log_fn, nlopt_log_header, nlopt_log_iterations, nlopt_cal
                     nlopt_log_fh.flush()
                     # progress bar
                     nlopt_log_iteration_values_by_key = {k: v for k, v in zip(nlopt_log_header, msg[0])}
+                    #print('nlopt_log_iteration_values_by_key', nlopt_log_iteration_values_by_key)
                     pbar.write(format_nlopt_log_iteration_values(nlopt_log_iteration_values_by_key))
                     if msg[1]: # this needs to be checked!
                         nlopt_log_fh.write(msg[1])
@@ -93,7 +96,7 @@ def format_nlopt_result(result_dict):
 
 def format_nlopt_log_iteration_values(nlopt_log_iteration_values_by_key):
     '''determines how log and screen prints work'''
-    value_suffix = '_scaled' # '_unscaled'
+    value_suffix = '_unscaled' # '_unscaled'
     return "[+] data_idx=%s i=%s -- {%s} -- L=%s" % (
         int(nlopt_log_iteration_values_by_key['dataset_idx']),
         str(int(nlopt_log_iteration_values_by_key['iteration'])).ljust(4),
@@ -128,6 +131,9 @@ def agemo_likelihood_function(nlopt_values, grad, gimbleDemographyInstance, data
     nlopt_values_by_parameter = {parameter: value for parameter, value in zip(config['nlopt_parameters'], nlopt_values)}
     scaled_values_by_parameter, unscaled_values_by_parameter = gimbleDemographyInstance.scale_parameters(nlopt_values_by_parameter)
     theta_branch, var, time = gimbleDemographyInstance.get_agemo_values(scaled_values_by_parameter)
+    # print(theta_branch, var, time)
+    # print('scaled_values_by_parameter', scaled_values_by_parameter)
+    # print('unscaled_values_by_parameter', unscaled_values_by_parameter)
     ETPs = EVALUATOR.evaluate(theta_branch, var, time=time)
     likelihood = agemo_calculate_composite_likelihood(ETPs, dataset)
     # scaled_values_by_symbol, scaled_values_by_parameter, unscaled_values_by_parameter, block_length = scale_nlopt_values(nlopt_values, config)

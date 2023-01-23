@@ -511,6 +511,7 @@ def config_to_meta(config, task):
         meta["max_iterations"] = config["nlopt_maxeval"]
         meta["xtol_rel"] = config["nlopt_xtol_rel"]
         meta["ftol_rel"] = config["nlopt_ftol_rel"]
+        meta["nlopt_runs"] = config['nlopt_runs']
         meta["parameters_fixed"] = config["nlopt_parameters_fixed"]
         meta["parameters_bounded"] = config["nlopt_parameters_bound"]
         meta["block_length"] = config["block_length"]
@@ -720,7 +721,6 @@ class ModelObj(object):
         if not parameters_missing:
             ref_pop = self.ref_pop if not self.ref_pop in self.sync_pops else "Ne_s"
             ref_Ne_value = values_by_parameter[ref_pop] if ref_pop in values_by_parameter else getattr(self, ref_pop)
-            values_by_parameter_scaled['theta_branch'] = SCALING_FACTOR * ref_Ne_value * self.mu * self.block_length # 2Ne*mu
             for parameter in self.order_of_parameters:
                 param = 'Ne_s' if parameter in self.sync_pops else parameter
                 value = values_by_parameter[param] if param in values_by_parameter else getattr(self, param)
@@ -735,6 +735,7 @@ class ModelObj(object):
                     values_by_parameter_unscaled[parameter] = value
                 else:
                     raise ValueError('[X] Unknown parameter %r with value %r' % (parameter, unscaled_value))
+            values_by_parameter_scaled['theta_branch'] = SCALING_FACTOR * ref_Ne_value * self.mu * self.block_length # 2Ne*mu
         return (values_by_parameter_scaled, values_by_parameter_unscaled)
 
     def get_agemo_values(self, scaled_values_by_parameter={}):
@@ -3573,13 +3574,17 @@ class Store(object):
 
     def _write_optimize_tsv(self, config):
         optimize_meta = dict(self._get_meta(config["data_key"]))
+        print('optimize_meta',optimize_meta)
         # prints optimize_meta, could have prettier formatting ...
         print("[+] Optimize ...")
         query_meta = format_query_meta(optimize_meta)
         print(query_meta)
-        single_file_flag = len(optimize_meta["optimize_keys"]) == 1
-        for idx, optimize_key in enumerate(optimize_meta["optimize_keys"]):
-            instance_meta = dict(self._get_meta(optimize_key))
+        single_file_flag = len(optimize_meta["optimize_key"]) == 1
+        for idx in range(optimize_meta["nlopt_runs"]):
+            instance_key = "%s/%s" % (optimize_meta["optimize_key"], idx)
+            print('instance_key', instance_key)
+            instance_meta = dict(self._get_meta(instance_key))
+            print(instance_meta)
             # optima = pd.DataFrame(instance_meta['optimize_results'])
             if single_file_flag:
                 fn = "%s.%s.optimize.tsv" % (
