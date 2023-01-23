@@ -135,7 +135,9 @@ def agemo_likelihood_function(nlopt_values, grad, gimbleDemographyInstance, data
     # print('scaled_values_by_parameter', scaled_values_by_parameter)
     # print('unscaled_values_by_parameter', unscaled_values_by_parameter)
     ETPs = EVALUATOR.evaluate(theta_branch, var, time=time)
+    
     likelihood = agemo_calculate_composite_likelihood(ETPs, dataset)
+    print('ETPs[0][0][0][0]', ETPs[0][0][0][0], likelihood)
     # scaled_values_by_symbol, scaled_values_by_parameter, unscaled_values_by_parameter, block_length = scale_nlopt_values(nlopt_values, config)
     # try:
     #     gimbleDemographyInstance.set_parameters_from_array(nlopt_values)
