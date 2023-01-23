@@ -720,8 +720,7 @@ class ModelObj(object):
         parameters_missing = set(self.order_of_parameters) - parameters_self - parameters_args - set(self.sync_pops)
         if not parameters_missing:
             ref_pop = self.ref_pop if not self.ref_pop in self.sync_pops else "Ne_s"
-            ref_Ne_value = getattr(self, ref_pop, values_by_parameter.get(ref_pop, None))
-            print(ref_pop, ref_Ne_value, self.mu)
+            ref_Ne_value = values_by_parameter[ref_pop] if ref_pop in values_by_parameter else getattr(self, ref_pop)
             values_by_parameter_scaled['theta_branch'] = SCALING_FACTOR * ref_Ne_value * self.mu * self.block_length # 2Ne*mu
             for parameter in self.order_of_parameters:
                 param = 'Ne_s' if parameter in self.sync_pops else parameter
