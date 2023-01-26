@@ -165,7 +165,8 @@ def agemo_likelihood_function(nlopt_values, grad, gimbleDemographyInstance, data
     #    problematic = df.loc[(df[3] >= 1) & (df[4] >= 1)]
     #    print(problematic.to_markdown())
     ETP_sum = np.sum(ETPs)
-    print('np.sum(ETPs)=%s fallback=%s scaled_values=%s' % (np.sum(ETPs), fallback_flag, scaled_values_by_parameter))
+    if not np.isclose(ETP_sum, 1, rtol=1e-05):
+        print('np.sum(ETPs)=%s fallback=%s scaled_values=%s' % (np.sum(ETPs), fallback_flag, scaled_values_by_parameter))
     
 
     likelihood = agemo_calculate_composite_likelihood(ETPs, dataset)
