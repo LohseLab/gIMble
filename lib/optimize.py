@@ -157,6 +157,7 @@ def agemo_likelihood_function(nlopt_values, grad, gimbleDemographyInstance, data
     #print('[+] unscaled_values_by_parameter', unscaled_values_by_parameter)
     #print('[+] me=%s ; fallback=%s; EVALUATOR.evaluate(%s, np.array(%s), time=%s)' % (str(unscaled_values_by_parameter['me']), fallback_flag, str(theta_branch), str([v for v in var]), str(time)), end="")
     evaluator = EVALUATOR if not fallback_flag else FALLBACK_EVALUATOR
+    #_var = str([str(x) for x in var])
     ETPs = evaluator.evaluate(theta_branch, var, time=time)
     
     #if ETPs[(ETPs[:,2] > 0) & (ETPs[:,3] > 0)] > 0:
@@ -164,7 +165,7 @@ def agemo_likelihood_function(nlopt_values, grad, gimbleDemographyInstance, data
     #    problematic = df.loc[(df[3] >= 1) & (df[4] >= 1)]
     #    print(problematic.to_markdown())
     ETP_sum = np.sum(ETPs)
-    #print('np.sum(ETPs)=%s fallback=%s' % (np.sum(ETPs), fallback_flag))
+    print('np.sum(ETPs)=%s fallback=%s scaled_values=%s' % (np.sum(ETPs), fallback_flag, scaled_values_by_parameter))
     
 
     likelihood = agemo_calculate_composite_likelihood(ETPs, dataset)
