@@ -15,6 +15,22 @@ from timeit import default_timer as timer
 from tqdm import tqdm
 import lib.gimble
 
+def bsfs_to_2d(bsfs):
+    '''needed for testing that tally-arrays and bsfs are identical'''
+    if not np.any(bsfs):
+        return None
+    non_zero_idxs = np.nonzero(bsfs)
+    if bsfs.ndim == 4: # blocks
+        return np.concatenate([bsfs[non_zero_idxs].reshape(non_zero_idxs[0].shape[0], 1), np.array(non_zero_idxs, dtype=np.uint64).T], axis=1)
+    elif bsfs.ndim == 5: # windows
+        non_zero_idxs_array = np.array(non_zero_idxs, dtype=np.uint64).T
+        first = non_zero_idxs_array[:,0].reshape(non_zero_idxs[0].shape[0], 1)
+        second = bsfs[non_zero_idxs].reshape(non_zero_idxs[0].shape[0], 1)
+        third = non_zero_idxs_array[:,1:]
+        return np.concatenate([first, second, third], axis=1)
+    else:
+        raise ValueError('bsfs_to_2d: bsfs.ndim must be 4 (blocks) or 5 (windows)')
+
 NLOPT_EXIT_CODE = {
      1: 'NLOPT_SUCCESS',
      2: 'NLOPT_STOPVAL_REACHED',
@@ -126,18 +142,33 @@ def agemo_calculate_composite_likelihood(ETPs, data):
 #def agemo_likelihood_function(nlopt_values, grad, gfEvaluatorObj, dataset, dataset_idx, config, nlopt_iterations, verbose):
 def agemo_likelihood_function(nlopt_values, grad, gimbleDemographyInstance, dataset, dataset_idx, config, nlopt_iterations, verbose):
     global NLOPT_LOG_QUEUE
+    #print('[--------------------------------------------------------] nlopt_iterations', nlopt_iterations)
     nlopt_traceback = None
     nlopt_iterations[dataset_idx] += 1
     nlopt_values_by_parameter = {parameter: value for parameter, value in zip(config['nlopt_parameters'], nlopt_values)}
+    #print('[+] nlopt_values_by_parameter', nlopt_values_by_parameter)
     scaled_values_by_parameter, unscaled_values_by_parameter = gimbleDemographyInstance.scale_parameters(nlopt_values_by_parameter)
-    theta_branch, var, time = gimbleDemographyInstance.get_agemo_values(scaled_values_by_parameter)
-    # print(theta_branch, var, time)
-    # print('scaled_values_by_parameter', scaled_values_by_parameter)
-    # print('unscaled_values_by_parameter', unscaled_values_by_parameter)
-    ETPs = EVALUATOR.evaluate(theta_branch, var, time=time)
+    #print('[+] scaled_values_by_parameter', scaled_values_by_parameter)
+    #print('[+] unscaled_values_by_parameter', unscaled_values_by_parameter)
+
+    theta_branch, var, time, fallback_flag = gimbleDemographyInstance.get_agemo_values(scaled_values_by_parameter, fallback=True)
+    #ETPs = EVALUATOR.evaluate(theta_branch, np.positive(var), time=time)
+    #print('[+] scaled_values_by_parameter', scaled_values_by_parameter)
+    #print('[+] unscaled_values_by_parameter', unscaled_values_by_parameter)
+    #print('[+] me=%s ; fallback=%s; EVALUATOR.evaluate(%s, np.array(%s), time=%s)' % (str(unscaled_values_by_parameter['me']), fallback_flag, str(theta_branch), str([v for v in var]), str(time)), end="")
+    evaluator = EVALUATOR if not fallback_flag else FALLBACK_EVALUATOR
+    ETPs = evaluator.evaluate(theta_branch, var, time=time)
     
+    #if ETPs[(ETPs[:,2] > 0) & (ETPs[:,3] > 0)] > 0:
+    #    df = pd.DataFrame(bsfs_to_2d(ETPs))
+    #    problematic = df.loc[(df[3] >= 1) & (df[4] >= 1)]
+    #    print(problematic.to_markdown())
+    ETP_sum = np.sum(ETPs)
+    #print('np.sum(ETPs)=%s fallback=%s' % (np.sum(ETPs), fallback_flag))
+    
+
     likelihood = agemo_calculate_composite_likelihood(ETPs, dataset)
-    print('[+] ETPs[0][0][0][0]', ETPs[0][0][0][0], np.sum(ETPs), dataset[0][0][0][0], likelihood)
+    
     # scaled_values_by_symbol, scaled_values_by_parameter, unscaled_values_by_parameter, block_length = scale_nlopt_values(nlopt_values, config)
     # try:
     #     gimbleDemographyInstance.set_parameters_from_array(nlopt_values)
@@ -148,8 +179,12 @@ def agemo_likelihood_function(nlopt_values, grad, gimbleDemographyInstance, data
     #     nlopt_log_iteration_tuple = get_nlopt_log_iteration_tuple(dataset_idx, nlopt_iterations[dataset_idx], gimbleDemographyInstance.block_length, 'N/A', scaled_values_by_parameter, unscaled_values_by_parameter)
     #     nlopt_traceback = traceback.format_exc(exception)
     #     NLOPT_LOG_QUEUE.put((nlopt_log_iteration_tuple, nlopt_traceback))
+    
+
+    
     nlopt_log_iteration_tuple = get_nlopt_log_iteration_tuple(dataset_idx, nlopt_iterations[dataset_idx], gimbleDemographyInstance.block_length, likelihood, scaled_values_by_parameter, unscaled_values_by_parameter)
     NLOPT_LOG_QUEUE.put((nlopt_log_iteration_tuple, nlopt_traceback))
+    
     #if verbose:
     #    elapsed = lib.gimble.format_time(timer() - start_time)
     #    #process_idx = multiprocessing.current_process()._identity
@@ -157,9 +192,12 @@ def agemo_likelihood_function(nlopt_values, grad, gimbleDemographyInstance, data
     #    print_nlopt_line(dataset_idx, nlopt_iterations[dataset_idx], likelihood, unscaled_values_by_parameter, elapsed)
     return likelihood
 
-def agemo_optimize(evaluator_agemo, data_idx, data, config):
+def agemo_optimize(evaluator_agemo, data_idx, data, config, fallback_evaluator=None):
     global EVALUATOR
+    global FALLBACK_EVALUATOR
+    np.set_printoptions(precision=19, suppress = True)
     EVALUATOR = evaluator_agemo
+    FALLBACK_EVALUATOR = fallback_evaluator
     nlopt_runs = get_agemo_nlopt_args(data, config)
     nlopt_results = []
     # Setup nlopt_logger/tqdm

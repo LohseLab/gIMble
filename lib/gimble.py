@@ -738,19 +738,26 @@ class ModelObj(object):
             values_by_parameter_scaled['theta_branch'] = SCALING_FACTOR * ref_Ne_value * self.mu * self.block_length # 2Ne*mu
         return (values_by_parameter_scaled, values_by_parameter_unscaled)
 
-    def get_agemo_values(self, scaled_values_by_parameter={}):
-        '''Ne_s comes from nlopt_parameters'''
+    def get_agemo_values(self, scaled_values_by_parameter={}, fallback=False):
+        '''
+        - fallback means falling back to simpler model if me=0
+        '''
         if not scaled_values_by_parameter:
             scaled_values_by_parameter, values_by_parameter_unscaled = self.scale_parameters()
         theta_along_branchtypes = np.full(len(self.kmax), scaled_values_by_parameter['theta_branch'], dtype=np.float64) # len(branch_type_object)
         time = scaled_values_by_parameter['T']
-        var_values = []
-        for parameter in self.order_of_parameters:
-            value = scaled_values_by_parameter[parameter]
-            if parameter.startswith("Ne") or parameter.startswith("me"):
-                var_values.append(value)
+        if fallback:
+            if scaled_values_by_parameter['me'] == 0:
+                var_values = [scaled_values_by_parameter[parameter] for parameter in self.order_of_parameters if parameter.startswith("Ne")]
+                fallback_flag = True
+            else:
+                var_values = [scaled_values_by_parameter[parameter] for parameter in self.order_of_parameters if parameter.startswith("Ne") or (parameter.startswith("me"))]
+                fallback_flag = False
+        else:
+            var_values = [scaled_values_by_parameter[parameter] for parameter in self.order_of_parameters if parameter.startswith("Ne") or parameter.startswith("me")]
+            fallback_flag = False
         var = np.hstack([np.array(var_values, dtype=np.float64), theta_along_branchtypes])
-        return (scaled_values_by_parameter['theta_branch'], var, time)
+        return (scaled_values_by_parameter['theta_branch'], var, time, fallback_flag)
 
     def get_parameter_dict(self, nones=False):
         if nones:
@@ -5410,11 +5417,15 @@ class Store(object):
         evaluator_agemo = self.get_agemo_evaluator(
             model=config['model'], 
             kmax=config["max_k"])
+        # fallback_evaluator gets created if IM
+        fallback_evaluator_agemo=self.get_agemo_evaluator(
+            model='DIV', 
+            kmax=config["max_k"]) if config['model'].startswith('IM') else None
         print("[+] Starting %s NLOPT optimization(s) with %s chain(s)..." % (config["nlopt_runs"], config["nlopt_chains"]))
         for data_idx, dataset in data:
             optimize_instance_start_time = timer()
             optimize_result = lib.optimize.agemo_optimize(
-                evaluator_agemo, data_idx, dataset, config
+                evaluator_agemo, data_idx, dataset, config, fallback_evaluator=fallback_evaluator_agemo
             )
             optimize_time = format_time(timer() - optimize_instance_start_time)
             self.save_optimize_instance(
@@ -5829,7 +5840,7 @@ class Store(object):
                 kmax=config['max_k']) 
             model_instances.append(model_instance)
         config['model_instances'] = model_instances
-        config['agemo_parameters'] = [model_instance.get_agemo_values() for model_instance in model_instances]
+        config['agemo_parameters'] = [model_instance.get_agemo_values(fallback=True) for model_instance in model_instances]
         return config
 
     def makegrid(self, config, num_cores, overwrite, agemo=True):
@@ -5843,7 +5854,11 @@ class Store(object):
             evaluator_agemo = self.get_agemo_evaluator(
                 model=config['gimble']['model'], 
                 kmax=config["max_k"])
-            grid = self.evaluate_grid(evaluator_agemo, config['agemo_parameters'], processes=num_cores, verbose=False)
+            # fallback_evaluator gets created if IM
+            fallback_evaluator_agemo=self.get_agemo_evaluator(
+                model='DIV', 
+                kmax=config["max_k"]) if config['model'].startswith('IM') else None
+            grid = self.evaluate_grid(evaluator_agemo, config['agemo_parameters'], processes=num_cores, fallback_evaluator=fallback_evaluator_agemo, verbose=False)
         else:
             print("[+] GF ...")
             evaluator_gf = self.get_gf_evaluator(config)
@@ -5858,15 +5873,15 @@ class Store(object):
             )
         self.save_grid(config, grid)
 
-    def evaluate_grid(self, evaluator_agemo, agemo_parameters, processes=1, verbose=False):
+    def evaluate_grid(self, evaluator_agemo, agemo_parameters, processes=1, fallback_evaluator=None, verbose=False):
         if verbose:
             for parameter in agemo_parameters:
-                print(float(parameter[0]), [float(x) for x in parameter[1]], float(parameter[2]))
+                print(float(parameter[0]), [float(x) for x in parameter[1]], float(parameter[2]), parameter[3])
         all_ETPs = []
         print("[+] Calculating probabilities of mutation configurations for %s gridpoints" % len(agemo_parameters))
         if processes==1:
             for agemo_parameter in tqdm(agemo_parameters, desc="[%]", ncols=100):
-                theta_branch, var, time = agemo_parameter
+                theta_branch, var, time, fallback_flag = agemo_parameter
                 result = evaluator_agemo.evaluate(theta_branch, var, time=time) 
                 all_ETPs.append(result)
                     
