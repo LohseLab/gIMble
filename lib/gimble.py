@@ -731,7 +731,7 @@ class ModelObj(object):
                     values_by_parameter_scaled[parameter] = SCALING_FACTOR * ref_Ne_value * value
                     values_by_parameter_unscaled[parameter] = value
                 elif param.startswith("T"):
-                    values_by_parameter_scaled[parameter] = 0 if self.T is None else self.T / (SCALING_FACTOR * ref_Ne_value) 
+                    values_by_parameter_scaled[parameter] = value / (SCALING_FACTOR * ref_Ne_value) 
                     values_by_parameter_unscaled[parameter] = value
                 else:
                     raise ValueError('[X] Unknown parameter %r with value %r' % (parameter, unscaled_value))
