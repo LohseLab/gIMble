@@ -225,12 +225,13 @@ def agemo_nlopt_call(args):
     global NLOPT_LOG_QUEUE
     NLOPT_ALGORITHMS = {
         'neldermead' : nlopt.LN_NELDERMEAD,
-        'sbplx': nlopt.LN_SBPLX
+        'sbplx': nlopt.LN_SBPLX,
+        'CRS2': nlopt.GN_CRS2_LM,
     }
 
     nlopt_params, dataset_idx, agemo_likelihood_function = args
     num_optimization_parameters = len(nlopt_params['nlopt_start_point'])
-    opt = nlopt.opt(NLOPT_ALGORITHMS['sbplx'], num_optimization_parameters)
+    opt = nlopt.opt(NLOPT_ALGORITHMS['CRS2'], num_optimization_parameters)
     opt.set_lower_bounds(nlopt_params['nlopt_lower_bound'])
     opt.set_upper_bounds(nlopt_params['nlopt_upper_bound'])
     opt.set_max_objective(agemo_likelihood_function)
