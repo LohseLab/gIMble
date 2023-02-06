@@ -5866,7 +5866,7 @@ class Store(object):
             fallback_evaluator_agemo=self.get_agemo_evaluator(
                 model='DIV', 
                 kmax=config["max_k"]) if config['gimble']['model'].startswith('IM') else None
-            grid = self.evaluate_grid(evaluator_agemo, config['agemo_parameters'], processes=num_cores, fallback_evaluator=fallback_evaluator_agemo, verbose=True)
+            grid = self.evaluate_grid(evaluator_agemo, config['agemo_parameters'], processes=num_cores, fallback_evaluator=fallback_evaluator_agemo)
         else:
             print("[+] GF ...")
             evaluator_gf = self.get_gf_evaluator(config)
@@ -5881,7 +5881,7 @@ class Store(object):
             )
         self.save_grid(config, grid)
 
-    def evaluate_grid(self, evaluator_agemo, agemo_parameters, processes=1, fallback_evaluator=None, verbose=True):
+    def evaluate_grid(self, evaluator_agemo, agemo_parameters, processes=1, fallback_evaluator=None, verbose=False):
         if verbose:
             for parameter in agemo_parameters:
                 print(float(parameter[0]), [float(x) for x in parameter[1]], float(parameter[2]), parameter[3])
@@ -5895,10 +5895,19 @@ class Store(object):
                 all_ETPs.append(result)
         else:
             # EVALUATOR LOGIC NEEDS TO BE FIXED!!!!
+            global EVALUATOR
+            global FALLBACK_EVALUATOR
+            EVALUATOR = evaluator_agemo
+            FALLBACK_EVALUATOR = fallback_evaluator
             with multiprocessing.Pool(processes=processes) as pool:
-                for ETP in pool.starmap(evaluator_agemo.evaluate, tqdm(agemo_parameters, ncols=100, desc="[%]")):
+                for ETP in pool.starmap(self.multi_eval, tqdm(agemo_parameters, ncols=100, desc="[%]")):
                     all_ETPs.append(ETP)
         return np.array(all_ETPs, dtype=np.float64)
+
+    def multi_eval(self, theta_branch, var, time, fallback_flag):
+        #theta_branch, var, time, fallback_flag = agemo_parameter
+        evaluator = EVALUATOR if not fallback_flag else FALLBACK_EVALUATOR
+        return evaluator.evaluate(theta_branch, var, time=time) 
 
     def get_gf_evaluator(self, config):
         gf = lib.math.config_to_gf(config)
