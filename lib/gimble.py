@@ -3914,6 +3914,8 @@ class Store(object):
             sliced_lncls[:, sliced_param_idx] = np.max(
                     lncls[:, sliced_param_indices], axis=-1
             )
+        print('bed_columns', bed_columns)
+        print('sliced_columns', sliced_columns)
         if len(bed_columns) == 1:
             sliced_df = pd.DataFrame(
                 data=np.vstack([
@@ -4197,7 +4199,7 @@ class Store(object):
                 #print("lncls", lncls.shape)
                 #print("lncls", lncls.shape, lncls)
                 if config["sliced_param"]:
-                    self._write_sliced_gridsearch_bed(config, header, indices_by_sliced_param_value, base_fn, lncls, columns, sequence_array, start_array, end_array, index_array)
+                    self._write_sliced_gridsearch_bed(config, header, indices_by_sliced_param_value, base_fn, lncls, bed_columns, sequence_array, start_array, end_array, index_array)
                 if config["fixed_param"]:
                     self._write_fixed_gridsearch_bed(config, header, parameter_columns, base_fn, lncls, bed_columns, fixed_param_index, parameter_array, sequence_array, start_array, end_array, index_array)
                 lncls_max_idx = np.argmax(lncls, axis=1)
