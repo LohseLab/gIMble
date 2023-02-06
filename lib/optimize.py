@@ -240,6 +240,7 @@ def agemo_nlopt_call(args):
     if nlopt_params['nlopt_xtol_rel'] > 0:
         # assigning weights to address size difference between params
         xtol_weights = 1/(len(nlopt_params['nlopt_start_point']) * nlopt_params['nlopt_start_point'])
+        print('xtol_weights', xtol_weights)
         opt.set_x_weights(xtol_weights)
     opt.set_ftol_rel(nlopt_params['nlopt_ftol_rel'])
     opt.set_maxeval(nlopt_params['nlopt_maxeval'])

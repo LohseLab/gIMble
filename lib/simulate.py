@@ -163,7 +163,7 @@ def get_sim_args_by_replicate_idx(config):
         }
     simulate_jobs_by_replicate_idx = collections.defaultdict(list)
     recombination_rates = config['simulate']['recombination_rate']
-    demographies = [demography.demography for demography in config['simulate']['demographies']]
+    demographies = [demography.get_demography() for demography in config['simulate']['demographies']]
     # print([demography.get_parameter_dict() for demography in config['simulate']['demographies']])
     for replicate_idx in range(config['simulate']['replicates']):
         ancestry_seeds = config['simulate']['ancestry_seeds_by_replicate'][replicate_idx]

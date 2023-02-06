@@ -443,7 +443,9 @@ def config_to_meta(config, task):
         meta["max_k"] = tuple([int(v) for v in config["max_k"]])
         meta["replicates"] = config["replicates"]
         #meta["parameters_LOD"] = config["parameters_LOD"]
-        meta["parameters"] = [modelObj.get_parameter_dict() for modelObj in config['simulate']['demographies']]
+        # META NEEDS PARAMS IN SERIALIZABLE FORM
+        #meta["parameters"] = [modelObj.get_parameter_dict() for modelObj in config['simulate']['demographies']]
+        #print(meta["parameters"])
         meta["discrete_genome"] = config["simulate"]["discrete_genome"]
         meta["grid_label"] = config["gridbased"]["grid_label"]
         meta['blocks'] = config['simulate']['blocks']
@@ -773,6 +775,8 @@ class ModelObj(object):
         return sync_pops
 
     def validate_ref_pop(self, ref_pop):
+        if ref_pop is None:
+            return None
         if ref_pop in self.pop_ids:
             return ref_pop
         return sys.exit("[X] Reference population %r not valid for model: %r" % (ref_pop, self.model))
@@ -3280,6 +3284,7 @@ class Store(object):
             # no recombination value: recombination rate is 0
             config['simulate']['recombination_rate'] = [0] * config['simulate']['windows']
         def get_demographies_from_gridsearch(gridsearch_label, gridsearch_constraint={}):
+            print("constraint: %s" % gridsearch_constraint)
             meta_gridsearch = self._get_meta(gridsearch_label)
             meta_makegrid = self._get_meta(meta_gridsearch["makegrid_key"])
             model = meta_makegrid['model']
@@ -3365,8 +3370,10 @@ class Store(object):
 
         def get_demographies(config):
             gridsearch_label = config["gridbased"]["grid_label"]
+            print(config["gridbased"])
             if gridsearch_label:
-                gridsearch_constraint = config["gridbased"].get("fixed", {}) ### has to work
+                constraint = config["gridbased"].get("fixed_parameter", {})
+                gridsearch_constraint = {constraint.split("=")[0]: float(constraint.split("=")[1])} if constraint else {}
                 gridsearch_label = check_key(gridsearch_label, 'gridsearch')
                 return get_demographies_from_gridsearch(gridsearch_label, gridsearch_constraint)
             return get_demographies_from_config(config)
@@ -5280,6 +5287,7 @@ class Store(object):
                 % (agemo_config["optimize_label"],  agemo_config["data_key"])
             )
         # data
+        # data should be partitioned into jobs immediately
         data_meta = self._get_meta(agemo_config["data_key"])
         agemo_config["max_k"] = np.array(data_meta["max_k"])
         agemo_config["block_length"] = data_meta["block_length"]
@@ -5291,7 +5299,7 @@ class Store(object):
             data = [(idx, tally) if not windowsum else (idx, np.sum(tally, axis=0)) for idx, tally in self.data[agemo_config["data_key"]].arrays()]
             agemo_config["nlopt_chains"] = data_meta['windows'] if not windowsum else 1
             agemo_config["nlopt_runs"] = data_meta['replicates'] 
-
+        
         # demography
         gimbleDemographyInstance = ModelObj(
                 model=agemo_config['model'], 
@@ -5857,8 +5865,8 @@ class Store(object):
             # fallback_evaluator gets created if IM
             fallback_evaluator_agemo=self.get_agemo_evaluator(
                 model='DIV', 
-                kmax=config["max_k"]) if config['model'].startswith('IM') else None
-            grid = self.evaluate_grid(evaluator_agemo, config['agemo_parameters'], processes=num_cores, fallback_evaluator=fallback_evaluator_agemo, verbose=False)
+                kmax=config["max_k"]) if config['gimble']['model'].startswith('IM') else None
+            grid = self.evaluate_grid(evaluator_agemo, config['agemo_parameters'], processes=num_cores, fallback_evaluator=fallback_evaluator_agemo, verbose=True)
         else:
             print("[+] GF ...")
             evaluator_gf = self.get_gf_evaluator(config)
@@ -5873,7 +5881,7 @@ class Store(object):
             )
         self.save_grid(config, grid)
 
-    def evaluate_grid(self, evaluator_agemo, agemo_parameters, processes=1, fallback_evaluator=None, verbose=False):
+    def evaluate_grid(self, evaluator_agemo, agemo_parameters, processes=1, fallback_evaluator=None, verbose=True):
         if verbose:
             for parameter in agemo_parameters:
                 print(float(parameter[0]), [float(x) for x in parameter[1]], float(parameter[2]), parameter[3])
@@ -5882,10 +5890,11 @@ class Store(object):
         if processes==1:
             for agemo_parameter in tqdm(agemo_parameters, desc="[%]", ncols=100):
                 theta_branch, var, time, fallback_flag = agemo_parameter
-                result = evaluator_agemo.evaluate(theta_branch, var, time=time) 
+                evaluator = evaluator_agemo if not fallback_flag else fallback_evaluator
+                result = evaluator.evaluate(theta_branch, var, time=time) 
                 all_ETPs.append(result)
-                    
         else:
+            # EVALUATOR LOGIC NEEDS TO BE FIXED!!!!
             with multiprocessing.Pool(processes=processes) as pool:
                 for ETP in pool.starmap(evaluator_agemo.evaluate, tqdm(agemo_parameters, ncols=100, desc="[%]")):
                     all_ETPs.append(ETP)
