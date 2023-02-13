@@ -40,24 +40,16 @@ import msprime
 from lib.GeneratingFunction.gf import togimble
 
 """
-[Rules for better living]
-
-- gimbleStore.data.attrs (meta): ZARR JSON encoder does not like numpy/pandas dtypes, have to be converted to python dtypes
-
 - Coordinate systems:
     {GIMBLE}                    : 0-based       | {GIMBLE}  
     -----------------------------------------------------------
     {GENOME_FILE} : LENGTH      : 0-based   =>  | [0, l)
     {BED_FILE}    : START:END   : 0-based   =>  | [START, END)
     {VCF_FILE}    : POS         : 1-based   =>  | [POS-1)
-"""
-
-"""
 
 [FASTA parsing]
 - https://pypi.org/project/pyfasta/
 
-    
 [QC plots]
     - variants 
         - plot barcharts of HOMREF/HOMALT/HET/MISS/MULTI as proportion of total records
@@ -70,7 +62,10 @@ from lib.GeneratingFunction.gf import togimble
 
 ###
 RECOMBINATION_SCALER = 1e-8
-
+MUTYPES = ["m_1", "m_2", "m_3", "m_4"]
+SPACING = 16
+GRIDSEARCH_DTYPE = np.float32  # -3.4028235e+38 ... 3.4028235e+38
+# GRIDSEARCH_DTYPE=np.float64 # -1.7976931348623157e+308 ... 1.7976931348623157e+308
 ###
 
 PURPLE = "#4F3D63"
@@ -89,12 +84,6 @@ SIGNS = {
     "P": "%s%s%s" % ("\u2502", " ", " "),  # '│   '
     "B": "%s%s%s" % ("\u2500", "\u2500", "\u2500"),
 }  # '───'
-
-SPACING = 16
-MUTYPES = ["m_1", "m_2", "m_3", "m_4"]
-
-GRIDSEARCH_DTYPE = np.float32  # -3.4028235e+38 ... 3.4028235e+38
-# GRIDSEARCH_DTYPE=np.float64 # -1.7976931348623157e+308 ... 1.7976931348623157e+308
 
 @contextlib.contextmanager
 def poolcontext(*args, **kwargs):
@@ -438,6 +427,8 @@ def config_to_meta(config, task):
         meta["marginality"] = config.get("marginality", "NA")
         meta["block_length"] = config["block_length"]
     if task == "simulate":
+        print("[config2meta]", config)
+        meta["data_ndims"] = config.get("data_ndims", 5)
         meta['data_source'] = 'sims'
         meta['data_label'] = config['gimble']['label']
         meta["max_k"] = tuple([int(v) for v in config["max_k"]])
@@ -672,7 +663,6 @@ def expand_parameters(config):
             config["parameters_expanded"][pop] = config["parameters_expanded"][sync_to]
     return config
 
-
 def get_config_optimize(config):
     # bounds
     config["parameter_combinations_lowest"] = np.array(
@@ -683,12 +673,12 @@ def get_config_optimize(config):
     )
     return config
 
-class ModelObj(object):
+class GimbleDemographyInstance(object):
     def __init__(self, model=None, Ne_A=None, Ne_B=None, Ne_A_B=None, me=None, T=None, mu=None, ref_pop=None, sync_pops=None, block_length=None, kmax=None):
         self._SUPPORTED_MODELS = ["DIV", "IM_BA", "IM_AB", "MIG_BA", "MIG_AB"]
         self.model = self.validate_model(model)
         self.order_of_parameters = self.get_order_of_parameters()
-
+        #
         self.pop_ids = set(self.order_of_parameters) - set(['me', 'T'])
         self.mu = mu
         self.block_length = block_length
@@ -1684,36 +1674,36 @@ def get_popgen_metrics(array, sites=0):
     return np.vstack([heterozygosity_A, heterozygosity_B, d_xy, f_st])
 
 
-def pop_metrics_from_bsfs(bsfs, block_length=None, window_size=None):
-    warnings.warn(
-        "lib.gimble.pop_metrics_from_bsfs() is deprecated. ...", DeprecationWarning
-    )
-    """only works for mutypes=4"""
-    if not bsfs.ndim == 2:
-        bsfs = bsfs_to_2d(bsfs)
-    mutype_array = np.vstack(
-        [
-            np.bincount(bsfs[:, 0], weights=bsfs[:, 1] * bsfs[:, (2 + m_idx)])
-            for m_idx in range(4)
-        ]
-    ).T
-    heterozygosity_A = (mutype_array[:, 1] + mutype_array[:, 2]) / (
-        block_length * window_size
-    )
-    heterozygosity_B = (mutype_array[:, 0] + mutype_array[:, 2]) / (
-        block_length * window_size
-    )
-    d_xy = (
-        (mutype_array[:, 1] + mutype_array[:, 0] + mutype_array[:, 2]) / 2.0
-        + mutype_array[:, 3]
-    ) / (block_length * window_size)
-    mean_pi = (heterozygosity_A + heterozygosity_B) / 2.0
-    f_st = np.full(mutype_array.shape[0], np.nan)
-    np.true_divide(
-        (d_xy - mean_pi), (d_xy + mean_pi), out=f_st, where=(d_xy + mean_pi) > 0
-    )
-    pop_metrics = np.vstack([heterozygosity_A, heterozygosity_B, d_xy, f_st])
-    return pop_metrics
+# def pop_metrics_from_bsfs(bsfs, block_length=None, window_size=None):
+#     warnings.warn(
+#         "lib.gimble.pop_metrics_from_bsfs() is deprecated. ...", DeprecationWarning
+#     )
+#     """only works for mutypes=4"""
+#     if not bsfs.ndim == 2:
+#         bsfs = bsfs_to_2d(bsfs)
+#     mutype_array = np.vstack(
+#         [
+#             np.bincount(bsfs[:, 0], weights=bsfs[:, 1] * bsfs[:, (2 + m_idx)])
+#             for m_idx in range(4)
+#         ]
+#     ).T
+#     heterozygosity_A = (mutype_array[:, 1] + mutype_array[:, 2]) / (
+#         block_length * window_size
+#     )
+#     heterozygosity_B = (mutype_array[:, 0] + mutype_array[:, 2]) / (
+#         block_length * window_size
+#     )
+#     d_xy = (
+#         (mutype_array[:, 1] + mutype_array[:, 0] + mutype_array[:, 2]) / 2.0
+#         + mutype_array[:, 3]
+#     ) / (block_length * window_size)
+#     mean_pi = (heterozygosity_A + heterozygosity_B) / 2.0
+#     f_st = np.full(mutype_array.shape[0], np.nan)
+#     np.true_divide(
+#         (d_xy - mean_pi), (d_xy + mean_pi), out=f_st, where=(d_xy + mean_pi) > 0
+#     )
+#     pop_metrics = np.vstack([heterozygosity_A, heterozygosity_B, d_xy, f_st])
+#     return pop_metrics
 
 
 def check_unique_pos(pos_array):
@@ -2116,10 +2106,16 @@ def tally_variation(variation, form="bsfs", max_k=None):
             % variation.ndim
         )
     try:
+        #print("mutuples", mutuples)
         mutuples_unique, counts = np.unique(mutuples, return_counts=True, axis=0)
+        #print("mutuples_unique", mutuples_unique.shape)
+        #print("counts", counts.shape)
+        #print("form", form)
+        #print("variation", variation.shape, variation)
         dtype = _return_np_type(counts)
         if form == "bsfs":
-            out = np.zeros(tuple(max_k + 1), dtype)
+            out = np.zeros(tuple(max_k + 1), dtype) if variation.ndim == 2 else np.zeros(tuple([variation.shape[0]]) + tuple(max_k + 1), dtype)
+            #print("out", out.shape)
             out[tuple(mutuples_unique.T)] = counts
         elif form == "tally":
             out = np.concatenate(
@@ -2872,6 +2868,54 @@ class Store(object):
         print("[#] Preparing store...")
         self._init_meta(overwrite=True)
 
+    def validate_key(self, key, category=None):
+        meta = self._get_meta(key)
+        if meta:
+            return key
+        available_keys_by_category = collections.defaultdict(set)
+        max_depth_by_key = {
+            "blocks": 1,
+            "windows": 1,
+            "tally": 2,
+            "makegrid": 2,
+            "optimize": 3,
+            "gridsearch": 3,
+            "simulate": 3,
+        }
+        category_by_module = {
+            "blocks": "measure",
+            "windows": "measure",
+            "tally": "tally",
+            "makegrid": "makegrid",
+            "simulate": "simulate",
+            "optimize": "optimize",
+            "gridsearch": "gridsearch",
+        }
+        def data_key_finder(path):
+            key_list = str(path).split("/")
+            module = key_list[0]
+            if len(key_list) == max_depth_by_key.get(module, None):
+                available_keys_by_category[category_by_module[module]].add(
+                    "/".join(key_list[0 : max_depth_by_key.get(key_list[0], 0)])
+                )
+        self.data.visit(data_key_finder)
+        if available_keys_by_category:
+            if category and category in available_keys_by_category:
+                print(
+                    "[X] %s label %r not found in store. Available labels:" % (category, key)
+                )
+                print("\t%s" % "\n\t".join(sorted(available_keys_by_category[category])))
+            else:
+                print(
+                    "[X] Label %r not found in store. Available labels:" % key
+                )
+                for category, available_keys in available_keys_by_category.items():
+                    print("# %s" % category)
+                    print("- %s" % "\n- ".join(sorted(available_keys)))
+        else:
+            print("[X] ZARR store %s seems to be empty." % self.path)
+        sys.exit(1)
+
     def measure(self, genome_f=None, sample_f=None, bed_f=None, vcf_f=None):
         # measure_key = self._get_key(task='measure')
         # self._set_meta(measure_key)
@@ -3215,6 +3259,7 @@ class Store(object):
             None,
             overwrite=True,
             verbose=False,
+            #tally_form='tally'
         )
         # meta['windowsum_raw_tally_key'] = self.tally('windows', 'windowsum_raw', None, 'X', None, None, overwrite=True, verbose=False)
         self._set_meta(config["windows_key"], meta=meta)
@@ -3305,68 +3350,16 @@ class Store(object):
                     lncls_max_parameters = parameter_array[lncls_max_idx]
                 for idx in tqdm(range(lncls_max_parameters.shape[0])):
                     model_dict = {parameter_name: parameter_value for parameter_name, parameter_value in zip(parameter_names, lncls_max_parameters[idx,:])}
-                    modelObj = ModelObj(model=meta_makegrid['model'], **model_dict) # model comes from makegrid
+                    modelObj = GimbleDemographyInstance(model=meta_makegrid['model'], **model_dict) # model comes from makegrid
                     modelObjs.append(modelObj)
             if len(modelObjs) == 0:
                 sys.exit("[X] get_demographies_from_gridsearch() was unsuccessful...")
             return modelObjs
         def get_demographies_from_config(config):
             '''returns list of N modelObjs, where N = number of windows '''
-            #print("config['parameters_LOD']", config['parameters_LOD'])
-            demographies = [ModelObj(model=config['gimble']['model'], **config['parameters_LOD'][0])] * config['simulate']['windows']  
-            #for demography in demographies:
-            #    print(demography.get_parameter_dict())
-            #sys.exit()
+            demographies = [GimbleDemographyInstance(model=config['gimble']['model'], **config['parameters_LOD'][0])] * config['simulate']['windows']  
+            #print([demography.get_parameter_dict(nones=True) for demography in demographies])
             return demographies
-        def check_key(key, category=None):
-            meta = self._get_meta(key)
-            if meta:
-                return key
-            available_keys_by_category = collections.defaultdict(set)
-            max_depth_by_key = {
-                "blocks": 1,
-                "windows": 1,
-                "tally": 2,
-                "makegrid": 2,
-                "optimize": 3,
-                "gridsearch": 3,
-                "simulate": 3,
-            }
-            category_by_module = {
-                "blocks": "measure",
-                "windows": "measure",
-                "tally": "tally",
-                "makegrid": "makegrid",
-                "simulate": "simulate",
-                "optimize": "optimize",
-                "gridsearch": "gridsearch",
-            }
-
-            def data_key_finder(path):
-                key_list = str(path).split("/")
-                module = key_list[0]
-                if len(key_list) == max_depth_by_key.get(module, None):
-                    available_keys_by_category[category_by_module[module]].add(
-                        "/".join(key_list[0 : max_depth_by_key.get(key_list[0], 0)])
-                    )
-
-            self.data.visit(data_key_finder)
-            if available_keys_by_category:
-                if category and category in available_keys_by_category:
-                    print(
-                        "[X] %s label %r not found in store. Available labels:" % (category, key)
-                    )
-                    print("\t%s" % "\n\t".join(sorted(available_keys_by_category[category])))
-                else:
-                    print(
-                        "[X] Label %r not found in store. Available labels:" % key
-                    )
-                    for category, available_keys in available_keys_by_category.items():
-                        print("# %s" % category)
-                        print("- %s" % "\n- ".join(sorted(available_keys)))
-            else:
-                print("[X] ZARR store %s seems to be empty." % self.path)
-            sys.exit(1)
 
         def get_demographies(config):
             gridsearch_label = config["gridbased"]["grid_label"]
@@ -3374,13 +3367,15 @@ class Store(object):
             if gridsearch_label:
                 constraint = config["gridbased"].get("fixed_parameter", {})
                 gridsearch_constraint = {constraint.split("=")[0]: float(constraint.split("=")[1])} if constraint else {}
-                gridsearch_label = check_key(gridsearch_label, 'gridsearch')
+                gridsearch_label = self.validate_key(gridsearch_label, 'gridsearch')
                 return get_demographies_from_gridsearch(gridsearch_label, gridsearch_constraint)
             return get_demographies_from_config(config)
         config['simulate']['demographies'] = get_demographies(config)
-        if not config['simulate']['windows'] == len(config['simulate']['demographies']):
-            print("[-] Warning: Number of Windows in recombination map and demographies don't match. Results will be truncated.")
-            config['simulate']['demographies'] = config['simulate']['demographies'][0:config['simulate']['windows']]
+        config['simulate']['windows'] = len(config['simulate']['demographies']) if len(config['simulate']['demographies']) > 1 else config['simulate']['windows']
+        #if not config['simulate']['windows'] == len(config['simulate']['demographies']):
+        #    print("[-] Warning: Number of Windows in recombination map (%s) and demographies (%s) don't match. Results will be truncated." % (
+        #        config['simulate']['windows'], len(config['simulate']['demographies'])))
+        #    config['simulate']['demographies'] = config['simulate']['demographies'][0:config['simulate']['windows']]
         print("[+] Simulating %s replicates of %s window(s) of %s blocks" % 
             (config['simulate']['replicates'],
             config['simulate']['windows'],
@@ -3388,6 +3383,7 @@ class Store(object):
             ))
         config['simulate']['ancestry_seeds_by_replicate'] = {replicate_idx: np.random.randint(1, 2**32, config['simulate']['windows']) for replicate_idx in range(config['simulate']['replicates'])}
         config['simulate']['mutation_seeds_by_replicate'] = {replicate_idx: np.random.randint(1, 2**32, config['simulate']['windows']) for replicate_idx in range(config['simulate']['replicates'])}
+        print('config', config)
         return config
 
     def simulate_old(self, config, threads, overwrite):
@@ -3448,14 +3444,6 @@ class Store(object):
         simulate_meta = config_to_meta(config, "simulate")
         self._set_meta(config["simulate_key"], simulate_meta)
         print("[+] Simulation saved under %r" % config['simulate_key'])
-    #def simulate(self, config, threads, overwrite):
-    #    print("[#] Preflight...")
-    #    config = self._preflight_simulate(config, threads, overwrite)
-    #    tallies = lib.simulate.new_simulate(config)
-    #    for replicate_idx in range(config['simulate']['replicates']):
-    #        self._save_simulate_instance(config, tallies[replicate_idx], replicate_idx)
-    #    self._save_simulate_meta(config)
-    #    print("[+] Simulation saved under %r" % config['simulate_key'])
 
     def _save_simulate_meta(self, config):
         simulate_meta = config_to_meta(config, "simulate")
@@ -3564,10 +3552,18 @@ class Store(object):
 
     def _write_makegrid(self, config):
         '''should create folder with TSVs of each gridpoint'''
+        def make_grid_2d(grid):
+            idxs = np.nonzero(grid>-10) # should capture all values..
+            idxs_array = np.array(idxs).T
+            rows = idxs_array.shape[0] # number of rows in array (based on gridpoints and kmax)
+            first = idxs_array[:,0].reshape(rows, 1) # gridpoint idx
+            second = grid[idxs].reshape(rows, 1) # float in grid
+            third = idxs_array[:,1:] # mutuple
+            return np.concatenate([first, second, third], axis=1)
         meta_makegrid = self._get_meta(config["data_key"])
         print(self._format_grid(meta_makegrid))
         grid = np.array(self._get_data(meta_makegrid['makegrid_key']))
-        grid_2d = self._grid_2d(grid)
+        grid_2d = make_grid_2d(grid)
         parameter_names = list(meta_makegrid["grid_dict"].keys())
         parameter_array = np.array([np.array(v, dtype=np.float64) for k, v in meta_makegrid["grid_dict"].items()]).T
         dtypes = {"grid_idx": "int64","P": "float64","m1": "int64","m2": "int64","m3": "int64","m4": "int64"}
@@ -3576,15 +3572,6 @@ class Store(object):
             fn = "%s.%s.tsv" % (meta_makegrid['makegrid_label'], ".".join(["%s=%s" % (name, float(value)) for name, value in zip(parameter_names, parameter_array[idx])]))
             pd.DataFrame(data=grid_2d[grid_2d[:,0]==idx], columns=columns).astype(dtype=dtypes).to_csv(fn, header=True, index=False, sep="\t")
             print("[#] Wrote file %r." % fn)
-
-    def _grid_2d(self, grid):
-        idxs = np.nonzero(grid>-10) # should capture all values..
-        idxs_array = np.array(idxs).T
-        rows = idxs_array.shape[0] # number of rows in array (based on gridpoints and kmax)
-        first = idxs_array[:,0].reshape(rows, 1) # gridpoint idx
-        second = grid[idxs].reshape(rows, 1) # float in grid
-        third = idxs_array[:,1:] # mutuple
-        return np.concatenate([first, second, third], axis=1)
 
     def _write_optimize_tsv(self, config):
         optimize_meta = dict(self._get_meta(config["data_key"]))
@@ -3914,8 +3901,6 @@ class Store(object):
             sliced_lncls[:, sliced_param_idx] = np.max(
                     lncls[:, sliced_param_indices], axis=-1
             )
-        print('bed_columns', bed_columns)
-        print('sliced_columns', sliced_columns)
         if len(bed_columns) == 1:
             sliced_df = pd.DataFrame(
                 data=np.vstack([
@@ -5303,7 +5288,7 @@ class Store(object):
             agemo_config["nlopt_runs"] = data_meta['replicates'] 
         
         # demography
-        gimbleDemographyInstance = ModelObj(
+        gimbleDemographyInstance = GimbleDemographyInstance(
                 model=agemo_config['model'], 
                 mu=agemo_config['mu'], 
                 ref_pop=agemo_config['ref_pop'], 
@@ -5583,6 +5568,7 @@ class Store(object):
         genome_file,
         overwrite,
         verbose=True,
+        tally_form="bsfs",
     ):
         # still needs further refactoring to prevent .tally() for accessing hardcoded data and instead make .tally() use
         # provided keys blocks_key/windows_key to access data
@@ -5636,7 +5622,7 @@ class Store(object):
             print("[+] Tally'ing variation data ... ")
         if config["data_source"] == "windowsum":  # data_source, NOT data_type
             variation = variation.reshape(-1, variation.shape[-1])
-        variation_tally = tally_variation(variation, form="bsfs", max_k=config["max_k"])
+        variation_tally = tally_variation(variation, form=tally_form, max_k=config["max_k"])
         config["data_ndims"] = variation_tally.ndim
         self.save_tally(config, variation_tally, verbose)
         return config["tally_key"]
@@ -5837,7 +5823,7 @@ class Store(object):
         parameter_LOD = DOL_to_LOD(config['parameters_expanded'])
         model_instances = []
         for model_dict in parameter_LOD:
-            model_instance = ModelObj(
+            model_instance = GimbleDemographyInstance(
                 model=config['gimble']['model'], 
                 Ne_A=model_dict.get('Ne_A', None), 
                 Ne_B=model_dict.get('Ne_B', None), 
@@ -5896,7 +5882,6 @@ class Store(object):
                 result = evaluator.evaluate(theta_branch, var, time=time) 
                 all_ETPs.append(result)
         else:
-            # EVALUATOR LOGIC NEEDS TO BE FIXED!!!!
             global EVALUATOR
             global FALLBACK_EVALUATOR
             EVALUATOR = evaluator_agemo
@@ -5946,8 +5931,10 @@ class Store(object):
                 agemo.MigrationEvent(len(sample_configuration), 2, 1),
                 agemo.PopulationSplitEvent(len(sample_configuration) + 1, 0, 1, 2)]
         # Default order of branches is different and therefor needs to be adjusted:
-        # - agemo : {'a': 0, 'abb': 0, 'b': 1, 'aab': 1, 'aa': 2, 'bb': 2, 'ab': 3} ... [hetA, hetB, fixed, hetAB]
-        # - gimble : {'a': 1, 'abb': 1, 'b': 0, 'aab': 0, 'aa': 2, 'bb': 2, 'ab': 3} ... [hetB, hetA, hetAB, fixed]
+        # - agemo : [hetA, hetB, fixed, hetAB]
+        #       branchtype_dict = {'a': 0, 'abb': 0, 'b': 1, 'aab': 1, 'aa': 2, 'bb': 2, 'ab': 3} 
+        # - gimble : [hetB, hetA, hetAB, fixed]
+        #       branchtype_dict = {'a': 1, 'abb': 1, 'b': 0, 'aab': 0, 'aa': 2, 'bb': 2, 'ab': 3}
         branchtype_dict = {'a': 1, 'abb': 1, 'b': 0, 'aab': 0, 'aa': 3, 'bb': 3, 'ab': 2}
         branch_type_object = agemo.BranchTypeCounter(sample_configuration, branchtype_dict=branchtype_dict)
         num_branchtypes = len(branch_type_object)
@@ -6112,43 +6099,6 @@ class Store(object):
             return zarr.open(str(self.path), mode="w")
         # print("[+] Loading GStore from %r" % self.path)
         return zarr.open(str(self.path), mode="r+")
-
-    # def _return_group_last_integer(self, name):
-    #     try:
-    #         all_groups = [
-    #             int([namestring for namestring in groupnames.split("_")][-1])
-    #             for groupnames in list(self.data[name])
-    #             if groupnames.startswith("run")
-    #         ]
-    #     except KeyError:
-    #         return 0
-    #     if len(all_groups):
-    #         return max(all_groups) + 1
-    #     else:
-    #         return 0
-
-    # def _plot_intervals(self):
-    #     # [needs fixing]
-    #     pass
-    #     # QC plots
-    #     # intervals_df['distance'] = np.where((intervals_df['sequence'] == intervals_df['sequence'].shift(-1)), (intervals_df['start'].shift(-1) - intervals_df['end']) + 1, np.nan)
-    #     # distance_counter = intervals_df['distance'].dropna(how="any", inplace=False).value_counts()
-    #     # length_counter = intervals_df['length'].value_counts()
-    #     # distance_f = "%s.intervals.distance.png" % parameterObj.outprefix
-    #     # plot_loglog(distance_counter, 'Distance to downstream BED interval', distance_f)
-    #     # length_f = "%s.intervals.length.png" % parameterObj.outprefix
-    #     # plot_loglog(length_counter, 'Length of BED interval', length_f)
-    #     # count_sequences = intervals_df['sequence'].nunique()
-    #     # count_intervals = len(intervals_df.index)
-    #     # count_samples = len(query_samples)
-
-    # def _plot_blocks(self, parameterObj):
-    #     # [needs fixing]
-    #     mutypes_inter_key = "seqs/bsfs/inter/mutypes"
-    #     counts_inter_key = "seqs/bsfs/inter/counts"
-    #     mutypes_inter = self.data[mutypes_inter_key]
-    #     counts_inter = self.data[counts_inter_key]
-    #     self.plot_bsfs_pcp("%s.bsfs_pcp.png" % self.prefix, mutypes_inter, counts_inter)
 
     def _get_window_bed(self):
         meta_seqs = self._get_meta("seqs")
@@ -6830,7 +6780,6 @@ class Store(object):
         return reportObj
 
     def _get_windows_report(self, width):
-        print(dict(self.data['windows'].attrs))
         meta_windows = self._get_meta("windows")
         reportObj = ReportObj(width=width)
         reportObj.add_line(
@@ -6878,16 +6827,22 @@ class Store(object):
         width = 100
         if tree:
             return self.data.tree()
+        print("[+] \t Getting storage info ...")
         report = self._get_storage_report(width)
+        print("[+] \t Getting measured info...")
         report += self._get_parse_report(width)
+        print("[+] \t Getting blocks info...")
         report += self._get_blocks_report(width)
+        print("[+] \t Getting windows info...")
         report += self._get_windows_report(width)
+        print("[+] \t Getting tally info...")
         report += self._get_tally_report(width)
+        # print("[+] \t Getting sims info...")
+        # report += self._get_sims_report(width)
         # report += self._get_optimize_report(width)
         # report += self._get_grids_report(width)
         # report += self._get_lncls_report(width)
         # report += self._get_bsfs_report(width)
-        # report += self._get_sims_report(width)
         write_info_report(version, report, self.prefix)
         return report
 
