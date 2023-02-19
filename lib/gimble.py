@@ -3370,6 +3370,9 @@ class Store(object):
                 gridsearch_label = self.validate_key(gridsearch_label, 'gridsearch')
                 return get_demographies_from_gridsearch(gridsearch_label, gridsearch_constraint)
             return get_demographies_from_config(config)
+        print("recombination_rates", config['simulate']['recombination_rate'])
+        print("demographies", config['simulate']['demographies'])
+        print("windows", config['simulate']['windows'])
         config['simulate']['demographies'] = get_demographies(config)
         config['simulate']['windows'] = len(config['simulate']['demographies']) if len(config['simulate']['demographies']) > 1 else config['simulate']['windows']
         #if not config['simulate']['windows'] == len(config['simulate']['demographies']):
@@ -3383,7 +3386,6 @@ class Store(object):
             ))
         config['simulate']['ancestry_seeds_by_replicate'] = {replicate_idx: np.random.randint(1, 2**32, config['simulate']['windows']) for replicate_idx in range(config['simulate']['replicates'])}
         config['simulate']['mutation_seeds_by_replicate'] = {replicate_idx: np.random.randint(1, 2**32, config['simulate']['windows']) for replicate_idx in range(config['simulate']['replicates'])}
-        print('config', config)
         return config
 
     def simulate_old(self, config, threads, overwrite):
