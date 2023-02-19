@@ -3338,6 +3338,7 @@ class Store(object):
             parameter_array = np.array([np.array(v, dtype=np.float64) for k, v in meta_gridsearch["grid_dict"].items()]).T
             for gridsearch_key in meta_gridsearch["gridsearch_keys"]: # this loop is because data tried to emulate sims (which was stupid) 
                 lncls = np.array(self._get_data(gridsearch_key))  # (w, gridpoints)
+                print("lncls.shape", lncls.shape)
                 if gridsearch_constraint: 
                     fixed_param_index = self._get_fixed_param_index(gridsearch_constraint, parameter_names, parameter_array, meta_makegrid) 
                     lncls_fixed = lncls[:,fixed_param_index]
