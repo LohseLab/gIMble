@@ -3370,10 +3370,10 @@ class Store(object):
                 gridsearch_label = self.validate_key(gridsearch_label, 'gridsearch')
                 return get_demographies_from_gridsearch(gridsearch_label, gridsearch_constraint)
             return get_demographies_from_config(config)
-        print("recombination_rates", config['simulate']['recombination_rate'])
+        print("recombination_rates", len(config['simulate']['recombination_rate']))
         
         config['simulate']['demographies'] = get_demographies(config)
-        print("demographies", config['simulate']['demographies'])
+        print("demographies", len(config['simulate']['demographies']))
         print("windows", config['simulate']['windows'])
         config['simulate']['windows'] = len(config['simulate']['demographies']) if len(config['simulate']['demographies']) > 1 else config['simulate']['windows']
         #if not config['simulate']['windows'] == len(config['simulate']['demographies']):
