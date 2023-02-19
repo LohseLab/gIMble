@@ -3371,9 +3371,10 @@ class Store(object):
                 return get_demographies_from_gridsearch(gridsearch_label, gridsearch_constraint)
             return get_demographies_from_config(config)
         print("recombination_rates", config['simulate']['recombination_rate'])
+        
+        config['simulate']['demographies'] = get_demographies(config)
         print("demographies", config['simulate']['demographies'])
         print("windows", config['simulate']['windows'])
-        config['simulate']['demographies'] = get_demographies(config)
         config['simulate']['windows'] = len(config['simulate']['demographies']) if len(config['simulate']['demographies']) > 1 else config['simulate']['windows']
         #if not config['simulate']['windows'] == len(config['simulate']['demographies']):
         #    print("[-] Warning: Number of Windows in recombination map (%s) and demographies (%s) don't match. Results will be truncated." % (
