@@ -5211,11 +5211,11 @@ class Store(object):
         replicates = config.get('replicates', 0)
         for key, (idx, tally) in zip(config["gridsearch_keys"], data_generator):
             #print('tally.shape', tally.shape)
-            # print("tally", type(tally), tally.shape)
+            print("tally", type(tally), tally.shape)
             gridsearch_dask_result = gridsearch_dask(
                 tally=tally, grid=grid, num_cores=num_cores, chunksize=chunksize
             )
-            # print("gridsearch_dask_result", gridsearch_dask_result)
+            print("gridsearch_dask_result", type(gridsearch_dask_result), gridsearch_dask_result.shape)
             self._set_data(key, gridsearch_dask_result)
         gridsearch_meta = config_to_meta(config, "gridsearch")
         #print("gridsearch_meta", gridsearch_meta)
