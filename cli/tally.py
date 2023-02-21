@@ -1,4 +1,4 @@
-"""usage: gimbl tally                       -z <DIR> -d <STR> -l <STR> [-k <STR>] 
+"""usage: gimble tally                      -z <DIR> -d <STR> -l <STR> [-k <STR>] 
                                             [-s <STR>] [-f] [-h]
                                             
 

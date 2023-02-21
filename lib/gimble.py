@@ -11,6 +11,7 @@ import dask
 import pandas as pd
 import shutil
 import zarr
+import numcodecs
 import os
 import string
 import collections
@@ -65,6 +66,8 @@ RECOMBINATION_SCALER = 1e-8
 MUTYPES = ["m_1", "m_2", "m_3", "m_4"]
 SPACING = 16
 GRIDSEARCH_DTYPE = np.float32  # -3.4028235e+38 ... 3.4028235e+38
+MODELS = ['DIV', 'MIG_AB', 'MIG_BA', "IM_AB", "IM_BA"]
+
 # GRIDSEARCH_DTYPE=np.float64 # -1.7976931348623157e+308 ... 1.7976931348623157e+308
 ###
 
@@ -427,7 +430,7 @@ def config_to_meta(config, task):
         meta["marginality"] = config.get("marginality", "NA")
         meta["block_length"] = config["block_length"]
     if task == "simulate":
-        print("[config2meta]", config)
+        # print("[config2meta]", config)
         meta["data_ndims"] = config.get("data_ndims", 5)
         meta['data_source'] = 'sims'
         meta['data_label'] = config['gimble']['label']
@@ -479,7 +482,7 @@ def config_to_meta(config, task):
         meta["max_k"] = list([int(k) for k in config["max_k"]])
     if task == "gridsearch":
         meta["makegrid_key"] = config["makegrid_key"]
-        meta["grid_points"] = config["parameters_grid_points"]
+        #meta["grid_points"] = config["parameters_grid_points"]
         meta["makegrid_label"] = config["makegrid_label"]
         meta["batch_sites"] = config["batch_sites"]
         meta["data_key"] = config["data_key"]
@@ -2784,7 +2787,7 @@ class ParameterObj(object):
 #             df_fixed_param.to_csv(f"{label}_{name}_lnCL_dist.csv")
 #     return (df, df_fixed_param)
 
-def gridsearch_dask(tally=None, grid=None, num_cores=1, chunksize=500):
+def gridsearch_dask(tally=None, grid=None, num_cores=1, chunksize=500, desc=None):
     """returns 2d array of likelihoods of shape (windows, grid)"""
     if grid is None or tally is None:
         return None
@@ -2839,7 +2842,7 @@ def gridsearch_dask(tally=None, grid=None, num_cores=1, chunksize=500):
             product = product.reshape((product.shape[0], product.shape[1], np.prod(product.shape[2:])))
             #print("# product.ndim", product.ndim, product.shape, product.dtype, product)
             result = dask.array.sum(product, axis=-1)
-            with TqdmCallback(desc="[%] Performing gridsearch", ncols=100):
+            with TqdmCallback(desc=desc, ncols=100, position=0):
                 out = result.compute()
             return out
 
@@ -3183,16 +3186,16 @@ class Store(object):
         """
         if not self.has_stage("measure"):
             sys.exit(
-                "[X] GStore %r has no data. Please run 'gimble measure'." % self.path
+                "[X] Gimble store %r has no data. Please run 'gimble measure'." % self.path
             )
         if self.has_stage("blocks"):
             if not overwrite:
                 sys.exit(
-                    "[X] GStore %r already contains blocks.\n[X] These blocks => %r\n[X] Please specify '--force' to overwrite."
+                    "[X] Gimble store %r already contains blocks.\n[X] These blocks => %r\n[X] Please specify '--force' to overwrite."
                     % (self.path, self.get_stage("blocks"))
                 )
             print(
-                "[-] GStore %r already contains blocks. But these will be overwritten..."
+                "[-] Gimble store %r already contains blocks. But these will be overwritten..."
                 % (self.path)
             )
             # wipe bsfs, windows, AND meta, since new blocks...
@@ -3282,8 +3285,59 @@ class Store(object):
                 "[X] Simulated results with label %r already exist. Use '-f' to overwrite or change analysis label in the INI file."
                 % (config["simulate_key"])
             )
+        def get_demographies_from_gridsearch(gridsearch_label, gridsearch_constraint={}):
+            print("constraint: %s" % gridsearch_constraint)
+            meta_gridsearch = self._get_meta(gridsearch_label)
+            meta_makegrid = self._get_meta(meta_gridsearch["makegrid_key"])
+            model = meta_makegrid['model']
+            modelObjs = []
+            parameter_names = list(meta_gridsearch["grid_dict"].keys())
+            parameter_array = np.array([np.array(v, dtype=np.float64) for k, v in meta_gridsearch["grid_dict"].items()]).T
+            for gridsearch_key in meta_gridsearch["gridsearch_keys"]: # this loop is because data tried to emulate sims (which was stupid) 
+                lncls = np.array(self._get_data(gridsearch_key))  # (w, gridpoints)
+                print("lncls.shape", lncls.shape)
+                if gridsearch_constraint: 
+                    fixed_param_index = self._get_fixed_param_index(gridsearch_constraint, parameter_names, parameter_array, meta_makegrid) 
+                    lncls_fixed = lncls[:,fixed_param_index]
+                    lncls_fixed_max_idx = np.argmax(lncls_fixed, axis=1)
+                    lncls_max = lncls_fixed[np.arange(lncls_fixed.shape[0]), lncls_fixed_max_idx]
+                    lncls_max_parameters = parameter_array[fixed_param_index][lncls_fixed_max_idx]
+                else:
+                    lncls_max_idx = np.argmax(lncls, axis=1)
+                    lncls_max = lncls[np.arange(lncls.shape[0]), lncls_max_idx]
+                    lncls_max_parameters = parameter_array[lncls_max_idx]
+                for idx in tqdm(range(lncls_max_parameters.shape[0])):
+                    model_dict = {parameter_name: parameter_value for parameter_name, parameter_value in zip(parameter_names, lncls_max_parameters[idx,:])}
+                    modelObj = GimbleDemographyInstance(model=meta_makegrid['model'], **model_dict) # model comes from makegrid
+                    modelObjs.append(modelObj)
+            if len(modelObjs) == 0:
+                sys.exit("[X] get_demographies_from_gridsearch() was unsuccessful...")
+            return modelObjs
+        def get_demographies_from_config(config):
+            '''returns list of N modelObjs, where N = number of windows '''
+            demographies = [GimbleDemographyInstance(model=config['gimble']['model'], **config['parameters_LOD'][0])] * config['simulate']['windows']  
+            #print([demography.get_parameter_dict(nones=True) for demography in demographies])
+            return demographies
+
+        def get_demographies(config):
+            gridsearch_label = config["gridbased"]["grid_label"]
+            print(config["gridbased"])
+            if gridsearch_label:
+                constraint = config["gridbased"].get("fixed_parameter", {})
+                gridsearch_constraint = {constraint.split("=")[0]: float(constraint.split("=")[1])} if constraint else {}
+                gridsearch_label = self.validate_key(gridsearch_label, 'gridsearch')
+                return get_demographies_from_gridsearch(gridsearch_label, gridsearch_constraint)
+            return get_demographies_from_config(config)
         
-        ### recombination
+        config['simulate']['demographies'] = get_demographies(config)
+        print("demographies", len(config['simulate']['demographies']))
+        print("windows", config['simulate']['windows'])
+        config['simulate']['windows'] = len(config['simulate']['demographies']) if len(config['simulate']['demographies']) > 1 else config['simulate']['windows']
+        #if not config['simulate']['windows'] == len(config['simulate']['demographies']):
+        #    print("[-] Warning: Number of Windows in recombination map (%s) and demographies (%s) don't match. Results will be truncated." % (
+        #        config['simulate']['windows'], len(config['simulate']['demographies'])))
+        #    config['simulate']['demographies'] = config['simulate']['demographies'][0:config['simulate']['windows']]
+                ### recombination
         if config['simulate']['recombination_map']:
             # recombination map, number of rows determines number of "Windows" later on ...
             path = config['simulate']['recombination_map']
@@ -3328,59 +3382,7 @@ class Store(object):
         else:
             # no recombination value: recombination rate is 0
             config['simulate']['recombination_rate'] = [0] * config['simulate']['windows']
-        def get_demographies_from_gridsearch(gridsearch_label, gridsearch_constraint={}):
-            print("constraint: %s" % gridsearch_constraint)
-            meta_gridsearch = self._get_meta(gridsearch_label)
-            meta_makegrid = self._get_meta(meta_gridsearch["makegrid_key"])
-            model = meta_makegrid['model']
-            modelObjs = []
-            parameter_names = list(meta_gridsearch["grid_dict"].keys())
-            parameter_array = np.array([np.array(v, dtype=np.float64) for k, v in meta_gridsearch["grid_dict"].items()]).T
-            for gridsearch_key in meta_gridsearch["gridsearch_keys"]: # this loop is because data tried to emulate sims (which was stupid) 
-                lncls = np.array(self._get_data(gridsearch_key))  # (w, gridpoints)
-                print("lncls.shape", lncls.shape)
-                if gridsearch_constraint: 
-                    fixed_param_index = self._get_fixed_param_index(gridsearch_constraint, parameter_names, parameter_array, meta_makegrid) 
-                    lncls_fixed = lncls[:,fixed_param_index]
-                    lncls_fixed_max_idx = np.argmax(lncls_fixed, axis=1)
-                    lncls_max = lncls_fixed[np.arange(lncls_fixed.shape[0]), lncls_fixed_max_idx]
-                    lncls_max_parameters = parameter_array[fixed_param_index][lncls_fixed_max_idx]
-                else:
-                    lncls_max_idx = np.argmax(lncls, axis=1)
-                    lncls_max = lncls[np.arange(lncls.shape[0]), lncls_max_idx]
-                    lncls_max_parameters = parameter_array[lncls_max_idx]
-                for idx in tqdm(range(lncls_max_parameters.shape[0])):
-                    model_dict = {parameter_name: parameter_value for parameter_name, parameter_value in zip(parameter_names, lncls_max_parameters[idx,:])}
-                    modelObj = GimbleDemographyInstance(model=meta_makegrid['model'], **model_dict) # model comes from makegrid
-                    modelObjs.append(modelObj)
-            if len(modelObjs) == 0:
-                sys.exit("[X] get_demographies_from_gridsearch() was unsuccessful...")
-            return modelObjs
-        def get_demographies_from_config(config):
-            '''returns list of N modelObjs, where N = number of windows '''
-            demographies = [GimbleDemographyInstance(model=config['gimble']['model'], **config['parameters_LOD'][0])] * config['simulate']['windows']  
-            #print([demography.get_parameter_dict(nones=True) for demography in demographies])
-            return demographies
-
-        def get_demographies(config):
-            gridsearch_label = config["gridbased"]["grid_label"]
-            print(config["gridbased"])
-            if gridsearch_label:
-                constraint = config["gridbased"].get("fixed_parameter", {})
-                gridsearch_constraint = {constraint.split("=")[0]: float(constraint.split("=")[1])} if constraint else {}
-                gridsearch_label = self.validate_key(gridsearch_label, 'gridsearch')
-                return get_demographies_from_gridsearch(gridsearch_label, gridsearch_constraint)
-            return get_demographies_from_config(config)
         print("recombination_rates", len(config['simulate']['recombination_rate']))
-        
-        config['simulate']['demographies'] = get_demographies(config)
-        print("demographies", len(config['simulate']['demographies']))
-        print("windows", config['simulate']['windows'])
-        config['simulate']['windows'] = len(config['simulate']['demographies']) if len(config['simulate']['demographies']) > 1 else config['simulate']['windows']
-        #if not config['simulate']['windows'] == len(config['simulate']['demographies']):
-        #    print("[-] Warning: Number of Windows in recombination map (%s) and demographies (%s) don't match. Results will be truncated." % (
-        #        config['simulate']['windows'], len(config['simulate']['demographies'])))
-        #    config['simulate']['demographies'] = config['simulate']['demographies'][0:config['simulate']['windows']]
         print("[+] Simulating %s replicates of %s window(s) of %s blocks" % 
             (config['simulate']['replicates'],
             config['simulate']['windows'],
@@ -3579,7 +3581,7 @@ class Store(object):
 
     def _write_optimize_tsv(self, config):
         optimize_meta = dict(self._get_meta(config["data_key"]))
-        print('optimize_meta',optimize_meta)
+        #print('optimize_meta',optimize_meta)
         # prints optimize_meta, could have prettier formatting ...
         print("[+] Optimize ...")
         query_meta = format_query_meta(optimize_meta)
@@ -4061,7 +4063,7 @@ class Store(object):
                 np.array(v, dtype=np.float64) for k, v in meta_gridsearch["grid_dict"].items()
             ]
         ).T
-        grid_points = meta_gridsearch.get("grid_points", parameter_array.shape[0])
+        grid_points = meta_makegrid.get("parameters_grid_points", parameter_array.shape[0])
         columns = []
         fixed_param_columns = []
         header = ["# %s" % config["version"]]
@@ -4169,7 +4171,7 @@ class Store(object):
             ]
         ).T
         # Gridsearch based on SIMS
-        grid_points = meta_gridsearch.get("grid_points", parameter_array.shape[0])
+        grid_points = meta_makegrid.get("parameters_grid_points", parameter_array.shape[0])
         columns = []
         fixed_param_columns = []
         header = ["# %s" % config["version"]]
@@ -4185,6 +4187,7 @@ class Store(object):
             for gridsearch_key in meta_gridsearch["gridsearch_keys"]:
                 base_fn = "%s.%s" % (self.prefix, "_".join(gridsearch_key.split("/")))
                 lncls = np.array(self._get_data(gridsearch_key))  # (w, gridpoints)
+                print("lncls.shape", lncls.shape)
                 #print("lncls", lncls.shape)
                 #print("lncls", lncls.shape, lncls)
                 if config["sliced_param"]:
@@ -5203,20 +5206,26 @@ class Store(object):
         config, data_generator, grid = self.gridsearch_preflight(
             tally_key, sim_key, grid_key, windowsum, overwrite
         )
-        # print("config", config)
         print(
             "[+] Searching with grid %r along tally %r ..."
             % (config["makegrid_label"], config["data_label"])
         )
         replicates = config.get('replicates', 0)
-        for key, (idx, tally) in zip(config["gridsearch_keys"], data_generator):
-            #print('tally.shape', tally.shape)
-            print("tally", type(tally), tally.shape)
+        # print(config["gridsearch_keys"])
+        # print(data_generator)
+        #for key, (idx, tally) in zip(config["gridsearch_keys"], data_generator):
+        position = 1
+        global_desc = "[%] Gridsearch"
+        for i in tqdm(range(len(data_generator)), position=position, desc=global_desc, ncols=100, leave=True, disable=(len(data_generator)==1)):
+            #print("tally", type(tally), tally.shape)
+            idx, tally = data_generator[i]
+            iteration_desc = (global_desc if (len(data_generator)==1) else "[%%] Replicate %s" % str(i))
             gridsearch_dask_result = gridsearch_dask(
-                tally=tally, grid=grid, num_cores=num_cores, chunksize=chunksize
+                tally=tally, grid=grid, num_cores=num_cores, chunksize=chunksize, desc=iteration_desc
             )
-            print("gridsearch_dask_result", type(gridsearch_dask_result), gridsearch_dask_result.shape)
-            self._set_data(key, gridsearch_dask_result)
+            position+=1
+            #print("gridsearch_dask_result", type(gridsearch_dask_result), gridsearch_dask_result.shape)
+            self._set_data(config["gridsearch_keys"][i], gridsearch_dask_result)
         gridsearch_meta = config_to_meta(config, "gridsearch")
         #print("gridsearch_meta", gridsearch_meta)
         self._set_meta(config["gridsearch_key"], gridsearch_meta)
@@ -5283,7 +5292,10 @@ class Store(object):
         agemo_config["max_k"] = np.array(data_meta["max_k"])
         agemo_config["block_length"] = data_meta["block_length"]
         if agemo_config["data_source"] == "meas":
-            data = ((0, self._get_data(agemo_config["data_key"])) for _ in (0,))
+            #data = ((0, self._get_data(agemo_config["data_key"])) for _ in (0,))
+            print('self.data[agemo_config["data_key"]]', self.data[agemo_config["data_key"]].shape, self.data[agemo_config["data_key"]])
+            #data = [(idx, tally) if not windowsum else (idx, np.sum(tally, axis=0)) for idx, tally in self.data[agemo_config["data_key"]].arrays()]
+            data = [(0, self.data[agemo_config["data_key"]]) if not windowsum else (0, np.sum(self.data[agemo_config["data_key"]], axis=0))]
             agemo_config["nlopt_chains"] = data_meta['windows'] if data_meta['data_ndims'] == 5 else 1 # blocks/windowsum => 1, windows => n
             agemo_config["nlopt_runs"] = 1
         else:
@@ -5635,11 +5647,6 @@ class Store(object):
         tally_key = config["tally_key"]
         tally_meta = config_to_meta(config, "tally")
         self._set_meta_and_data(tally_key, tally_meta, tally)
-        if verbose:
-            print(
-                "[+] Tally saved under label %r (use this for optimize/gridsearch)."
-                % config["data_label"]
-            )
 
     def _get_key(
         self,
@@ -5695,8 +5702,11 @@ class Store(object):
     def _has_key(self, key):
         return (key in self.data) if key else False
 
-    def _set_data(self, key, array, overwrite=True):
-        self.data.create_dataset(key, data=array, overwrite=overwrite)
+    def _set_data(self, key, array, overwrite=True, compression=False):
+        #print("array", array.shape, array.nbytes)
+        compressor = numcodecs.Blosc(cname='zstd', clevel=5, shuffle=numcodecs.Blosc.BITSHUFFLE) if compression else None
+        self.data.create_dataset(key, data=array, overwrite=overwrite, compressor=compressor)
+        #print(self.data[key].info)
 
     def _set_meta_and_data(self, key, meta, array, overwrite=True):
         self.data.create_dataset(key, data=array, overwrite=overwrite)
@@ -5843,7 +5853,7 @@ class Store(object):
         config['agemo_parameters'] = [model_instance.get_agemo_values(fallback=True) for model_instance in model_instances]
         return config
 
-    def makegrid(self, config, num_cores, overwrite, agemo=True):
+    def makegrid_old(self, config, num_cores, overwrite, agemo=True):
         config = self._preflight_makegrid(config, overwrite)
         print(
             "[+] Grid of %s parameter-grid-points will be prepared..."
@@ -6101,7 +6111,7 @@ class Store(object):
                 shutil.rmtree(self.path)
             print("[+] Creating Gimble datastore in %r" % self.path)
             return zarr.open(str(self.path), mode="w")
-        # print("[+] Loading GStore from %r" % self.path)
+        # print("[+] Loading Gimble store from %r" % self.path)
         return zarr.open(str(self.path), mode="r+")
 
     def _get_window_bed(self):
@@ -6175,16 +6185,16 @@ class Store(object):
         }
         if not self.has_stage("blocks"):
             sys.exit(
-                "[X] GStore %r has no blocks. Please run 'gimble blocks'." % self.path
+                "[X] Gimble store %r has no blocks. Please run 'gimble blocks'." % self.path
             )
         if self.has_stage("windows"):
             if not overwrite:
                 sys.exit(
-                    "[X] GStore %r already contains windows.\n[X] These windows => %r\n[X] Please specify '--force' to overwrite."
+                    "[X] Gimble store %r already contains windows.\n[X] These windows => %r\n[X] Please specify '--force' to overwrite."
                     % (self.path, self.get_stage("windows"))
                 )
             print(
-                "[-] GStore %r already contains windows. But these will be overwritten..."
+                "[-] Gimble store %r already contains windows. But these will be overwritten..."
                 % (self.path)
             )
             """only deletes windows (NOT windows tallies)"""
