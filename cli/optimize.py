@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-usage: gimble optimize                  -z FILE -c FILE (-t <STR>|-s <STR> [-w])
+usage: gimble optimize                  -z FILE -c FILE (-t <STR>|-s <STR>) [-w]
                                         [--xtol FLOAT --ftol FLOAT -i INT] [-n INT] [-p STR] [--sage]
                                         [-f] [-h|--help]
 
@@ -10,7 +10,7 @@ usage: gimble optimize                  -z FILE -c FILE (-t <STR>|-s <STR> [-w])
     -c, --config_file FILE                          INI config file
     -t, --tally_label STR                           Label of tally in ZARR store ('tally/...')
     -s, --sim_label STR                             Label of simulation run in ZARR store ('simulate/...')
-    -w, --windowsum                                 Apply optimize to windowsum(s) of simulated, window'ed data
+    -w, --windowsum                                 Apply optimize to sum of tallies in parsed/simulated windows data
                                                         [default: False]
 
     Stopping criteria of optimization
@@ -67,6 +67,7 @@ class OptimizeParameterObj(lib.gimble.ParameterObj):
 def main(params):
     try:
         start_time = timer()
+        print("[+] Running 'gimble optimize' ...")
         args = docopt(__doc__)
         parameterObj = OptimizeParameterObj(params, args)
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)

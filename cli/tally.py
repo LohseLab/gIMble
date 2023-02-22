@@ -42,6 +42,7 @@ class TallyParameterObj(lib.gimble.ParameterObj):
 def main(params):
     try:
         start_time = timer()
+        print("[+] Running 'gimble tally' ...")
         args = docopt(__doc__)
         parameterObj = TallyParameterObj(params, args)
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)

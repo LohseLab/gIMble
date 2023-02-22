@@ -79,6 +79,7 @@ class SimulateParameterObj(lib.gimble.ParameterObj):
 def main(params):
     try:
         start_time = timer()
+        print("[+] Running 'gimble simulate' ...")
         args = docopt(__doc__)
         parameterObj = SimulateParameterObj(params, args)
         if parameterObj.zstore:

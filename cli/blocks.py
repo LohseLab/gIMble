@@ -45,6 +45,7 @@ class BlockParameterObj(lib.gimble.ParameterObj):
 def main(params):
     try:
         start_time = timer()
+        print("[+] Running 'gimble blocks' ...")
         args = docopt(__doc__)
         parameterObj = BlockParameterObj(params, args)
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore)

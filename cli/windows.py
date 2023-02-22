@@ -34,6 +34,7 @@ class WindowsParameterObj(lib.gimble.ParameterObj):
 def main(params):
     try:
         start_time = timer()
+        print("[+] Running 'gimble windows' ...")
         args = docopt(__doc__)
         parameterObj = WindowsParameterObj(params, args)
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)

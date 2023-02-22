@@ -3184,9 +3184,9 @@ class Store(object):
         """
         [TODO]: allow for multiple block datasets
         """
-        if not self.has_stage("measure"):
+        if not self.has_stage("measure") and not self.has_stage("parse"):
             sys.exit(
-                "[X] Gimble store %r has no data. Please run 'gimble measure'." % self.path
+                "[X] Gimble store %r has no data to block. Please run 'gimble parse'." % self.path
             )
         if self.has_stage("blocks"):
             if not overwrite:

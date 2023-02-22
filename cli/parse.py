@@ -48,6 +48,7 @@ class ParseParameterObj(lib.gimble.ParameterObj):
 def main(params):
     try:
         start_time = timer()
+        print("[+] Running 'gimble parse' ...")
         args = docopt(__doc__)
         parameterObj = ParseParameterObj(params, args)
         gimbleStore = lib.gimble.Store(prefix=parameterObj.outprefix, create=True, overwrite=parameterObj.overwrite)
