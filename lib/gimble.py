@@ -94,6 +94,32 @@ def poolcontext(*args, **kwargs):
     yield pool
     pool.terminate()
 
+def get_parameter_dicts_from_user_parameters(**kwargs):
+    # order is determined by input : Ne_A, Ne_B, Ne_A_B, T, me
+    # replaces parameters_expanded and only returns the combinations of parameters needed for the GDIs
+    # NOT the array of all values by parameter name (ie. parameters_expanded) 
+    # if value_list is None 
+    def value_list_to_array(value_list=[]):
+        if len(value_list) == 1:
+            value_array = np.array(value_list)
+            return value_array
+        if len(value_list) == 4:
+            value_min, value_max, value_num, distr = value_list
+            if distr == 'lin':
+                value_array = np.linspace(value_min, value_max, num=value_num, endpoint=True, dtype=np.float64)
+            if distr == 'log':
+                try:
+                    value_array = np.geomspace(value_min, value_max, num=value_num, endpoint=True, dtype=np.float64)
+                except ValueError:
+                    _value_min = 10 ** (np.log10(value_max) - value_num - (1 if value_min == 0 else 0))
+                    value_array = np.geomspace(_value_min, value_max, num=value_num, endpoint=True, dtype=np.float64)
+                    if value_min == 0:
+                        np.insert(value_array, 0, 0)
+            return value_array
+        return []
+    value_arrays_by_parameter = {k: value_list_to_array(v) for k, v in kwargs.items() if v is not None}
+    return [dict(zip(value_arrays_by_parameter.keys(), instance)) for instance in itertools.product(*value_arrays_by_parameter.values())]
+
 class ReportObj(object):
     """Report class for making reports"""
 
@@ -500,7 +526,7 @@ def config_to_meta(config, task):
         meta["data_key"] = config["data_key"]
         meta["start_point_method"] = config["nlopt_start_point_method"]
         meta["start_point"] = list([float(k) for k in config["nlopt_start_point"]])
-        #meta["population_by_letter"] = config["population_by_letter"]
+        meta["optimize_result_keys"] = config["optimize_result_keys"]
         meta["optimize_time"] = config["optimize_time"]
         meta["lower_bound"] = config["nlopt_lower_bound"]
         meta["upper_bound"] = config["nlopt_upper_bound"]
@@ -531,7 +557,7 @@ def get_config_model_parameters(config, module):
             config["parameters_fixed"].append(parameter)
             config["parameters_np"][parameter] = np.array(values)
         elif len(values) == 2:
-            if module == "makegrid":
+            if module == "makegrid_legacy":
                 sys.exit(
                     "[X] Module %r only supports FLOAT, or (min, max, steps, lin|log) for parameters. Not %r"
                     % (module, values)
@@ -595,7 +621,7 @@ def get_config_model_parameters(config, module):
                     sys.exit("[X] Config: Parameters must be FLOAT.")
             if module == "optimize":
                 sys.exit("[X] Config: Parameters must be FLOAT, or (MIN, MAX).")
-            if module == "makegrid":
+            if module == "makegrid_legacy":
                 sys.exit(
                     "[X] Config: Parameters must be FLOAT, or (MIN, MAX, STEPS, LIN|LOG)."
                 )
@@ -739,6 +765,7 @@ class GimbleDemographyInstance(object):
         '''
         if not scaled_values_by_parameter:
             scaled_values_by_parameter, values_by_parameter_unscaled = self.scale_parameters()
+        #print("scaled_values_by_parameter", scaled_values_by_parameter, values_by_parameter_unscaled)
         theta_along_branchtypes = np.full(len(self.kmax), scaled_values_by_parameter['theta_branch'], dtype=np.float64) # len(branch_type_object)
         time = scaled_values_by_parameter['T']
         if fallback:
@@ -933,9 +960,9 @@ def load_config(config_file, MODULE=None, CWD=None, VERSION=None):
     # config = get_config_kmax(config)
     config = get_config_model_events(config)
     config = get_config_model_parameters(config, MODULE)
-    if MODULE == "makegrid":
+    if MODULE == "makegrid_legacy":
         config = expand_parameters(config)
-    if MODULE == "makegrid" or MODULE == "simulate":
+    if MODULE == "makegrid_legacy" or MODULE == "simulate":
         config = get_config_kmax(config)  # HAS TO BE CHECKED!
     if MODULE == "simulate":
         config = expand_parameters(config)
@@ -1252,7 +1279,7 @@ def get_config_schema(module):
             "coerce": int,
         },
     }
-    if module == "makegrid":
+    if module == "makegrid_legacy":
         schema["mu"] = {
             "type": "dict",
             "schema": {
@@ -2343,6 +2370,15 @@ class ParameterObj(object):
                 }
             return fixedParams
 
+    def _check_kmax(self, arg):
+        l = arg.split(",")
+        if len(l) == 4:
+            try:
+                return np.array([int(_) for _ in l])
+            except ValueError:
+                pass
+        sys.exit("[X] --kmax must be list of four digits, not: %s" % kmax)
+
     def _get_max_k(self, kmax_string):
         # mutypes = ['m_1', 'm_2', 'm_3', 'm_4']
         error = "[X] Invalid k-max string (must be a list of 4 integers)"
@@ -2353,6 +2389,12 @@ class ParameterObj(object):
             return kmax if kmax.shape == (4,) else sys.exit(error)
         except ValueError:
             sys.exit(error)
+
+    def _check_model(self, model):
+        error = "[X] Model %r not supported. Supported models are: %s" % (model, ", ".join(MODELS))
+        if model in MODELS:
+            return model
+        sys.exit(error)
 
     def _get_path(self, infile, path=False):
         if infile is None:
@@ -2425,33 +2467,6 @@ class ParameterObj(object):
             syncing_to, *to_be_synced = syncing.split(",")
         return (syncing_to, to_be_synced)
 
-    def _get_unique_hash_from_dict(self, d):
-        """active"""
-        return hashlib.md5(str(d).encode()).hexdigest()
-
-    # def _get_unique_hash(self, return_dict=False, module=None):
-        # """passive"""
-        # module = module if module else self._MODULE
-        # to_hash = copy.deepcopy(self.config)
-        #print('to_hash', to_hash)
-        # if module in set(["makegrid", "gridsearch", "query"]):
-            # del to_hash["simulations"]
-            # if "kmax_by_mutype" in to_hash:
-                # del to_hash["--kmax_by_mutype"]
-            # if "recombination" in to_hash["parameters"]:
-                # del to_hash["parameters"]["recombination"]
-        # elif module == "simulate":
-            # pass
-        # else:
-            # ValueError("Not implemented yet.")
-        # del to_hash["population_by_letter"]
-        # for pop_name in ["A", "B"]:
-            # del to_hash["populations"][pop_name]
-        # del to_hash["gimble"]
-        # if return_dict:
-            # return (hashlib.md5(str(to_hash).encode()).hexdigest(), to_hash)
-        # return hashlib.md5(str(to_hash).encode()).hexdigest()
-
     def _expand_params(self, remove=None):
         if len(self.config["parameters"]) > 0:
             parameter_combinations = collections.defaultdict(list)
@@ -2492,300 +2507,6 @@ class ParameterObj(object):
             return np.logspace(minv, maxv, num=n, endpoint=True, dtype=np.float64)
         else:
             sys.exit("scale in config parameters should either be lin or log")
-
-
-"""
-    def _make_parameter_combinations(self, sync_reference=None, sync_target=None):
-        parameter_combinations = self._expand_params(remove=sync_target)
-        if self._MODULE == 'optimize':
-            return parameter_combinations
-        if self._MODULE == 'simulate':
-            rec = self._set_recombination_rate()
-            if rec != None:
-                parameter_combinations['recombination'] = rec
-        parameter_combinations =  self._dict_product(parameter_combinations)
-        if sync_reference and sync_target:
-            for pop in sync_target:
-                parameter_combinations[f'Ne_{pop}'] = parameter_combinations[f'Ne_{sync_reference}']
-        return parameter_combinations
-"""
-# functions for gridsearch/sim_grid
-
-
-# def get_slice_grid_meta_idxs(
-#     grid_meta_dict=None, lncls=None, fixed_parameter=None, parameter_value=None
-# ):
-#     """
-#     fixed_parameter=None, parameter_value=None  => 1 idx (overall max likelihood gridkey)
-#     fixed_parameter=str, parameter_value=None   => list of n 1d-arrays of idxs with shape (windows,) (n=unique values of parameter)
-#     fixed_parameter=str, parameter_value=float  => 1d-array of idxs with shape (windows,)
-#     """
-#     if fixed_parameter:
-#         if isinstance(grid_meta_dict, list):
-#             values_by_parameter = LOD_to_DOL(grid_meta_dict)
-#             # values_by_parameter = grid_meta_dict_to_value_arrays_by_parameter(grid_meta_dict)
-#         else:
-#             values_by_parameter = {
-#                 k: np.array(v, dtype=np.float64) for k, v in grid_meta_dict.items()
-#             }
-#         if not fixed_parameter in values_by_parameter:
-#             raise ValueError("%r is not part of this model" % fixed_parameter)
-#         fixed_parameter_values = np.array(values_by_parameter[fixed_parameter])
-#         if parameter_value:
-#             fixed_parameter_indices = np.concatenate(
-#                 np.argwhere(parameter_value == fixed_parameter_values)
-#             )
-#             # if not np.any(fixed_parameter_indices): #will evaluate to True for np.array([0])
-#             if fixed_parameter_indices.size == 0:
-#                 raise ValueError(
-#                     "parameter_value %r not found in grid" % parameter_value
-#                 )
-#             fixed_parameter_lncls = lncls[:, fixed_parameter_indices]
-#             fixed_parameter_lncls_max_idx = np.argmax(fixed_parameter_lncls, axis=1)
-#             fixed_parameter_lncls_max_idx = fixed_parameter_indices[
-#                 fixed_parameter_lncls_max_idx
-#             ]  # translate back to larger grid_meta_dict idxs
-#             return fixed_parameter_lncls_max_idx
-#         results = []
-#         for i in np.unique(fixed_parameter_values):  # these values are sorted
-#             fixed_parameter_indices = np.concatenate(
-#                 np.argwhere(i == fixed_parameter_values)
-#             )
-#             fixed_parameter_lncls = lncls[:, fixed_parameter_indices]
-#             fixed_parameter_lncls_max_idx = np.argmax(fixed_parameter_lncls, axis=1)
-#             idxs = fixed_parameter_indices[fixed_parameter_lncls_max_idx]
-#             results.append(idxs)
-#         return results
-#     return np.argmax(lncls, axis=1)
-
-
-# def _get_sim_grid_config(
-#     config, lncls_global, lncls_windows, meta, window_info=None, fixed_param_grid=None
-# ):
-#     rec, rec_map = None, None
-#     if config["simulate"]["recombination_map"].strip() != "":
-#         store_window_df = pd.DataFrame(window_info).T
-#         store_window_df.columns = ["chr", "start", "end", "idx"]
-#         rbins = config["simulate"]["number_bins"]
-#         cutoff = config["simulate"]["cutoff"]
-#         scale = config["simulate"]["scale"]
-#         rbins = 10 if rbins == "" else rbins
-#         scale = "lin" if scale == "" else scale
-#         cutoff = 90 if cutoff == "" else cutoff
-#         # recmap with seq, start, end, rec_bin_value
-#         rec_map = _parse_recombination_map(
-#             config["simulate"]["recombination_map"],
-#             cutoff,
-#             rbins,
-#             scale,
-#             store_window_df,
-#         )
-#     else:
-#         rec = config["simulate"]["recombination_rate"]
-#     grid_meta_dict = {
-#         k: np.array(v) for k, v in meta["grid_dict"].items()
-#     }  # why are these not numpy arrays?
-#     grid_to_sim, r, window_param_idx = _get_sim_grid(
-#         grid_meta_dict, lncls_global, lncls_windows, fixed_param_grid, rec, rec_map
-#     )
-#     if isinstance(rec_map, pd.DataFrame):
-#         config["simulate"]["recombination_rate"] = tuple(r)
-#     # ready to overwrite config:
-#     config["parameters_expanded"] = grid_to_sim
-#     # print("## config", config['grid_points'])
-#     config["parameters_grid_points"] = len(
-#         next(iter(grid_to_sim.values()))
-#     )  # this must be a bug
-#     config["window_param_idx"] = window_param_idx
-#     # do we remove entries in config that no longer make sense: parameters_np, ... ?
-#     return config
-
-
-# def _get_sim_grid(
-#     grid_meta_dict,
-#     lncls_global,
-#     lncls_windows,
-#     fixed_param_grid,
-#     rec=None,
-#     rec_map=None,
-# ):
-#     # lncls global should be based on w_bsfs !
-#     global_winning_fixed_param_idx = np.argmax(lncls_global)
-#     # get optimal parametercombo given background for fixed parameter
-#     if fixed_param_grid:
-#         global_winning_fixed_param_value = grid_meta_dict[fixed_param_grid][
-#             global_winning_fixed_param_idx
-#         ]
-#         local_winning_fixed_param_idx = get_slice_grid_meta_idxs(
-#             lncls=lncls_windows,
-#             grid_meta_dict=grid_meta_dict,
-#             fixed_parameter=fixed_param_grid,
-#             parameter_value=global_winning_fixed_param_value,
-#         )
-#     else:
-#         global_winning_fixed_param_value = None
-#         local_winning_fixed_param_idx = get_slice_grid_meta_idxs(lncls=lncls_windows)
-
-#     if rec == None:
-#         assert rec_map.shape[0] == len(
-#             local_winning_fixed_param_idx
-#         ), "Index recmap and windows not matching. Should have been caught."
-#         rec_bin_sorted = rec_map["rec_bins"].to_numpy(dtype=np.float64)
-#         grid_to_sim, r_to_sim, window_df = _get_sim_grid_with_rec_map(
-#             rec_bin_sorted, local_winning_fixed_param_idx, grid_meta_dict
-#         )
-#         return (grid_to_sim, r_to_sim, window_df)
-#     else:
-#         grid_to_sim, window_df = _get_sim_grid_fixed_rec(
-#             rec, local_winning_fixed_param_idx, grid_meta_dict
-#         )
-#         return (grid_to_sim, rec, window_df)
-
-
-# def _get_sim_grid_with_rec_map(
-#     rec_bin_sorted, local_winning_fixed_param_idx, grid_meta_dict
-# ):
-#     param_for_window = tuple(zip(local_winning_fixed_param_idx, rec_bin_sorted))
-#     unique, param_combo_idxs = np.unique(param_for_window, return_inverse=True, axis=0)
-#     r_to_sim = unique[:, 1]
-#     unique_idxs = unique[:, 0].astype(np.uint64)
-#     grid_to_sim = {k: grid_meta_dict[k][unique_idxs] for k in grid_meta_dict.keys()}
-#     return (grid_to_sim, r_to_sim, param_combo_idxs)
-
-
-# def _get_sim_grid_fixed_rec(rec_rate, local_winning_fixed_param_idx, grid_meta_dict):
-#     param_combo_idxs = np.unique(local_winning_fixed_param_idx)
-#     grid_to_sim = {
-#         k: grid_meta_dict[k][param_combo_idxs] for k in grid_meta_dict.keys()
-#     }
-#     old_to_new_idx = {
-#         old_idx: new_idx for new_idx, old_idx in enumerate(param_combo_idxs)
-#     }
-#     mapped_window_index = [old_to_new_idx[idx] for idx in local_winning_fixed_param_idx]
-#     return (grid_to_sim, mapped_window_index)
-
-
-# def _parse_recombination_map(path, cutoff, bins, scale, store_df):
-#     '''cut -f1,2,3 gimble.2chr_1M.2022_04_14.gridsearch_windows_kmax2_grid_debug_0.fixed_param.me.bed | grep -v '^#' | awk '{ print $0 "\t" rand()*8 }' > gimble.2chr_1M.2022_04_14.recmap.tsv'''
-#     # format is "chr", "start", "end", "rec" (rec in cM/Mb !!!)
-#     hapmap = pd.read_csv(path, sep="\t", names=["chr", "start", "end", "rec"], header=0)
-#     hapmap = _validate_recombination_map(store_df, hapmap)
-#     hapmap = hapmap.sort_values("idx")
-#     # from cM/Mb to rec/bp (simulator needs rec/b) 
-#     hapmap["rec_scaled"] = hapmap["rec"] * 1e-8
-#     return _make_bins(hapmap, scale, cutoff, bins)
-
-
-# def _make_bins(df, scale, cutoff=90, bins=10):
-#     '''
-#     assumptions: 
-#     - rec rates are noisy to begin with
-#     user specifies:
-#     - should be a section in config file re recmap
-#     - number of bins, 
-
-#     '''
-#     clip_value = np.percentile(df["rec_scaled"], cutoff)
-#     df["rec_clipped"] = df["rec_scaled"].clip(lower=None, upper=clip_value)
-#     df["rec_clipped"].replace(0, np.nan, inplace=True)
-#     start, stop = df["rec_clipped"].min(), df["rec_clipped"].max()
-#     # determine bins
-#     if scale.lower() == "log":
-#         start, stop = np.log10(start), np.log10(stop)
-#         bin_edges = np.logspace(start, stop, num=bins + 1)
-#     elif scale.lower() == "lin":
-#         bin_edges = np.linspace(start, stop, num=bins + 1)
-#     else:
-#         sys.exit(
-#             "[X] Scale of recombination values to be simulated should either be LINEAR or LOG"
-#         )
-#     to_be_simulated = [
-#         (bstop + bstart) / 2 for bstart, bstop in zip(bin_edges[:-1], bin_edges[1:])
-#     ]
-#     df["rec_bins"] = pd.cut(df["rec_clipped"], bins, labels=to_be_simulated).astype(
-#         float
-#     )
-#     df["rec_bins"].replace(np.nan, 0.0, inplace=True)
-#     return df[["chr", "start", "end", "rec_bins"]]
-
-
-# def _validate_recombination_map(store_df, user_df):
-#     # check for consistency between window_coordinates and rec_map coordinates
-#     df_to_test = user_df[["chr", "start", "end"]]
-#     df_merge = df_to_test.merge(store_df, how="outer", on=["chr", "start", "end"])
-#     if store_df.shape != df_merge.shape:
-#         sys.exit(
-#             "[X] Recombination map coordinates do not match window coordinates. Use query to get window coordinates."
-#         )
-#     return store_df.merge(user_df, on=["chr", "start", "end"])
-
-
-# def _gridsearch_sims_single(
-#     data,
-#     grids,
-#     fixed_param_grid,
-#     gridded_params,
-#     grid_meta_dict,
-#     label,
-#     name,
-#     fixed_param_grid_value_idx,
-#     output_df=True,
-# ):
-#     """
-#     -> transfered as function, should be redundant
-#     data=sim_bsfs, grids=lncls for each grid point, fixed_param_grid=fixed parameter, gridded_params=dict of parameters that are gridded,
-#     grid_meta_dict = , fixed_param_grid_value_idx=index of background value of fixed param
-#     determines optimal parameter combination (for each of theparameters that determine an axis along the grid)
-#     and returns list df containing those parameter combinations
-#     if a fixed_param_grid is passed: particular parameter along grid that is fixed to the global optimual value
-#         returns distribution of lncls for each value of that fixed parameter
-#     """
-#     assert np.product(data.shape[1:]) == np.product(
-#         grids.shape[1:]
-#     ), "Dimensions of sim bSFS and grid bSFS do not correspond. k_max does not correspond but not caught."
-#     data = np.reshape(data, (data.shape[0], -1))  # data shape: replicates * bSFS
-#     grids = np.reshape(
-#         grids, (grids.shape[0], -1)
-#     )  # grids shape: num_grid_points * bSFS
-#     grids_log = np.zeros(grids.shape, dtype=np.float64)
-#     grids = np.log(grids, where=grids > 0, out=grids_log)
-#     lncls = np.inner(data, grids_log)  # result shape: replicates*num_grid_points
-#     param_idxs = np.argmax(lncls, axis=1)  # returns optimal index for each replicate
-
-#     results_dict = {}
-#     for key in gridded_params:
-#         results_dict[key] = grid_meta_dict[key][param_idxs]
-#     df = pd.DataFrame(results_dict)
-#     if output_df:
-#         summary = df.describe(percentiles=[0.025, 0.05, 0.95, 0.975])
-#         summary.to_csv(f"{label}_{name}_summary.csv")
-#     df_fixed_param = None
-
-#     if fixed_param_grid:
-#         assert (
-#             fixed_param_grid in gridded_params
-#         ), "fixed param for bootstrap not in gridded_params list! Report this issue."
-#         columns = []  # shape = num_values_fixed_param * replicates
-#         # values are not sorted!
-#         for fixed_param_value_idxs in get_slice_grid_meta_idxs(
-#             grid_meta_dict=grid_meta_dict, lncls=lncls, fixed_parameter=fixed_param_grid
-#         ):
-#             best_likelihoods = lncls[np.arange(lncls.shape[0]), fixed_param_value_idxs]
-#             columns.append(best_likelihoods)
-#         # results in column are sorted from smallest to largest param value
-#         columns = np.array(columns).T
-#         df_fixed_param = pd.DataFrame(
-#             columns,
-#             columns=[
-#                 f"{fixed_param_grid}_{str(i)}"
-#                 if i != fixed_param_grid_value_idx
-#                 else f"{fixed_param_grid}_background"
-#                 for i in range(columns.shape[1])
-#             ],
-#         )
-#         if output_df:
-#             df_fixed_param.to_csv(f"{label}_{name}_lnCL_dist.csv")
-#     return (df, df_fixed_param)
 
 def gridsearch_dask(tally=None, grid=None, num_cores=1, chunksize=500, desc=None):
     """returns 2d array of likelihoods of shape (windows, grid)"""
@@ -3202,12 +2923,14 @@ class Store(object):
             blocks_meta = self._get_meta("blocks")
             if blocks_meta:
                 self._del_data_and_meta("blocks")
-                self._del_data_and_meta(blocks_meta["blocks_raw_tally_key"])
+                if "blocks_raw_tally_key" in blocks_meta:
+                    self._del_data_and_meta(blocks_meta["blocks_raw_tally_key"])
             windows_meta = self._get_meta("windows")
             if windows_meta:
                 self._del_data_and_meta("windows")
-                self._del_data_and_meta(windows_meta["windows_raw_tally_key"])
-                self._del_data_and_meta(windows_meta["windowsum_raw_tally_key"])
+                if "windows_raw_tally_key" in windows_meta:
+                    self._del_data_and_meta(windows_meta["windows_raw_tally_key"])
+                    self._del_data_and_meta(windows_meta["windowsum_raw_tally_key"])
         config = {
             "blocks_key": "blocks",
             "block_length": block_length,
@@ -3272,7 +2995,7 @@ class Store(object):
         --simulate_key
         [--recombination_map [--bins --cutoff]] | --windows [--recombination_rate]
         [--gridsearch [--fixed]]
-        --model --Ne_A --Ne_B [--Ne_AB --T] [--me] [--mu] --seed
+        --model --Ne_A --Ne_B [--Ne_A_B --T] [--me] [--mu] --seed
         --max_k --ploidy --blocks --block_length [--replicates] --samples_A --samples_B --discrete_genome
         NOT SURE
             - reference_pop_id
@@ -3280,11 +3003,13 @@ class Store(object):
         '''
         config['num_cores'] = threads
         config["simulate_key"] = "simulate/%s" % config["gimble"]["label"]
-        if not overwrite and self._has_key(config["simulate_key"]):
-            sys.exit(
-                "[X] Simulated results with label %r already exist. Use '-f' to overwrite or change analysis label in the INI file."
-                % (config["simulate_key"])
-            )
+        if self._has_key(config["simulate_key"]):
+            if not overwrite: 
+                sys.exit(
+                    "[X] Simulated results with label %r already exist. Use '-f' to overwrite or change analysis label in the INI file."
+                    % (config["simulate_key"])
+                )
+            self._del_data_and_meta(config["simulate_key"])
         def get_demographies_from_gridsearch(gridsearch_label, gridsearch_constraint={}):
             print("constraint: %s" % gridsearch_constraint)
             meta_gridsearch = self._get_meta(gridsearch_label)
@@ -3527,13 +3252,13 @@ class Store(object):
 
     def _format_grid(self, meta_makegrid):
         grid_dict = meta_makegrid['grid_dict']
-        parameters = meta_makegrid['parameters']
+        parameters = {k:meta_makegrid[k] for k in grid_dict.keys()}
         grid_points = meta_makegrid['parameters_grid_points']
-        label = meta_makegrid['label']
+        label = meta_makegrid.get('label', 'makegrid_label')
         key = meta_makegrid['makegrid_key']
         output = ["[#] Grid : %s" % label, "[#] Label : %s" % key, "[#] Gridpoints: %s" % grid_points]
         output.append("[#] Parameters:")
-        for parameter, string  in parameters.items():
+        for parameter, string in parameters.items():
             output.append("[#]\t[%s]" % (parameter))
             output.append("[#]\t- config := %s" % ", ".join([str(s) for s in string]))
             output.append("[#]\t- values := %s" % (sorted(set(grid_dict[parameter]))))
@@ -3555,6 +3280,41 @@ class Store(object):
             self._write_tally_tsv(config)
         else:
             sys.exit("[X] Not implemented.")
+
+    #def _write_makegrid(self, config):
+    #    '''should create folder with TSVs of each gridpoint'''
+    #    def make_grid_2d(grid):
+    #        idxs = np.nonzero(grid>-10) # should capture all values..
+    #        idxs_array = np.array(idxs).T
+    #        rows = idxs_array.shape[0] # number of rows in array (based on gridpoints and kmax)
+    #        first = idxs_array[:,0].reshape(rows, 1) # gridpoint idx
+    #        second = grid[idxs].reshape(rows, 1) # float in grid
+    #        third = idxs_array[:,1:] # mutuple
+    #        return np.concatenate([first, second, third], axis=1)
+    #    meta_makegrid = self._get_meta(config["data_key"])
+    #    print(dict(meta_makegrid))
+    #    parameter_dicts = get_parameter_dicts_from_user_parameters(
+    #        Ne_A=meta_makegrid.get('Ne_A', None), 
+    #        Ne_B=meta_makegrid.get('Ne_B', None),  
+    #        Ne_A_B=meta_makegrid.get('Ne_A_B', None),  
+    #        T=meta_makegrid.get('T', None),  
+    #        me=meta_makegrid.get('me', None),
+    #        )
+    #    #print(self._format_grid(meta_makegrid))
+    #    grid = np.array(self._get_data(meta_makegrid['makegrid_key']))
+    #    grid_2d = make_grid_2d(grid)
+    #    #parameter_names = list(meta_makegrid["grid_dict"].keys())
+    #    #parameter_array = np.array([np.array(v, dtype=np.float64) for k, v in meta_makegrid["grid_dict"].items()]).T
+    #    dtypes = {"grid_idx": "int64","P": "float64","m1": "int64","m2": "int64","m3": "int64","m4": "int64"}
+    #    columns = ["grid_idx", "P", "m1", "m2", "m3", "m4"]
+    #    #for idx in range(parameter_array.shape[0]):
+    #    #    fn = "%s.%s.tsv" % (meta_makegrid['makegrid_label'], ".".join(["%s=%s" % (name, float(value)) for name, value in zip(parameter_names, parameter_array[idx])]))
+    #    #    pd.DataFrame(data=grid_2d[grid_2d[:,0]==idx], columns=columns).astype(dtype=dtypes).to_csv(fn, header=True, index=False, sep="\t")
+    #    #    print("[#] Wrote file %r." % fn)
+    #    for idx, parameter_dict in enumerate(parameter_dicts):
+    #        fn = "%s.%s.tsv" % (meta_makegrid['makegrid_label'], ".".join(["%s=%s" % (name, float(value)) for name, value in parameter_dict.items()]))
+    #        pd.DataFrame(data=grid_2d[grid_2d[:,0]==idx], columns=columns).astype(dtype=dtypes).to_csv(fn, header=True, index=False, sep="\t")
+    #        print("[#] Wrote file %r." % fn)
 
     def _write_makegrid(self, config):
         '''should create folder with TSVs of each gridpoint'''
@@ -3587,6 +3347,7 @@ class Store(object):
         query_meta = format_query_meta(optimize_meta)
         print(query_meta)
         single_file_flag = len(optimize_meta["optimize_key"]) == 1
+        print('optimize_meta', optimize_meta)
         for idx in range(optimize_meta["nlopt_runs"]):
             instance_key = "%s/%s" % (optimize_meta["optimize_key"], idx)
             print('instance_key', instance_key)
@@ -5126,14 +4887,15 @@ class Store(object):
 
     def gridsearch_preflight(self, tally_key, sim_label, grid_key, windowsum, overwrite):
         config = {}
-        config["gridsearch_time"] = "None"  # just so that it initialised for later
-        # first deal with grid
+        if not self._has_key(grid_key):
+            sys.exit("[X] No grid found under key %r." % grid_key)
         config["makegrid_key"] = grid_key
         grid_meta = self._get_meta(config["makegrid_key"])
-        if grid_meta is None:
-            sys.exit(
-                "[X] gimbleStore has no grid labelled %r." % config["makegrid_key"]
-            )
+
+        config["gridsearch_time"] = "None"  # just so that it initialised for later
+        # first deal with grid
+        
+        grid_meta = self._get_meta(config["makegrid_key"])
         grid = np.array(
             self._get_data(config["makegrid_key"]), dtype=np.float64
         )  # grid is likelihoods
@@ -5152,11 +4914,14 @@ class Store(object):
         if not self._has_key(config["data_key"]):
             sys.exit("[X] No data found with label %r." % config["data_label"])
         config["gridsearch_key"] = "gridsearch/%s/%s" % (config["data_label"], config["makegrid_label"])
-        if not overwrite and self._has_key(config["gridsearch_key"]):
-            sys.exit(
-                "[X] Gridsearch results with grid label %r on data %r already exist. Use '-f' to replace."
-                % (config["makegrid_label"], config["data_label"])
-            )
+        if self._has_key(config["gridsearch_key"]):
+            if not overwrite: 
+                sys.exit(
+                    "[X] Gridsearch results with grid label %r on data %r already exist. Use '-f' to replace."
+                    % (config["makegrid_label"], config["data_label"])
+                )
+            self._del_data_and_meta(config["gridsearch_key"])
+
         if config["data_source"] == "meas":
             # data is an iterator
             data = [(0, self._get_data(config["data_key"])) for _ in (0,)]
@@ -5223,6 +4988,8 @@ class Store(object):
             gridsearch_dask_result = gridsearch_dask(
                 tally=tally, grid=grid, num_cores=num_cores, chunksize=chunksize, desc=iteration_desc
             )
+            # import time
+            # time.sleep(2)
             position+=1
             #print("gridsearch_dask_result", type(gridsearch_dask_result), gridsearch_dask_result.shape)
             self._set_data(config["gridsearch_keys"][i], gridsearch_dask_result)
@@ -5272,6 +5039,7 @@ class Store(object):
             'nlopt_processes': num_cores,
             'optimize_time' : None,
             'optimize_label': config["gimble"]["label"],
+            'optimize_result_keys': [],
         }
         
         # labels/keys
@@ -5281,11 +5049,13 @@ class Store(object):
         if not self._has_key(agemo_config["data_key"]):
             sys.exit("[X] No data found with label %r." % agemo_config["data_label"])
         agemo_config["optimize_key"] = "optimize/%s/%s" % (agemo_config["data_label"], agemo_config["optimize_label"])
-        if not overwrite and self._has_key(agemo_config["optimize_key"]):
-            sys.exit(
-                "[X] Analysis with label %r on data %r already exist. Change the label in the config file or use '--force'"
-                % (agemo_config["optimize_label"],  agemo_config["data_key"])
-            )
+        if self._has_key(agemo_config["optimize_key"]):
+            if not overwrite: 
+                sys.exit(
+                    "[X] Analysis with label %r on data %r already exist. Change the label in the config file or use '--force'"
+                    % (agemo_config["optimize_label"],  agemo_config["data_key"])
+                )
+            self._del_data_and_meta(agemo_config["optimize_key"])
         # data
         # data should be partitioned into jobs immediately
         data_meta = self._get_meta(agemo_config["data_key"])
@@ -5293,7 +5063,6 @@ class Store(object):
         agemo_config["block_length"] = data_meta["block_length"]
         if agemo_config["data_source"] == "meas":
             #data = ((0, self._get_data(agemo_config["data_key"])) for _ in (0,))
-            print('self.data[agemo_config["data_key"]]', self.data[agemo_config["data_key"]].shape, self.data[agemo_config["data_key"]])
             #data = [(idx, tally) if not windowsum else (idx, np.sum(tally, axis=0)) for idx, tally in self.data[agemo_config["data_key"]].arrays()]
             data = [(0, self.data[agemo_config["data_key"]]) if not windowsum else (0, np.sum(self.data[agemo_config["data_key"]], axis=0))]
             agemo_config["nlopt_chains"] = data_meta['windows'] if data_meta['data_ndims'] == 5 else 1 # blocks/windowsum => 1, windows => n
@@ -5302,7 +5071,7 @@ class Store(object):
             data = [(idx, tally) if not windowsum else (idx, np.sum(tally, axis=0)) for idx, tally in self.data[agemo_config["data_key"]].arrays()]
             agemo_config["nlopt_chains"] = data_meta['windows'] if not windowsum else 1
             agemo_config["nlopt_runs"] = data_meta['replicates'] 
-        
+        #print("len(data)", len(data))
         # demography
         gimbleDemographyInstance = GimbleDemographyInstance(
                 model=agemo_config['model'], 
@@ -5316,7 +5085,7 @@ class Store(object):
                 me=agemo_config['me'][0] if len(agemo_config['me']) == 1 else None,
                 T=agemo_config['T'][0] if len(agemo_config['T']) == 1 else None,
                 kmax=agemo_config['max_k'])
-        print('gimbleDemographyInstance', gimbleDemographyInstance)
+        #print('gimbleDemographyInstance', gimbleDemographyInstance)
         agemo_config['gimbleDemographyInstance'] = gimbleDemographyInstance
         # NLOPT parameters
         agemo_config['nlopt_parameters'] = []
@@ -5344,7 +5113,7 @@ class Store(object):
         }
         agemo_config['nlopt_start_point'] = startpoints[agemo_config['nlopt_start_point_method']]
         
-        print("[agemo_config]", agemo_config)
+        #print("[agemo_config]", agemo_config)
         return (data, agemo_config)
 
     def _preflight_optimize(
@@ -5439,9 +5208,10 @@ class Store(object):
                 evaluator_agemo, data_idx, dataset, config, fallback_evaluator=fallback_evaluator_agemo
             )
             optimize_time = format_time(timer() - optimize_instance_start_time)
-            self.save_optimize_instance(
+            optimize_result_key = self.save_optimize_instance(
                 data_idx, config, optimize_result, optimize_time, overwrite
             )
+            config['optimize_result_keys'].append(optimize_result_key)
         config["optimize_time"] = format_time(timer() - optimize_analysis_start_time)
         self._set_meta(config["optimize_key"], meta=config_to_meta(config, "optimize"))
         print("[+] Optimization results saved under label %r" % config["optimize_key"])
@@ -5505,7 +5275,8 @@ class Store(object):
     def save_optimize_instance(
         self, data_idx, config, optimize_result, optimize_time, overwrite
     ):
-        optimize_key = config["optimize_key"][int(data_idx)]
+        optimize_result_key = "%s/%s" % (config["optimize_key"], data_idx)
+        print("optimize_key instance", optimize_result_key)
         optimize_meta = {}
         optimize_meta["nlopt_log_iteration_header"] = optimize_result[
             "nlopt_log_iteration_header"
@@ -5522,8 +5293,9 @@ class Store(object):
             result["nlopt_time"] = optimize_time
             optimize_meta["optimize_results"].append(result)
         self._set_meta_and_data(
-            optimize_key, optimize_meta, optimize_result["nlopt_log_iteration_array"]
+            optimize_result_key, optimize_meta, optimize_result["nlopt_log_iteration_array"]
         )
+        return optimize_result_key
 
     def _preflight_tally(
         self,
@@ -5558,11 +5330,13 @@ class Store(object):
             "length"
         ]  # needs fixing if multiple block-datasets
         # check tally key
-        if not overwrite and self._has_key(config["tally_key"]):
-            sys.exit(
-                "[X] Tally with data_label %r already exist. Change the label or use '--overwrite'"
-                % (data_label)
-            )
+        if self._has_key(config["tally_key"]):
+            if not overwrite:
+                sys.exit(
+                    "[X] Tally with data_label %r already exist. Change the label or use '--overwrite'"
+                    % (data_label)
+                )
+            self._del_data_and_meta(config["tally_key"])
         # sort out sequences (this could be prettier)
         seq_names = self._get_meta("seqs")["seq_names"]
         if config["sequences"] is None:
@@ -5737,104 +5511,21 @@ class Store(object):
         self.data.require_group(key)
         self.data[key].attrs.put(meta)
 
-    # def _set_stopping_criteria(self, data, parameterObj, label):
-    #     set_by_user = True
-    #     # if parameterObj.ftol_rel<0:
-    #     #    set_by_user = False
-    #     #    lnCL_sd, lnCL_all_data = self._get_lnCL_SD(data, parameterObj, label)
-    #     #    parameterObj.ftol_rel = abs(1.96*lnCL_sd/lnCL_all_data)
-    #     print("Stopping criteria for this optimization run:")
-    #     print(f"Max number of evaluations: {parameterObj.max_eval}")
-    #     if set_by_user and parameterObj.ftol_rel > 0:
-    #         print(f"Relative tolerance on lnCL: {parameterObj.ftol_rel}")
-    #     else:
-    #         pass
-    #         # print(f"Relative tolerance on lnCL set by data resampling: {parameterObj.ftol_rel}")
-    #     if parameterObj.xtol_rel > 0:
-
-    #         print(
-    #             f"Relative tolerance on norm of parameter vector: {parameterObj.xtol_rel}"
-    #         )
-
-    # def _get_lnCL_SD(self, all_data, parameterObj, label):
-    #     if parameterObj.data_type == "windows":
-    #         data = np.sum(all_data, axis=0)
-    #         # if windows transform to sum_windowwise_bsfs
-    #     elif parameterObj.data_type == "simulate":
-    #         # if simulate data contains all replicates
-    #         # if datatype=simulate all_data is an iterator! adapt this!
-    #         all_data = self._get_sims_bsfs(label, single=True)
-    #         data = np.sum(all_data, axis=0)
-    #     else:
-    #         data = all_data
-    #     total_num_blocks = np.sum(data)
-    #     ETPs = data / total_num_blocks
-
-    #     if parameterObj.data_type == "simulate":
-    #         # no need to resample, we have enough replicates
-    #         # we treat the total dataset as approximating the truth
-    #         # and turn those into ETPs
-    #         lnCLs_resample = [
-    #             lib.math.calculate_composite_likelihood(ETPs, replicate)
-    #             for replicate in all_data
-    #         ]
-    #         replicates = len(lnCLs_resample)
-    #         resample_size = replicates
-    #     else:
-    #         replicates = 100
-    #         resample_size = min(1000, total_num_blocks)
-    #         kmax_by_mutype = list(parameterObj.config["k_max"].values())
-    #         resample_bsfs = self._resample_bsfs(
-    #             data, resample_size, replicates, kmax_by_mutype
-    #         )
-    #         # get lnCL for each resampled dataset
-    #         lnCLs_resample = [
-    #             lib.math.calculate_composite_likelihood(ETPs, resample)
-    #             for resample in resample_bsfs
-    #         ]
-    #         # determine sd of outcome
-    #     sd_mini = np.std(lnCLs_resample, ddof=1)
-    #     sd = sd_mini * np.sqrt((resample_size - 1) / (total_num_blocks - 1))
-    #     lnCL_all_data = lib.math.calculate_composite_likelihood(ETPs, data)
-    #     return (sd, lnCL_all_data)
-
-    # def _resample_bsfs(self, data, resample_size, replicates, kmax_by_mutype):
-    #     bsfs_2d = lib.gimble.bsfs_to_2d(data)
-    #     bsfs_configs = bsfs_2d[:, 1:]
-    #     bsfs_probs = bsfs_2d[:, 0]
-    #     bsfs_probs = bsfs_probs / np.sum(bsfs_probs)
-    #     resample = np.random.choice(
-    #         np.arange(bsfs_configs.shape[0]),
-    #         (replicates, resample_size),
-    #         replace=True,
-    #         p=bsfs_probs,
-    #     )
-    #     resample_bsfs = bsfs_configs[resample]
-    #     resample_bsfs = resample_bsfs.reshape(-1, len(kmax_by_mutype))
-    #     index = np.repeat(np.arange(replicates), resample_size).reshape(
-    #         replicates * resample_size, 1
-    #     )
-    #     resample_bsfs_index = np.concatenate([index, resample_bsfs], axis=1)
-    #     mutuples, counts = np.unique(resample_bsfs_index, return_counts=True, axis=0)
-    #     shape_out = [
-    #         replicates,
-    #     ] + [k + 2 for k in kmax_by_mutype]
-    #     out = np.zeros(tuple(shape_out), np.int64)
-    #     out[tuple(mutuples.T)] = counts
-    #     return out
-
-
-    def _preflight_makegrid(self, config, overwrite):
+    def _preflight_makegrid_old(self, config, overwrite):
         key = self._get_key(task="makegrid", analysis_label=config["gimble"]["label"])
-        if not overwrite and self._has_key(key):
-            sys.exit(
-                "[X] Grid with label %r already exist. Change the label in the config file or use '--force'"
-                % config["gimble"]["label"]
-            )
+        if self._has_key(key):
+            if not overwrite:
+                sys.exit(
+                    "[X] Grid with label %r already exist. Change the label in the config file or use '--force'"
+                    % config["gimble"]["label"]
+                )
+            self._del_data_and_meta(config["tally_key"])
         config["key"] = key
         config["makegrid_label"] = config["gimble"]["label"]
+        print(config)
         ### DOL_to_LOD will determine the ORDER of gridpoints!!! (be sure to keep)
         parameter_LOD = DOL_to_LOD(config['parameters_expanded'])
+        print(parameter_LOD)
         model_instances = []
         for model_dict in parameter_LOD:
             model_instance = GimbleDemographyInstance(
@@ -5854,7 +5545,7 @@ class Store(object):
         return config
 
     def makegrid_old(self, config, num_cores, overwrite, agemo=True):
-        config = self._preflight_makegrid(config, overwrite)
+        config = self._preflight_makegrid_old(config, overwrite)
         print(
             "[+] Grid of %s parameter-grid-points will be prepared..."
             % config["parameters_grid_points"]
@@ -5882,6 +5573,115 @@ class Store(object):
                 verbose=False,
             )
         self.save_grid(config, grid)
+
+    def _preflight_makegrid(self, config, overwrite):
+        key = self._get_key(task="makegrid", analysis_label=config["gimble"]["label"])
+        if self._has_key(key):
+            if not overwrite:
+                sys.exit(
+                    "[X] Grid with label %r already exist. Change the label in the config file or use '--force'"
+                    % config["gimble"]["label"]
+                )
+            self._del_data_and_meta(key)
+        config["key"] = key
+        config["makegrid_label"] = config["gimble"]["label"]
+        ### DOL_to_LOD will determine the ORDER of gridpoints!!! (be sure to keep)
+        parameter_LOD = DOL_to_LOD(config['parameters_expanded'])
+        model_instances = []
+        print(parameter_LOD)
+        for model_dict in parameter_LOD:
+            model_instance = GimbleDemographyInstance(
+                model=config['gimble']['model'], 
+                Ne_A=model_dict.get('Ne_A', None), 
+                Ne_B=model_dict.get('Ne_B', None), 
+                Ne_A_B=model_dict.get('Ne_A_B', None), 
+                me=model_dict.get('me', None), 
+                T=model_dict.get('T', None),
+                mu=config['mu']['mu'], 
+                ref_pop="Ne_%s" % config['populations']['reference_pop_id'], 
+                block_length=config['mu']['block_length'], 
+                kmax=config['max_k']) 
+            model_instances.append(model_instance)
+        config['model_instances'] = model_instances
+        config['agemo_parameters'] = [model_instance.get_agemo_values(fallback=True) for model_instance in model_instances]
+        return config
+
+    def makegrid(self, Ne_A, Ne_B, Ne_A_B, T, me, makegrid_label, model, block_length, ref_pop, mu, kmax, processes, seed, overwrite):
+        makegrid_key = self._get_key(task="makegrid", analysis_label=makegrid_label)
+        if self._has_key(makegrid_key):
+            if not overwrite:
+                sys.exit("[X] Grid with label %r already exist. Change the label in the config file or use '--force'" % makegrid_label)
+            self._del_data_and_meta(makegrid_key)
+        def get_agemo_parameters(model, Ne_A, Ne_B, Ne_A_B, T, me, block_length, ref_pop, mu, kmax):
+            parameter_dicts = get_parameter_dicts_from_user_parameters(Ne_A=Ne_A, Ne_B=Ne_B, Ne_A_B=Ne_A_B, T=T, me=me)
+            agemo_parameters = []
+            for parameter_dict in parameter_dicts:
+                model_instance = GimbleDemographyInstance(
+                    model=model, 
+                    Ne_A=parameter_dict.get('Ne_A', None), 
+                    Ne_B=parameter_dict.get('Ne_B', None), 
+                    Ne_A_B=parameter_dict.get('Ne_A_B', None), 
+                    me=parameter_dict.get('me', None), 
+                    T=parameter_dict.get('T', None),
+                    mu=mu, 
+                    ref_pop="Ne_%s" % ref_pop, 
+                    block_length=block_length, 
+                    kmax=kmax) 
+                agemo_parameters.append(model_instance.get_agemo_values(fallback=True))
+            return agemo_parameters
+        agemo_parameters = get_agemo_parameters(model, Ne_A, Ne_B, Ne_A_B, T, me, block_length, ref_pop, mu, kmax)
+        print(
+            "[+] Grid of %s parameter-grid-points will be prepared..."
+            % len(agemo_parameters)
+        )
+        print("[+] Agemo ...")
+        evaluator_agemo = self.get_agemo_evaluator(
+            model=model, 
+            kmax=kmax)
+        # fallback_evaluator gets created if IM
+        fallback_evaluator_agemo=self.get_agemo_evaluator(
+            model='DIV', 
+            kmax=kmax) if model.startswith('IM') else None
+
+        grid = self.evaluate_grid(evaluator_agemo, agemo_parameters, processes=processes, fallback_evaluator=fallback_evaluator_agemo)
+        
+        # ToDo:
+        # remove grid_dict: is still required in gridsearch and query ... needs to be removed there
+        # rename parameters_grid_points to grid_points
+        grid_meta = {
+            "makegrid_key": makegrid_key,
+            "makegrid_label": makegrid_label,
+            "block_length": block_length,
+            "mu": mu,
+            "model": model,
+            "reference_pop_id": ref_pop,
+            "max_k": list([int(k) for k in kmax]),
+            "Ne_A": Ne_A,
+            "Ne_B": Ne_B,
+            "Ne_A_B": Ne_A_B,
+            "T": T,
+            "me": me,
+            "processes": processes,
+            "seed": seed,
+            "overwrite": overwrite,
+            "grid_dict": {k: list(v) for k,v in LOD_to_DOL(get_parameter_dicts_from_user_parameters(Ne_A=Ne_A, Ne_B=Ne_B, Ne_A_B=Ne_A_B, T=T, me=me)).items()},
+            "parameters_grid_points": len(agemo_parameters),
+        } 
+
+        #print(grid_meta)
+        self._set_meta_and_data(makegrid_key, grid_meta, grid)
+        print(
+            "[+] Grid can be accessed with '--grid_label %s'"
+            % grid_meta["makegrid_key"]
+        )
+
+    def save_grid(self, config, grid):
+        grid_meta = config_to_meta(config, "makegrid")
+        self._set_meta_and_data(config["key"], grid_meta, grid)
+        print(
+            "[+] Grid can be accessed with '--grid_label %s'"
+            % grid_meta["makegrid_key"]
+        )
 
     def evaluate_grid(self, evaluator_agemo, agemo_parameters, processes=1, fallback_evaluator=None, verbose=False):
         if verbose:
@@ -5956,14 +5756,6 @@ class Store(object):
         gf = agemo.GfMatrixObject(branch_type_object, events)
         evaluator = agemo.BSFSEvaluator(gf, mutation_type_object)
         return evaluator
-
-    def save_grid(self, config, grid):
-        grid_meta = config_to_meta(config, "makegrid")
-        self._set_meta_and_data(config["key"], grid_meta, grid)
-        print(
-            "[+] Grid can be accessed with '--grid_label %s'"
-            % grid_meta["makegrid_key"]
-        )
 
     def _validate_seq_names(self, sequences=None):
         """Returns valid seq_names in sequences or exits."""

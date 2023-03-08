@@ -13,6 +13,7 @@
   [Inference]
     optimize              Perform global parameter optimisation on tally/simulation
     makegrid              Precalculate grid of parameters
+    makegrid_legacy       Precalculate grid of parameters (legacy)
     gridsearch            Evaluate tally/simulation against a precomputed grid (requires 'makegrid')
 
   [Info]
@@ -48,6 +49,7 @@ RUNNER_BY_MODULE = {
     'simulate': 'cli.simulate',
     'optimize': 'cli.optimize',
     'makegrid': 'cli.makegrid',
+    'makegrid_legacy': 'cli.makegrid_legacy',
     'gridsearch': 'cli.gridsearch',
     'info': 'cli.info',
     'query': 'cli.query',
