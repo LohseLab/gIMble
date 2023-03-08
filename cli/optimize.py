@@ -15,7 +15,7 @@ usage: gimble optimize                  -z FILE -c FILE (-t <STR>|-s <STR>) [-w]
 
     Stopping criteria of optimization
         -i, --max_iterations INT                    Maximum number of iterations to perform when 
-                                                        optimizing, deactivate with 0 [default: 1000]
+                                                        optimizing, deactivate with 0 [default: 10000]
         --xtol FLOAT                                Relative tolerance on norm of vector of optimisation parameters
                                                         Float between 0 and 1, deactivate with -1 [default: -1]
         --ftol FLOAT                                Relative tolerance on lnCL 
