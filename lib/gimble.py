@@ -3385,33 +3385,39 @@ class Store(object):
         # option A
         blocks_fgv_by_sample_set = collections.Counter()
         blocks_by_sample_set = collections.Counter()
-        for sample_set in sample_sets:
-            fn = "gimble.blocks.diss.%s.tsv" % sample_set
-            #fn_T = "gimble.blocks.diss.tally.%s.tsv" % sample_set
-            diss_dfs = []
-            tally_dfs = []
-            for seq_name in meta_seq['seq_names']:
-                tally = tally_variation(self._get_variation(data_type="blocks", sequences=[seq_name], sample_sets=sample_set), form="tally")
-                #tally_df = pd.DataFrame({'count': tally[:,0], 'm1': tally[:,1], 'm2': tally[:,2], 'm3': tally[:,3], 'm4': tally[:,4]})
-                #tally_dfs.append(tally_df)
-                blocks_fgv_by_sample_set[sample_set] += np.sum(tally[(tally[:, 3] > 0) & (tally[:, 4] > 0)][:,0])
-                blocks_by_sample_set[sample_set] += np.sum(tally[:,0])
-                counts = tally[:,0]
-                mutations = np.sum(tally[:,1:], axis=1)
-                diss_df = pd.DataFrame({'count': counts, 'mutations': mutations}).groupby(['mutations']).sum().reset_index()
-                diss_df['seq'] = seq_name
-                diss_df = diss_df[['seq', 'count', 'mutations']]
-                diss_dfs.append(diss_df)
-            pd.concat(diss_dfs).to_csv(fn, index=False, sep="\t")
-            #pd.concat(tally_dfs).to_csv(fn_T, index=False, sep="\t")
-            print("[+] Wrote file %r." % fn)
+        with tqdm(
+            total=(len(meta_seq["seq_names"]) * 3),
+            desc="[%] Preparing data ...",
+            ncols=100,
+            unit_scale=True,
+            ) as pbar:
+            for sample_set in sample_sets:
+                fn = "gimble.blocks.diss.%s.tsv" % sample_set
+                #fn_T = "gimble.blocks.diss.tally.%s.tsv" % sample_set
+                diss_dfs = []
+                tally_dfs = []
+                for seq_name in meta_seq['seq_names']:
+                    tally = tally_variation(self._get_variation(data_type="blocks", sequences=[seq_name], sample_sets=sample_set), form="tally")
+                    #tally_df = pd.DataFrame({'count': tally[:,0], 'm1': tally[:,1], 'm2': tally[:,2], 'm3': tally[:,3], 'm4': tally[:,4]})
+                    #tally_dfs.append(tally_df)
+                    blocks_fgv_by_sample_set[sample_set] += np.sum(tally[(tally[:, 3] > 0) & (tally[:, 4] > 0)][:,0])
+                    blocks_by_sample_set[sample_set] += np.sum(tally[:,0])
+                    counts = tally[:,0]
+                    mutations = np.sum(tally[:,1:], axis=1)
+                    diss_df = pd.DataFrame({'count': counts, 'mutations': mutations}).groupby(['mutations']).sum().reset_index()
+                    diss_df['seq'] = seq_name
+                    diss_df = diss_df[['seq', 'count', 'mutations']]
+                    diss_dfs.append(diss_df)
+                    pbar.update()
+                pd.concat(diss_dfs).to_csv(fn, index=False, sep="\t")
+                #pd.concat(tally_dfs).to_csv(fn_T, index=False, sep="\t")
         print("[+] FGV blocks for each sample set:")
         for sample_set in sample_sets:
             print("[+]\t%s: %s / %s = %s" % (
                 sample_set, 
                 int(blocks_fgv_by_sample_set[sample_set]), 
                 int(blocks_by_sample_set[sample_set]), 
-                (blocks_fgv_by_sample_set[sample_set]/blocks_by_sample_set[sample_set])))
+                (blocks_fgv_by_sample_set[sample_set] / blocks_by_sample_set[sample_set])))
         
         # option B
         #for sample_set in ['X', 'A', 'B']:
