@@ -1,4 +1,4 @@
-"""usage: gimbl query                    -z <DIR> [-l <STR>] [--sliced STR] [--constrained STR] [-h|--help]
+"""usage: gimbl query                    -z <DIR> [-l <STR>] [--sliced STR] [--constrained STR] [--diss] [-h|--help]
                                             
         -z, --zarr_f DIR                 ZARR datastore
         -l, --label <STR>                Data label
@@ -15,6 +15,9 @@
                                             '--constrained me=0.0,Ne_A=100000,Ne_B=200000'
                                             ...
                                             MUST match parameters and values of the grid
+
+        [Misc]
+        --diss                           Experimental output for DISS analysis
         -h --help                        show this
 """
 from timeit import default_timer as timer
@@ -32,6 +35,7 @@ class QueryParameterObj(lib.gimble.ParameterObj):
         self.extended = False # args['--extended']
         self.sliced_param = args['--sliced']
         self.fixed_param = args['--constrained']
+        self.diss = args['--diss']
         if self.fixed_param:
             try:
                 self.fixed_param = {element.split("=")[0]: float(element.split("=")[1]) for element in self.fixed_param.split(",") if element}
@@ -50,7 +54,8 @@ def main(params):
             parameterObj.data_key,
             parameterObj.extended,
             parameterObj.fixed_param,
-            parameterObj.sliced_param
+            parameterObj.sliced_param,
+            parameterObj.diss
             )
         print("[*] Total runtime was %s" % (lib.gimble.format_time(timer() - start_time)))
     except KeyboardInterrupt:

@@ -3188,7 +3188,14 @@ class Store(object):
         # print("=>", dict(self._get_meta(simulate_instance_key)))
         # print("=>", self.data[config['windowsum_key']])
 
-    def _preflight_query(self, version, data_key, extended, fixed_param, sliced_param):
+    def _preflight_query(self, version, data_key, extended, fixed_param, sliced_param, diss):
+        if diss:
+            config = {
+                "data_key": 'tally/blocks_raw', 
+                "version": version,
+                "data_type": 'diss'
+                }
+            return config
         if not data_key:
             """Still needs checking whether keys are found correctly for all modules
             # blocks √
@@ -3264,8 +3271,8 @@ class Store(object):
             output.append("[#]\t- values := %s" % (sorted(set(grid_dict[parameter]))))
         return "\n".join(output)
 
-    def query(self, version, data_key, extended, fixed_param, sliced_param):
-        config = self._preflight_query(version, data_key, extended, fixed_param, sliced_param)
+    def query(self, version, data_key, extended, fixed_param, sliced_param, diss):
+        config = self._preflight_query(version, data_key, extended, fixed_param, sliced_param, diss)
         if config["data_type"] == "tally":
             self._write_tally_tsv(config)
         elif config["data_type"] == "optimize":
@@ -3278,6 +3285,8 @@ class Store(object):
             self._write_makegrid(config)
         elif config["data_type"] == "simulate":
             self._write_tally_tsv(config)
+        elif config["data_type"] == "diss":
+            self._write_diss_tsv(config)
         else:
             sys.exit("[X] Not implemented.")
 
@@ -3369,6 +3378,55 @@ class Store(object):
                 fn, index=True, index_label="idx", sep="\t"
             )
             print("[#] Wrote file %r." % fn)
+
+    def _write_diss_tsv(self, config):
+        meta_seq = self._get_meta("seqs")
+        sample_sets = ['X', 'A', 'B']
+        # option A
+        blocks_fgv_by_sample_set = collections.Counter()
+        blocks_by_sample_set = collections.Counter()
+        for sample_set in sample_sets:
+            fn = "gimble.blocks.diss.%s.tsv" % sample_set
+            #fn_T = "gimble.blocks.diss.tally.%s.tsv" % sample_set
+            diss_dfs = []
+            tally_dfs = []
+            for seq_name in meta_seq['seq_names']:
+                tally = tally_variation(self._get_variation(data_type="blocks", sequences=[seq_name], sample_sets=sample_set), form="tally")
+                #tally_df = pd.DataFrame({'count': tally[:,0], 'm1': tally[:,1], 'm2': tally[:,2], 'm3': tally[:,3], 'm4': tally[:,4]})
+                #tally_dfs.append(tally_df)
+                blocks_fgv_by_sample_set[sample_set] += np.sum(tally[(tally[:, 3] > 0) & (tally[:, 4] > 0)][:,0])
+                blocks_by_sample_set[sample_set] += np.sum(tally[:,0])
+                counts = tally[:,0]
+                mutations = np.sum(tally[:,1:], axis=1)
+                diss_df = pd.DataFrame({'count': counts, 'mutations': mutations}).groupby(['mutations']).sum().reset_index()
+                diss_df['seq'] = seq_name
+                diss_df = diss_df[['seq', 'count', 'mutations']]
+                diss_dfs.append(diss_df)
+            pd.concat(diss_dfs).to_csv(fn, index=False, sep="\t")
+            #pd.concat(tally_dfs).to_csv(fn_T, index=False, sep="\t")
+            print("[+] Wrote file %r." % fn)
+        print("[+] FGV blocks for each sample set:")
+        for sample_set in sample_sets:
+            print("[+]\t%s: %s / %s = %s" % (
+                sample_set, 
+                int(blocks_fgv_by_sample_set[sample_set]), 
+                int(blocks_by_sample_set[sample_set]), 
+                (blocks_fgv_by_sample_set[sample_set]/blocks_by_sample_set[sample_set])))
+        
+        # option B
+        #for sample_set in ['X', 'A', 'B']:
+        #    fn = "gimble.blocks.diss.option_B.%s.tsv" % sample_set
+        #    diss_dfs = []
+        #    for seq_name in meta_seq['seq_names']:
+        #        tally = tally_variation(self._get_variation(data_type="blocks", sequences=[seq_name], sample_sets="X"), form="tally")
+        #        counts = tally[:,0]
+        #        mutations = np.sum(tally[:,1:], axis=1)
+        #        diss_df = pd.DataFrame({'seq': seq_name, 'count': counts, 'mutations': mutations})
+        #        diss_dfs.append(diss_df)
+        #    pd.concat(diss_dfs).groupby(['seq', 'mutations']).sum().reset_index().to_csv(fn, index=False, sep="\t")
+        #    print("[+] Wrote file %r." % fn)
+        
+        
 
     def _write_tally_tsv(self, config):
         data = self._get_data(config["data_key"])
