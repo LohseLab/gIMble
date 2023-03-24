@@ -1,6 +1,6 @@
 """
 usage: gimble makegrid                  (-z <FILE> | -o <STR>) -l <STR> -m <STR> -r <STR> -u <FLOAT> \
-                                        -b <INT> -A <VALUES> -B <VALUES> [-C <VALUES>] -T <VALUES> [-M <VALUES>] 
+                                        -b <INT> -A <VALUES> -B <VALUES> [-C <VALUES>] [-T <VALUES>] [-M <VALUES>] 
                                         [-k <STR>] [-n <INT> -s <INT>] [-f] [-h|--help]
                                                  
         -z, --zarr_file <FILE>              Path to existing GimbleStore 
@@ -42,6 +42,7 @@ usage: gimble makegrid                  (-z <FILE> | -o <STR>) -l <STR> -m <STR>
 from timeit import default_timer as timer
 from docopt import docopt
 import lib.gimble
+import sys
 
 class MakeGridParameterObj(lib.gimble.ParameterObj):
     '''Sanitises command line arguments and stores parameters.'''
@@ -50,22 +51,33 @@ class MakeGridParameterObj(lib.gimble.ParameterObj):
         super().__init__(params)
         self.zstore = self._get_path(args["--zarr_file"])
         self.prefix = self._get_prefix(args["--outprefix"])
-        self.Ne_A = self._get_value_list("Ne_A", args['--Ne_A']) 
-        self.Ne_B = self._get_value_list("Ne_B", args['--Ne_B']) 
-        self.Ne_A_B = self._get_value_list("Ne_A_B", args.get('--Ne_A_B', None)) 
-        self.T = self._get_value_list("T", args.get('--T', None))
-        self.me = self._get_value_list("me", args.get('--me', None))
+        self.Ne_A = self._get_makegrid_parameters("Ne_A", args['--Ne_A']) 
+        self.Ne_B = self._get_makegrid_parameters("Ne_B", args['--Ne_B']) 
+        self.Ne_A_B = self._get_makegrid_parameters("Ne_A_B", args.get('--Ne_A_B', None)) 
+        self.T = self._get_makegrid_parameters("T", args.get('--T', None))
+        self.me = self._get_makegrid_parameters("me", args.get('--me', None))
         self.makegrid_label = args['--makegrid_label']
         self.model = self._check_model(args['--model']) 
         self.block_length = self._get_int(args['--block_length']) 
-        self.ref_pop = args['--ref_pop']
+        self.ref_pop = self._get_ref_pop(args['--ref_pop'])
         self.mu = self._get_float(args['--mu']) 
         self.kmax = self._check_kmax(args['--kmax']) 
         self.processes = self._get_int(args['--processes']) 
         self.seed = self._get_int(args['--seed']) 
         self.overwrite = args['--force']
-        
-    def _get_value_list(self, parameter, arg):
+    
+    def _get_ref_pop(self, ref_pop):
+        pops_by_model = {
+            'DIV': set(['A', 'B', 'A_B']),
+            'MIG_AB': set(['A', 'B']),
+            'MIG_BA': set(['A', 'B']),
+            'IM_AB': set(['A', 'B', 'A_B']),
+            'IM_BA': set(['A', 'B', 'A_B'])}
+        if not ref_pop in pops_by_model[self.model]:
+            sys.exit("[X] --ref_pop for model %r must be one of the following: %s" % (self.model, ", ".join(pops_by_model[self.model])))
+        return "Ne_%s" % ref_pop
+
+    def _get_makegrid_parameters(self, parameter, arg):
         if arg is None:
             return arg
         l = arg.split(",")

@@ -244,6 +244,7 @@ def process_vcf_f(parameterObj):
     print("[+] Process variants (this might take a while)...")
     vcf_tmp = pathlib.Path(parameterObj.tmp_dir, 'vcf.filtered.vcf.gz')
     print("[+] Filtering VCF file ...")
+    # keep-info and keep-geno are needed. If "duplicated" variants remain after decomposition it is probably because refs/alternates overlap weirdly ... 
     cmd = f"""bcftools norm --threads {parameterObj.threads} -Ov -f {parameterObj.fasta_file} {parameterObj.vcf_file} | \
             vcfallelicprimitives --keep-info --keep-geno -t decomposed | \
             bcftools plugin fill-AN-AC --threads {parameterObj.threads} -Oz | \
@@ -269,7 +270,7 @@ def process_vcf_f(parameterObj):
     parameterObj.commands.append(cmd)
     print("[+]\t => Wrote %r ..." % str(gimble_bed_f))
     print("[+] Adjust genotypes in uncallable regions...") 
-    filter_string = " | ".join(["(FMT/DP[%s]<%s | FMT/DP[%s]>%s)" % (
+    filter_string = " | ".join(["(FMT/DP[%s]<%s | FMT/DP[%s]>=%s)" % (
         idx, depth_filter_by_sample_id[vcf_sample_id][0], 
         idx, depth_filter_by_sample_id[vcf_sample_id][1]) for idx, vcf_sample_id in enumerate(vcf_sample_ids) if vcf_sample_id in sample_id_intersection])
     cmd = f"""bcftools filter --threads {parameterObj.threads} -Oz -S . -e '{filter_string}' {vcf_tmp_pass} | bcftools sort -T {vcf_tmp}.sort.tmp -Oz > {parameterObj.gimble_vcf_file} && bcftools index -t {parameterObj.gimble_vcf_file}"""

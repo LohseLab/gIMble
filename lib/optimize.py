@@ -106,9 +106,15 @@ def nlopt_logger(nlopt_log_fn, nlopt_log_header, nlopt_log_iterations, nlopt_cal
                         sys.exit('[X] Something went wrong. Check the log file %r' % nlopt_log_fn)
 
 def format_nlopt_result(result_dict):
-    return "[+] data_idx=%s --------- [%s]" % (
+    boundary_collisions = []
+    if result_dict['nlopt_lower_boundary_collision']:
+        boundary_collisions.append("%s (lower)" % ", ".join(result_dict['nlopt_lower_boundary_collision']))
+    if result_dict['nlopt_upper_boundary_collision']:
+        boundary_collisions.append("%s (upper)" % ", ".join(result_dict['nlopt_upper_boundary_collision']))
+    return "[+] data_idx=%s --------- [%s] %s" % (
         int(result_dict['dataset_idx']),
-        result_dict['nlopt_status'])
+        result_dict['nlopt_status'],
+        "--> [BOUNDARY_COLLISION] : %s" % ("; ".join(boundary_collisions)) if boundary_collisions else "")
 
 def format_nlopt_log_iteration_values(nlopt_log_iteration_values_by_key):
     '''determines how log and screen prints work'''
@@ -165,8 +171,8 @@ def agemo_likelihood_function(nlopt_values, grad, gimbleDemographyInstance, data
     #    problematic = df.loc[(df[3] >= 1) & (df[4] >= 1)]
     #    print(problematic.to_markdown())
     ETP_sum = np.sum(ETPs)
-    if not np.isclose(ETP_sum, 1, rtol=1e-05):
-        print('np.sum(ETPs)=%s fallback=%s scaled_values=%s' % (np.sum(ETPs), fallback_flag, scaled_values_by_parameter))
+    #if not np.isclose(ETP_sum, 1, rtol=1e-05):
+    #    print('np.sum(ETPs)=%s fallback=%s scaled_values=%s' % (np.sum(ETPs), fallback_flag, scaled_values_by_parameter))
     
 
     likelihood = agemo_calculate_composite_likelihood(ETPs, dataset)
@@ -207,11 +213,11 @@ def agemo_optimize(evaluator_agemo, data_idx, data, config, fallback_evaluator=N
     nlopt_log_iteration_tuples = NLOPT_LOG_ITERATIONS_MANAGER.list()
     nlopt_log_process = multiprocessing.Process(target=nlopt_logger, args=(nlopt_log_fn, nlopt_log_header, nlopt_log_iteration_tuples, len(nlopt_runs)))
     nlopt_log_process.start()
-    if config['nlopt_processes'] <= 1:
+    if config['processes'] <= 1:
         for nlopt_run in nlopt_runs:
             nlopt_results.append(agemo_nlopt_call(nlopt_run))
     else:
-        with poolcontext(processes=config['nlopt_processes']) as pool:
+        with poolcontext(processes=config['processes']) as pool:
             for nlopt_result in pool.imap_unordered(agemo_nlopt_call, nlopt_runs):
                 nlopt_results.append(nlopt_result)
     # clean up logger
@@ -226,12 +232,12 @@ def agemo_nlopt_call(args):
     NLOPT_ALGORITHMS = {
         'neldermead' : nlopt.LN_NELDERMEAD,
         'sbplx': nlopt.LN_SBPLX,
-        'CRS2': nlopt.GN_CRS2_LM,
-    }
+        'CRS2': nlopt.GN_CRS2_LM,}
 
     nlopt_params, dataset_idx, agemo_likelihood_function = args
     num_optimization_parameters = len(nlopt_params['nlopt_start_point'])
-    opt = nlopt.opt(NLOPT_ALGORITHMS['CRS2'], num_optimization_parameters)
+    nlopt_algorithm = NLOPT_ALGORITHMS[nlopt_params.get('nlopt_algorithm', 'CRS2')]
+    opt = nlopt.opt(nlopt_algorithm, num_optimization_parameters)
     opt.set_lower_bounds(nlopt_params['nlopt_lower_bound'])
     opt.set_upper_bounds(nlopt_params['nlopt_upper_bound'])
     opt.set_max_objective(agemo_likelihood_function)
@@ -240,16 +246,19 @@ def agemo_nlopt_call(args):
     if nlopt_params['nlopt_xtol_rel'] > 0:
         # assigning weights to address size difference between params
         xtol_weights = 1/(len(nlopt_params['nlopt_start_point']) * nlopt_params['nlopt_start_point'])
-        print('xtol_weights', xtol_weights)
         opt.set_x_weights(xtol_weights)
     opt.set_ftol_rel(nlopt_params['nlopt_ftol_rel'])
     opt.set_maxeval(nlopt_params['nlopt_maxeval'])
     optimum = opt.optimize(nlopt_params['nlopt_start_point'])
+    # optimum[0] = nlopt_params['nlopt_lower_bound'][0] # BOUNDARY COLLISIONS
+    # optimum[1] = nlopt_params['nlopt_upper_bound'][1] # BOUNDARY COLLISIONS
     nlopt_result = {
         'dataset_idx': dataset_idx,
         'nlopt_optimum': opt.last_optimum_value(),
         'nlopt_values': optimum,
-        'nlopt_status': NLOPT_EXIT_CODE[opt.last_optimize_result()]}
+        'nlopt_status': NLOPT_EXIT_CODE[opt.last_optimize_result()],
+        'nlopt_lower_boundary_collision': [nlopt_params['nlopt_parameters'][i] for i, value in enumerate(optimum) if value == nlopt_params['nlopt_lower_bound'][i]],
+        'nlopt_upper_boundary_collision': [nlopt_params['nlopt_parameters'][i] for i, value in enumerate(optimum) if value == nlopt_params['nlopt_upper_bound'][i]]}
     NLOPT_LOG_QUEUE.put(nlopt_result)
     return nlopt_result
 
@@ -261,7 +270,10 @@ def get_agemo_optimize_result(config, nlopt_results, nlopt_log_header, nlopt_log
         'dataset_count': len(nlopt_results),
         'nlopt_values_by_dataset_idx': {},
         'nlopt_optimum_by_dataset_idx': {},
-        'nlopt_status_by_dataset_idx': {}}
+        'nlopt_status_by_dataset_idx': {},
+        'nlopt_lower_boundary_collision_by_dataset_idx': {},
+        'nlopt_upper_boundary_collision_by_dataset_idx': {},
+        }
     for nlopt_result in nlopt_results:
         dataset_idx = nlopt_result['dataset_idx']
         nlopt_values = {parameter: value for parameter, value in zip(config['nlopt_parameters'], nlopt_result['nlopt_values'])}
@@ -269,6 +281,8 @@ def get_agemo_optimize_result(config, nlopt_results, nlopt_log_header, nlopt_log
         optimize_result['nlopt_values_by_dataset_idx'][dataset_idx] = {**nlopt_values, **fixed_values}
         optimize_result['nlopt_optimum_by_dataset_idx'][dataset_idx] = nlopt_result['nlopt_optimum']
         optimize_result['nlopt_status_by_dataset_idx'][dataset_idx] = nlopt_result['nlopt_status']
+        optimize_result['nlopt_lower_boundary_collision_by_dataset_idx'][dataset_idx] = nlopt_result['nlopt_lower_boundary_collision']
+        optimize_result['nlopt_upper_boundary_collision_by_dataset_idx'][dataset_idx] = nlopt_result['nlopt_upper_boundary_collision']
     return optimize_result
 
 def fp_map(f, *args):

@@ -68,6 +68,14 @@ SPACING = 16
 GRIDSEARCH_DTYPE = np.float32  # -3.4028235e+38 ... 3.4028235e+38
 MODELS = ['DIV', 'MIG_AB', 'MIG_BA', "IM_AB", "IM_BA"]
 
+PARAMETERS_OF_MODEL = {
+    "DIV": ['Ne_A_B', 'Ne_A', 'Ne_B', 'T'],
+    "MIG_AB": ['Ne_A', 'Ne_B', 'me'],
+    "MIG_BA": ['Ne_A', 'Ne_B', 'me'],
+    "IM_AB": ['Ne_A_B', 'Ne_A', 'Ne_B', 'me', 'T'],
+    "IM_BA": ['Ne_A_B', 'Ne_A', 'Ne_B', 'me', 'T'],
+}
+
 # GRIDSEARCH_DTYPE=np.float64 # -1.7976931348623157e+308 ... 1.7976931348623157e+308
 ###
 
@@ -519,7 +527,7 @@ def config_to_meta(config, task):
         meta["data_source"] = config["data_source"]
         meta["gridsearch_keys"] = config["gridsearch_keys"]
         meta["data_ndims"] = config["data_ndims"]
-    if task == "optimize":
+    if task == "optimize_legacy":
         meta["optimize_key"] = config["optimize_key"]
         meta["random_seed"] = config["random_seed"]
         meta["data_source"] = config["data_source"]
@@ -542,6 +550,44 @@ def config_to_meta(config, task):
         meta["model"] = config["model"]
         meta["reference_pop_id"] = config["ref_pop"]
         meta["sync_pop_ids"] = config["sync_pops"]
+    if task == 'optimize':
+        meta['optimize_label'] = config['optimize_label'] # : 'optimize_cli', 
+        meta['sim_key'] = config['sim_key'] # : None, 
+        meta['tally_key'] = config['tally_key'] # : 'tally/blocks', 
+        meta['windowsum'] = config['windowsum'] # : False, 
+        meta['Ne_A'] = config['Ne_A'] # : [10000.0, 100000.0], 
+        meta['Ne_B'] = config['Ne_B'] # : [10000.0, 100000.0], 
+        meta['Ne_A_B'] = config['Ne_A_B'] # : [20000.0, 100000.0], 
+        meta['T'] = config['T'] # : [40000.0, 400000.0], 
+        meta['me'] = config['me'] # : [0.0, 1e-07], 
+        meta['model'] = config['model'] # : 'IM_BA', 
+        meta['sync_pops'] = config['sync_pops'] # : ['Ne_B', 'Ne_A'], 
+        meta['ref_pop'] = config['ref_pop'] # : 'Ne_A', 
+        meta['mu'] = config['mu'] # : 2e-09, 
+        meta['max_k'] = list([int(k) for k in config["kmax"]]) # : array([2, 2, 2, 2]), 
+        meta['processes'] = config['processes'] # : 1, 
+        meta['seed'] = config['seed'] # : 20, 
+        meta['overwrite'] = config['overwrite'] # : True, 
+        meta['start_point_method'] = config['start_point_method'] # : 'midpoint', 
+        meta['nlopt_maxeval'] = config['nlopt_maxeval'] # : 100, 
+        meta['nlopt_xtol_rel'] = config['nlopt_xtol_rel'] # : -1.0, 
+        meta['nlopt_ftol_rel'] = config['nlopt_ftol_rel'] # : -1.0, 
+        meta['nlopt_algorithm'] = config['nlopt_algorithm'] # : 'CRS2', 
+        meta['data_key'] = config['data_key'] # : 'tally/blocks', 
+        meta['data_source'] = config['data_source'] # : 'meas', 
+        meta['data_label'] = config['data_label'] # : 'blocks', 
+        meta['optimize_key'] = config['optimize_key'] # : 'optimize/blocks/optimize_cli', 
+        meta['block_length'] = config['block_length'] # : 64, 
+        meta['nlopt_chains'] = config['nlopt_chains'] # : 1, 
+        meta['nlopt_runs'] = config['nlopt_runs'] # : 1, 
+        meta['nlopt_parameters'] = config['nlopt_parameters'] # : ['Ne_A_B', 'Ne_s', 'me', 'T'], 
+        meta['nlopt_parameters_fixed'] = config['nlopt_parameters_fixed'] # : [], 
+        meta['nlopt_parameters_bound'] = config['nlopt_parameters_bound'] # : ['Ne_A_B', 'Ne_A', 'Ne_B', 'me', 'T'], 
+        meta['nlopt_lower_bound'] = config['nlopt_lower_bound'] # : [20000.0, 10000.0, 0.0, 40000.0], 
+        meta['nlopt_upper_bound'] = config['nlopt_upper_bound'] # : [100000.0, 100000.0, 1e-07, 400000.0], 
+        meta['optimize_result_keys'] = config['optimize_result_keys'] # : ['optimize/blocks/optimize_cli/0'], 
+        meta['nlopt_start_point'] = list([float(k) for k in config["nlopt_start_point"]]) # : array([ 60000.        ,  55000.        ,      0.00000005, 220000.        ]), 
+        meta['optimize_time'] = config['optimize_time'] # : '00h:00m:42.680s'}
     return meta
 
 
@@ -707,8 +753,8 @@ class GimbleDemographyInstance(object):
         self._SUPPORTED_MODELS = ["DIV", "IM_BA", "IM_AB", "MIG_BA", "MIG_AB"]
         self.model = self.validate_model(model)
         self.order_of_parameters = self.get_order_of_parameters()
-        #
-        self.pop_ids = set(self.order_of_parameters) - set(['me', 'T'])
+        
+        self.pop_sizes = set(self.order_of_parameters) - set(['me', 'T'])
         self.mu = mu
         self.block_length = block_length
         self.sync_pops = self.validate_sync_pops(sync_pops)
@@ -789,15 +835,15 @@ class GimbleDemographyInstance(object):
     def validate_sync_pops(self, sync_pops): 
         if sync_pops is None:
             return []
-        pops_invalid = [pop for pop in sync_pops if not pop in self.pop_ids]
+        pops_invalid = [pop for pop in sync_pops if not pop in self.pop_sizes]
         if pops_invalid:
-            return sys.exit("[X] Syncing of population sizes in analysis not possible: %r not valid for model %r (%s)" % (", ".join(pops_invalid), self.model, ", ".join(self.pop_ids)))
+            return sys.exit("[X] Syncing of population sizes in analysis not possible: %r not valid for model %r (%s)" % (", ".join(pops_invalid), self.model, ", ".join(self.pop_sizes)))
         return sync_pops
 
     def validate_ref_pop(self, ref_pop):
         if ref_pop is None:
             return None
-        if ref_pop in self.pop_ids:
+        if ref_pop in self.pop_sizes:
             return ref_pop
         return sys.exit("[X] Reference population %r not valid for model: %r" % (ref_pop, self.model))
 
@@ -809,7 +855,7 @@ class GimbleDemographyInstance(object):
         if model not in set(self._SUPPORTED_MODELS):
             return sys.exit("[X] Model %s is not supported. Supported models are: %s" % (model, ", ".join(self._SUPPORTED_MODELS)))
         return model
-    
+
     def get_order_of_parameters(self):
         return {
             "DIV": ['Ne_A_B', 'Ne_A', 'Ne_B', 'T'],
@@ -828,7 +874,7 @@ class GimbleDemographyInstance(object):
             "IM_BA": {'coalescence': ['C_A', 'C_B', 'C_A_B'], 'migration': [(1, 0)], 'exodus': [(0, 1, 2)]},
             }.get(self.model, None)
 
-    def get_demography(self):
+    def get_demes_graph(self):
         '''
         in demes, source and destination of migration is specified FW in time
         in gimble, source and destination of migration is specified BW in time
@@ -871,7 +917,14 @@ class GimbleDemographyInstance(object):
             graph.add_migration(source="A", dest="B", rate=self.me)
         else:
             pass
-        return msprime.Demography.from_demes(graph.resolve())
+        return graph
+
+    def demes_dump(self, demes_graph):
+        pass
+
+    def get_demography(self):
+        demes_graph = self.get_demes_graph()
+        return msprime.Demography.from_demes(demes_graph.resolve())
 
 def get_config_simulate(config):
     def cartesian_product(sample_size_A, sample_size_B):
@@ -2391,10 +2444,19 @@ class ParameterObj(object):
             sys.exit(error)
 
     def _check_model(self, model):
-        error = "[X] Model %r not supported. Supported models are: %s" % (model, ", ".join(MODELS))
-        if model in MODELS:
-            return model
-        sys.exit(error)
+        parameters = {'Ne_A': self.Ne_A, 'Ne_B': self.Ne_B, 'Ne_A_B': self.Ne_A_B, 'me': self.me, 'T': self.T}
+        if not model in MODELS:
+            sys.exit("[X] Model %r not supported. Supported models are: %s" % (model, ", ".join(MODELS)))
+        PARAMETERS = PARAMETERS_OF_MODEL[model]
+        missing_parameters = [parameter for parameter in PARAMETERS if parameters[parameter] is None]
+        extra_parameters = [k for k, v in parameters.items() if v is not None and k not in set(PARAMETERS)]
+        if missing_parameters:
+            print('[X] Model %r requires values for the following parameter(s): %s' % (model, ", ".join(missing_parameters)))
+        if extra_parameters:
+            print('[X] Model %r does not need the following parameter(s): %s' % (model, ", ".join(extra_parameters)))
+        if missing_parameters or extra_parameters:
+            sys.exit(1)
+        return model
 
     def _get_path(self, infile, path=False):
         if infile is None:
@@ -3055,8 +3117,8 @@ class Store(object):
             return get_demographies_from_config(config)
         
         config['simulate']['demographies'] = get_demographies(config)
-        print("demographies", len(config['simulate']['demographies']))
-        print("windows", config['simulate']['windows'])
+        #print("demographies", len(config['simulate']['demographies']))
+        #print("windows", config['simulate']['windows'])
         config['simulate']['windows'] = len(config['simulate']['demographies']) if len(config['simulate']['demographies']) > 1 else config['simulate']['windows']
         #if not config['simulate']['windows'] == len(config['simulate']['demographies']):
         #    print("[-] Warning: Number of Windows in recombination map (%s) and demographies (%s) don't match. Results will be truncated." % (
@@ -5180,7 +5242,7 @@ class Store(object):
         #print("[agemo_config]", agemo_config)
         return (data, agemo_config)
 
-    def _preflight_optimize(
+    def _preflight_optimize_gf(
         self,
         config,
         sim_key,
@@ -5230,7 +5292,108 @@ class Store(object):
         config["start_point"] = STARTPOINT[start_point]
         return (data, config)
 
-    def optimize(
+    def _preflight_optimize(self, kwargs):
+        kwargs['data_key'] = (kwargs['sim_key'] or kwargs['tally_key'])
+        if not self._has_key(kwargs['data_key']):
+            sys.exit("[X] No data found under key %r." % kwargs['data_key'])
+        data_meta = self._get_meta(kwargs['data_key'])
+        if data_meta['data_type'] == 'blocks' and kwargs['windowsum']:
+            sys.exit("[X] '--windowsum' not a valid option for data under %r" % kwargs['data_key'])
+        kwargs['data_source'] = "sims" if kwargs['sim_key'] else "meas" # difference!!!
+        kwargs['data_label'] = "%s%s" % (kwargs['data_key'].split("/")[1], "" if not kwargs['windowsum'] else ".windowsum")
+        kwargs['optimize_key'] = "optimize/%s/%s" % (kwargs['data_label'], kwargs["optimize_label"])
+        if self._has_key(kwargs['optimize_key']):
+            if not kwargs['overwrite']: 
+                sys.exit(
+                    "[X] Analysis with label %r on data %r already exist. Change the label in the config file or use '--force'"
+                    % (kwargs["optimize_label"],  kwargs['data_key']))
+            self._del_data_and_meta(kwargs['optimize_key'])
+        
+        # data should be partitioned into jobs immediately
+        kwargs["block_length"] = data_meta["block_length"]
+        if kwargs["data_source"] == "meas":
+            #data = ((0, self._get_data(kwargs["data_key"])) for _ in (0,))
+            #data = [(idx, tally) if not windowsum else (idx, np.sum(tally, axis=0)) for idx, tally in self.data[kwargs["data_key"]].arrays()]
+            data = [(0, self.data[kwargs["data_key"]]) if not kwargs['windowsum'] else (0, np.sum(self.data[kwargs["data_key"]], axis=0))]
+            kwargs["nlopt_chains"] = data_meta['windows'] if data_meta['data_ndims'] == 5 else 1 # blocks/windowsum => 1, windows => n
+            kwargs["nlopt_runs"] = 1
+        else:
+            data = [(idx, tally) if not kwargs['windowsum'] else (idx, np.sum(tally, axis=0)) for idx, tally in self.data[kwargs["data_key"]].arrays()]
+            kwargs["nlopt_chains"] = data_meta['windows'] if not kwargs['windowsum'] else 1
+            kwargs["nlopt_runs"] = data_meta['replicates'] 
+        #print("len(data)", len(data))
+        # demography
+        gimbleDemographyInstance = GimbleDemographyInstance(
+                model=kwargs['model'], 
+                mu=kwargs['mu'], 
+                ref_pop=kwargs['ref_pop'], 
+                block_length=kwargs['block_length'], 
+                sync_pops=kwargs['sync_pops'],
+                Ne_A=kwargs['Ne_A'][0] if len(kwargs['Ne_A']) == 1 else None,
+                Ne_B=kwargs['Ne_B'][0] if len(kwargs['Ne_B']) == 1 else None,
+                Ne_A_B=kwargs['Ne_A_B'][0] if len(kwargs['Ne_A_B']) == 1 else None,
+                me=kwargs['me'][0] if len(kwargs['me']) == 1 else None,
+                T=kwargs['T'][0] if len(kwargs['T']) == 1 else None,
+                kmax=kwargs['kmax'])
+        #print('gimbleDemographyInstance', gimbleDemographyInstance)
+        kwargs['gimbleDemographyInstance'] = gimbleDemographyInstance
+        # NLOPT parameters
+        kwargs['nlopt_parameters'] = []
+        kwargs['nlopt_parameters_fixed'] = list(gimbleDemographyInstance.fixed_parameters)
+        kwargs['nlopt_parameters_bound'] = []
+        kwargs['nlopt_lower_bound'] = []
+        kwargs['nlopt_upper_bound'] = []
+        kwargs['optimize_result_keys'] = []
+        sync_done = False
+        for parameter in gimbleDemographyInstance.order_of_parameters:
+            if len(kwargs[parameter]) == 2:
+                kwargs['nlopt_parameters_bound'].append(parameter)
+                if parameter in gimbleDemographyInstance.sync_pops:
+                    if not sync_done:
+                        kwargs['nlopt_parameters'].append('Ne_s')
+                        kwargs['nlopt_lower_bound'].append(min(kwargs[parameter]))
+                        kwargs['nlopt_upper_bound'].append(max(kwargs[parameter]))
+                        sync_done = True
+                else:
+                    kwargs['nlopt_parameters'].append(parameter)
+                    kwargs['nlopt_lower_bound'].append(min(kwargs[parameter]))
+                    kwargs['nlopt_upper_bound'].append(max(kwargs[parameter]))
+        startpoints = {
+            'midpoint' : np.mean(np.vstack((kwargs['nlopt_lower_bound'], kwargs['nlopt_upper_bound'])), axis=0),
+            'random': np.random.uniform(low=kwargs['nlopt_lower_bound'], high=kwargs['nlopt_upper_bound'])
+        }
+        kwargs['nlopt_start_point'] = startpoints[kwargs['start_point_method']]
+        return (data, kwargs)
+
+    def optimize(self, **kwargs):
+        data, config = self._preflight_optimize(kwargs)
+        optimize_analysis_start_time = timer()  # used for saving elapsed time in meta
+        print("[+] Building agemo evaluators ...")
+        evaluator_agemo = self.get_agemo_evaluator(
+            model=config['model'], 
+            kmax=config["kmax"])
+        # fallback_evaluator gets created if IM
+        fallback_evaluator_agemo=self.get_agemo_evaluator(
+            model='DIV', 
+            kmax=config["kmax"]) if config['model'].startswith('IM') else None
+        print("[+] Starting %s NLOPT optimization(s) with %s chain(s)..." % (config["nlopt_runs"], config["nlopt_chains"]))
+        for data_idx, dataset in data:
+            optimize_instance_start_time = timer()
+            optimize_result = lib.optimize.agemo_optimize(
+                evaluator_agemo, data_idx, dataset, config, fallback_evaluator=fallback_evaluator_agemo
+            )
+            #print('optimize_result', optimize_result)
+            optimize_time = format_time(timer() - optimize_instance_start_time)
+            optimize_result_key = self.save_optimize_instance(
+                data_idx, config, optimize_result, optimize_time, True
+            )
+            config['optimize_result_keys'].append(optimize_result_key)
+        #print(config['gimbleDemographyInstance'])
+        config["optimize_time"] = format_time(timer() - optimize_analysis_start_time)
+        self._set_meta(config["optimize_key"], meta=config_to_meta(config, "optimize"))
+        print("[+] Optimization results saved under label %r" % config["optimize_key"])
+
+    def optimize_legacy(
         self,
         config,
         sim_label,
@@ -5293,7 +5456,7 @@ class Store(object):
         ftol_rel,
         overwrite,
     ):
-        data, config = self._preflight_optimize(
+        data, config = self._preflight_optimize_gf(
             config,
             sim_label,
             windowsum,
@@ -5340,7 +5503,7 @@ class Store(object):
         self, data_idx, config, optimize_result, optimize_time, overwrite
     ):
         optimize_result_key = "%s/%s" % (config["optimize_key"], data_idx)
-        print("optimize_key instance", optimize_result_key)
+        #print("optimize_key instance", optimize_result_key)
         optimize_meta = {}
         optimize_meta["nlopt_log_iteration_header"] = optimize_result[
             "nlopt_log_iteration_header"
@@ -5652,7 +5815,6 @@ class Store(object):
         ### DOL_to_LOD will determine the ORDER of gridpoints!!! (be sure to keep)
         parameter_LOD = DOL_to_LOD(config['parameters_expanded'])
         model_instances = []
-        print(parameter_LOD)
         for model_dict in parameter_LOD:
             model_instance = GimbleDemographyInstance(
                 model=config['gimble']['model'], 
@@ -5671,7 +5833,7 @@ class Store(object):
         return config
 
     def makegrid(self, Ne_A, Ne_B, Ne_A_B, T, me, makegrid_label, model, block_length, ref_pop, mu, kmax, processes, seed, overwrite):
-        makegrid_key = self._get_key(task="makegrid", analysis_label=makegrid_label)
+        makegrid_key = "makegrid/%s" % (makegrid_label)
         if self._has_key(makegrid_key):
             if not overwrite:
                 sys.exit("[X] Grid with label %r already exist. Change the label in the config file or use '--force'" % makegrid_label)
@@ -5688,7 +5850,7 @@ class Store(object):
                     me=parameter_dict.get('me', None), 
                     T=parameter_dict.get('T', None),
                     mu=mu, 
-                    ref_pop="Ne_%s" % ref_pop, 
+                    ref_pop=ref_pop, 
                     block_length=block_length, 
                     kmax=kmax) 
                 agemo_parameters.append(model_instance.get_agemo_values(fallback=True))

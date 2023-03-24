@@ -48,6 +48,7 @@ RUNNER_BY_MODULE = {
     'tally': 'cli.tally',
     'simulate': 'cli.simulate',
     'optimize': 'cli.optimize',
+    'optimize_legacy': 'cli.optimize_legacy',
     'makegrid': 'cli.makegrid',
     'makegrid_legacy': 'cli.makegrid_legacy',
     'gridsearch': 'cli.gridsearch',
