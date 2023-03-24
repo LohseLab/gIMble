@@ -198,8 +198,8 @@ class OptimizeParameterObj(lib.gimble.ParameterObj):
 def main(params):
     try:
         start_time = timer()
-        print("[+] Running 'gimble optimize' ...")
         args = docopt(__doc__)
+        print("[+] Running 'gimble optimize' ...")
         parameterObj = OptimizeParameterObj(params, args)
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
         gimbleStore.optimize(

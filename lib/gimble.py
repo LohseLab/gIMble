@@ -813,9 +813,9 @@ class GimbleDemographyInstance(object):
             scaled_values_by_parameter, values_by_parameter_unscaled = self.scale_parameters()
         #print("scaled_values_by_parameter", scaled_values_by_parameter, values_by_parameter_unscaled)
         theta_along_branchtypes = np.full(len(self.kmax), scaled_values_by_parameter['theta_branch'], dtype=np.float64) # len(branch_type_object)
-        time = scaled_values_by_parameter['T']
+        time = scaled_values_by_parameter.get('T', 0)
         if fallback:
-            if scaled_values_by_parameter['me'] == 0:
+            if 'me' in scaled_values_by_parameter and scaled_values_by_parameter['me'] == 0:
                 var_values = [scaled_values_by_parameter[parameter] for parameter in self.order_of_parameters if parameter.startswith("Ne")]
                 fallback_flag = True
             else:
@@ -5323,17 +5323,19 @@ class Store(object):
             kwargs["nlopt_runs"] = data_meta['replicates'] 
         #print("len(data)", len(data))
         # demography
+        def float_or_none(_dict, _parameter):
+            return None if _dict[_parameter] is None or len(_dict[_parameter]) == 2 else _dict[_parameter][0]
         gimbleDemographyInstance = GimbleDemographyInstance(
                 model=kwargs['model'], 
                 mu=kwargs['mu'], 
                 ref_pop=kwargs['ref_pop'], 
                 block_length=kwargs['block_length'], 
                 sync_pops=kwargs['sync_pops'],
-                Ne_A=kwargs['Ne_A'][0] if len(kwargs['Ne_A']) == 1 else None,
-                Ne_B=kwargs['Ne_B'][0] if len(kwargs['Ne_B']) == 1 else None,
-                Ne_A_B=kwargs['Ne_A_B'][0] if len(kwargs['Ne_A_B']) == 1 else None,
-                me=kwargs['me'][0] if len(kwargs['me']) == 1 else None,
-                T=kwargs['T'][0] if len(kwargs['T']) == 1 else None,
+                Ne_A=float_or_none(kwargs, 'Ne_A'),
+                Ne_B=float_or_none(kwargs, 'Ne_B'),
+                Ne_A_B=float_or_none(kwargs, 'Ne_A_B'),
+                me=float_or_none(kwargs, 'me'),
+                T=float_or_none(kwargs, 'T'), 
                 kmax=kwargs['kmax'])
         #print('gimbleDemographyInstance', gimbleDemographyInstance)
         kwargs['gimbleDemographyInstance'] = gimbleDemographyInstance
