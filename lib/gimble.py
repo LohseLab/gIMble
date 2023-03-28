@@ -588,6 +588,7 @@ def config_to_meta(config, task):
         meta['optimize_result_keys'] = config['optimize_result_keys'] # : ['optimize/blocks/optimize_cli/0'], 
         meta['nlopt_start_point'] = list([float(k) for k in config["nlopt_start_point"]]) # : array([ 60000.        ,  55000.        ,      0.00000005, 220000.        ]), 
         meta['optimize_time'] = config['optimize_time'] # : '00h:00m:42.680s'}
+        meta['deme'] = config['deme']
     return meta
 
 
@@ -874,11 +875,18 @@ class GimbleDemographyInstance(object):
             "IM_BA": {'coalescence': ['C_A', 'C_B', 'C_A_B'], 'migration': [(1, 0)], 'exodus': [(0, 1, 2)]},
             }.get(self.model, None)
 
+    def is_fully_parametrized(self):
+        if None in set([getattr(self, parameter, None) for parameter in self.order_of_parameters]):
+            return False
+        return True
+
     def get_demes_graph(self):
         '''
         in demes, source and destination of migration is specified FW in time
         in gimble, source and destination of migration is specified BW in time
         '''
+        if not self.is_fully_parametrized():
+            raise Exception("GimbleDemographyInstance is not fully parametrized: %s" % (self.__repr__)) 
         graph = demes.Builder(time_units="generations")
         if self.model == "DIV":
             graph = demes.Builder(time_units="generations")
@@ -887,15 +895,15 @@ class GimbleDemographyInstance(object):
             graph.add_deme("B", ancestors=["A_B"], defaults=dict(epoch=dict(start_size=self.Ne_B, end_size=self.Ne_B)))
         elif self.model == "MIG_AB":
             graph = demes.Builder(time_units="generations")
-            graph.add_deme("A", ancestors=["A_B"], defaults=dict(epoch=dict(start_size=self.Ne_A, end_size=self.Ne_A)))
-            graph.add_deme("B", ancestors=["A_B"], defaults=dict(epoch=dict(start_size=self.Ne_B, end_size=self.Ne_B)))
+            graph.add_deme("A", ancestors=None, defaults=dict(epoch=dict(start_size=self.Ne_A, end_size=self.Ne_A)))
+            graph.add_deme("B", ancestors=None, defaults=dict(epoch=dict(start_size=self.Ne_B, end_size=self.Ne_B)))
             '''Source and destination demes refer to individuals migrating forwards in time.'''
             # graph.add_migration(source="A", dest="B", rate=self.me) # wrong
             graph.add_migration(source="B", dest="A", rate=self.me)
         elif self.model == "MIG_BA":
             graph = demes.Builder(time_units="generations")
-            graph.add_deme("A", ancestors=["A_B"], defaults=dict(epoch=dict(start_size=self.Ne_A, end_size=self.Ne_A)))
-            graph.add_deme("B", ancestors=["A_B"], defaults=dict(epoch=dict(start_size=self.Ne_B, end_size=self.Ne_B)))
+            graph.add_deme("A", ancestors=None, defaults=dict(epoch=dict(start_size=self.Ne_A, end_size=self.Ne_A)))
+            graph.add_deme("B", ancestors=None, defaults=dict(epoch=dict(start_size=self.Ne_B, end_size=self.Ne_B)))
             '''Source and destination demes refer to individuals migrating forwards in time.'''
             # graph.add_migration(source="B", dest="A", rate=self.me) # wrong
             graph.add_migration(source="A", dest="B", rate=self.me)
@@ -919,8 +927,18 @@ class GimbleDemographyInstance(object):
             pass
         return graph
 
-    def demes_dump(self, demes_graph):
-        pass
+    def add_optimize_values(self, value_by_nlopt_parameter):
+        for parameter in self.order_of_parameters:
+            value = value_by_nlopt_parameter.get(parameter, value_by_nlopt_parameter.get('Ne_s', None))
+            setattr(self, parameter, value)
+
+    def demes_dump(self, fn=None, fmt='yaml', simplified=True):
+        if self.is_fully_parametrized():
+            graph = self.get_demes_graph()
+            if fn is None:
+                return demes.dumps(graph.resolve(), format=fmt, simplified=simplified)
+            demes.dump(graph.resolve(), filename=fn, format=fmt, simplified=simplified)
+        return ""
 
     def get_demography(self):
         demes_graph = self.get_demes_graph()
@@ -3339,6 +3357,7 @@ class Store(object):
             self._write_tally_tsv(config)
         elif config["data_type"] == "optimize":
             self._write_optimize_tsv(config)
+            self._write_demes_yaml(config)
         elif config["data_type"] == "windows":
             self._write_window_bed(config)
         elif config["data_type"] == "gridsearch":
@@ -3410,6 +3429,16 @@ class Store(object):
             pd.DataFrame(data=grid_2d[grid_2d[:,0]==idx], columns=columns).astype(dtype=dtypes).to_csv(fn, header=True, index=False, sep="\t")
             print("[#] Wrote file %r." % fn)
 
+    def _write_demes_yaml(self, config):
+        optimize_meta = dict(self._get_meta(config["data_key"]))
+        fn_yaml = "%s.%s.optimize.demes.yaml" % (
+                    self.prefix,
+                    config["data_key"].replace("/", "_"),
+                )
+        demes.dump(demes.loads(optimize_meta['deme']), filename=fn_yaml)
+        print("[#] Wrote file %r." % fn_yaml)
+
+
     def _write_optimize_tsv(self, config):
         optimize_meta = dict(self._get_meta(config["data_key"]))
         #print('optimize_meta',optimize_meta)
@@ -3418,28 +3447,28 @@ class Store(object):
         query_meta = format_query_meta(optimize_meta)
         print(query_meta)
         single_file_flag = len(optimize_meta["optimize_key"]) == 1
-        print('optimize_meta', optimize_meta)
+        #print('optimize_meta', optimize_meta)
         for idx in range(optimize_meta["nlopt_runs"]):
             instance_key = "%s/%s" % (optimize_meta["optimize_key"], idx)
-            print('instance_key', instance_key)
+            #print('instance_key', instance_key)
             instance_meta = dict(self._get_meta(instance_key))
-            print(instance_meta)
+            #print(instance_meta)
             # optima = pd.DataFrame(instance_meta['optimize_results'])
             if single_file_flag:
-                fn = "%s.%s.optimize.tsv" % (
+                fn_tsv = "%s.%s.optimize.tsv" % (
                     self.prefix,
                     config["data_key"].replace("/", "_"),
                 )
             else:
-                fn = "%s.%s.optimize.%s.tsv" % (
+                fn_tsv = "%s.%s.optimize.%s.tsv" % (
                     self.prefix,
                     config["data_key"].replace("/", "_"),
                     idx,
                 )
             pd.DataFrame(data=instance_meta["optimize_results"]).to_csv(
-                fn, index=True, index_label="idx", sep="\t"
+                fn_tsv, index=True, index_label="idx", sep="\t"
             )
-            print("[#] Wrote file %r." % fn)
+            print("[#] Wrote file %r." % fn_tsv)
 
     def _write_diss_tsv(self, config):
         meta_seq = self._get_meta("seqs")
@@ -5299,6 +5328,9 @@ class Store(object):
         data_meta = self._get_meta(kwargs['data_key'])
         if data_meta['data_type'] == 'blocks' and kwargs['windowsum']:
             sys.exit("[X] '--windowsum' not a valid option for data under %r" % kwargs['data_key'])
+        if kwargs['model'].startswith("MIG"):
+            if kwargs['me'] == 0 or kwargs['me'][0] == 0:
+                sys.exit('[X] Model %r only supports non-zero migration rates.' % kwargs['model'])
         kwargs['data_source'] = "sims" if kwargs['sim_key'] else "meas" # difference!!!
         kwargs['data_label'] = "%s%s" % (kwargs['data_key'].split("/")[1], "" if not kwargs['windowsum'] else ".windowsum")
         kwargs['optimize_key'] = "optimize/%s/%s" % (kwargs['data_label'], kwargs["optimize_label"])
@@ -5315,7 +5347,10 @@ class Store(object):
             #data = ((0, self._get_data(kwargs["data_key"])) for _ in (0,))
             #data = [(idx, tally) if not windowsum else (idx, np.sum(tally, axis=0)) for idx, tally in self.data[kwargs["data_key"]].arrays()]
             data = [(0, self.data[kwargs["data_key"]]) if not kwargs['windowsum'] else (0, np.sum(self.data[kwargs["data_key"]], axis=0))]
-            kwargs["nlopt_chains"] = data_meta['windows'] if data_meta['data_ndims'] == 5 else 1 # blocks/windowsum => 1, windows => n
+            #print('data', data)
+            #print("data_meta", dict(data_meta))
+            kwargs["nlopt_chains"] = data_meta['windows'] if (data_meta['data_ndims'] == 5 and not kwargs['windowsum']) else 1 # blocks/windowsum => 1, windows => n
+            #print('kwargs["nlopt_chains"]', kwargs["nlopt_chains"])
             kwargs["nlopt_runs"] = 1
         else:
             data = [(idx, tally) if not kwargs['windowsum'] else (idx, np.sum(tally, axis=0)) for idx, tally in self.data[kwargs["data_key"]].arrays()]
@@ -5390,7 +5425,12 @@ class Store(object):
                 data_idx, config, optimize_result, optimize_time, True
             )
             config['optimize_result_keys'].append(optimize_result_key)
-        #print(config['gimbleDemographyInstance'])
+        #print('config', config)
+        #print('optimize_result', optimize_result)
+        if optimize_result['dataset_count'] == 1: # save demes for blocks/windowsum only...
+            print("[+] Saving demes graph with inferred values ...")
+            config['gimbleDemographyInstance'].add_optimize_values(optimize_result['nlopt_values_by_dataset_idx'][0])
+            config['deme'] = config['gimbleDemographyInstance'].demes_dump()
         config["optimize_time"] = format_time(timer() - optimize_analysis_start_time)
         self._set_meta(config["optimize_key"], meta=config_to_meta(config, "optimize"))
         print("[+] Optimization results saved under label %r" % config["optimize_key"])
@@ -5957,11 +5997,15 @@ class Store(object):
             sample_configuration = [(), ('a', 'a'), ('b', 'b')]
             events = [agemo.PopulationSplitEvent(len(sample_configuration), 0, 1, 2)]
         if model == "MIG_AB":
+            #sample_configuration = [(), ('a', 'a'), ('b', 'b')]
             sample_configuration = [('a', 'a'), ('b', 'b')]
-            events = [agemo.MigrationEvent(len(sample_configuration), 1, 2)]
+            #events = [agemo.MigrationEvent(len(sample_configuration), 1, 2)]
+            events = [agemo.MigrationEvent(len(sample_configuration), 0, 1)]
         if model == "MIG_BA":
+            #sample_configuration = [(), ('a', 'a'), ('b', 'b')]
             sample_configuration = [('a', 'a'), ('b', 'b')]
-            events = [agemo.MigrationEvent(len(sample_configuration), 2, 1)]
+            #events = [agemo.MigrationEvent(len(sample_configuration), 2, 1)]
+            events = [agemo.MigrationEvent(len(sample_configuration), 1, 0)]
         if model == "IM_AB":
             sample_configuration = [(), ('a', 'a'), ('b', 'b')]
             events = [
