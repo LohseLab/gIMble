@@ -10,7 +10,7 @@
         -z, --zarr_file <FILE>                      Path to existing GimbleStore
         -g, --grid_key <STR>                        Makegrid key run in GimbleStore
         -t, --tally_key <STR>                       Tally key
-        -s, --sim_key <STR>                         Simulation label
+        -s, --sim_key <STR>                         Simulation key
         -w, --windowsum                             Sum simulation windows [default: False]
         -n, --num_cores <INT>                       Number of cores [default: 1]
         -c, --chunksize <INT>                       Size of chunks to use in parallelisation 

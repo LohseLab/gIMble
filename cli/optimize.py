@@ -1,21 +1,18 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
 """
 usage: gimble optimize                      -z FILE -l <STR> (-t <STR>|-s <STR>) [-w] 
                                             [-y <STR>] [-k <STR>] -m <STR> -r <STR> -u <FLOAT>
                                             [-T <VALUES>] [-M <VALUES>] -A <VALUES> -B <VALUES> [-C <VALUES>] 
-                                            [-g STR] [-n INT] [-p STR] [-i INT] [--xtol FLOAT] [--ftol FLOAT] 
+                                            [-g STR] [-p INT] [--start_point STR] [-i INT] [--xtol FLOAT] [--ftol FLOAT] 
                                             [--seed <INT>] [-f] [-h|--help]
 
         -z, --zarr_file <FILE>              Path to existing GimbleStore 
         -l, --optimize_label <STR>          Label used to store grid for later access
 
     [Data]
-        -t, --tally_key STR                 Key of tally in gimble store ('tally/...')
-        -s, --sim_key STR                   key of simulation run in gimble store ('simulate/...')
+        -d, --tally_key STR                 Key of tally in gimble store ('tally/...')
+        -s, --simulate_key STR              Key of simulation in gimble store ('simulate/...')
         -w, --windowsum                     Apply optimize to sum of tallies in windows data 
-                                                under --tally_key or --sim_key [default: False]
+                                                under --tally_key or --simulate_key [default: False]
     [Model]
         -m, --model <STR>                   Model name: DIV, MIG_AB, MIG_BA, IM_AB or IM_BA
         -r, --ref_pop <STR>                 Population ID of reference population used for scaling
@@ -48,9 +45,9 @@ usage: gimble optimize                      -z FILE -l <STR> (-t <STR>|-s <STR>)
                                             - CRS2
                                             - sbplx
                                             - neldermead
-        -n, --processes <INT>               Number of processes. Only relevant for optimization of 
-                                                windows and/or replicates [default: 1] 
-        -p, --start_point STR               Point from which to start optimization [default: midpoint]
+        -p, --processes <INT>               Number of processes. Only relevant for optimization of 
+                                                windows [default: 1] 
+        --start_point STR               Point from which to start optimization [default: midpoint]
                                             - 'midpoint' : midpoint between all boundary values
                                             - 'random': based on random seed in INI file
         -i, --max_iterations INT            Maximum number of iterations to perform when 
@@ -103,7 +100,7 @@ class OptimizeParameterObj(lib.gimble.ParameterObj):
         super().__init__(params)
         self.zstore = self._get_path(args['--zarr_file'])
         self.optimize_label = args['--optimize_label']
-        self.sim_key = args['--sim_key']
+        self.sim_key = args['--simulate_key']
         self.tally_key = args['--tally_key']
         self.windowsum = args['--windowsum']
         self.Ne_A = self._get_optimize_parameter("Ne_A", args['--Ne_A']) 

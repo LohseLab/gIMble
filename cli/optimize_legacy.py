@@ -86,7 +86,7 @@ def main(params):
                 ftol_rel=parameterObj.ftol_rel,
                 overwrite=parameterObj.force)
         else:
-            gimbleStore.optimize(
+            gimbleStore.optimize_legacy(
                 config=parameterObj.config,
                 sim_label=parameterObj.sim_label,
                 windowsum=parameterObj.windowsum,

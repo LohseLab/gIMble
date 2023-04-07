@@ -143,7 +143,7 @@ def get_sim_args(config):
                 ])
     return simulate_jobs
 
-def get_sim_args_by_replicate_idx(config):
+def get_sim_args_by_replicate_idx_legacy(config):
     print("[+] Preparing simulations...")
     # MODIFIERS : windows/recombination_rates, demographies (if grid)
     # CONSTANTS : blocks, samples, ploidy, block_length, comparisons, max_k, mutation_rate, mutation_model, discrete
@@ -183,6 +183,49 @@ def get_sim_args_by_replicate_idx(config):
                 recombination_rate,
                 ])
     return simulate_jobs_by_replicate_idx
+
+def get_sim_args_by_replicate_idx(kwargs):
+    print("[+] Preparing simulations...")
+    # MODIFIERS : windows/recombination_rates, demographies (if grid)
+    # CONSTANTS : blocks, samples, ploidy, block_length, comparisons, max_k, mutation_rate, mutation_model, discrete
+    # VARIABLES : seeds, recombination_rates, demographies (if grid)
+    # sim_key: the simulation
+    global CONSTANT_PARAMS
+    CONSTANT_PARAMS = {
+        'blocks': kwargs['blocks'],
+        'samples': {'A': kwargs['samples_A'], 'B': kwargs['samples_B']},
+        'ploidy': 2,
+        'block_length': kwargs['block_length'],
+        'comparisons': list(itertools.product(range(kwargs['samples_A']),
+                range(kwargs['samples_A'], kwargs['samples_A'] + kwargs['samples_B']))),
+        'max_k': kwargs['kmax'],
+        'mutation_rate': kwargs['mu'],
+        'mutation_model': 'infinite_alleles',
+        'discrete_genome': (not kwargs['continuous_genome'])
+        }
+    simulate_jobs_by_replicate_idx = collections.defaultdict(list)
+    recombination_rates = kwargs['recombination_rate']
+    demographies = [demography.get_demography() for demography in kwargs['demographies']]
+    # print([demography.get_parameter_dict() for demography in kwargs['demographies']])
+    for replicate_idx in range(kwargs['replicates']):
+        ancestry_seeds = kwargs['ancestry_seeds_by_replicate'][replicate_idx]
+        mutation_seeds = kwargs['mutation_seeds_by_replicate'][replicate_idx]
+        for window_idx, demography, recombination_rate, ancestry_seed, mutation_seed in zip(
+            range(kwargs['windows']), 
+            demographies,
+            recombination_rates, 
+            ancestry_seeds, 
+            mutation_seeds):
+            simulate_jobs_by_replicate_idx[replicate_idx].append([
+                window_idx, 
+                replicate_idx,
+                ancestry_seed,
+                mutation_seed,
+                demography,
+                recombination_rate,
+                ])
+    return simulate_jobs_by_replicate_idx
+
 
 def simulate_call(simulate_job):
     '''simulate call for 1 window'''

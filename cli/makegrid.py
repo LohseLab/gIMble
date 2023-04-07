@@ -1,7 +1,7 @@
 """
 usage: gimble makegrid                  (-z <FILE> | -o <STR>) -l <STR> -m <STR> -r <STR> -u <FLOAT> \
                                         -b <INT> -A <VALUES> -B <VALUES> [-C <VALUES>] [-T <VALUES>] [-M <VALUES>] 
-                                        [-k <STR>] [-n <INT> -s <INT>] [-f] [-h|--help]
+                                        [-k <STR>] [-p <INT> -s <INT>] [-f] [-h|--help]
                                                  
         -z, --zarr_file <FILE>              Path to existing GimbleStore 
         -o, --outprefix <STR>               Prefix to use for GimbleStore [default: gimble]
@@ -33,7 +33,7 @@ usage: gimble makegrid                  (-z <FILE> | -o <STR>) -l <STR> -m <STR>
                                             - MIG_AB and IM_AB: A->B 
                                             - MIG_BA and IM_BA: B->A
     [Options]
-        -n, --processes <INT>               Number of processes [default: 1] 
+        -p, --processes <INT>               Number of processes [default: 1] 
         -s, --seed <INT>                    Seed used for randomness [default: 19]
         -f, --force                         Force overwrite of existing grid in GimbleStore
         -h --help                           show this
@@ -109,11 +109,6 @@ def main(params):
             path=parameterObj.zstore, 
             prefix=parameterObj.prefix, 
             create=(False if parameterObj.zstore else True))
-        #gimbleStore.makegrid(
-        #    config=parameterObj.config,
-        #    num_cores=parameterObj.num_cores,
-        #    overwrite=parameterObj.overwrite,
-        #    )
         gimbleStore.makegrid(
             Ne_A=parameterObj.Ne_A,
             Ne_B=parameterObj.Ne_B,

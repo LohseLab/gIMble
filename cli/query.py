@@ -1,4 +1,4 @@
-"""usage: gimbl query                    -z <DIR> [-l <STR>] [--sliced STR] [--constrained STR] [--diss] [-h|--help]
+"""usage: gimble query                   -z <DIR> [-l <STR>] [--sliced STR] [--constrained STR] [--diss] [-h|--help]
                                             
         -z, --zarr_f DIR                 ZARR datastore
         -l, --label <STR>                Data label

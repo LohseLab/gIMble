@@ -73,11 +73,11 @@ def plot_scatter(bed_df, out_prefix):
     plt.close(fig)
 
 def parse_bed(bed_f):
-    print("[+] Parsing BED file ...")
+    print("[+] Parsing BED f'ile ...")
     bed_df = pd.read_csv(
         bed_f, 
         sep="\t",  
-        header=1)
+        header=0)
     bed_df.columns = [col.lstrip("#").strip() for col in bed_df.columns]
     out_prefix = ".".join(bed_f.split(".")[:-1])
     return (bed_df, out_prefix)

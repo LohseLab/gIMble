@@ -51,8 +51,12 @@ def poolcontext(*args, **kwargs):
     yield pool
     pool.terminate()     
 
-def get_nlopt_log_iteration_tuple(dataset_idx, iteration, block_length, likelihood, scaled_values_by_parameter, unscaled_values_by_parameter):
-    nlopt_log_iteration = [dataset_idx, iteration, block_length, likelihood]
+def get_nlopt_log_iteration_tuple(
+    windows_idx, iteration, block_length, likelihood, scaled_values_by_parameter, unscaled_values_by_parameter, windows_flag):
+    if windows_flag:
+        nlopt_log_iteration = [windows_idx, iteration, block_length, likelihood]
+    else:
+        nlopt_log_iteration = [iteration, block_length, likelihood]
     for parameter, scaled_value in scaled_values_by_parameter.items():
         if not parameter.startswith("theta"):
             nlopt_log_iteration.append(float(scaled_value)) 
@@ -61,12 +65,17 @@ def get_nlopt_log_iteration_tuple(dataset_idx, iteration, block_length, likeliho
             nlopt_log_iteration.append(float(unscaled_value)) 
     return tuple(nlopt_log_iteration)
 
-def get_nlopt_log_fn(data_idx, config):
+def setup_nlopt_log(replicate_idx, config):
     # optimize_meta = lib.gimble.config_to_meta(config, 'optimize') # could be used to populate header further with data
-    nlopt_log_header = ["dataset_idx", 'iteration', 'block_length', 'likelihood']
+    #print('replicate_idx', replicate_idx)
+    #print('config', config)
+    #nlopt_log_header = ['windows_idx', 'iteration', 'block_length', 'likelihood']
+    nlopt_log_header = ['iteration', 'block_length', 'likelihood']
+    if config['nlopt_chains'] > 1: # multiple windows
+        nlopt_log_header = ["windows_idx"] + nlopt_log_header
     nlopt_log_header += ['%s_scaled' % parameter for parameter in config['gimbleDemographyInstance'].order_of_parameters]
     nlopt_log_header += ['%s_unscaled' % parameter for parameter in config['gimbleDemographyInstance'].order_of_parameters]
-    nlopt_log_fn = "gimble.optimize.%s.%s.%s.log" % (config['optimize_label'], data_idx, datetime.datetime.now().strftime("%Y%m%d_%H%M%S"))
+    nlopt_log_fn = "gimble.optimize.%s.%s.%s.log" % (config['optimize_label'], replicate_idx, datetime.datetime.now().strftime("%Y%m%d_%H%M%S"))
     print("[+] Trajectories of optimization(s) are written to %r" % nlopt_log_fn)
     with open(nlopt_log_fn, 'w') as nlopt_log_fh:
         nlopt_log_fh.write("%s\n" % ",".join(nlopt_log_header)), nlopt_log_fh.flush()
@@ -78,7 +87,7 @@ NLOPT_LOG_ITERATIONS_MANAGER = multiprocessing.Manager()
 def nlopt_logger(nlopt_log_fn, nlopt_log_header, nlopt_log_iterations, nlopt_call_count):
     global NLOPT_LOG_QUEUE
     progress_bar_disable_bool = (True if nlopt_call_count == 1 else False) # disable if only one dataset (i.e. blocks)
-    pbar = tqdm(desc="[%] Progress", total=nlopt_call_count, position=0, disable=progress_bar_disable_bool)
+    pbar = tqdm(desc="[%] Progress", total=nlopt_call_count, position=0, disable=progress_bar_disable_bool, ncols=100)
     with open(nlopt_log_fn, 'a') as nlopt_log_fh:
         while 1:
             msg = NLOPT_LOG_QUEUE.get()
@@ -89,7 +98,6 @@ def nlopt_logger(nlopt_log_fn, nlopt_log_header, nlopt_log_iterations, nlopt_cal
             if isinstance(msg, tuple):
                 # received from likelihood_function() after each iteration (with traceback if failed)
                 if msg[0] is None:
-                    pbar.update()
                     break
                 else:
                     # iteration array
@@ -111,19 +119,23 @@ def format_nlopt_result(result_dict):
         boundary_collisions.append("%s (lower)" % ", ".join(result_dict['nlopt_lower_boundary_collision']))
     if result_dict['nlopt_upper_boundary_collision']:
         boundary_collisions.append("%s (upper)" % ", ".join(result_dict['nlopt_upper_boundary_collision']))
-    return "[+] data_idx=%s --------- [%s] %s" % (
-        int(result_dict['dataset_idx']),
-        result_dict['nlopt_status'],
-        "--> [BOUNDARY_COLLISION] : %s" % ("; ".join(boundary_collisions)) if boundary_collisions else "")
+    status_str = result_dict['nlopt_status']
+    boundary_str = "--> [BOUNDARY_COLLISION] : %s" % ("; ".join(boundary_collisions)) if boundary_collisions else ""
+    if result_dict['windows_flag']:
+        windows_string = str(int(result_dict['windows_idx']))
+        return "[+] [COMPLETED] windows_idx=%s --------- [%s] %s" % (windows_string, status_str, boundary_str)
+    return "[+] [COMPLETED] --------- [%s] %s" % (status_str, boundary_str)
 
 def format_nlopt_log_iteration_values(nlopt_log_iteration_values_by_key):
-    '''determines how log and screen prints work'''
+    '''determines how log and screen prints work ... and i know ... this is a mess'''
     value_suffix = '_unscaled' # '_unscaled'
-    return "[+] data_idx=%s i=%s -- {%s} -- L=%s" % (
-        int(nlopt_log_iteration_values_by_key['dataset_idx']),
-        str(int(nlopt_log_iteration_values_by_key['iteration'])).ljust(4),
-        " ".join(["%s=%s" % (k.replace(value_suffix, ''), '{:.5e}'.format(float(v))) for k, v in nlopt_log_iteration_values_by_key.items() if k.endswith(value_suffix)]),
-        '{:.5f}'.format(float(nlopt_log_iteration_values_by_key['likelihood'])))
+    iteration_str = str(int(nlopt_log_iteration_values_by_key['iteration'])).ljust(4)
+    parameter_str = " ".join(["%s=%s" % (k.replace(value_suffix, ''), '{:.5e}'.format(float(v))) for k, v in nlopt_log_iteration_values_by_key.items() if k.endswith(value_suffix)])
+    likelihood_str = '{:.5f}'.format(float(nlopt_log_iteration_values_by_key['likelihood']))
+    if 'windows_idx' in nlopt_log_iteration_values_by_key:
+        windows_str = str(int(nlopt_log_iteration_values_by_key['windows_idx']))
+        return "[+] windows_idx=%s i=%s -- {%s} -- L=%s" % (windows_str, iteration_str, parameter_str, likelihood_str)
+    return "[+] i=%s -- {%s} -- L=%s" % (iteration_str, parameter_str, likelihood_str)
 
 def get_agemo_nlopt_args(dataset, config):
     nlopt_params = {k: v for k, v in config.items() if k.startswith("nlopt")}
@@ -133,10 +145,11 @@ def get_agemo_nlopt_args(dataset, config):
         functools.partial(
             agemo_likelihood_function,
             dataset=(dataset if config['nlopt_chains'] == 1 else dataset[i]),
-            dataset_idx=i, 
+            windows_idx=i, 
             config=config, 
             gimbleDemographyInstance=copy.deepcopy(config['gimbleDemographyInstance']), 
-            nlopt_iterations=np.zeros(config['nlopt_chains'], dtype=np.uint16), verbose=True)
+            nlopt_iterations=np.zeros(config['nlopt_chains'], dtype=np.uint16), verbose=True),
+        (False if config['nlopt_chains'] == 1 else True)
         ) for i in range(config['nlopt_chains'])]
 
 def agemo_calculate_composite_likelihood(ETPs, data):
@@ -145,12 +158,12 @@ def agemo_calculate_composite_likelihood(ETPs, data):
     np.log(ETPs, where=ETPs>0, out=ETP_log)
     return np.sum(ETP_log * data)
 
-#def agemo_likelihood_function(nlopt_values, grad, gfEvaluatorObj, dataset, dataset_idx, config, nlopt_iterations, verbose):
-def agemo_likelihood_function(nlopt_values, grad, gimbleDemographyInstance, dataset, dataset_idx, config, nlopt_iterations, verbose):
+#def agemo_likelihood_function(nlopt_values, grad, gfEvaluatorObj, dataset, windows_idx, config, nlopt_iterations, verbose):
+def agemo_likelihood_function(nlopt_values, grad, gimbleDemographyInstance, dataset, windows_idx, config, nlopt_iterations, verbose):
     global NLOPT_LOG_QUEUE
     #print('[--------------------------------------------------------] nlopt_iterations', nlopt_iterations)
     nlopt_traceback = None
-    nlopt_iterations[dataset_idx] += 1
+    nlopt_iterations[windows_idx] += 1
     nlopt_values_by_parameter = {parameter: value for parameter, value in zip(config['nlopt_parameters'], nlopt_values)}
     #print('[+] nlopt_values_by_parameter', nlopt_values_by_parameter)
     scaled_values_by_parameter, unscaled_values_by_parameter = gimbleDemographyInstance.scale_parameters(nlopt_values_by_parameter)
@@ -184,32 +197,36 @@ def agemo_likelihood_function(nlopt_values, grad, gimbleDemographyInstance, data
     #     ETPs = EVALUATOR.evaluate(theta_branch, var, time=time)
     #      = agemo_calculate_composite_likelihood(ETPs, dataset)
     # except Exception as exception:
-    #     nlopt_log_iteration_tuple = get_nlopt_log_iteration_tuple(dataset_idx, nlopt_iterations[dataset_idx], gimbleDemographyInstance.block_length, 'N/A', scaled_values_by_parameter, unscaled_values_by_parameter)
+    #     nlopt_log_iteration_tuple = get_nlopt_log_iteration_tuple(windows_idx, nlopt_iterations[windows_idx], gimbleDemographyInstance.block_length, 'N/A', scaled_values_by_parameter, unscaled_values_by_parameter)
     #     nlopt_traceback = traceback.format_exc(exception)
     #     NLOPT_LOG_QUEUE.put((nlopt_log_iteration_tuple, nlopt_traceback))
     
 
-    
-    nlopt_log_iteration_tuple = get_nlopt_log_iteration_tuple(dataset_idx, nlopt_iterations[dataset_idx], gimbleDemographyInstance.block_length, likelihood, scaled_values_by_parameter, unscaled_values_by_parameter)
+    windows_flag = False if config['nlopt_chains'] == 1 else True # for status bar/log
+    nlopt_log_iteration_tuple = get_nlopt_log_iteration_tuple(windows_idx, nlopt_iterations[windows_idx], gimbleDemographyInstance.block_length, likelihood, scaled_values_by_parameter, unscaled_values_by_parameter, windows_flag)
     NLOPT_LOG_QUEUE.put((nlopt_log_iteration_tuple, nlopt_traceback))
     
     #if verbose:
     #    elapsed = lib.gimble.format_time(timer() - start_time)
     #    #process_idx = multiprocessing.current_process()._identity
-    #    #print_nlopt_line(dataset_idx, nlopt_iterations[dataset_idx], likelihood, unscaled_values_by_parameter, elapsed, process_idx)
-    #    print_nlopt_line(dataset_idx, nlopt_iterations[dataset_idx], likelihood, unscaled_values_by_parameter, elapsed)
+    #    #print_nlopt_line(windows_idx, nlopt_iterations[windows_idx], likelihood, unscaled_values_by_parameter, elapsed, process_idx)
+    #    print_nlopt_line(windows_idx, nlopt_iterations[windows_idx], likelihood, unscaled_values_by_parameter, elapsed)
     return likelihood
 
-def agemo_optimize(evaluator_agemo, data_idx, data, config, fallback_evaluator=None):
+def agemo_optimize(evaluator_agemo, replicate_idx, data, config, fallback_evaluator=None):
     global EVALUATOR
     global FALLBACK_EVALUATOR
     np.set_printoptions(precision=19, suppress = True)
     EVALUATOR = evaluator_agemo
     FALLBACK_EVALUATOR = fallback_evaluator
     nlopt_runs = get_agemo_nlopt_args(data, config)
+    #print('nlopt_runs', nlopt_runs)
     nlopt_results = []
     # Setup nlopt_logger/tqdm
-    nlopt_log_fn, nlopt_log_header = get_nlopt_log_fn(data_idx, config)
+    #print('### replicate_idx', replicate_idx)
+    #print('### nlopt_runs', nlopt_runs)
+    nlopt_log_fn, nlopt_log_header = setup_nlopt_log(replicate_idx, config)
+    #
     nlopt_log_iteration_tuples = NLOPT_LOG_ITERATIONS_MANAGER.list()
     nlopt_log_process = multiprocessing.Process(target=nlopt_logger, args=(nlopt_log_fn, nlopt_log_header, nlopt_log_iteration_tuples, len(nlopt_runs)))
     nlopt_log_process.start()
@@ -234,7 +251,7 @@ def agemo_nlopt_call(args):
         'sbplx': nlopt.LN_SBPLX,
         'CRS2': nlopt.GN_CRS2_LM,}
 
-    nlopt_params, dataset_idx, agemo_likelihood_function = args
+    nlopt_params, windows_idx, agemo_likelihood_function, windows_flag = args
     num_optimization_parameters = len(nlopt_params['nlopt_start_point'])
     nlopt_algorithm = NLOPT_ALGORITHMS[nlopt_params.get('nlopt_algorithm', 'CRS2')]
     opt = nlopt.opt(nlopt_algorithm, num_optimization_parameters)
@@ -253,36 +270,43 @@ def agemo_nlopt_call(args):
     # optimum[0] = nlopt_params['nlopt_lower_bound'][0] # BOUNDARY COLLISIONS
     # optimum[1] = nlopt_params['nlopt_upper_bound'][1] # BOUNDARY COLLISIONS
     nlopt_result = {
-        'dataset_idx': dataset_idx,
+        'windows_idx': windows_idx,
         'nlopt_optimum': opt.last_optimum_value(),
+        'nlopt_evals': opt.get_numevals(),
         'nlopt_values': optimum,
         'nlopt_status': NLOPT_EXIT_CODE[opt.last_optimize_result()],
         'nlopt_lower_boundary_collision': [nlopt_params['nlopt_parameters'][i] for i, value in enumerate(optimum) if value == nlopt_params['nlopt_lower_bound'][i]],
-        'nlopt_upper_boundary_collision': [nlopt_params['nlopt_parameters'][i] for i, value in enumerate(optimum) if value == nlopt_params['nlopt_upper_bound'][i]]}
+        'nlopt_upper_boundary_collision': [nlopt_params['nlopt_parameters'][i] for i, value in enumerate(optimum) if value == nlopt_params['nlopt_upper_bound'][i]],
+        'windows_flag': windows_flag}
+    #print("nlopt_result", nlopt_result)
     NLOPT_LOG_QUEUE.put(nlopt_result)
     return nlopt_result
 
 def get_agemo_optimize_result(config, nlopt_results, nlopt_log_header, nlopt_log_iteration_tuples):
     # optimize results are done by dataset, i.e. blocks or windows or replicates
+    windows_flag = False if config['nlopt_chains'] == 1 else True
     optimize_result = {
         'nlopt_log_iteration_header': nlopt_log_header,
         'nlopt_log_iteration_array' : np.asarray(nlopt_log_iteration_tuples),
         'dataset_count': len(nlopt_results),
-        'nlopt_values_by_dataset_idx': {},
-        'nlopt_optimum_by_dataset_idx': {},
-        'nlopt_status_by_dataset_idx': {},
-        'nlopt_lower_boundary_collision_by_dataset_idx': {},
-        'nlopt_upper_boundary_collision_by_dataset_idx': {},
+        'nlopt_values_by_windows_idx': {},
+        'nlopt_optimum_by_windows_idx': {},
+        'nlopt_evals_by_windows_idx': {},
+        'nlopt_status_by_windows_idx': {},
+        'nlopt_lower_boundary_collision_by_windows_idx': {},
+        'nlopt_upper_boundary_collision_by_windows_idx': {},
+        'windows_flag': windows_flag
         }
     for nlopt_result in nlopt_results:
-        dataset_idx = nlopt_result['dataset_idx']
+        windows_idx = nlopt_result['windows_idx']
         nlopt_values = {parameter: value for parameter, value in zip(config['nlopt_parameters'], nlopt_result['nlopt_values'])}
         fixed_values = {parameter: getattr(config['gimbleDemographyInstance'], parameter) for parameter in config['gimbleDemographyInstance'].fixed_parameters}
-        optimize_result['nlopt_values_by_dataset_idx'][dataset_idx] = {**nlopt_values, **fixed_values}
-        optimize_result['nlopt_optimum_by_dataset_idx'][dataset_idx] = nlopt_result['nlopt_optimum']
-        optimize_result['nlopt_status_by_dataset_idx'][dataset_idx] = nlopt_result['nlopt_status']
-        optimize_result['nlopt_lower_boundary_collision_by_dataset_idx'][dataset_idx] = nlopt_result['nlopt_lower_boundary_collision']
-        optimize_result['nlopt_upper_boundary_collision_by_dataset_idx'][dataset_idx] = nlopt_result['nlopt_upper_boundary_collision']
+        optimize_result['nlopt_values_by_windows_idx'][windows_idx] = {**nlopt_values, **fixed_values}
+        optimize_result['nlopt_optimum_by_windows_idx'][windows_idx] = nlopt_result['nlopt_optimum']
+        optimize_result['nlopt_evals_by_windows_idx'][windows_idx] = nlopt_result['nlopt_evals']
+        optimize_result['nlopt_status_by_windows_idx'][windows_idx] = nlopt_result['nlopt_status']
+        optimize_result['nlopt_lower_boundary_collision_by_windows_idx'][windows_idx] = nlopt_result['nlopt_lower_boundary_collision']
+        optimize_result['nlopt_upper_boundary_collision_by_windows_idx'][windows_idx] = nlopt_result['nlopt_upper_boundary_collision']
     return optimize_result
 
 def fp_map(f, *args):
