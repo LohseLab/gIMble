@@ -1,17 +1,18 @@
-"""usage: gimble preprocess              -f FILE -v FILE -b DIR [-g INT -m INT -M INT -q INT -t INT -o STR -k] [-h|--help]
+"""
+usage: gimble preprocess                 -f <f> -v <v> -b <b> [-g <g> -m <m> -M <M> -q <q> -t <t> -o <o> -k] [-h|--help]
                                             
-    Options:
-        -h --help                        show this
-        -f, --fasta_file FILE            FASTA file
-        -v, --vcf_file FILE              VCF file (raw)
-        -b, --bam_dir FILE               Directory containing all BAM files
-        -g, --snpgap INT                 SnpGap [default: 2]
-        -q, --min_qual INT               Minimum PHRED quality [default: 1]
-        -m, --min_depth INT              Min read depth [default: 8]
-        -M, --max_depth INT              Max read depth (as multiple of mean coverage of each BAM) [default: 2]
-        -t, --threads INT                Threads [default: 1]
-        -o, --outprefix STR              Outprefix [default: gimble]
+    [Options]
+        -f, --fasta_file=<f>             FASTA file
+        -v, --vcf_file=<v>               VCF file (raw)
+        -b, --bam_dir=<b>                Directory containing all BAM files
+        -g, --snpgap=<g>                 SnpGap [default: 2]
+        -q, --min_qual=<q>               Minimum PHRED quality [default: 1]
+        -m, --min_depth=<m>              Min read depth [default: 8]
+        -M, --max_depth=<M>              Max read depth (as multiple of mean coverage of each BAM) [default: 2]
+        -t, --threads=<t>                Threads [default: 1]
+        -o, --outprefix<o>               Outprefix [default: gimble]
         -k, --keep_tmp                   Do not delete temporary files [default: False]
+        -h, --help                       Show this
 """
 
 import lib.gimble

@@ -70,7 +70,7 @@ class SimulateParameterObj(lib.gimble.ParameterObj):
         self.zstore = self._get_path(args["--zarr"])
         self.prefix = self._get_prefix(args["--outprefix"])
         self.processes = self._get_int(args["--processes"])
-        self.simulate_label = args['--simulate_label']
+        self.simulate_label = self._check_label(args['--simulate_label'])
         self.overwrite = args['--force']
         self.seed = self._get_int(args['--seed'])
         self.samples_A = self._get_int(args['--samples_A'])
@@ -93,6 +93,12 @@ class SimulateParameterObj(lib.gimble.ParameterObj):
         self.rec_rate = self._get_float(args['--rec_rate'])
         self.rec_map = self._get_path(args['--rec_map'])
 
+    def _check_label(self, label):
+        invalid_chars = set([c for c in label if not c.isalnum() and not c in set([".", "-", "_"])])
+        if invalid_chars:
+            sys.exit("[X] --simulate_label contains invalid characters (%r). Should only contain alphanumericals and -_." % "".join(invalid_chars))
+        return label
+        
     def _get_constraint(self, constraint):
         if not constraint:
             return {}

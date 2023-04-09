@@ -2418,6 +2418,9 @@ class ParameterObj(object):
             print('[X] Model %r requires values for the following parameter(s): %s' % (model, ", ".join(missing_parameters)))
         if extra_parameters:
             print('[X] Model %r does not need the following parameter(s): %s' % (model, ", ".join(extra_parameters)))
+        if model.startswith("MIG"):
+            if parameters['me'] == 0 or parameters['me'][0] == 0:
+                sys.exit('[X] Model %r only supports non-zero migration rates.' % model)
         if missing_parameters or extra_parameters:
             sys.exit(1)
         return model
@@ -3015,7 +3018,7 @@ class Store(object):
             parameter_array = np.array([np.array(v, dtype=np.float64) for k, v in meta_gridsearch["grid_dict"].items()]).T
             for gridsearch_key in meta_gridsearch["gridsearch_keys"]: # this loop is because data tried to emulate sims (which was stupid) 
                 lncls = np.array(self._get_data(gridsearch_key))  # (w, gridpoints)
-                print("lncls.shape", lncls.shape)
+                #print("lncls.shape", lncls.shape)
                 if gridsearch_constraint: 
                     fixed_param_index = self._get_fixed_param_index(gridsearch_constraint, parameter_names, parameter_array, meta_makegrid) 
                     lncls_fixed = lncls[:,fixed_param_index]
@@ -3117,7 +3120,7 @@ class Store(object):
         if self._has_key(kwargs["simulate_key"]):
             if not kwargs["overwrite"]: 
                 sys.exit(
-                    "[X] Simulated results with label %r already exist. Use '-f' to overwrite or change analysis label in the INI file."
+                    "[X] Simulated results with label %r already exist. Use '-f' to overwrite."
                     % (kwargs["simulate_key"])
                 )
             self._del_data_and_meta(kwargs["simulate_key"])
@@ -3190,8 +3193,8 @@ class Store(object):
         print("[+] Simulation saved under %r" % config['simulate_key'])
 
     def get_demographies_from_gridsearch(self, gridsearch_label, gridsearch_constraint={}):
-        print("[+] Gridsearch constraint: %s" % ",".join(
-            ["%s=%s" % (k, v) for k, v in gridsearch_constraint.items()]))
+        print("[+] Gridsearch constraint: %s" % (",".join(
+            ["%s=%s" % (k, v) for k, v in gridsearch_constraint.items()]) if gridsearch_constraint else None))
         meta_gridsearch = self._get_meta(gridsearch_label)
         meta_makegrid = self._get_meta(meta_gridsearch["makegrid_key"])
         model = meta_makegrid['model']
@@ -3267,6 +3270,7 @@ class Store(object):
             'constraint': kwargs['constraint'],
             'rec_rate': kwargs['rec_rate'],
             'rec_map': kwargs['rec_map'],
+            'recombination_rate': kwargs['recombination_rate'],
             'Ne_A': kwargs['Ne_A'],
             'Ne_B': kwargs['Ne_B'],
             'Ne_A_B': kwargs['Ne_A_B'],
@@ -3380,7 +3384,6 @@ class Store(object):
         if config["data_type"] == "tally":
             self._write_tally_tsv(config)
         elif config["data_type"] == "optimize":
-            print("[+] Optimize ...")
             optimize_meta = self._get_meta(config["data_key"])
             print(format_query_meta(optimize_meta))
             self._write_optimize_tsv(config)
@@ -3389,7 +3392,7 @@ class Store(object):
         elif config["data_type"] == "windows":
             self._write_window_bed(config)
         elif config["data_type"] == "gridsearch":
-            self._write_gridsearch_results_new(config)
+            self._write_gridsearch_results(config)
         elif config["data_type"] == "makegrid":
             self._write_makegrid(config)
         elif config["data_type"] == "simulate":
@@ -3466,7 +3469,6 @@ class Store(object):
         demes.dump(demes.loads(optimize_meta['deme']), filename=fn_yaml)
         print("[#] Wrote file %r." % fn_yaml)
 
-
     def _write_optimize_tsv(self, config):
         optimize_meta = self._get_meta(config["data_key"])
         single_file_flag = len(optimize_meta["optimize_key"]) == 1
@@ -3487,8 +3489,11 @@ class Store(object):
                     config["data_key"].replace("/", "_"),
                     idx,
                 )
+            with open(fn_tsv, "w") as fh_tsv:
+                header = ["# %s" % config["version"]]
+                fh_tsv.write("\n".join(header) + "\n")
             pd.DataFrame(data=instance_meta["optimize_results"]).to_csv(
-                fn_tsv, index=True, index_label="window_idx", sep="\t"
+                fn_tsv, index=True, mode='a', index_label="window_idx", sep="\t"
             )
             print("[#] Wrote file %r." % fn_tsv)
 
@@ -3577,7 +3582,6 @@ class Store(object):
         meta_blocks = self._get_meta("blocks")
         # print(dict(meta_blocks))
         meta_windows = self._get_meta("windows")
-        print("[+] Windows ...")
         query_meta_blocks = format_query_meta(meta_blocks, ignore_long=True)
         # print(query_meta_blocks)
         query_meta_windows = format_query_meta(meta_windows, ignore_long=True)
@@ -3628,7 +3632,7 @@ class Store(object):
         ]
         header = ["# %s" % config["version"], "# %s" % "\t".join(columns)]
         out_f = "%s.windows.popgen.bed" % self.prefix
-        print("[+] Writing BED file %s ..." % out_f)
+        print("[+] Writing BED file %r ..." % out_f)
         with open(out_f, "w") as out_fh:
             out_fh.write("\n".join(header) + "\n")
         dtypes = {
@@ -4083,24 +4087,13 @@ class Store(object):
                     header=False,
                 )
                 print("[+] \tWrote %s ..." % lncls_max_out_f)
-        sys.exit("[+] Done.")
 
-    def _write_gridsearch_results_new(self, config):
-        """
-        # 5d
-        gridsearch/windows_kmax2/grid_debug
-        # 4d
-        gridsearch/blocks.kmax2/grid_debug
-        gridsearch/windowsum.kmax2/grid_debug
-        """
+    def _write_gridsearch_results(self, config):
         meta_gridsearch = self._get_meta(config["data_key"])
         if meta_gridsearch['data_source'] == 'sims':
             self._write_gridsearch_results_sims(config)
-        #print("\nmeta_gridsearch", dict(meta_gridsearch))
         meta_makegrid = self._get_meta(meta_gridsearch["makegrid_key"])
-        #print("\nmeta_makegrid", dict(meta_makegrid))
         meta_tally = self._get_meta(meta_gridsearch["data_key"])
-        #print("\nmeta_tally", dict(meta_tally))
         data_ndims = meta_tally.get("data_ndims", None)
         parameter_names = list(meta_gridsearch["grid_dict"].keys())
         parameter_array = np.array(
@@ -4108,7 +4101,6 @@ class Store(object):
                 np.array(v, dtype=np.float64) for k, v in meta_gridsearch["grid_dict"].items()
             ]
         ).T
-        # Gridsearch based on SIMS
         grid_points = meta_makegrid.get("parameters_grid_points", parameter_array.shape[0])
         columns = []
         fixed_param_columns = []
@@ -4125,7 +4117,7 @@ class Store(object):
             for gridsearch_key in meta_gridsearch["gridsearch_keys"]:
                 base_fn = "%s.%s" % (self.prefix, "_".join(gridsearch_key.split("/")))
                 lncls = np.array(self._get_data(gridsearch_key))  # (w, gridpoints)
-                print("lncls.shape", lncls.shape)
+                #print("lncls.shape", lncls.shape)
                 #print("lncls", lncls.shape)
                 #print("lncls", lncls.shape, lncls)
                 if config["sliced_param"]:
@@ -4190,7 +4182,6 @@ class Store(object):
                 )
                 print("[+] \tWrote %s ..." % lncls_max_out_f)
         
-        sys.exit("[+] Done.")
         # if meta_tally["data_ndims"] == 4:  # blocks/windowsum
         #     dtypes_by_field = {}
         #     for gridsearch_key in meta_gridsearch["gridsearch_keys"]:
@@ -5062,7 +5053,8 @@ class Store(object):
     # int_df[best_idx].to_csv(best_out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=['sequence'] + columns)
     # print("[+] \tWrote %r ..." % best_out_f)
 
-    def gridsearch_preflight(self, tally_key, sim_key, grid_key, windowsum, overwrite):
+    #def gridsearch_preflight(self, tally_key, sim_key, grid_key, windowsum, overwrite):
+    def gridsearch_preflight(self, data_key, grid_key, windowsum, overwrite):
         config = {'gridsearch_time': "None"}
         if not self._has_key(grid_key):
             sys.exit("[X] No grid found under key %r." % grid_key)
@@ -5078,36 +5070,53 @@ class Store(object):
         config["makegrid_model"] = grid_meta["model"]
         config["parameters_grid_points"] = grid_meta.get("parameters_grid_points", grid.shape[0])
         # Error if no data
-        if not self._has_key((sim_key or tally_key)):
-            sys.exit("[X] No data found with key %r." % (sim_key or tally_key))
-        if sim_key:
-            sim_meta = self._get_meta(sim_key)
-            #print('sim_meta', dict(sim_meta))
-            config["data_key"] = sim_key
-            config["data_source"] = "sims"
-            config["data_label"] = sim_meta['simulate_label'] if not windowsum else "%s.windowsum" % sim_meta['simulate_label']
-            config['data_kmax'] = np.array(sim_meta['max_k'])
-            config['data_block_length'] = sim_meta['block_length']
-            config["batch_sites"] = sim_meta['block_length'] * sim_meta['blocks'] # ?
-            config['data_replicates'] = sim_meta['replicates']
-            config['data_windows'] = sim_meta['windows']
-            config['data_blocks'] = sim_meta['blocks']
-            if windowsum:
-                data = [(idx, np.sum(tally, axis=0, dtype=np.int64)) for idx, tally in self.data[sim_key].arrays()]
-            else:
-                data = [(idx, tally) for idx, tally in self.data[sim_key].arrays()]
-        if tally_key:
-            tally_meta = self._get_meta(tally_key)
-            #print('tally_meta', dict(tally_meta))
-            config["data_source"] = "meas"
-            config["data_label"] = "/".join(tally_key.split("/")[1:])
-            config["data_key"] = tally_key
-            config['data_kmax'] = np.array(tally_meta['max_k'])
-            config['data_block_length'] = tally_meta['block_length']
-            config['data_replicates'] = 1
-            config['data_windows'] = tally_meta['windows']
-            config['data_blocks'] = tally_meta['blocks']
-            data = [(0, self._get_data(tally_key)) for _ in (0,)]
+        #if not self._has_key((sim_key or tally_key)):
+        if not self._has_key(data_key):
+        #    sys.exit("[X] No data found with key %r." % (sim_key or tally_key))
+            sys.exit("[X] No data found with key %r." % data_key)
+        data_meta = self._get_meta(data_key)
+        config["data_key"] = data_key
+        config["data_source"] = data_meta['data_source']
+        config["data_label"] = "%s%s" % (data_key.split("/")[1], (".windowsum" if windowsum else ""))
+        config['data_kmax'] = np.array(data_meta['max_k'])
+        config['data_block_length'] = data_meta['block_length']
+        config["batch_sites"] = data_meta['block_length'] * data_meta['blocks']
+        config['data_replicates'] = data_meta.get('replicates', 1)
+        config['data_windows'] = data_meta['windows']
+        config['data_blocks'] = data_meta['blocks']
+        # optimize
+        if config["data_source"] == "sims":
+            data = [(replicate_idx, tally) if not windowsum else (replicate_idx, np.sum(tally, axis=0)) for replicate_idx, tally in self.data[config["data_key"]].arrays()]
+        else:
+            data = [(0, self.data[config["data_key"]]) if not windowsum else (0, np.sum(self.data[config["data_key"]], axis=0))]
+        #if sim_key:
+        #    sim_meta = self._get_meta(sim_key)
+        #    #print('sim_meta', dict(sim_meta))
+        #    config["data_key"] = sim_key
+        #    config["data_source"] = "sims"
+        #    config["data_label"] = sim_meta['simulate_label'] if not windowsum else "%s.windowsum" % sim_meta['simulate_label']
+        #    config['data_kmax'] = np.array(sim_meta['max_k'])
+        #    config['data_block_length'] = sim_meta['block_length']
+        #    config["batch_sites"] = sim_meta['block_length'] * sim_meta['blocks'] # ?
+        #    config['data_replicates'] = sim_meta['replicates']
+        #    config['data_windows'] = sim_meta['windows']
+        #    config['data_blocks'] = sim_meta['blocks']
+        #    if windowsum:
+        #        data = [(idx, np.sum(tally, axis=0, dtype=np.int64)) for idx, tally in self.data[sim_key].arrays()]
+        #    else:
+        #        data = [(idx, tally) for idx, tally in self.data[sim_key].arrays()]
+        #if tally_key:
+        #    tally_meta = self._get_meta(tally_key)
+        #    #print('tally_meta', dict(tally_meta))
+        #    config["data_source"] = "meas"
+        #    config["data_label"] = "/".join(tally_key.split("/")[1:])
+        #    config["data_key"] = tally_key
+        #    config['data_kmax'] = np.array(tally_meta['max_k'])
+        #    config['data_block_length'] = tally_meta['block_length']
+        #    config['data_replicates'] = 1
+        #    config['data_windows'] = tally_meta['windows']
+        #    config['data_blocks'] = tally_meta['blocks']
+        #    data = [(0, self._get_data(tally_key)) for _ in (0,)]
         config['data_ndims'] = data[0][1].ndim
         config["batch_sites"] = config['data_block_length'] * config['data_blocks'] # ?
         config["gridsearch_key"] = "gridsearch/%s/%s" % (config["data_label"], config["makegrid_label"])
@@ -5139,11 +5148,13 @@ class Store(object):
         return (config, data, grid)
 
     def gridsearch(
-        self, tally_key, sim_key, grid_key, windowsum, num_cores, chunksize, overwrite
+        #self, tally_key, sim_key, grid_key, windowsum, num_cores, chunksize, overwrite
+        self, data_key, grid_key, windowsum, num_cores, chunksize, overwrite
     ):
         print("[+] Gathering data for gridsearch ...")
-        config, data_generator, grid = self.gridsearch_preflight(
-            tally_key, sim_key, grid_key, windowsum, overwrite
+        config, data, grid = self.gridsearch_preflight(
+            #tally_key, sim_key, grid_key, windowsum, overwrite
+            data_key, grid_key, windowsum, overwrite
         )
         print(
             "[+] Searching with grid %r along tally %r ..."
@@ -5151,14 +5162,19 @@ class Store(object):
         )
         position = 1
         global_desc = "[%] Gridsearch"
-        for i in tqdm(range(len(data_generator)), position=position, desc=global_desc, ncols=100, leave=True, disable=(len(data_generator)==1)):
-            #print("tally", type(tally), tally.shape)
-            idx, tally = data_generator[i]
-            iteration_desc = (global_desc if (len(data_generator)==1) else "[%%] Replicate %s" % str(i))
-            gridsearch_dask_result = gridsearch_dask(
-                tally=tally, grid=grid, num_cores=num_cores, chunksize=chunksize, desc=iteration_desc)
-            position+=1
-            self._set_data(config["gridsearch_keys"][i], gridsearch_dask_result)
+        is_single_replicate = (len(data)==1)
+        with tqdm(total=len(data), position=position, desc=global_desc, ncols=100, leave=True, disable=is_single_replicate) as pbar:
+            for i in range(len(data)):
+                #print("tally", type(tally), tally.shape)
+                idx, tally = data[i]
+                iteration_desc = (global_desc if is_single_replicate else "[%%] Replicate %s" % str(i))
+                gridsearch_dask_result = gridsearch_dask(
+                    tally=tally, grid=grid, num_cores=num_cores, chunksize=chunksize, desc=iteration_desc)
+                position+=1
+                self._set_data(config["gridsearch_keys"][i], gridsearch_dask_result)
+                pbar.update()
+            pbar.clear(nolock=False) # prevents double progress at 100%
+
         gridsearch_meta = {
             'makegrid_key': config["makegrid_key"],
             'grid_points': config["parameters_grid_points"],
@@ -5347,24 +5363,15 @@ class Store(object):
     def _preflight_optimize(self, kwargs):
         '''
         '''
-        kwargs['data_key'] = (kwargs['sim_key'] or kwargs['tally_key'])
-        kwargs['data_source'] = "sims" if kwargs['sim_key'] else "meas" # difference!!!
+        kwargs['data_key'] = kwargs['data_key']
         if not self._has_key(kwargs['data_key']):
             sys.exit("[X] No data found under key %r." % kwargs['data_key'])
         data_meta = self._get_meta(kwargs['data_key'])
+
+        kwargs['data_source'] = data_meta['data_source']
         print(dict(data_meta))
-        if not data_meta['data_source'] == kwargs['data_source']:
-            needed_argument = {'meas' : "-t", 'sims': "-s"}
-            sys.exit("[X] Specify '%s %s' to run this dataset." % (
-                needed_argument[data_meta['data_source']],
-                kwargs['data_key'],
-                ))
         if kwargs['data_source'] == 'meas' and data_meta['data_type'] == 'blocks' and kwargs['windowsum']:
             sys.exit("[X] '--windowsum' not a valid option for data under %r" % kwargs['data_key'])
-        if kwargs['model'].startswith("MIG"):
-            if kwargs['me'] == 0 or kwargs['me'][0] == 0:
-                sys.exit('[X] Model %r only supports non-zero migration rates.' % kwargs['model'])
-        
         kwargs['data_label'] = "%s%s" % (kwargs['data_key'].split("/")[1], "" if not kwargs['windowsum'] else ".windowsum")
         kwargs['optimize_key'] = "optimize/%s/%s" % (kwargs['data_label'], kwargs["optimize_label"])
         if self._has_key(kwargs['optimize_key']):
@@ -5377,19 +5384,14 @@ class Store(object):
         # data should be partitioned into jobs immediately
         kwargs["block_length"] = data_meta["block_length"]
         if kwargs["data_source"] == "meas":
-            #data = ((0, self._get_data(kwargs["data_key"])) for _ in (0,))
-            #data = [(idx, tally) if not windowsum else (idx, np.sum(tally, axis=0)) for idx, tally in self.data[kwargs["data_key"]].arrays()]
             data = [(0, self.data[kwargs["data_key"]]) if not kwargs['windowsum'] else (0, np.sum(self.data[kwargs["data_key"]], axis=0))]
-            #print('data', data)
-            #print("data_meta", dict(data_meta))
             kwargs["nlopt_chains"] = data_meta['windows'] if (data_meta['data_ndims'] == 5 and not kwargs['windowsum']) else 1 # blocks/windowsum => 1, windows => n
-            #print('kwargs["nlopt_chains"]', kwargs["nlopt_chains"])
             kwargs["nlopt_runs"] = 1
         else:
             data = [(replicate_idx, tally) if not kwargs['windowsum'] else (replicate_idx, np.sum(tally, axis=0)) for replicate_idx, tally in self.data[kwargs["data_key"]].arrays()]
             kwargs["nlopt_chains"] = data_meta['windows'] if not kwargs['windowsum'] else 1
             kwargs["nlopt_runs"] = data_meta['replicates'] 
-        #print("len(data)", len(data))
+        print("len(data)", len(data), data[0][1].shape)
         # demography
         def float_or_none(_dict, _parameter):
             return None if _dict[_parameter] is None or len(_dict[_parameter]) == 2 else _dict[_parameter][0]
@@ -5452,23 +5454,20 @@ class Store(object):
             optimize_result = lib.optimize.agemo_optimize(
                 evaluator_agemo, replicate_idx, dataset, config, fallback_evaluator=fallback_evaluator_agemo
             )
-            # print('optimize_result', optimize_result)
+    
             optimize_time = format_time(timer() - optimize_instance_start_time)
             optimize_result_key = self.save_optimize_instance(
                 replicate_idx, config, optimize_result, optimize_time, True
             )
             config['optimize_result_keys'].append(optimize_result_key)
-        #print('config', config)
-        #print('optimize_result', optimize_result)
-        if optimize_result['dataset_count'] == 1: # save demes for blocks/windowsum only...
+        if config['data_source'] == 'meas' and optimize_result['dataset_count'] == 1: # save demes for blocks/windowsum only...
             print("[+] Saving demes graph with inferred values ...")
             config['gimbleDemographyInstance'].add_optimize_values(optimize_result['nlopt_values_by_windows_idx'][0])
             config['deme'] = config['gimbleDemographyInstance'].demes_dump()
         config["optimize_time"] = format_time(timer() - optimize_analysis_start_time)
         optimize_meta = {
             'optimize_label': config['optimize_label'], # : 'optimize_cli', 
-            'sim_key': config['sim_key'], # : None, 
-            'tally_key': config['tally_key'], # : 'tally/blocks', 
+            'data_key': config['data_key'], # : data_key
             'windowsum': config['windowsum'], # : False, 
             'Ne_A': config['Ne_A'], # : [10000.0, 100000.0], 
             'Ne_B': config['Ne_B'], # : [10000.0, 100000.0], 
@@ -5644,7 +5643,7 @@ class Store(object):
 
     def _preflight_tally(
         self,
-        data_source,
+        data_type,
         data_label,
         max_k,
         sample_sets,
@@ -5654,11 +5653,11 @@ class Store(object):
     ):
         config = {
             "data_ndims": 0,
-            "data_key": "windows" if data_source == "windowsum" else data_source,
-            "data_source": data_source,
-            "data_type": "windows" if data_source == "windowsum" else data_source,
+            "data_key": data_type,
+            "data_source": data_type,
+            "data_type": data_type,
             "data_label": data_label,
-            "tally_key": self._get_key(task="tally", data_label=data_label),
+            "tally_key": 'tally/%s' % data_label,
             "max_k": max_k,
             "sample_sets": sample_sets,
             "sequences": sequence_ids,
@@ -5695,7 +5694,7 @@ class Store(object):
 
     def tally(
         self,
-        data_source,
+        data_type,
         data_label,
         max_k,
         sample_sets,
@@ -5705,10 +5704,8 @@ class Store(object):
         verbose=True,
         tally_form="bsfs",
     ):
-        # still needs further refactoring to prevent .tally() for accessing hardcoded data and instead make .tally() use
-        # provided keys blocks_key/windows_key to access data
         config = self._preflight_tally(
-            data_source,
+            data_type,
             data_label,
             max_k,
             sample_sets,
@@ -5747,16 +5744,14 @@ class Store(object):
                         format_count(config["blocks"]),
                         format_count(config["windows"]),
                         format_count(variation.shape[1]),
-                        format_count(len(config["sequences"])),
-                    )
-                )
+                        format_count(len(config["sequences"]))))
             print(
                 "[+] Percentage of blocks treated as marginals (w/ kmax = %s) = %s"
                 % (config["max_k"], config["marginality"])
             )
             print("[+] Tally'ing variation data ... ")
-        if config["data_source"] == "windowsum":  # data_source, NOT data_type
-            variation = variation.reshape(-1, variation.shape[-1])
+        #if config["data_source"] == "windowsum":  # data_source, NOT data_type
+        #    variation = variation.reshape(-1, variation.shape[-1])
         variation_tally = tally_variation(variation, form=tally_form, max_k=config["max_k"])
         config["data_ndims"] = variation_tally.ndim
         self.save_tally(config, variation_tally, verbose)
@@ -5765,7 +5760,7 @@ class Store(object):
     def save_tally(self, config, tally, verbose=True):
         tally_key = config["tally_key"]
         tally_meta = {
-            "data_ndims": config.get("data_ndims", 0),
+            "data_ndims": config["data_ndims"],
             "data_key": config["data_key"],  # where to find the data that went into tally
             "data_source": 'meas',  # meas | sims ?
             "data_type": config["data_type"],
@@ -6000,7 +5995,6 @@ class Store(object):
         fallback_evaluator_agemo=self.get_agemo_evaluator(
             model='DIV', 
             kmax=kmax) if model.startswith('IM') else None
-
         grid = self.evaluate_grid(evaluator_agemo, agemo_parameters, processes=processes, fallback_evaluator=fallback_evaluator_agemo)
         
         # ToDo:
@@ -6997,7 +6991,7 @@ class Store(object):
             return self.data.tree()
         print("[+] \t Getting storage info ...")
         report = self._get_storage_report(width)
-        print("[+] \t Getting measured info...")
+        print("[+] \t Getting parse info...")
         report += self._get_parse_report(width)
         print("[+] \t Getting blocks info...")
         report += self._get_blocks_report(width)

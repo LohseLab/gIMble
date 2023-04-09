@@ -1,24 +1,22 @@
-"""usage: gimble query                   -z <DIR> [-l <STR>] [--sliced STR] [--constrained STR] [--diss] [-h|--help]
+"""
+usage: gimble query                     -z <z> [-d <d>] [-s <s>] [-c <c>] [-h|--help]
                                             
-        -z, --zarr_f DIR                 ZARR datastore
-        -l, --label <STR>                Data label
+        -z, --zarr_file=<z>             Path to existing GimbleStore 
+        -d, --data_key=<d>              Data key
         
-        Gridsearch results
-        --sliced STR                    Write "sliced_parameter" table with best lnCL result for each slice of parameter values, e.g.:
+    [Gridsearch results]
+        -s, --sliced=<s>                Write "sliced_parameter" table with best lnCL result for each slice of parameter values, e.g.:
                                             '--sliced me'
                                             '--sliced Ne_A'
                                             ... 
-                                        MUST match parameters in the grid
-        --constrained STR                 Write table with best lnCL result for constrained parameter values, e.g.: 
+                                            MUST match parameters in the grid
+        -c, --constrained=<c>           Write table with best lnCL result for constrained parameter values, e.g.: 
                                             '--constrained me=0.0'
                                             '--constrained me=0.0,Ne_A=100000'
                                             '--constrained me=0.0,Ne_A=100000,Ne_B=200000'
                                             ...
                                             MUST match parameters and values of the grid
-
-        [Misc]
-        --diss                           Experimental output for DISS analysis
-        -h --help                        show this
+        -h,--help                       Show this
 """
 from timeit import default_timer as timer
 from docopt import docopt
@@ -30,15 +28,15 @@ class QueryParameterObj(lib.gimble.ParameterObj):
 
     def __init__(self, params, args):
         super().__init__(params)
-        self.zstore = self._get_path(args['--zarr_f'])
-        self.data_key = args['--label']
+        self.zstore = self._get_path(args['--zarr_file'])
+        self.data_key = args['--data_key']
         self.extended = False # args['--extended']
         self.sliced_param = args['--sliced']
-        self.fixed_param = args['--constrained']
-        self.diss = args['--diss']
-        if self.fixed_param:
+        self.constrained = args['--constrained']
+        self.diss = False
+        if self.constrained:
             try:
-                self.fixed_param = {element.split("=")[0]: float(element.split("=")[1]) for element in self.fixed_param.split(",") if element}
+                self.constrained = {element.split("=")[0]: float(element.split("=")[1]) for element in self.constrained.split(",") if element}
             except (ValueError, IndexError):
                 sys.exit("[X] '--constrained' is not in the right format.")
 
@@ -47,13 +45,12 @@ def main(params):
         start_time = timer()
         args = docopt(__doc__)
         parameterObj = QueryParameterObj(params, args)
-        #print("parameterObj", parameterObj.__dict__)
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore)
         gimbleStore.query(
             parameterObj._VERSION,
             parameterObj.data_key,
             parameterObj.extended,
-            parameterObj.fixed_param,
+            parameterObj.constrained,
             parameterObj.sliced_param,
             parameterObj.diss
             )

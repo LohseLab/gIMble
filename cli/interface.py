@@ -8,12 +8,11 @@
     tally                 Tally variation for inference (requires 'blocks' or 'windows')
 
   [Simulation]
-    simulate              Simulate data  
+    simulate              Simulate data based on specific parameters or gridsearch results  
     
   [Inference]
     optimize              Perform global parameter optimisation on tally/simulation
     makegrid              Precalculate grid of parameters
-    makegrid_legacy       Precalculate grid of parameters (legacy)
     gridsearch            Evaluate tally/simulation against a precomputed grid (requires 'makegrid')
 
   [Info]
@@ -61,7 +60,7 @@ MODULES = RUNNER_BY_MODULE.keys()
 def main(gimble_dir):
     try:
         start_time = timer()
-        __version__ = '0.8.1'
+        __version__ = '0.9.0'
         version = "gimble v%s" % __version__
         args = docopt(__doc__, version=version, options_first=True)
         if '--version' in args['<args>'] or '-V' in args['<args>']:

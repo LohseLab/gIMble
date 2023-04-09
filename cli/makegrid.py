@@ -1,42 +1,42 @@
 """
-usage: gimble makegrid                  (-z <FILE> | -o <STR>) -l <STR> -m <STR> -r <STR> -u <FLOAT> \
-                                        -b <INT> -A <VALUES> -B <VALUES> [-C <VALUES>] [-T <VALUES>] [-M <VALUES>] 
-                                        [-k <STR>] [-p <INT> -s <INT>] [-f] [-h|--help]
+usage: gimble makegrid                  (-z <z> | -o <o>) -l <l> -m <m> -b <b> -r <r> -u <o> 
+                                        [-k <k>] -A <A> -B <B> [-C <C>] [-T <T>] [-M <M>] 
+                                        [-p <p> -e <e>] [-f] [-h|--help]
                                                  
-        -z, --zarr_file <FILE>              Path to existing GimbleStore 
-        -o, --outprefix <STR>               Prefix to use for GimbleStore [default: gimble]
-        -l, --makegrid_label <STR>          Label used to store grid for later access
+        -z, --zarr_file=<z>             Path to existing GimbleStore 
+        -o, --outprefix=<o>             Prefix to use for GimbleStore [default: gimble]
+        -l, --makegrid_label=<l>        Label used to store grid for later access
         
     [Model]
-        -m, --model <STR>                   Model name: DIV, MIG_AB, MIG_BA, IM_AB or IM_BA
-        -b, --block_length <INT>            Block length MUST match block length of data to be searched
-        -r, --ref_pop <STR>                 Population ID of reference population used for scaling
+        -m, --model=<m>                 Model name: DIV, MIG_AB, MIG_BA, IM_AB or IM_BA
+        -b, --block_length=<b>          Block length MUST match block length of data to be searched
+        -r, --ref_pop=<r>               Population ID of reference population used for scaling
                                             - A or B or A_B (for models DIV, IM_AB, IM_BA)
                                             - A or B (for models MIG_AB, MIG_BA)
-        -u, --mu <FLOAT>                    Mutation rate (in mutations/site/generation)
-        -k, --kmax <STR>                    Max count per mutation type beyond which counts 
+        -u, --mu=<u>                    Mutation rate (in mutations/site/generation)
+        -k, --kmax=<k>                  Max count per mutation type beyond which counts 
                                             are treated as marginals. Order of mutation 
                                             types is (hetB, hetA, hetAB, fixed)
                                             [default: 2,2,2,2]
 
-    [Grid parameters]                       single float or distribution in the format [min,max,number_steps,lin|log]
-                                                example 1: --T=100000 for T = [100000]
-                                                example 2: --Ne_A=10000,20000,3,lin for Ne_A = [10000, 15000, 20000]
-                                                example 3: --me=0.0,1e-4,5,log for me = [0.0, 1e-7, 1e-6, 1e-5, 1e-4]
+    [Grid parameters]                   single float or distribution in the format [min,max,number_steps,lin|log]
+                                            example 1: --T=100000 for T = [100000]
+                                            example 2: --Ne_A=10000,20000,3,lin for Ne_A = [10000, 15000, 20000]
+                                            example 3: --me=0.0,1e-4,5,log for me = [0.0, 1e-7, 1e-6, 1e-5, 1e-4]
 
-        -A, --Ne_A <VALUES>                 Effective population size of population A (in years)
-        -B, --Ne_B <VALUES>                 Effective population size of population B (in years) 
-        -C, --Ne_A_B <VALUES>               Effective population size of ancestral population A_B (in years)
-        -T, --T <VALUES>                    Split time (in generations) 
-        -M, --me <VALUES>                   Migration rate (per lineage probability of migrating) 
+        -A, --Ne_A=<A>                  Effective population size of population A (in years)
+        -B, --Ne_B=<B>                  Effective population size of population B (in years) 
+        -C, --Ne_A_B=<C>                Effective population size of ancestral population A_B (in years)
+        -T, --T=<T>                     Split time (in generations) 
+        -M, --me=<M>                    Migration rate (per lineage probability of migrating) 
                                             **backwards** in time with direction determined by model name: 
                                             - MIG_AB and IM_AB: A->B 
                                             - MIG_BA and IM_BA: B->A
     [Options]
-        -p, --processes <INT>               Number of processes [default: 1] 
-        -s, --seed <INT>                    Seed used for randomness [default: 19]
-        -f, --force                         Force overwrite of existing grid in GimbleStore
-        -h --help                           show this
+        -p, --processes=<p>             Number of processes [default: 1] 
+        -e, --seed=<e>                  Seed used for randomness [default: 19]
+        -f, --force                     Force overwrite of existing grid in GimbleStore
+        -h --help                       Show this
 """
 
 from timeit import default_timer as timer
@@ -56,7 +56,7 @@ class MakeGridParameterObj(lib.gimble.ParameterObj):
         self.Ne_A_B = self._get_makegrid_parameters("Ne_A_B", args.get('--Ne_A_B', None)) 
         self.T = self._get_makegrid_parameters("T", args.get('--T', None))
         self.me = self._get_makegrid_parameters("me", args.get('--me', None))
-        self.makegrid_label = args['--makegrid_label']
+        self.makegrid_label = self.(args['--makegrid_label'])
         self.model = self._check_model(args['--model']) 
         self.block_length = self._get_int(args['--block_length']) 
         self.ref_pop = self._get_ref_pop(args['--ref_pop'])
@@ -66,6 +66,12 @@ class MakeGridParameterObj(lib.gimble.ParameterObj):
         self.seed = self._get_int(args['--seed']) 
         self.overwrite = args['--force']
     
+    def _check_label(self, label):
+        invalid_chars = set([c for c in label if not c.isalnum() and not c in set([".", "-", "_"])])
+        if invalid_chars:
+            sys.exit("[X] --makegrid_label contains invalid characters (%r). Should only contain alphanumericals and -_." % "".join(invalid_chars))
+        return label
+
     def _get_ref_pop(self, ref_pop):
         pops_by_model = {
             'DIV': set(['A', 'B', 'A_B']),
@@ -98,7 +104,7 @@ class MakeGridParameterObj(lib.gimble.ParameterObj):
                 pass
         else:
             pass
-        sys.exit("[X] Parameter %r must be a single float or distribution in the format [min,max,number_steps,lin|log], not: %s" (parameter, ",".join(l)))
+        sys.exit("[X] Parameter %r must be a single float or distribution in the format [min,max,number_steps,lin|log], not: %s" % (parameter, ",".join(l)))
 
 def main(params):
     try:

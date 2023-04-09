@@ -1,9 +1,9 @@
-"""usage: gimbl info                  -z FILE [-h|--help]
+"""
+usage: gimble info                 -z <z> [-h|--help]
                                             
-    Options:
-        -z, --zarr_file FILE                        ZARR datastore
-
-        -h --help                                   show this
+    [Options]
+        -z, --zarr_file=<z>          Path to existing GimbleStore 
+        -h --help                    Show this
 """
 
 from timeit import default_timer as timer

@@ -1,13 +1,12 @@
-"""usage: gimble blocks                      -z <DIR> [-l <INT> -m <INT> -u <INT> -i <INT>] [-f] [-h]
-    
-        -z, --zarr <DIR>                     GimbleStore 
+"""
+usage: gimble blocks                      -z <z> [-l <l> -m <m> -u <u> -i <i>] [-f] [-h]
     
     [Options]    
-        -l, --block_length <INT>             Successively genotyped sites per block [default: 64] 
-        -m, --block_span <INT>               Maximum distance between first and last site of a block (default: '-l' * 2)
-        -u, --max_multiallelic <INT>         Max multiallelic variants at a site in a block (default: round('-l' * 0.05))
-        -i, --max_missing <INT>              Max missing variants per block (default: round('-l' * 0.05))
-    
+        -z, --zarr=<z>                       Path to existing GimbleStore 
+        -l, --block_length=<l>               Successively genotyped sites per block [default: 64] 
+        -m, --block_span=<m>                 Maximum distance between first and last site of a block (default: '-l' * 2)
+        -u, --max_multiallelic=<u>           Max multiallelic variants at a site in a block (default: round('-l' * 0.05))
+        -i, --max_missing=<i>                Max missing variants per block (default: round('-l' * 0.05))
         -f, --force                          Force overwrite of existing data
         -h, --help                           Show this
 

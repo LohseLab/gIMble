@@ -1,28 +1,27 @@
 """
-usage: gimble optimize                      -z FILE -l <STR> (-t <STR>|-s <STR>) [-w] 
-                                            [-y <STR>] [-k <STR>] -m <STR> -r <STR> -u <FLOAT>
-                                            [-T <VALUES>] [-M <VALUES>] -A <VALUES> -B <VALUES> [-C <VALUES>] 
-                                            [-g STR] [-p INT] [--start_point STR] [-i INT] [--xtol FLOAT] [--ftol FLOAT] 
-                                            [--seed <INT>] [-f] [-h|--help]
+usage: gimble optimize                      -z <z> -l <l> -d <d> [-w] 
+                                            [-y <y>] [-k <k>] -m <m> -r <r> -u <u>
+                                            [-T <T>] [-M <M>] -A <A> -B <B> [-C <C>] 
+                                            [-g <g>] [-p <p>] [-s <s>] [-i <i>] [--xtol <xtol>] [--ftol <ftol>] 
+                                            [-e <e>] [-f] [-h|--help]
 
-        -z, --zarr_file <FILE>              Path to existing GimbleStore 
-        -l, --optimize_label <STR>          Label used to store grid for later access
+        -z, --zarr_file=<z>                 Path to existing GimbleStore 
+        -l, --optimize_label=<l>            Label used to store grid for later access
 
     [Data]
-        -d, --tally_key STR                 Key of tally in gimble store ('tally/...')
-        -s, --simulate_key STR              Key of simulation in gimble store ('simulate/...')
-        -w, --windowsum                     Apply optimize to sum of tallies in windows data 
-                                                under --tally_key or --simulate_key [default: False]
+        -d, --data_key=<d>                  Data key ('tally/...' or 'simulate/...')
+        -w, --windowsum                     Apply optimize to sum of windows in dataset [default: False]
+
     [Model]
-        -m, --model <STR>                   Model name: DIV, MIG_AB, MIG_BA, IM_AB or IM_BA
-        -r, --ref_pop <STR>                 Population ID of reference population used for scaling
-                                            - A or B or A_B (for models DIV, IM_AB, IM_BA)
-                                            - A or B (for models MIG_AB, MIG_BA)
-        -u, --mu <FLOAT>                    Mutation rate (in mutations/site/generation)
-        -y, --sync_pops <STR>               Synchronization of Ne parameters during optimization. Optional.
-                                            - A,B or A,A_B or B,A_B or A,B,A_B (for models DIV, IM_AB, IM_BA)
-                                            - A,B (for models MIG_AB, MIG_BA)
-        -k, --kmax <STR>                    Max count per mutation type beyond which counts 
+        -m, --model=<m>                     Model name: DIV, MIG_AB, MIG_BA, IM_AB or IM_BA
+        -r, --ref_pop=<r>                   Population ID of reference population used for scaling
+                                                - A or B or A_B (for models DIV, IM_AB, IM_BA)
+                                                - A or B (for models MIG_AB, MIG_BA)
+        -u, --mu=<u>                        Mutation rate (in mutations/site/generation)
+        -y, --sync_pops=<y>                 Synchronization of Ne parameters during optimization. Optional.
+                                                - A,B or A,A_B or B,A_B or A,B,A_B (for models DIV, IM_AB, IM_BA)
+                                                - A,B (for models MIG_AB, MIG_BA)
+        -k, --kmax=<k>                      Max count per mutation type beyond which counts 
                                                 are treated as marginals. Order of mutation 
                                                 types is (hetB, hetA, hetAB, fixed)
                                                 [default: 2,2,2,2]
@@ -32,36 +31,35 @@ usage: gimble optimize                      -z FILE -l <STR> (-t <STR>|-s <STR>)
                                                 example 2: --Ne_A=10000,20000 for boundaries for optimization 
                                                                 of Ne_A between 10000 and 20000
 
-        -A, --Ne_A <VALUES>                 Effective population size of population A (in years)
-        -B, --Ne_B <VALUES>                 Effective population size of population B (in years) 
-        -C, --Ne_A_B <VALUES>               Effective population size of ancestral population A_B (in years)
-        -T, --T <VALUES>                    Split time (in generations) 
-        -M, --me <VALUES>                   Migration rate (per lineage probability of migrating) 
-                                            **backwards** in time with direction determined by model name: 
-                                            - MIG_AB and IM_AB: A->B 
-                                            - MIG_BA and IM_BA: B->A
+        -A, --Ne_A <A>                      Effective population size of population A (in years)
+        -B, --Ne_B <B>                      Effective population size of population B (in years) 
+        -C, --Ne_A_B <C>                    Effective population size of ancestral population A_B (in years)
+        -T, --T <T>                         Split time (in generations) 
+        -M, --me <M>                        Migration rate (per lineage probability of migrating) 
+                                                **backwards** in time with direction determined by model name: 
+                                                - MIG_AB and IM_AB: A->B 
+                                                - MIG_BA and IM_BA: B->A
     [Optimization]
-        -g, --algorithm STR                 NLOPT optimization algorithm [default: CRS2]
-                                            - CRS2
-                                            - sbplx
-                                            - neldermead
-        -p, --processes <INT>               Number of processes. Only relevant for optimization of 
-                                                windows [default: 1] 
-        --start_point STR               Point from which to start optimization [default: midpoint]
-                                            - 'midpoint' : midpoint between all boundary values
-                                            - 'random': based on random seed in INI file
-        -i, --max_iterations INT            Maximum number of iterations to perform when 
+        -g, --algorithm=<g>                 NLOPT optimization algorithm [default: CRS2]
+                                                - CRS2
+                                                - sbplx
+                                                - neldermead
+        -p, --processes=<p>                 Number of processes. Only relevant for optimization of windows [default: 1] 
+        -s, --start_point=<s>               Point from which to start optimization [default: midpoint]
+                                                - 'midpoint' : midpoint between all boundary values
+                                                - 'random': based on random seed in INI file
+        -i, --max_iterations=<i>            Maximum number of iterations to perform when 
                                                 optimizing. Depending on the algorithm --max_iterations can be 
                                                 exceeded slightly. Deactivate with -1 [default: 10000]
-        --xtol FLOAT                        Relative tolerance on norm of vector of optimisation parameters.
+        --xtol=<xtol>                       Relative tolerance on norm of vector of optimisation parameters.
                                                 Float between 0 and 1, deactivate with -1 [default: -1]
-        --ftol FLOAT                        Relative tolerance on lnCL. 
+        --ftol=<ftol>                       Relative tolerance on lnCL. 
                                                 Float between 0 and 1, deactivate with -1 [default: -1]
 
     [Options]
-        --seed <INT>                        Seed used for randomness [default: 19]
+        -e, --seed=<e>                      Seed used for randomness [default: 19]
         -f, --force                         Force overwrite of existing analysis.
-        -h --help                           show this
+        -h,--help                           show this
 """
 
 from timeit import default_timer as timer
@@ -70,29 +68,6 @@ import lib.gimble
 import sys
 import itertools
 
-'''
-agemo_config = {
-            'model': config['gimble']['model'],
-            'random_seed': config['gimble']['random_seed'],
-            'Ne_A': list(config['parameters']['Ne_A']),
-            'Ne_B': list(config['parameters']['Ne_B']),
-            'Ne_A_B': list(config['parameters']['Ne_A_B']),
-            'me': list(config['parameters']['me']),
-            'T': list(config['parameters']['T']),
-            'mu': config['mu']['mu'],
-            'ref_pop': "Ne_%s" % config['populations']['reference_pop_id'],
-            'sync_pops': ["Ne_%s" % pop for pop in config['populations']['sync_pop_ids']],
-            'nlopt_start_point_method': start_point,
-            'nlopt_maxeval': max_iterations,
-            'nlopt_xtol_rel': xtol_rel,
-            'nlopt_ftol_rel': ftol_rel,
-            'nlopt_processes': num_cores,
-            'optimize_time' : None,
-            'optimize_label': config["gimble"]["label"],
-            'optimize_result_keys': [],
-        }
-
-'''
 class OptimizeParameterObj(lib.gimble.ParameterObj):
     '''Sanitises command line arguments and stores parameters.'''
 
@@ -100,8 +75,7 @@ class OptimizeParameterObj(lib.gimble.ParameterObj):
         super().__init__(params)
         self.zstore = self._get_path(args['--zarr_file'])
         self.optimize_label = args['--optimize_label']
-        self.sim_key = args['--simulate_key']
-        self.tally_key = args['--tally_key']
+        self.data_key = args['--data_key']
         self.windowsum = args['--windowsum']
         self.Ne_A = self._get_optimize_parameter("Ne_A", args['--Ne_A']) 
         self.Ne_B = self._get_optimize_parameter("Ne_B", args['--Ne_B']) 
@@ -201,8 +175,7 @@ def main(params):
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
         gimbleStore.optimize(
             optimize_label=parameterObj.optimize_label,
-            sim_key=parameterObj.sim_key,
-            tally_key=parameterObj.tally_key,
+            data_key=parameterObj.data_key,
             windowsum=parameterObj.windowsum,
             Ne_A=parameterObj.Ne_A,
             Ne_B=parameterObj.Ne_B,

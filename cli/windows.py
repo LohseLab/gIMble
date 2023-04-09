@@ -1,11 +1,10 @@
-"""usage: gimble windows                  -z <DIR> [-w <INT> -s <INT> -u <INT> -i <INT> ] [-f] [-h]
-
-        -z, --zarr <DIR>                 gimble ZARR directory
+"""
+usage: gimble windows                    -z <z> [-w <w> -s <s>] [-f] [-h]
 
     [Options]
-        -w, --blocks <INT>               Number of blocks in windows [default: 500]
-        -s, --steps <INT>                Number of steps (blocks) by which windows are shifted [default: 50]
-        
+        -z, --zarr_file=<z>              Path to existing GimbleStore
+        -w, --blocks=<w>                 Number of blocks in windows [default: 500]
+        -s, --steps=<s>                  Number of steps (blocks) by which windows are shifted [default: 50]
         -f, --force                      Force overwrite of existing data
         -h, --help                       show this
 
@@ -20,10 +19,10 @@ class WindowsParameterObj(lib.gimble.ParameterObj):
     '''Sanitises command line arguments and stores parameters'''
     def __init__(self, params, args):
         super().__init__(params)
-        self.zstore = self._get_path(args['--zarr'])
+        self.zstore = self._get_path(args['--zarr_file'])
         self.window_size = self._get_int((args['--blocks']))
         self.window_step = self._get_int((args['--steps']))
-        self.overwrite = True if args['--force'] else False
+        self.overwrite = args['--force']
         self.check_block_steps()
 
     def check_block_steps(self):

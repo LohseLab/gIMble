@@ -1,20 +1,16 @@
-"""usage: gimble tally                      -z <DIR> -d <STR> -l <STR> [-k <STR>] 
-                                            [-s <STR>] [-f] [-h]
-                                            
-
-        -z, --zarr <DIR>                     Path to existing GimbleStore
-        -d, --data_type <STR>                Type of data to tally
-                                                - 'blocks': inter-population (X) blocks
-                                                - 'windows': windows of blocks
-                                                - 'windowsum': sum of all windows.
-        -l, --data_label <STR>               Label under which the tally gets saved
-    
+"""
+usage: gimble tally                     -z <z> -t <t> -l <l> [-k <k>] [-s <s>] [-f] [-h]
+                                           
     [Options]
-        -k, --maxk <STR>                            Max value for mutypes (values above get binned) [default: 2,2,2,2]
-        -s, --sequence_ids <STR>                    Sequence IDs for which to tally blocks (comma-separated)
-        -f, --overwrite                             Overwrite results in GimbleStore
-
-        -h --help                                   show this
+        -z, --zarr=<z>                  Path to existing GimbleStore
+        -t, --data_type=<t>             Type of data to tally
+                                            - 'blocks': inter-population (X) blocks
+                                            - 'windows': windows of inter-population (X) blocks
+        -l, --data_label=<l>            Label under which the tally gets saved
+        -k, --maxk=<k>                  Max value for mutypes (values above get binned) [default: 2,2,2,2]
+        -s, --sequence_ids=<s>          Sequence IDs for which to tally blocks (comma-separated)
+        -f, --overwrite                 Overwrite results in GimbleStore
+        -h, --help                      Show this
 """
 
 from timeit import default_timer as timer
@@ -29,29 +25,35 @@ class TallyParameterObj(lib.gimble.ParameterObj):
     def __init__(self, params, args):
         super().__init__(params)
         self.zstore = self._get_path(args['--zarr'])
-        self.data_source = self._get_data_source(args['--data_type'])
-        self.data_label = args['--data_label']
+        self.data_type = self._get_data_type(args['--data_type'])
+        self.data_label = self._check_label(args['--data_label'])
         self.max_k = self._get_max_k(args['--maxk'])
         self.overwrite = args['--overwrite']
         self.sample_sets = 'X'
         self.sequence_ids = args['--sequence_ids']
         self.genome_file = None
     
-    def _get_data_source(self, data_type):
-        error = "[X] '--data_type' for tally must be 'blocks', 'windows', or 'windowsum'. Not %r." % data_type
-        if not data_type in set(['blocks', 'windows', 'windowsum']):
+    def _check_label(self, label):
+        invalid_chars = set([c for c in label if not c.isalnum() and not c in set([".", "-", "_"])])
+        if invalid_chars:
+            sys.exit("[X] --makegrid_label contains invalid characters (%r). Should only contain alphanumericals and -_." % "".join(invalid_chars))
+        return label
+
+    def _get_data_type(self, data_type):
+        error = "[X] '--data_type' for tally must be 'blocks' or 'windows'. Not %r." % data_type
+        if not data_type in set(['blocks', 'windows']):
             sys.exit(error)
         return data_type
 
 def main(params):
     try:
         start_time = timer()
-        print("[+] Running 'gimble tally' ...")
         args = docopt(__doc__)
+        print("[+] Running 'gimble tally' ...")
         parameterObj = TallyParameterObj(params, args)
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
         tally_key = gimbleStore.tally(
-            data_source=parameterObj.data_source,
+            data_type=parameterObj.data_type,
             data_label=parameterObj.data_label,
             max_k=parameterObj.max_k,
             sample_sets=parameterObj.sample_sets,

@@ -1,14 +1,13 @@
-"""usage: gimble parse                   -g <FILE> -v <FILE> -b <FILE> -s <FILE> [-z <STR>] [-f] [-h]
+"""
+usage: gimble parse                      -g <g> -v <v> -b <b> -s <s> [-z <z>] [-f] [-h]
 
-        -g, --genome_f <FILE>            Gimble genome file (TSV) of sequence IDs/lengths for filtering BED file.
-        -v, --vcf_f <FILE>               VCF file of variants. bgzip'ed. Indexed.
-        -b, --bed_f <FILE>               Gimble BED file of regions for filtering VCF file (horizontally).
-        -s, --sample_f <FILE>            Gimble sample file (CSV) for filtering VCF file (vertically). 
-                                            Only two populations are supported.
-    
     [Options]
-        -z, --zarr <STR>                 Prefix to use for GimbleStore [default: gimble]
-        
+        -g, --genome_f=<g>               Gimble genome file (TSV) of sequence IDs/lengths for filtering BED file.
+        -v, --vcf_f=<v>                  VCF file of variants. bgzip'ed. Indexed.
+        -b, --bed_f=<b>                  Gimble BED file of regions for filtering VCF file (horizontally).
+        -s, --sample_f=<s>               Gimble sample file (CSV) for filtering VCF file (vertically). 
+                                            Only two populations are supported.
+        -z, --zarr=<z>                   Prefix to use for GimbleStore [default: gimble]
         -f, --force                      Force overwrite of existing data
         -h, --help                       Show this
     
