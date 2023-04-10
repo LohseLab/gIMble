@@ -1,242 +1,246 @@
-from docopt import docopt
-import sys, os
+import sys
 import numpy as np
 import msprime
 import allel
-import zarr
-import multiprocessing
-import contextlib
-from tqdm import tqdm
-from tqdm.auto import trange
 import itertools
-import lib.gimble
-import pandas as pd
-from functools import partial
 import collections
 
-def run_sim(sim_configs, parameterObj, gimbleStore):
-    threads = parameterObj.threads
-    global_info = parameterObj.config["simulations"]
-    ploidy = global_info["ploidy"]
-    blocks = global_info["blocks"]
-    chunks=global_info["chunks"]
-    blocklength = parameterObj.config['mu']['blocklength']
-    replicates = global_info["replicates"]
-    if chunks>1:
-        if blocks==1:
-            print(f"[-] Can't split 1 block into {chunks} chunks. Simulation will continue without chunking.")
-            chunks=1
-        else:
-            blocks//=chunks
-            replicates*=chunks
-    k_max = parameterObj.config['k_max']
-    global_info['sample_pop_ids'] = parameterObj.config['populations']['sample_pop_ids']
-    A,B = global_info['sample_pop_ids']
-    global_info['reference_pop'] = parameterObj.config['populations']['reference_pop']
-    global_info['mu'] = parameterObj.config['mu']['mu']
-    
-    msprime_configs = (make_sim_configs(config, global_info) for config in sim_configs)
-    all_interpop_comparisons = all_interpopulation_comparisons(
-        global_info[f"sample_size_{A}"], global_info[f"sample_size_{B}"]
-    )
-    
-    print(f"[+] simulating {int(replicates//chunks)} replicate(s) of {int(blocks*chunks)} block(s) for {len(sim_configs)} parameter combinations")
-    #with tqdm(total=replicates*len(sim_configs), desc="[%] running sims ", ncols=100, unit_scale=True) as pbar:
-    if parameterObj.label:
-        group_name=parameterObj.label
+#import multiprocessing
+#import contextlib
+import lib.gimble
+
+# needs
+#lib.gimble.blocks_to_arrays
+#lib.gimble._return_np_type
+#lib.gimble.fix_pos_array
+
+def get_sim_args(config):
+    print("[+] Preparing simulations...")
+    # MODIFIERS : windows/recombination_rates, demographies (if grid)
+    # CONSTANTS : blocks, samples, ploidy, block_length, comparisons, max_k, mutation_rate, mutation_model, discrete
+    # VARIABLES : seeds, recombination_rates, demographies (if grid)
+    # sim_key: the simulation
+    global CONSTANT_PARAMS
+    CONSTANT_PARAMS = {
+        'blocks': config['simulate']['blocks'],
+        'samples': {'A': config['simulate']['sample_size_A'], 'B': config['simulate']['sample_size_B']},
+        'ploidy': config['simulate']['ploidy'],
+        'block_length': config['simulate']['block_length'],
+        'comparisons': config['simulate']['comparisons'],
+        'max_k': config['max_k'],
+        'mutation_rate': config['mu']['mu'],
+        'mutation_model': 'infinite_alleles',
+        'discrete_genome': config['simulate']['discrete_genome']
+        }
+    simulate_jobs = []
+    recombination_rates = config['simulate']['recombination_rate']
+    demographies = [demography.demography for demography in config['simulate']['demographies']]
+    # print([demography.get_parameter_dict() for demography in config['simulate']['demographies']])
+    for replicate_idx in range(config['simulate']['replicates']):
+        ancestry_seeds = config['simulate']['ancestry_seeds_by_replicate'][replicate_idx]
+        mutation_seeds = config['simulate']['mutation_seeds_by_replicate'][replicate_idx]
+        for window_idx, demography, recombination_rate, ancestry_seed, mutation_seed in zip(
+            range(config['simulate']['windows']), 
+            demographies,
+            recombination_rates, 
+            ancestry_seeds, 
+            mutation_seeds):
+            simulate_jobs.append([
+                window_idx, 
+                replicate_idx,
+                ancestry_seed,
+                mutation_seed,
+                demography,
+                recombination_rate,
+                ])
+    return simulate_jobs
+
+def get_sim_args_by_replicate_idx_legacy(config):
+    print("[+] Preparing simulations...")
+    # MODIFIERS : windows/recombination_rates, demographies (if grid)
+    # CONSTANTS : blocks, samples, ploidy, block_length, comparisons, max_k, mutation_rate, mutation_model, discrete
+    # VARIABLES : seeds, recombination_rates, demographies (if grid)
+    # sim_key: the simulation
+    global CONSTANT_PARAMS
+    CONSTANT_PARAMS = {
+        'blocks': config['simulate']['blocks'],
+        'samples': {'A': config['simulate']['sample_size_A'], 'B': config['simulate']['sample_size_B']},
+        'ploidy': config['simulate']['ploidy'],
+        'block_length': config['simulate']['block_length'],
+        'comparisons': config['simulate']['comparisons'],
+        'max_k': config['max_k'],
+        'mutation_rate': config['mu']['mu'],
+        'mutation_model': 'infinite_alleles',
+        'discrete_genome': config['simulate']['discrete_genome']
+        }
+    simulate_jobs_by_replicate_idx = collections.defaultdict(list)
+    recombination_rates = config['simulate']['recombination_rate']
+    demographies = [demography.get_demography() for demography in config['simulate']['demographies']]
+    # print([demography.get_parameter_dict() for demography in config['simulate']['demographies']])
+    for replicate_idx in range(config['simulate']['replicates']):
+        ancestry_seeds = config['simulate']['ancestry_seeds_by_replicate'][replicate_idx]
+        mutation_seeds = config['simulate']['mutation_seeds_by_replicate'][replicate_idx]
+        for window_idx, demography, recombination_rate, ancestry_seed, mutation_seed in zip(
+            range(config['simulate']['windows']), 
+            demographies,
+            recombination_rates, 
+            ancestry_seeds, 
+            mutation_seeds):
+            simulate_jobs_by_replicate_idx[replicate_idx].append([
+                window_idx, 
+                replicate_idx,
+                ancestry_seed,
+                mutation_seed,
+                demography,
+                recombination_rate,
+                ])
+    return simulate_jobs_by_replicate_idx
+
+def get_sim_args_by_replicate_idx(kwargs):
+    print("[+] Preparing simulations...")
+    # MODIFIERS : windows/recombination_rates, demographies (if grid)
+    # CONSTANTS : blocks, samples, ploidy, block_length, comparisons, max_k, mutation_rate, mutation_model, discrete
+    # VARIABLES : seeds, recombination_rates, demographies (if grid)
+    # sim_key: the simulation
+    global CONSTANT_PARAMS
+    CONSTANT_PARAMS = {
+        'blocks': kwargs['blocks'],
+        'samples': {'A': kwargs['samples_A'], 'B': kwargs['samples_B']},
+        'ploidy': 2,
+        'block_length': kwargs['block_length'],
+        'comparisons': list(itertools.product(range(kwargs['samples_A']),
+                range(kwargs['samples_A'], kwargs['samples_A'] + kwargs['samples_B']))),
+        'max_k': kwargs['kmax'],
+        'mutation_rate': kwargs['mu'],
+        'mutation_model': 'infinite_alleles',
+        'discrete_genome': (not kwargs['continuous_genome'])
+        }
+    simulate_jobs_by_replicate_idx = collections.defaultdict(list)
+    recombination_rates = kwargs['recombination_rate']
+    demographies = [demography.get_demography() for demography in kwargs['demographies']]
+    # print([demography.get_parameter_dict() for demography in kwargs['demographies']])
+    for replicate_idx in range(kwargs['replicates']):
+        ancestry_seeds = kwargs['ancestry_seeds_by_replicate'][replicate_idx]
+        mutation_seeds = kwargs['mutation_seeds_by_replicate'][replicate_idx]
+        for window_idx, demography, recombination_rate, ancestry_seed, mutation_seed in zip(
+            range(kwargs['windows']), 
+            demographies,
+            recombination_rates, 
+            ancestry_seeds, 
+            mutation_seeds):
+            simulate_jobs_by_replicate_idx[replicate_idx].append([
+                window_idx, 
+                replicate_idx,
+                ancestry_seed,
+                mutation_seed,
+                demography,
+                recombination_rate,
+                ])
+    return simulate_jobs_by_replicate_idx
+
+
+def simulate_call(simulate_job):
+    '''simulate call for 1 window'''
+    window_idx, replicate_idx, ancestry_seed, mutation_seed, demography, recombination_rate = simulate_job
+    blocks = CONSTANT_PARAMS['blocks']
+    samples = CONSTANT_PARAMS['samples']
+    ploidy = CONSTANT_PARAMS['ploidy']
+    block_length = CONSTANT_PARAMS['block_length']
+    comparisons = CONSTANT_PARAMS['comparisons']
+    max_k = CONSTANT_PARAMS['max_k'] 
+    mutation_rate = CONSTANT_PARAMS['mutation_rate'] 
+    mutation_model = CONSTANT_PARAMS['mutation_model'] 
+    discrete_genome = CONSTANT_PARAMS['discrete_genome']
+    sequence_length = CONSTANT_PARAMS['block_length'] * CONSTANT_PARAMS['blocks']
+    #run simulation:
+    ts = msprime.sim_ancestry(
+        samples=samples, 
+        demography = demography, 
+        ploidy=ploidy,
+        sequence_length=sequence_length,
+        discrete_genome=discrete_genome,
+        recombination_rate=recombination_rate,
+        random_seed=ancestry_seed
+        )
+    ts = msprime.sim_mutations(
+        ts, 
+        rate=mutation_rate, 
+        random_seed=mutation_seed, 
+        discrete_genome=discrete_genome, 
+        model=mutation_model
+        )
+    num_samples = sum(samples.values())
+    #make bsfs
+    if discrete_genome:
+        positions = np.array([site.position for site in ts.sites()], dtype=np.int64)
     else:
-        run_count = gimbleStore._return_group_last_integer('sims')
-        group_name = f"run_{run_count}"
-    gimbleStore.data.require_group(f'sims/{group_name}')
-    gimbleStore.data[f'sims/{group_name}'].attrs['fixed_param_grid'] = parameterObj.fixed_param_grid
-    for idx, (config, zarr_attrs) in enumerate(tqdm(zip(msprime_configs, sim_configs),desc='Overall simulation progress',ncols=100, unit_scale=True, total=len(sim_configs))):
-        seeds = np.random.randint(1, 2 ** 32, replicates)
-        result_list = []
-        if threads > 1:
-            with multiprocessing.Pool(processes=threads) as pool:
-
-                run_sims_specified = partial(
-                run_ind_sim,
-                msprime_config=config,
-                ploidy=ploidy,
-                blocks=blocks,
-                blocklength=blocklength,
-                comparisons=all_interpop_comparisons,
-                k_max=k_max
-            )
-    
-                result_list = list(tqdm(pool.imap(run_sims_specified, seeds),desc=f'running parameter combination {idx}',ncols=100, unit_scale=True, total=replicates))
-        else:
-            for seed in tqdm(seeds,desc=f'running parameter combination {idx}',ncols=100, unit_scale=True):
-                result_list.append(
-                    run_ind_sim(
-                        seed=seed,
-                        msprime_config=config,
-                        ploidy=ploidy,
-                        blocks=blocks,
-                        blocklength=blocklength,
-                        comparisons=all_interpop_comparisons,
-                        k_max=k_max
-                    )
-                )
-            
-        name = f"parameter_combination_{idx}"
-        result_list = _combine_chunks(result_list, chunks)
-        g = gimbleStore.data[f'sims/{group_name}'].create_dataset(name, data=result_list, overwrite=True)
-        g.attrs.put(zarr_attrs)
-        g.attrs['seeds']=tuple([int(s) for s in seeds])
-            
-def make_sim_configs(params, global_info):
-    A, B = global_info["sample_pop_ids"]
-    sample_size_A = global_info[f"sample_size_{A}"]
-    sample_size_B = global_info[f"sample_size_{B}"]
-    num_samples = sample_size_A + sample_size_B
-    C_A = params[f"Ne_{A}"]
-    C_B = params[f"Ne_{B}"]
-    if f"Ne_{A}_{B}" in params:
-        C_AB = params[f"Ne_{A}_{B}"]
-    elif f"Ne_{B}_{A}" in params:
-        C_AB = params[f"Ne_{B}_{A}"]
-    else: 
-        C_AB = params[f"Ne_{global_info['reference_pop']}"]
-    mu = global_info["mu"]
-    rec_rate = params["recombination"]
-
-    population_configurations = [
-        msprime.PopulationConfiguration(
-            sample_size=sample_size_A * global_info["ploidy"], initial_size=C_A
-        ),
-        msprime.PopulationConfiguration(
-            sample_size=sample_size_B * global_info["ploidy"], initial_size=C_B
-        ),
-        msprime.PopulationConfiguration(
-            sample_size=0, initial_size=C_AB
-        )
-    ]
-
-    migration_matrix = np.zeros((3, 3))  # migration rate needs to be divided by 4Ne
-    #migration matirx: M[i,j]=k k is the fraction of population i consisting of migrants
-    # from population j, FORWARDS in time.
-    #here migration is defined backwards in time
-    if f"me_{A}_{B}" in params:
-        # migration A to B backwards, forwards in time, migration from B to A
-        migration_matrix[0, 1] = params[f"me_{A}_{B}"] #this needs to be verified
-    if f"me_{B}_{A}" in params:
-        # migration B to A, forwards in time, migration from A to B
-        migration_matrix[1, 0] = params[f"me_{B}_{A}"]
-    
-    # demographic events: specify in the order they occur backwards in time
-    demographic_events = []
-    if params["T"]:
-        demographic_events = [
-            msprime.MassMigration(
-                time=params["T"], source=0, destination=2, proportion=1.0
-            ),
-            msprime.MassMigration(
-                time=params["T"], source=1, destination=2, proportion=1.0
-            ),
-            msprime.MigrationRateChange(params["T"], 0),
-        ]
-
-    return (
-        population_configurations,
-        demographic_events,
-        migration_matrix,
-        mu,
-        num_samples,
-        rec_rate,
-    )
-
-
-def run_ind_sim(
-    seed,
-    msprime_config,
-    ploidy,
-    blocks,
-    blocklength,
-    comparisons,
-    k_max
-):
-    (
-        population_configurations,
-        demographic_events,
-        migration_matrix,
-        mu,
-        num_samples,
-        rec_rate
-    ) = msprime_config
-    total_length = blocks * blocklength
-    ts = msprime.simulate(
-        length=total_length,
-        recombination_rate=rec_rate,
-        population_configurations=population_configurations,
-        demographic_events=demographic_events,
-        migration_matrix=migration_matrix,
-        mutation_rate=mu,
-        random_seed=seed,
-    )
-    
-    """
-    #with msprime 1.0 -> finite sites mutations
-    ts = run_ind_sim(
-        population_configurations=population_configurations,
-        demographic_events=demographic_events,
-        migration_matrix=migration_matrix,
-        length=blocklength,
-        mutation_rate=params["mu"],
-        recombination_rate=0.0,
-    )
-    tsm = msprime.mutate(ts, rate=mutation_rate, discrete=True)
-    positions = np.array([site.position for site in tsm.sites()])
-    """
-    # with infinite sites = pre-msprime 1.0
-    positions = np.array([int(site.position) for site in ts.sites()])
-    #print(f"[+] {ts.num_sites} mutation(s) along the simulated sequence")
-    new_positions = lib.gimble.fix_pos_array(positions)
-    if ts.num_sites>0 and any(p>=total_length for p in new_positions):
-        blocklength = new_positions[-1]
-        total_length = blocks*blocklength
-    if ts.num_sites==0:
-        new_positions = [0,]
+        positions, sequence_length = infinite_sites(ts, blocks, sequence_length)
     genotype_matrix = get_genotypes(ts, ploidy, num_samples)
+    bsfs = generate_bsfs(genotype_matrix, positions, comparisons, max_k, blocks, sequence_length)
+    return {'window_idx': window_idx, 'replicate_idx': replicate_idx, 'bsfs': bsfs}
+
+
+# @contextlib.contextmanager
+# def poolcontext(*args, **kwargs):
+#     pool = multiprocessing.Pool(*args, **kwargs)
+#     yield pool
+#     pool.terminate()
+
+def generate_bsfs(genotype_matrix, positions, comparisons, max_k, blocks, total_length):
     sa_genotype_array = allel.GenotypeArray(genotype_matrix)
-    # always the same for all pairwise comparisons
-    #print("[+] generated genotype matrix")
-    # generate all comparisons
     num_comparisons = len(comparisons)
-    #result = np.zeros((num_comparisons, blocks, blocklength), dtype="int8")
-    result = np.zeros((num_comparisons, blocks, len(k_max)), dtype="int64") #get number of mutypes
+    result = np.zeros((num_comparisons, blocks, len(max_k)), dtype=np.int64)
+    # generate all comparisons
     for idx, pair in enumerate(comparisons):
-        block_sites = np.arange(total_length).reshape(blocks, blocklength)
-        # slice genotype array
-        #subset_genotype_array = sa_genotype_array.subset(sel1=pair)
-        block_sites_variant_bool = np.isin(
-            block_sites, new_positions, assume_unique=True
-        )
-        new_positions_variant_bool = np.isin(
-            new_positions, block_sites, assume_unique=True
-        )
-        subset_genotype_array = sa_genotype_array.subset(new_positions_variant_bool, pair)
-        #result[idx] = lib.gimble.genotype_to_mutype_array(
-        #    subset_genotype_array, block_sites_variant_bool, block_sites, debug=False
-        #)
-        block_sites = lib.gimble.genotype_to_mutype_array(
-            subset_genotype_array, block_sites_variant_bool, block_sites, debug=False
-        )
-        multiallelic, missing, monomorphic, variation = lib.gimble.block_sites_to_variation_arrays(block_sites)
+        block_sites = np.arange(total_length, dtype=np.int64).reshape(blocks, -1)
+        subset_genotype_array = sa_genotype_array.subset(sel0=None, sel1=pair) 
+        *_, variation = lib.gimble.blocks_to_arrays(block_sites, subset_genotype_array, positions)
         result[idx] = variation
-    #flatten
     result = result.reshape(-1, result.shape[-1])
-    #result = np.hstack(result).reshape(num_comparisons*blocks, len(k_max))
-    #apply get_bsfs to this
     # count mutuples (clipping at k_max, if supplied)
-    max_k = np.array(list(k_max.values())) + 1 if k_max else None
-    mutuples, counts = np.unique(np.clip(result, 0, max_k), return_counts=True, axis=0)
+    mutuples, counts = np.unique(np.clip(result, 0, max_k+1), return_counts=True, axis=0)
     # define out based on max values for each column
-    out = np.zeros(tuple(max_k + 1), np.int64)
+    dtype = lib.gimble._return_np_type(counts)
+    out = np.zeros(tuple(max_k + 2), dtype)
     # assign values
     out[tuple(mutuples.T)] = counts
     return out
+
+def generate_bsfs_bckp(genotype_matrix, positions, comparisons, max_k, blocks, total_length):
+    sa_genotype_array = allel.GenotypeArray(genotype_matrix)
+    num_comparisons = len(comparisons)
+    result = np.zeros((num_comparisons, blocks, len(max_k)), dtype=np.int64)
+    # generate all comparisons
+    for idx, pair in enumerate(comparisons):
+        block_sites = np.arange(total_length, dtype=np.int64).reshape(blocks, -1)
+        new_positions_variant_bool = np.isin(
+            positions, block_sites, assume_unique=True
+            )
+        #print("new_positions_variant_bool", new_positions_variant_bool.shape, np.all(new_positions_variant_bool))
+        subset_genotype_array = sa_genotype_array.subset(new_positions_variant_bool, pair) #all variants are included
+        *redundant, variation = lib.gimble.blocks_to_arrays(block_sites, subset_genotype_array, positions)
+        result[idx] = variation
+    
+    result = result.reshape(-1, result.shape[-1])
+    # count mutuples (clipping at k_max, if supplied)
+    mutuples, counts = np.unique(np.clip(result, 0, max_k+1), return_counts=True, axis=0)
+    # define out based on max values for each column
+    dtype = lib.gimble._return_np_type(counts)
+
+    out = np.zeros(tuple(max_k + 2), dtype)
+    # assign values
+    out[tuple(mutuples.T)] = counts
+    return out
+
+def infinite_sites(ts, blocks, total_length): 
+    positions = np.array([int(site.position) for site in ts.sites()])
+    new_positions = lib.gimble.fix_pos_array(positions)
+    if ts.num_sites>0 and new_positions[-1]>=total_length:
+        blocklength = int(np.ceil(new_positions[-1]/blocks))
+        total_length = blocks*blocklength
+    if ts.num_sites==0:
+        new_positions = [0,]
+    return (new_positions.astype(np.int64), total_length)
 
 def _combine_chunks(result_list, chunks):
     if chunks>1:
@@ -246,9 +250,12 @@ def _combine_chunks(result_list, chunks):
 
 def get_genotypes(ts, ploidy, num_samples):
     if ts.num_mutations == 0:
-        return np.zeros((1,num_samples, ploidy), dtype='int8')
-    shape = (ts.num_mutations, num_samples, ploidy)
+        return np.zeros((1, num_samples, ploidy), dtype=np.uint8)
+    shape = (ts.num_sites, num_samples, ploidy)
     return np.reshape(ts.genotype_matrix(), shape)
 
-def all_interpopulation_comparisons(popA, popB):
+def all_interpopulation_comparisons(*popsizes):
+    popA, popB, *rest = popsizes
+    if len(rest)>0:
+        raise ValueError("More than 2 population sizes were provided to simulate. We cannot cope with that just yet.")
     return list(itertools.product(range(popA), range(popA, popA + popB)))

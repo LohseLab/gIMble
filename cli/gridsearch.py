@@ -1,55 +1,54 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-"""usage: gimble gridsearch -z <FILE> -c <FILE> (-b | -w | --simID <STR>) [-f] [-h|--help]
-                                            
+"""
+usage: gimble gridsearch               -z <z> -g <g> -d <d> [-w] [-p <p> -c <c> -f] [-h|--help]
+                                                                                    
                                             
     Options:
-        -h --help                                   show this
         
-        -z, --zarr_file <FILE>                      Path to existing GimbleStore
-        -c, --config_file <FILE>                    Config file with model parameters (defines grid)
-        -b, --blocks                                Using blocks
-        -w, --windows                               Using windows
-        -f, --overwrite                             Overwrite lnCLs in GimbleStore
-        --simID <STR>                               Name of sim run in GimbleStore
-
+        -z, --zarr_file=<z>            Path to existing GimbleStore
+        -g, --grid_key=<g>             Makegrid key run in GimbleStore
+        -d, --data_key=<d>             Dataset key ('tally/...' or 'simulate/...')
+        -w, --windowsum                Sum windows in dataset [default: False]
+        -p, --processes=<p>            Number of processes [default: 1]
+        -c, --chunksize=<c>            Size of chunks to use in parallelisation 
+                                           (greater chunksize => greater RAM requirements)
+                                           [default: 500]
+        -f, --overwrite                Overwrite results in GimbleStore
+        -h, --help                     Show this
 """
 from timeit import default_timer as timer
 from docopt import docopt
-import lib.gimble
-import lib.math
+import lib.runargs
 
-class GridsearchParameterObj(lib.gimble.ParameterObj):
-    '''Sanitises command line arguments and stores parameters.'''
-
+class GridsearchParameterObj(lib.runargs.RunArgs):
     def __init__(self, params, args):
         super().__init__(params)
         self.zstore = self._get_path(args['--zarr_file'])
-        self.data_type = self._get_datatype(args)
-        self.config_file = self._get_path(args['--config_file'])
+        self.data_key = args['--data_key']
+        self.windowsum = args['--windowsum']
+        self.grid_key = args['--grid_key']
         self.overwrite = args['--overwrite']
-        self.config = None
-        self._parse_config(self.config_file)
+        self.num_cores = self._get_int(args['--processes'])    # number of cores for independent processes
+        self.chunksize = self._get_int(args['--chunksize'])    # size of chunks in first dimension of tally/grid dask array 
 
-    def _get_datatype(self, args):
-        if args['--blocks']:
-            return 'blocks'
-        if args['--windows']:
-            return 'windows'
-        if args['--simID']:
-            self.label = args['--simID']
-            return 'simulate'
-        return None
-        
 def main(params):
     try:
         start_time = timer()
         args = docopt(__doc__)
+        print("[+] Running 'gimble gridsearch' ...")
         parameterObj = GridsearchParameterObj(params, args)
+        import lib.gimble
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
-        gimbleStore.gridsearch(parameterObj)
-        print("[*] Total runtime: %.3fs" % (timer() - start_time))
+        gimbleStore.gridsearch(
+            #tally_key=parameterObj.tally_key,
+            #sim_key=parameterObj.sim_key,
+            data_key=parameterObj.data_key,
+            grid_key=parameterObj.grid_key,
+            windowsum=parameterObj.windowsum,
+            num_cores=parameterObj.num_cores,
+            chunksize=parameterObj.chunksize,
+            overwrite=parameterObj.overwrite,
+            )
+        print("[*] Total runtime was %s" % lib.runargs.format_time(timer() - start_time))
     except KeyboardInterrupt:
-        print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
+        print("\n[X] Interrupted by user after %s !\n" % lib.runargs.format_time(timer() - start_time))
         exit(-1)

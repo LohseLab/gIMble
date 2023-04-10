@@ -1,157 +1,151 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-"""usage: gIMble simulate                   [-z <DIR> | -o <DIR>] [-b <INT>] -c <FILE> [-r <INT>] [-t <INT>] [-h|--help] [-i <STR>] [(-g [--fixed <STR>])]
-                                            
-    Options:
-        -h --help                                   show this
-        -z, --zarr DIR                              Path to zarr store
-        -o, --outprefix DIR                         prefix to make new zarr store
-        -c, --config_file FILE                      Config file with parameters
-        -b, --blocks INT                            Number of blocks per replicate
-        -r, --replicates INT                        Number of replicates per parametercombo
-        -t, --threads INT                           Threads [default: 1]
-        -i, --simID STR                             Custom name for simulation run
-        -g, --grid                                  
-        --fixed STR                                 Parameter to fix to global optimum
 """
-import pathlib
-import collections
+usage: gimble simulate                          (-z <z> | -o <o>) (-s <s>) (-a <a> -b <b>)
+                                                [-r <r> -w <w> -n <n> -l <l>] [-k <k>] [--continuous_genome]
+                                                ((-m <m> -A <A> -B <B> -C <C> -T <T> -M <M> -u <u>) | (-g <g> [-t <t>]))
+                                                [--rec_rate <rate> | --rec_map <bed>]
+                                                [-e <e> -p <p> -f] [-h|--help]
+                                            
+        -z, --zarr=<z>                          Path to zarr store
+        -o, --outprefix=<o>                     Prefix to make new zarr store
+        -s, --simulate_label=<s>                Label used to store simulation for later access
+        -p, --processes=<p>                     Processes [default: 1]
+        -e, --seed=<e>                          Seed used for randomness [default: 19]
+        -f, --force                             Force overwrite of existing analysis
+        -h --help                               Show this
+
+    [Simulation]                                
+        -a, --samples_A=<a>                     Number of diploid individuals in population A 
+        -b, --samples_B=<a>                     Number of diploid individuals in population B 
+        -r, --replicates=<r>                    Number of replicates [default: 1]
+        -w, --windows=<w>                       Number of windows per replicate [default: 1]
+        -n, --blocks=<n>                        Number of blocks per window [default: 1]
+        -l, --block_length=<l>                  Number of sites per block [default: 64]
+        --continuous_genome                     By default, mutations are simulated under a finite-site 
+                                                mutation model. Use this option to use an infinite-site 
+                                                mutation model [default: False]
+        -k, --kmax=<k>                          Max count per mutation type beyond which counts 
+                                                are treated as marginals. Order of mutation 
+                                                types is (hetB, hetA, hetAB, fixed)
+                                                [default: 2,2,2,2]
+
+    [Model based simulation]
+        -m, --model=<m>                         Model name: DIV, MIG_AB, MIG_BA, IM_AB or IM_BA
+        -A, --Ne_A=<A>                          Effective population size of population A (in years)
+        -B, --Ne_B=<B>                          Effective population size of population B (in years)
+        -C, --Ne_AB=<C>                         Effective population size of ancestral population A_B (in years)
+        -T, --T=<T>                             Split time (in generations)                     
+        -M, --me=<M>                            Migration rate (per lineage probability of migrating) 
+                                                **backwards** in time with direction determined by model name: 
+                                                - MIG_AB and IM_AB: A->B 
+                                                - MIG_BA and IM_BA: B->A
+        -u, --mu=<u>                            Mutation rate (in mutations/site/generation)
+
+    [Gridsearch based simulation]
+        -g, --gridsearch_key=<g>                Key of gridsearch stored in gimble store ('gridsearch/...'). 
+                                                If specified, simulation will parameterize each window with 
+                                                the parameter combination which obtained the best composite 
+                                                log-likelihood (lnCL) during gridsearch. 
+                                                This is relevant for bootstrapping approaches. Number of 
+                                                windows in gridsearch result must match '--windows' 
+                                                (and '--rec_map', if specified).
+        -t, --constraint=<t>                    This option sets constraints under which lnCL are evaluated. 
+                                                    example: '--constraint me=2.21e-06'
+        
+    [Recombination]
+        --rec_rate=<rate>                       Constant recombination rate per site (in cM/Mb) [default: 0.0]
+        --rec_map=<bed>                         Recombination map in BED format w/ recombination rate 
+                                                in 4th column. Number of rows needs to match '--windows'
+"""
+
 from timeit import default_timer as timer
 from docopt import docopt
-import sys, os
-import lib.gimble
-import lib.simulate
-import numpy as np
-import zarr
-import pandas as pd
-import itertools
+import lib.runargs 
+import sys              
 
-"""
-test command:
-gIMble simulate -m 
-./gIMble model -s A,B -p 2 -n 1,1 -m 'A>B' -j 'A,B' -o output/test
-./gIMble model -s A,B -p 2 -n 2,1 -j 'A,B' -o output/test
-
-./gIMble simulate -m output/s_A_B.p2.n_1_1.m_AtoB.j_A_B.model.tsv
-./gIMble simulate -m output/test.model.tsv
-
-./gIMble simulate -m output/s_A_B.p2.n_1_1.m_AtoB.j_A_B.model.tsv -c /Users/s1854903/git/gIMble/output/s_A_B.p2.n_1_1.m_AtoB.j_A_B.model.config.yaml -z /Users/s1854903/git/gIMble/test.z
-./gIMble simulate -z output/sims.z -m output/test.model.tsv -c output/test.model.config.yaml
-./gIMble simulate -z output/test.z -w output/windows.tsv 
-"""
-
-
-class SimulateParameterObj(lib.gimble.ParameterObj):
+class SimulateParameterObj(lib.runargs.RunArgs):
     """Sanitises command line arguments and stores parameters."""
 
     def __init__(self, params, args):
         super().__init__(params)
-        self.config_file = self._get_path(args["--config_file"])
         self.zstore = self._get_path(args["--zarr"])
         self.prefix = self._get_prefix(args["--outprefix"])
-        self.threads = self._get_int(args["--threads"])
-        self.label = args["--simID"]
-        self.sim_grid = args["--grid"]
-        self._set_or_write_config(args["--blocks"], args["--replicates"])
-        self.fixed_param_grid = self._verify_fixed(args["--fixed"])
-        #self._set_recombination_rate()
-        
-    def _set_or_write_config(self, blocks, replicates):
-        #in case no config file is provided
-        if self.config_file is None:
-            print("[-] No config file found.")
-            sys.exit("[X] Use gimble model to generate a config file.")
-        else:
-            print("[+] Validating config file.")
-            self._parse_config(self.config_file)
-            if blocks:
-                blocks = self._get_int(blocks)
-                self.config['simulations']['blocks'] = blocks
-            if replicates:
-                replicates = self._get_int(replicates)
-                self.config['simulations']['replicates'] = replicates
+        self.processes = self._get_int(args["--processes"])
+        self.simulate_label = self._check_label(args['--simulate_label'])
+        self.overwrite = args['--force']
+        self.seed = self._get_int(args['--seed'])
+        self.samples_A = self._get_int(args['--samples_A'])
+        self.samples_B = self._get_int(args['--samples_B'])
+        self.replicates = self._get_int(args['--replicates'])
+        self.windows = self._get_int(args['--windows'])
+        self.blocks = self._get_int(args['--blocks'])
+        self.block_length = self._get_int(args['--block_length'])
+        self.continuous_genome = args['--continuous_genome']
+        self.kmax = self._check_kmax(args['--kmax'])
+        self.Ne_A = self._get_float(args['--Ne_A'], ret_none=True)
+        self.Ne_B = self._get_float(args['--Ne_B'], ret_none=True)
+        self.Ne_A_B = self._get_float(args['--Ne_AB'], ret_none=True)
+        self.T = self._get_float(args['--T'], ret_none=True)
+        self.me = self._get_float(args['--me'], ret_none=True)
+        self.mu = self._get_float(args['--mu'], ret_none=True)
+        self.model = self._check_model(args['--model'], ret_none=True)
+        self.gridsearch_key = args['--gridsearch_key']
+        self.constraint = self._get_constraint(args['--constraint'])
+        self.rec_rate = self._get_float(args['--rec_rate'])
+        self.rec_map = self._get_path(args['--rec_map'])
 
-    def _verify_fixed(self, fixed):
-        if fixed:
-            if fixed in self.config['parameters']:
-                return fixed
-            else:
-                can_be_fixed = [p for p in self.config['parameters'] if p not in ['mu', 'recombination']]
-                sys.exit(f"[X] Parameter to fix should be one of the following: {', '.join(can_be_fixed)}.")
+    def _check_label(self, label):
+        invalid_chars = set([c for c in label if not c.isalnum() and not c in set([".", "-", "_"])])
+        if invalid_chars:
+            sys.exit("[X] --simulate_label contains invalid characters (%r). Should only contain alphanumericals and -_." % "".join(invalid_chars))
+        return label
 
-    def _set_recombination_rate(self):      
-        self.recombination_map = None
-        rmap_path = self.config["simulations"]["recombination_map"]
-        rec = self.config["simulations"]["recombination_rate"]
-        rec=0.0 if rec=='' else rec
-        if os.path.isfile(rmap_path):
-            if not self.sim_grid:
-                print("[-] A recombination map can only be used with the flag --sim_grid.")
-                print(f"[-] Simulate will continue using r={rec}") 
-                self.config["parameters"]["recombination"] = [rec,]
-                return [rec,]    
-            else:
-                rbins = self.config["simulations"]["number_bins"]
-                cutoff = self.config["simulations"]["cutoff"]
-                scale = self.config["simulations"]["scale"]
-                rbins = 10 if rbins=='' else rbins
-                scale = 'lin' if scale=='' else scale
-                cutoff = 90 if cutoff=='' else cutoff
-                self.recombination_map = self._parse_recombination_map(rmap_path, cutoff, rbins, scale)
-        else:
-            self.config["parameters"]["recombination"] = [rec,]
-            return [rec,]
-
-    def _parse_recombination_map(self, path, cutoff, bins, scale):
-        #load bedfile
-        hapmap = pd.read_csv(path, sep='\t', 
-            names=['sequence', 'start', 'end', 'rec'], header=0)
-        #from cM/Mb to rec/bp
-        hapmap['rec_scaled'] = hapmap['rec']*1e-8
-        return self._make_bins(hapmap, scale, cutoff, bins)
-
-    def _make_bins(self, df, scale, cutoff=90, bins=10):
-        clip_value = np.percentile(df['rec_scaled'], cutoff)
-        df['rec_clipped'] = df['rec_scaled'].clip(lower=None, upper=clip_value)
-        df['rec_clipped'].replace(0,np.nan,inplace=True)
-        start, stop =  df['rec_clipped'].min(), df['rec_clipped'].max()
-        #determine bins
-        if scale.lower() == "log":
-            start, stop = np.log10(start), np.log10(stop)
-            bin_edges = np.logspace(start, stop, num=bins+1)
-        elif scale.lower() == "lin": 
-            bin_edges = np.linspace(start, stop, num=bins+1)
-        else:
-            sys.exit("[X] Scale of recombination values to be simulated should either be LINEAR or LOG")
-        to_be_simulated  = [(bstop + bstart)/2 for bstart, bstop in zip(bin_edges[:-1],bin_edges[1:])]     
-        df['rec_bins'] = pd.cut(df['rec_clipped'], bins, labels=to_be_simulated).astype(float)
-        df['rec_bins'].replace(np.nan, 0.0, inplace=True)
-        return df[['sequence', 'start', 'end', 'rec_bins']]
-
-    def _validate_recombination_map(self, store, df):
-        df_store = store._get_window_coordinates()
-        df_to_test = df[['sequence', 'start', 'end']]
-        df_merge = df_to_test.merge(df_store, how='outer', on=['sequence', 'start', 'end'])
-        if df_store.shape != df_merge.shape:
-            sys.exit("[X] Recombination map coordinates do not match window coordinates. Use query to get window coordinates.")
-        return df_store.merge(df, on=['sequence', 'start', 'end'])
+    def _get_constraint(self, constraint):
+        if not constraint:
+            return {}
+        try:
+            return {element.split("=")[0]: float(element.split("=")[1]) for element in constraint.split(",") if element}
+        except (ValueError, IndexError):
+            sys.exit("[X] '--constraint %s' is not in the right format." % constraint)
 
 def main(params):
     try:
         start_time = timer()
         args = docopt(__doc__)
+        print("[+] Running 'gimble simulate' ...")
         parameterObj = SimulateParameterObj(params, args)
-        if parameterObj.zstore:
-            gimbleStore = lib.gimble.Store(path=parameterObj.zstore)
-        elif parameterObj.prefix:
-            gimbleStore = lib.gimble.Store(prefix=parameterObj.prefix, create=True)
-        else:
-            sys.exit("[X] No config and no prefix specified. Should have been caught.")
-        #perform recmap checks
-        gimbleStore.simulate(parameterObj)
-
-        print("[*] Total runtime: %.3fs" % (timer() - start_time))
+        import lib.gimble
+        gimble_store = lib.gimble.Store(
+            path=parameterObj.zstore, 
+            prefix=parameterObj.prefix, 
+            create=(True if parameterObj.prefix else False))
+        gimble_store.simulate(
+            zstore=parameterObj.zstore,
+            prefix=parameterObj.prefix,
+            processes=parameterObj.processes,
+            simulate_label=parameterObj.simulate_label,
+            overwrite=parameterObj.overwrite,
+            seed=parameterObj.seed,
+            samples_A=parameterObj.samples_A,
+            samples_B=parameterObj.samples_B,
+            replicates=parameterObj.replicates,
+            windows=parameterObj.windows,
+            blocks=parameterObj.blocks,
+            block_length=parameterObj.block_length,
+            continuous_genome=parameterObj.continuous_genome,
+            kmax=parameterObj.kmax,
+            Ne_A=parameterObj.Ne_A,
+            Ne_B=parameterObj.Ne_B,
+            Ne_A_B=parameterObj.Ne_A_B,
+            T=parameterObj.T,
+            me=parameterObj.me,
+            mu=parameterObj.mu,
+            model=parameterObj.model,
+            gridsearch_key=parameterObj.gridsearch_key,
+            constraint=parameterObj.constraint,
+            rec_rate=parameterObj.rec_rate,
+            rec_map=parameterObj.rec_map
+            )
+        print("[*] Total runtime: %s" % lib.runargs.format_time(timer() - start_time))
     except KeyboardInterrupt:
-        print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
+        print("\n[X] Interrupted by user after %s !\n" % lib.runargs.format_time(timer() - start_time))
         exit(-1)

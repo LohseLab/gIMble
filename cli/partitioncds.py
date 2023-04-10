@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""usage: gimble partitioncds               -f FILE -b FILE -v FILE [-e STR -o STR] [-h|--help]
+"""usage: gimble partitioncds               -f FILE -b FILE -v FILE [-e STR -o STR] [-h|--help] [-V|--version]
                                             
     Options:
         -h --help                                   show this
@@ -10,22 +10,20 @@
         -b, --bed_file FILE                         BED file
         -o, --outprefix STR                         Outprefix [default: gimble]
         -e, --exclude STR                           Sample IDs to exclude : '-e sample_A,sample_B'
-
+        -V, --version                               Print version
 """
 
 '''
 [To Do]
-- ignore sample argument:
-    - should be possible to remove certain samples from VCF file
+- Some GFF3 have stop-codon as part of CDS, some do not 
+    - needs to have fallback parsing of stop_codon instances to infer stop_codon presence
+- make standalone
 
-- divide cli/lib code
 '''
 
 
 from timeit import default_timer as timer
 from docopt import docopt
-#import lib.gimblelog
-import lib.gimble
 import warnings
 import numpy as np
 import sys
@@ -37,6 +35,7 @@ import pandas as pd
 import zarr
 import itertools
 import shutil
+import pathlib
 
 DEGENERACIES = [0, 2, 3, 4]
 
@@ -113,6 +112,16 @@ def parse_fasta(fasta_file):
     print("[+] Found %s sequences..." % (len(sequence_by_id)))
     return sequence_by_id
 
+def format_proportion(fraction, precision=2):
+    if fraction in set(['-', 'N/A']):
+        return fraction
+    return "{:.{}f}".format(fraction, precision)
+
+def format_count(count):
+    if count in set(['-', 'N/A']):
+        return count
+    return "%s" % str(format(count, ',d'))
+
 def parse_bed(bed_file):
     print("[+] Parsing BED file...")
     try:
@@ -123,9 +132,9 @@ def parse_bed(bed_file):
     count_transcript = bed_df['transcript_id'].nunique()
     count_cds = len(bed_df.index)
     print("[+] Found %s CDSs in %s transcripts (%s CDS per transcript)..." % (
-                                        lib.gimble.format_count(count_cds), 
-                                        lib.gimble.format_count(count_transcript), 
-                                        lib.gimble.format_fraction(count_cds / count_transcript)))
+                                        format_count(count_cds), 
+                                        format_count(count_transcript), 
+                                        format_proportion(count_cds / count_transcript)))
     return bed_df
 
 def get_transcripts(parameterObj, sequence_by_id):
@@ -190,7 +199,7 @@ class TranscriptObj(object):
         codon = "".join(self.sequence[-3:])
         if AMINOACID_BY_CODON[codon] == 'X':
             return True
-        return False
+        return True # essentially means not filtering on stop codons
 
     def is_divisible_by_three(self):
         if self.sequence.shape[0] % 3 == 0:
@@ -198,24 +207,32 @@ class TranscriptObj(object):
         return False
 
     def is_orf(self):
-        if self.has_start() and self.has_stop() and self.is_divisible_by_three():
+        if self.has_start() and self.is_divisible_by_three():
             return True
         return False
 
     def __str__(self):
         return ">%s [%s:%s-%s(%s)]\n%s" % (self.transcript_id, self.sequence_id, self.start, self.end, self.orientation, self.sequence)
 
-class PartitioncdsParameterObj(lib.gimble.ParameterObj):
+class PartitioncdsParameterObj():
     '''Sanitises command line arguments and stores parameters'''
     def __init__(self, params, args):
-        super().__init__(params)
         self.fasta_file = self._get_path(args['--fasta_file'], path=True)
         self.vcf_file = str(self._get_path(args['--vcf_file'], path=True))
         self.bed_file = self._get_path(args['--bed_file'], path=True)
         self.outprefix = args['--outprefix']
         self.samples_to_exclude = set(args['--exclude'].split(",")) if args['--exclude'] is not None else set([])
         self.tmp_dir = str(tempfile.mkdtemp(prefix='.tmp_gimble_', dir="."))
-        print(self.__dict__)
+
+    def _get_path(self, infile, path=False):
+        if infile is None:
+            return None
+        _path = pathlib.Path(infile).resolve()
+        if not _path.exists():
+            sys.exit("[X] File not found: %r" % str(infile))
+        if path:
+            return _path
+        return str(_path)
 
 def parse_vcf_file(parameterObj, sequence_ids, query_regions_by_sequence_id):
     print("[+] Parsing VCF file...")
@@ -234,17 +251,18 @@ def parse_vcf_file(parameterObj, sequence_ids, query_regions_by_sequence_id):
                 samples=samples_query, 
                 fields=[gt_key, pos_key, ref_key, alt_key])
             if not vcf_data is None:
-                pos_array = np.array(vcf_data[pos_key]) - 1 # port to BED (0-based) coordinates
-                cds_mask = np.isin(pos_array, query_regions_by_sequence_id[sequence_id])
-                pos = pos_array[cds_mask]
-                zstore.create_dataset("seqs/%s/variants/pos" % sequence_id, data=pos)
-                ref = vcf_data[ref_key][cds_mask]
-                zstore.create_dataset("seqs/%s/variants/ref" % sequence_id, data=ref, dtype='str')
-                alt = vcf_data[alt_key][cds_mask]
-                zstore.create_dataset("seqs/%s/variants/alt" % sequence_id, data=alt, dtype='str')
-                gts = vcf_data[gt_key][cds_mask]
-                zstore.create_dataset("seqs/%s/variants/gts" % sequence_id, data=gts)
-                variant_counts.append(pos_array.shape[0])
+                if sequence_id in query_regions_by_sequence_id:
+                    pos_array = np.array(vcf_data[pos_key]) - 1 # port to BED (0-based) coordinates
+                    cds_mask = np.isin(pos_array, query_regions_by_sequence_id[sequence_id])
+                    pos = pos_array[cds_mask]
+                    zstore.create_dataset("seqs/%s/variants/pos" % sequence_id, data=pos)
+                    ref = vcf_data[ref_key][cds_mask]
+                    zstore.create_dataset("seqs/%s/variants/ref" % sequence_id, data=ref, dtype='str')
+                    alt = vcf_data[alt_key][cds_mask]
+                    zstore.create_dataset("seqs/%s/variants/alt" % sequence_id, data=alt, dtype='str')
+                    gts = vcf_data[gt_key][cds_mask]
+                    zstore.create_dataset("seqs/%s/variants/gts" % sequence_id, data=gts)
+                    variant_counts.append(pos_array.shape[0])
     print("[+] Parsed %s variants." % sum(variant_counts))
     return zstore
 
@@ -295,7 +313,8 @@ def infer_degeneracy(parameterObj, transcriptObjs, zstore):
 
     for transcriptObj in tqdm(transcriptObjs, total=len(transcriptObjs), desc="[%] Checking for ORFs... ", ncols=150, position=0, leave=True):
         if not transcriptObj.is_orf():
-            warnings.append("[-] Transcript %s has no ORF: START=%s, STOP=%s, DIVISIBLE_BY_3=%s (will be skipped)" % (transcriptObj.transcript_id, transcriptObj.has_start(), transcriptObj.has_stop(), transcriptObj.is_divisible_by_three()))
+            #warnings.append("[-] Transcript %s has no ORF: START=%s, STOP=%s, DIVISIBLE_BY_3=%s (will be skipped)" % (transcriptObj.transcript_id, transcriptObj.has_start(), transcriptObj.has_stop(), transcriptObj.is_divisible_by_three()))
+            warnings.append("[-] Transcript %s has no ORF: START=%s, DIVISIBLE_BY_3=%s (will be skipped)" % (transcriptObj.transcript_id, transcriptObj.has_start(), transcriptObj.is_divisible_by_three()))
             beds_rejected.append(transcriptObj.bed)
         else:
             total_sites += transcriptObj.positions.shape[0]
@@ -303,7 +322,8 @@ def infer_degeneracy(parameterObj, transcriptObjs, zstore):
             length_by_sequence_id[transcriptObj.sequence_id] += transcriptObj.positions.shape[0]
             transcriptObjs_valid += 1
     samples = zstore.attrs['samples']
-    degeneracy_chars = "U%s" % (len(samples) * 6) # could be improved with ploidy?
+    degeneracy_chars = "U%s" % (len(samples) * 6 + len(samples) * 1) # could be improved with ploidy?
+    chrom_chars = "U%s" % (max([len(sequence_id) for sequence_id in length_by_sequence_id.keys()]) + 1)
     #data = np.zeros(total_sites, dtype={'names':('sequence_id', 'start', 'end', 'degeneracy', 'codon_pos', 'orientation'),'formats':('U16', 'i8', 'i8', degeneracy_chars, 'i1', 'U1')})
     if warnings:
         with open("%s.cds.rejected_transcripts.bed" % parameterObj.outprefix, 'w') as fh:
@@ -315,7 +335,7 @@ def infer_degeneracy(parameterObj, transcriptObjs, zstore):
             offset = 0 
             data = np.zeros(
                 length_by_sequence_id[sequence_id], 
-                dtype={'names':('sequence_id', 'start', 'end', 'degeneracy', 'codon_pos', 'orientation'),'formats':('U16', 'i8', 'i8', degeneracy_chars, 'i1', 'U1')})
+                dtype={'names':('sequence_id', 'start', 'end', 'degeneracy', 'codon_pos', 'orientation'),'formats':(chrom_chars, 'i8', 'i8', degeneracy_chars, 'i1', 'U1')})
             if sequence_id in zstore['seqs']: # sequence has variants
                 pos = np.array(zstore["seqs/%s/variants/pos" % sequence_id]) 
                 gts = np.array(zstore["seqs/%s/variants/gts" % sequence_id])
@@ -324,6 +344,7 @@ def infer_degeneracy(parameterObj, transcriptObjs, zstore):
                 alleles_raw = np.column_stack([ref, alt])
                 # initiate boolean mask with False
                 mask = np.zeros(alleles_raw.shape, dtype=bool)
+            if gts.size:
                 acs = allel.GenotypeArray(gts).count_alleles()
                 # overwrite with True those alleles_raw that occur in gts 
                 mask[:,0:acs.shape[1]] = acs
@@ -372,7 +393,6 @@ def main(params):
     try:
         start_time = timer()
         args = docopt(__doc__)
-        #print(args)
         #log = lib.log.get_logger(run_params)
         parameterObj = PartitioncdsParameterObj(params, args)
         sequence_by_id = parse_fasta(parameterObj.fasta_file)

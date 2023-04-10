@@ -1,98 +1,98 @@
-"""
-Usage: gimble <module> [<args>...] [-D -V -h]
+"""usage: gimble <module> [<args>...] [-V -h]
 
-  [Modules]
-    setup                 Setup data store
-    info                  Print information about DataStore
-    blocks                Generate blocks from data in DataStore 
-    windows               Generate windows from blocks in DataStore (requires blocks)
-    query                 Query BED file of blocks (windows [TBI])
-    model                 Build demographic model
-    simulate              Simulate data [TBI] 
-    makegrid              Make grid [TBI]
-    gridsearch            Search grid [TBI]
-    optimize              Perform optimisation search [TBI]
-    
+  [Input]
     preprocess            Preprocess input files
-    partitioncds          Partition CDS sites in BED file by degeneracy in sample GTs 
-    plotbed               Plot BED file [TBR]
+    parse                 Parse files into GimbleStore
+    blocks                Generate blocks from parsed data in GimbleStore (requires 'parse')
+    windows               Generate windows from blocks in GimbleStore (requires 'blocks')
+    tally                 Tally variation for inference (requires 'blocks' or 'windows')
+
+  [Simulation]
+    simulate              Simulate data based on specific parameters or gridsearch results  
+    
+  [Inference]
+    optimize              Perform global parameter optimisation on tally/simulation
+    makegrid              Precalculate grid of parameters
+    gridsearch            Evaluate tally/simulation against a precomputed grid (requires 'makegrid')
+
+  [Info]
+    info                  Print metrics about data in GimbleStore
+    list                  List information saved in GimbleStore
+    query                 Extract information from GimbleStore
+    delete                Delete information in GimbleStore
+
+  [Experimental]
+    partitioncds          Partition CDS sites in BED file by degeneracy in sample GTs
 
   [Options]
-    -h, --help                         Show this screen.
-    -D, --debug                        Print debug information.
-    -V, --version                      Show version.
-
-  [Dependencies] 
-    
-    --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-    | $  conda install bedtools bcftools samtools vcflib mosdepth pysam numpy docopt tqdm pandas tabulate zarr scikit-allel parallel more-itertools networkx giac sagelib matplotlib msprime networkx pygraphviz sympy cerberus maxima -c conda-forge -c bioconda |
-    --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    -h, --help            Show this screen
+    -V, --version         Show version
 """
 
 import sys
 import os
+import importlib
 from docopt import docopt
 from timeit import default_timer as timer
 
+RUNNER_BY_MODULE = {
+    'preprocess': 'cli.preprocess',   
+    'parse': 'cli.parse',        
+    'blocks': 'cli.blocks',       
+    'windows': 'cli.windows',      
+    'tally': 'cli.tally',
+    'list': 'cli.list',
+    'delete': 'cli.delete',
+    'simulate': 'cli.simulate',
+    'optimize': 'cli.optimize',
+    'optimize_legacy': 'cli.optimize_legacy',
+    'makegrid': 'cli.makegrid',
+    'makegrid_legacy': 'cli.makegrid_legacy',
+    'gridsearch': 'cli.gridsearch',
+    'info': 'cli.info',
+    'query': 'cli.query',
+    'partitioncds': 'cli.partitioncds',
+}
+MODULES = RUNNER_BY_MODULE.keys()
+
+installation_steps = """[========================= Missing dependencies =========================]
+1. Get conda from https://conda.io/miniconda.html
+
+2. Create the following conda environment 
+>>> conda create -n gimble python=3.7.12 bedtools bcftools samtools vcflib mosdepth pysam numpy docopt tqdm pandas tabulate zarr scikit-allel parallel matplotlib msprime demes dask numcodecs python-newick nlopt -c conda-forge -c bioconda -y
+
+3. Load the environment (needs to be activated when using gimble)
+>>> conda activate gimble
+
+4. Install agemo (make sure you have the conda environment activated)
+>>> (gimble) pip install agemo
+
+5. Rock'n'roll ...
+[========================================================================]
+"""
 def main(gimble_dir):
     try:
-        __version__ = '0.6.1'
-        version = "gimble v%s" % __version__
         start_time = timer()
+        __version__ = '1.0.0'
+        version = "gimble v%s" % __version__
         args = docopt(__doc__, version=version, options_first=True)
         if '--version' in args['<args>'] or '-V' in args['<args>']:
-            sys.exit(version)
+            sys.exit("gimble v%s" % __version__)
         params = {
             'module': args['<module>'],
             'path': gimble_dir,
             'cwd': os.getcwd(),
-            'debug': True if '--debug' in args['<args>'] or '-D' in args['<args>'] else False,
             'version': version
         }
-        if args['<module>'] == 'setup':
-            import cli.setup as setup
-            setup.main(params)
-        elif args['<module>'] == 'preprocess':
-            import cli.preprocess as preprocess
-            preprocess.main(params)
-        elif args['<module>'] == 'partitioncds':
-            import cli.partitioncds as partitioncds
-            partitioncds.main(params)
-        elif args['<module>'] == 'plotbed':
-            import cli.plotbed as plotbed
-            plotbed.main(params)
-        elif args['<module>'] == 'query':
-            import cli.query as query
-            query.main(params)
-        elif args['<module>'] == 'blocks':
-            import cli.blocks as blocks
-            blocks.main(params)
-        elif args['<module>'] == 'windows':
-            import cli.windows as windows
-            windows.main(params)
-        elif args['<module>'] == 'model':
-            import cli.model as model
-            model.main(params)
-        elif args['<module>'] == 'info':
-            import cli.info as info
-            info.main(params)
-        #elif args['<module>'] == 'inference':
-        #    import cli.inference as inference
-        #    inference.main(params)
-        elif args['<module>'] == 'simulate':
-            import cli.simulate as simulate
-            simulate.main(params)
-        elif args['<module>'] == 'gridsearch':
-            import cli.gridsearch as gridsearch
-            gridsearch.main(params)
-        elif args['<module>'] == 'makegrid':
-            import cli.makegrid as makegrid
-            makegrid.main(params)
-        elif args['<module>'] == 'optimize' or args['<module>'] == 'optimise':
-            import cli.optimise as optimize
-            optimize.main(params)
+        if not params['module'] in MODULES:
+            print("[X] %r is not a gimble module.\n" % params['module'])
+            sys.exit(__doc__)
         else:
-            sys.exit("%r is not a gimble module. See 'gimble -help'." % args['<module>'])
+            try:
+                runner = importlib.import_module(RUNNER_BY_MODULE[params['module']])
+                runner.main(params)
+            except ImportError:
+                print(installation_steps)
     except KeyboardInterrupt:
         sys.stderr.write("\n[X] Interrupted by user after %i seconds!\n" % (timer() - start_time))
         sys.exit(-1)
