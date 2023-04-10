@@ -16,7 +16,6 @@ usage: gimble parse                      -g <g> -v <v> -b <b> -s <s> [-z <z>] [-
 import sys
 from timeit import default_timer as timer
 from docopt import docopt
-import asd
 import lib.runargs 
 
 class ParseParameterObj(lib.runargs.RunArgs):
