@@ -1110,7 +1110,6 @@ def gridsearch_dask(tally=None, grid=None, num_cores=1, chunksize=500, desc=None
             #print(np.sum(out))
             return out
 
-
 class Store(object):
     def __init__(self, prefix=None, path=None, create=False, overwrite=False):
         self.prefix = (
@@ -1182,8 +1181,6 @@ class Store(object):
         self.list_keys(key)
 
     def measure(self, genome_f=None, sample_f=None, bed_f=None, vcf_f=None):
-        # measure_key = self._get_key(task='measure')
-        # self._set_meta(measure_key)
         measure_key = "seqs/"
         self._set_meta(measure_key)
         print("[#] Processing GENOME_FILE %r." % genome_f)
@@ -1399,7 +1396,6 @@ class Store(object):
             interval_matrix = _df[target_samples].to_numpy()
             starts = _df["start"].to_numpy()
             ends = _df["end"].to_numpy()
-            # interval_matrix_key = self._get_key(task='measure', data_label=intervals, seq_label=sequence,)
             self._set_intervals(sequence, interval_matrix, starts, ends)
             length_matrix = interval_matrix * _df["length"].to_numpy().reshape(-1, 1)
             count_bases_samples[idx, :] = np.sum(length_matrix, axis=0)
@@ -2829,57 +2825,6 @@ class Store(object):
         }
         self._set_meta_and_data(tally_key, tally_meta, tally)
 
-    def _get_key(
-        self,
-        task=None,
-        data_label=None,
-        grid_label=None,
-        analysis_label=None,
-        parameter_label=None,
-        mod_label=None,
-        seq_label=None,
-    ):
-        if task == "tally":
-            return "tally/%s" % data_label
-        if task == "measure":
-            if (
-                data_label is not None
-                and seq_label is not None
-                and mod_label is not None
-            ):
-                return "%s/%s/%s/%s" % (task, data_label, seq_label, mod_label)
-            return "%s/" % (task)
-        if task == "blocks" or task == "windows":
-            if seq_label is not None:
-                return "%s/%s" % (task, seq_label)
-            return "%s/" % (task)
-        if task == "simulate":
-            if parameter_label is None:
-                return "%s/%s" % (task, analysis_label)
-            return "%s/%s/%s" % (task, analysis_label, parameter_label)
-        if task == "makegrid":
-            return "makegrid/%s" % (analysis_label)
-        if task == "optimize":
-            if parameter_label is None:
-                return "%s/%s/%s" % (task, data_label, analysis_label)
-            return "%s/%s/%s/%s" % (task, data_label, analysis_label, parameter_label)
-        if task == "gridsearch":
-            if data_label is not None and grid_label is not None:
-                return "%s/%s/%s" % (task, data_label, grid_label)
-            if parameter_label is not None:
-                return "%s/%s/%s/%s" % (
-                    task,
-                    data_label,
-                    analysis_label,
-                    parameter_label,
-                )
-            if mod_label is not None:
-                return "%s/%s/%s/%s" % (task, data_label, analysis_label, mod_label)
-            return "%s/%s/%s" % (task, data_label, analysis_label)
-        if task == "windows":
-            return "windows"
-        return None
-
     def _has_key(self, key):
         return (key in self.data) if key else False
 
@@ -2934,37 +2879,6 @@ class Store(object):
     def _set_meta(self, key, meta={}):
         self.data.require_group(key)
         self.data[key].attrs.put(meta)
-
-    def _preflight_makegrid(self, config, overwrite):
-        key = self._get_key(task="makegrid", analysis_label=config["gimble"]["label"])
-        if self._has_key(key):
-            if not overwrite:
-                sys.exit(
-                    "[X] Grid with label %r already exist. Specify '-f' to overwrite."
-                    % config["gimble"]["label"]
-                )
-            self._del_data_and_meta(key)
-        config["key"] = key
-        config["makegrid_label"] = config["gimble"]["label"]
-        ### DOL_to_LOD will determine the ORDER of gridpoints!!! (be sure to keep)
-        parameter_LOD = DOL_to_LOD(config['parameters_expanded'])
-        model_instances = []
-        for model_dict in parameter_LOD:
-            model_instance = GimbleDemographyInstance(
-                model=config['gimble']['model'], 
-                Ne_A=model_dict.get('Ne_A', None), 
-                Ne_B=model_dict.get('Ne_B', None), 
-                Ne_A_B=model_dict.get('Ne_A_B', None), 
-                me=model_dict.get('me', None), 
-                T=model_dict.get('T', None),
-                mu=config['mu']['mu'], 
-                ref_pop="Ne_%s" % config['populations']['reference_pop_id'], 
-                block_length=config['mu']['block_length'], 
-                kmax=config['max_k']) 
-            model_instances.append(model_instance)
-        config['model_instances'] = model_instances
-        config['agemo_parameters'] = [model_instance.get_agemo_values(fallback=True) for model_instance in model_instances]
-        return config
 
     def makegrid(self, Ne_A, Ne_B, Ne_A_B, T, me, makegrid_label, model, block_length, ref_pop, mu, kmax, processes, seed, overwrite):
         makegrid_key = "makegrid/%s" % (makegrid_label)
@@ -3334,9 +3248,7 @@ class Store(object):
             )
             """only deletes windows (NOT windows tallies)"""
             self._del_data_and_meta("windows")
-        config["windows_key"] = self._get_key(
-            task="windows"
-        )  # one could allow for multiple windows sets by using labels here
+        config["windows_key"] = "windows"  # one could allow for multiple windows sets by using labels here
         config["window_count"] = 0
         return config
 
