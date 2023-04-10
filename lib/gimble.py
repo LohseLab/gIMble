@@ -1109,7 +1109,7 @@ def gridsearch_dask(tally=None, grid=None, num_cores=1, chunksize=500, desc=None
                 out = result.compute()
             #print(np.sum(out))
             return out
-
+          
 class Store(object):
     def __init__(self, prefix=None, path=None, create=False, overwrite=False):
         self.prefix = (
@@ -3148,7 +3148,7 @@ class Store(object):
         if polarise_true:
             variation[..., [0, 1]] = variation[..., [1, 0]]
         return variation
-
+      
     def _init_store(self, create, overwrite):
         if create:
             if os.path.isdir(self.path):
