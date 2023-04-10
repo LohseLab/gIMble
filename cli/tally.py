@@ -7,7 +7,10 @@ usage: gimble tally                     -z <z> -t <t> -l <l> [-k <k>] [-s <s>] [
                                             - 'blocks': inter-population (X) blocks
                                             - 'windows': windows of inter-population (X) blocks
         -l, --data_label=<l>            Label under which the tally gets saved
-        -k, --maxk=<k>                  Max value for mutypes (values above get binned) [default: 2,2,2,2]
+        -k, --kmax=<k>                  Max count per mutation type beyond which counts 
+                                            are treated as marginals. Order of mutation 
+                                            types is (hetB, hetA, hetAB, fixed)
+                                            [default: 2,2,2,2]
         -s, --sequence_ids=<s>          Sequence IDs for which to tally blocks (comma-separated)
         -f, --overwrite                 Overwrite results in GimbleStore
         -h, --help                      Show this
@@ -15,11 +18,10 @@ usage: gimble tally                     -z <z> -t <t> -l <l> [-k <k>] [-s <s>] [
 
 from timeit import default_timer as timer
 from docopt import docopt
-import lib.gimble
-import lib.math
+import lib.runargs
 import sys
 
-class TallyParameterObj(lib.gimble.ParameterObj):
+class TallyParameterObj(lib.runargs.RunArgs):
     '''Sanitises command line arguments and stores parameters.'''
 
     def __init__(self, params, args):
@@ -27,7 +29,7 @@ class TallyParameterObj(lib.gimble.ParameterObj):
         self.zstore = self._get_path(args['--zarr'])
         self.data_type = self._get_data_type(args['--data_type'])
         self.data_label = self._check_label(args['--data_label'])
-        self.max_k = self._get_max_k(args['--maxk'])
+        self.max_k = self._check_kmax(args['--kmax'])
         self.overwrite = args['--overwrite']
         self.sample_sets = 'X'
         self.sequence_ids = args['--sequence_ids']
@@ -51,6 +53,7 @@ def main(params):
         args = docopt(__doc__)
         print("[+] Running 'gimble tally' ...")
         parameterObj = TallyParameterObj(params, args)
+        import lib.gimble
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
         tally_key = gimbleStore.tally(
             data_type=parameterObj.data_type,
@@ -62,7 +65,7 @@ def main(params):
             overwrite=parameterObj.overwrite
             )
         print("[+] Tally is accessible with the key %r." % tally_key)
-        print("[*] Total runtime was %s" % (lib.gimble.format_time(timer() - start_time)))
+        print("[*] Total runtime was %s" % (lib.runargs.format_time(timer() - start_time)))
     except KeyboardInterrupt:
-        print("\n[X] Interrupted by user after %s !\n" % (lib.gimble.format_time(timer() - start_time)))
+        print("\n[X] Interrupted by user after %s !\n" % (lib.runargs.format_time(timer() - start_time)))
         exit(-1)

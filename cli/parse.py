@@ -14,12 +14,12 @@ usage: gimble parse                      -g <g> -v <v> -b <b> -s <s> [-z <z>] [-
 """
 
 import sys
-
 from timeit import default_timer as timer
 from docopt import docopt
-import lib.gimble 
+import asd
+import lib.runargs 
 
-class ParseParameterObj(lib.gimble.ParameterObj):
+class ParseParameterObj(lib.runargs.RunArgs):
     '''Sanitises command line arguments and stores parameters.'''
 
     def __init__(self, params, args):
@@ -47,9 +47,10 @@ class ParseParameterObj(lib.gimble.ParameterObj):
 def main(params):
     try:
         start_time = timer()
-        print("[+] Running 'gimble parse' ...")
         args = docopt(__doc__)
+        print("[+] Running 'gimble parse' ...")
         parameterObj = ParseParameterObj(params, args)
+        import lib.gimble
         gimbleStore = lib.gimble.Store(prefix=parameterObj.outprefix, create=True, overwrite=parameterObj.overwrite)
         gimbleStore.measure(
             genome_f=parameterObj.genome_f, 
@@ -57,7 +58,7 @@ def main(params):
             bed_f=parameterObj.bed_f, 
             vcf_f=parameterObj.vcf_f)
         gimbleStore.log_action(module=parameterObj._MODULE, command=parameterObj._get_cmd())
-        print("[*] Total runtime was %s" % (lib.gimble.format_time(timer() - start_time)))
+        print("[*] Total runtime was %s" % (lib.runargs.format_time(timer() - start_time)))
     except KeyboardInterrupt:
-        print("\n[X] Interrupted by user after %s !\n" % (lib.gimble.format_time(timer() - start_time)))
+        print("\n[X] Interrupted by user after %s !\n" % (lib.runargs.format_time(timer() - start_time)))
         exit(-1)

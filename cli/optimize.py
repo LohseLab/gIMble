@@ -64,11 +64,11 @@ usage: gimble optimize                      -z <z> -l <l> -d <d> [-w]
 
 from timeit import default_timer as timer
 from docopt import docopt
-import lib.gimble
+import lib.runargs
 import sys
 import itertools
 
-class OptimizeParameterObj(lib.gimble.ParameterObj):
+class OptimizeParameterObj(lib.runargs.RunArgs):
     '''Sanitises command line arguments and stores parameters.'''
 
     def __init__(self, params, args):
@@ -172,6 +172,7 @@ def main(params):
         args = docopt(__doc__)
         print("[+] Running 'gimble optimize' ...")
         parameterObj = OptimizeParameterObj(params, args)
+        import lib.gimble
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
         gimbleStore.optimize(
             optimize_label=parameterObj.optimize_label,
@@ -196,7 +197,7 @@ def main(params):
             nlopt_ftol_rel=parameterObj.ftol_rel,
             nlopt_algorithm=parameterObj.algorithm,
             )
-        print("[*] Total runtime was %s" % (lib.gimble.format_time(timer() - start_time)))
+        print("[*] Total runtime was %s" % (lib.runargs.format_time(timer() - start_time)))
     except KeyboardInterrupt:
-        print("\n[X] Interrupted by user after %s !\n" % (lib.gimble.format_time(timer() - start_time)))
+        print("\n[X] Interrupted by user after %s !\n" % (lib.runargs.format_time(timer() - start_time)))
         exit(-1)

@@ -1,19 +1,17 @@
-import traceback
+#import traceback
 import contextlib
 import datetime
 import itertools
 import multiprocessing
 import nlopt
 import numpy as np
-import pandas as pd
+#import pandas as pd
 import sys, os
 import functools
 import copy
 from functools import partial
-from functools import partialmethod
 from timeit import default_timer as timer
 from tqdm import tqdm
-import lib.gimble
 
 def bsfs_to_2d(bsfs):
     '''needed for testing that tally-arrays and bsfs are identical'''
@@ -66,9 +64,6 @@ def get_nlopt_log_iteration_tuple(
     return tuple(nlopt_log_iteration)
 
 def setup_nlopt_log(replicate_idx, config):
-    # optimize_meta = lib.gimble.config_to_meta(config, 'optimize') # could be used to populate header further with data
-    #print('replicate_idx', replicate_idx)
-    #print('config', config)
     #nlopt_log_header = ['windows_idx', 'iteration', 'block_length', 'likelihood']
     nlopt_log_header = ['iteration', 'block_length', 'likelihood']
     if config['nlopt_chains'] > 1: # multiple windows

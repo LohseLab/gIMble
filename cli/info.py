@@ -8,9 +8,9 @@ usage: gimble info                 -z <z> [-h|--help]
 
 from timeit import default_timer as timer
 from docopt import docopt
-import lib.gimble
+import lib.runargs
 
-class InfoParameterObj(lib.gimble.ParameterObj):
+class InfoParameterObj(lib.runargs.RunArgs):
     '''Sanitises command line arguments and stores parameters.'''
 
     def __init__(self, params, args):
@@ -37,14 +37,16 @@ def main(params):
     try:
         start_time = timer()
         args = docopt(__doc__)
+        print("[+] Running 'gimble info' ...")
         parameterObj = InfoParameterObj(params, args)
+        import lib.gimble
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore)
         print("[+] Getting report. This might take a while ...")
         info = gimbleStore.info(
             version=parameterObj._VERSION,
             tree=parameterObj.tree)
         print(info)
-        print("[*] Total runtime was %s" % (lib.gimble.format_time(timer() - start_time)))
+        print("[*] Total runtime was %s" % (lib.runargs.format_time(timer() - start_time)))
     except KeyboardInterrupt:
-        print("\n[X] Interrupted by user after %s !\n" % (lib.gimble.format_time(timer() - start_time)))
+        print("\n[X] Interrupted by user after %s !\n" % (lib.runargs.format_time(timer() - start_time)))
         exit(-1)

@@ -41,10 +41,10 @@ usage: gimble makegrid                  (-z <z> | -o <o>) -l <l> -m <m> -b <b> -
 
 from timeit import default_timer as timer
 from docopt import docopt
-import lib.gimble
+import lib.runargs
 import sys
 
-class MakeGridParameterObj(lib.gimble.ParameterObj):
+class MakeGridParameterObj(lib.runargs.RunArgs):
     '''Sanitises command line arguments and stores parameters.'''
 
     def __init__(self, params, args):
@@ -56,7 +56,7 @@ class MakeGridParameterObj(lib.gimble.ParameterObj):
         self.Ne_A_B = self._get_makegrid_parameters("Ne_A_B", args.get('--Ne_A_B', None)) 
         self.T = self._get_makegrid_parameters("T", args.get('--T', None))
         self.me = self._get_makegrid_parameters("me", args.get('--me', None))
-        self.makegrid_label = self.(args['--makegrid_label'])
+        self.makegrid_label = self._check_label(args['--makegrid_label'])
         self.model = self._check_model(args['--model']) 
         self.block_length = self._get_int(args['--block_length']) 
         self.ref_pop = self._get_ref_pop(args['--ref_pop'])
@@ -110,7 +110,9 @@ def main(params):
     try:
         start_time = timer()
         args = docopt(__doc__)
+        print("[+] Running 'gimble makegrid' ...")
         parameterObj = MakeGridParameterObj(params, args)
+        import lib.gimble
         gimbleStore = lib.gimble.Store(
             path=parameterObj.zstore, 
             prefix=parameterObj.prefix, 
@@ -131,7 +133,7 @@ def main(params):
             seed=parameterObj.seed,
             overwrite=parameterObj.overwrite,
            )
-        print("[*] Total runtime was %s" % (lib.gimble.format_time(timer() - start_time)))
+        print("[*] Total runtime was %s" % (lib.runargs.format_time(timer() - start_time)))
     except KeyboardInterrupt:
-        print("\n[X] Interrupted by user after %s !\n" % (lib.gimble.format_time(timer() - start_time)))
+        print("\n[X] Interrupted by user after %s !\n" % (lib.runargs.format_time(timer() - start_time)))
         exit(-1)

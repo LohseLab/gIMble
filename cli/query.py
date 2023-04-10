@@ -1,8 +1,8 @@
 """
-usage: gimble query                     -z <z> [-d <d>] [-s <s>] [-c <c>] [-h|--help]
+usage: gimble query                     -z <z> [-l <l>] [-s <s>] [-c <c>] [-h|--help]
                                             
         -z, --zarr_file=<z>             Path to existing GimbleStore 
-        -d, --data_key=<d>              Data key
+        -l, --label=<l>                 Label of data that should be queried
         
     [Gridsearch results]
         -s, --sliced=<s>                Write "sliced_parameter" table with best lnCL result for each slice of parameter values, e.g.:
@@ -20,16 +20,16 @@ usage: gimble query                     -z <z> [-d <d>] [-s <s>] [-c <c>] [-h|--
 """
 from timeit import default_timer as timer
 from docopt import docopt
-import lib.gimble
+import lib.runargs
 import sys
 
-class QueryParameterObj(lib.gimble.ParameterObj):
+class QueryParameterObj(lib.runargs.RunArgs):
     '''Sanitises command line arguments and stores parameters.'''
 
     def __init__(self, params, args):
         super().__init__(params)
         self.zstore = self._get_path(args['--zarr_file'])
-        self.data_key = args['--data_key']
+        self.data_key = args['--label']
         self.extended = False # args['--extended']
         self.sliced_param = args['--sliced']
         self.constrained = args['--constrained']
@@ -44,7 +44,9 @@ def main(params):
     try:
         start_time = timer()
         args = docopt(__doc__)
+        print("[+] Running 'gimble query' ...")
         parameterObj = QueryParameterObj(params, args)
+        import lib.gimble
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore)
         gimbleStore.query(
             parameterObj._VERSION,
@@ -54,7 +56,7 @@ def main(params):
             parameterObj.sliced_param,
             parameterObj.diss
             )
-        print("[*] Total runtime was %s" % (lib.gimble.format_time(timer() - start_time)))
+        print("[*] Total runtime was %s" % (lib.runargs.format_time(timer() - start_time)))
     except KeyboardInterrupt:
-        print("\n[X] Interrupted by user after %s !\n" % (lib.gimble.format_time(timer() - start_time)))
+        print("\n[X] Interrupted by user after %s !\n" % (lib.runargs.format_time(timer() - start_time)))
         exit(-1)

@@ -17,10 +17,9 @@ usage: gimble gridsearch               -z <z> -g <g> -d <d> [-w] [-p <p> -c <c> 
 """
 from timeit import default_timer as timer
 from docopt import docopt
-import lib.gimble
-import lib.math
+import lib.runargs
 
-class GridsearchParameterObj(lib.gimble.ParameterObj):
+class GridsearchParameterObj(lib.runargs.RunArgs):
     def __init__(self, params, args):
         super().__init__(params)
         self.zstore = self._get_path(args['--zarr_file'])
@@ -35,7 +34,9 @@ def main(params):
     try:
         start_time = timer()
         args = docopt(__doc__)
+        print("[+] Running 'gimble gridsearch' ...")
         parameterObj = GridsearchParameterObj(params, args)
+        import lib.gimble
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
         gimbleStore.gridsearch(
             #tally_key=parameterObj.tally_key,
@@ -47,7 +48,7 @@ def main(params):
             chunksize=parameterObj.chunksize,
             overwrite=parameterObj.overwrite,
             )
-        print("[*] Total runtime was %s" % (lib.gimble.format_time(timer() - start_time)))
+        print("[*] Total runtime was %s" % lib.runargs.format_time(timer() - start_time))
     except KeyboardInterrupt:
-        print("\n[X] Interrupted by user after %s !\n" % (lib.gimble.format_time(timer() - start_time)))
+        print("\n[X] Interrupted by user after %s !\n" % lib.runargs.format_time(timer() - start_time))
         exit(-1)

@@ -15,7 +15,7 @@ usage: gimble preprocess                 -f <f> -v <v> -b <b> [-g <g> -m <m> -M 
         -h, --help                       Show this
 """
 
-import lib.gimble
+import lib.runargs
 import numpy as np
 import tempfile
 import pathlib
@@ -120,7 +120,7 @@ def fix_permissions(path):
             os.chmod(_f, 0o664)
         #os.chmod(root, 0o775)
 
-class PreprocessParameterObj(lib.gimble.ParameterObj):
+class PreprocessParameterObj(lib.runargs.RunArgs):
     '''Sanitises command line arguments and stores parameters'''
     def __init__(self, params, args):
         super().__init__(params)
@@ -280,7 +280,6 @@ def process_vcf_f(parameterObj):
     return parameterObj
 
 def preprocess(parameterObj):
-    print("[+] Running 'gimble preprocess'")
     parameterObj = generate_genome_file(parameterObj)
     parameterObj = get_coverage_data_from_bam(parameterObj)
     parameterObj = get_multi_callable_f(parameterObj)
@@ -292,12 +291,10 @@ def main(params):
     try:
         start_time = timer()
         args = docopt(__doc__)
-        #print(args)
-        #log = lib.log.get_logger(run_params)
         parameterObj = PreprocessParameterObj(params, args)
-        #print(parameterObj.__dict__)
+        print("[+] Running 'gimble preprocess'...")
         preprocess(parameterObj)
-        print("[*] Total runtime was %s" % (lib.gimble.format_time(timer() - start_time)))
+        print("[*] Total runtime was %s" % (lib.runargs.format_time(timer() - start_time)))
     except KeyboardInterrupt:
-        print("\n[X] Interrupted by user after %s !\n" % (lib.gimble.format_time(timer() - start_time)))
+        print("\n[X] Interrupted by user after %s !\n" % (lib.runargs.format_time(timer() - start_time)))
         exit(-1)

@@ -1,10 +1,8 @@
 import itertools
 from tqdm import tqdm
 from tqdm.dask import TqdmCallback
-from lib.functions import plot_mutuple_barchart
 import allel
 import demes
-import ast
 import math
 import numpy as np
 import dask
@@ -20,24 +18,16 @@ import warnings
 import pathlib
 import contextlib
 import multiprocessing
-import configparser
-import matplotlib.pyplot as plt
-from matplotlib.path import Path
-import matplotlib.patches as patches
-import cerberus
 import lib.simulate
-import hashlib
 import fractions
 import copy
-import lib.math
 import tabulate
 from timeit import default_timer as timer
-
 import agemo
 import lib.optimize
 import msprime
 # np.set_printoptions(threshold=sys.maxsize)
-from lib.GeneratingFunction.gf import togimble
+#from lib.GeneratingFunction.gf import togimble
 
 """
 - Coordinate systems:
@@ -53,20 +43,9 @@ RECOMBINATION_SCALER = 1e-8
 MUTYPES = ["m_1", "m_2", "m_3", "m_4"]
 SPACING = 16
 GRIDSEARCH_DTYPE = np.float32  # -3.4028235e+38 ... 3.4028235e+38
-MODELS = ['DIV', 'MIG_AB', 'MIG_BA', "IM_AB", "IM_BA"]
-
-PARAMETERS_OF_MODEL = {
-    "DIV": ['Ne_A_B', 'Ne_A', 'Ne_B', 'T'],
-    "MIG_AB": ['Ne_A', 'Ne_B', 'me'],
-    "MIG_BA": ['Ne_A', 'Ne_B', 'me'],
-    "IM_AB": ['Ne_A_B', 'Ne_A', 'Ne_B', 'me', 'T'],
-    "IM_BA": ['Ne_A_B', 'Ne_A', 'Ne_B', 'me', 'T'],
-}
 
 # GRIDSEARCH_DTYPE=np.float64 # -1.7976931348623157e+308 ... 1.7976931348623157e+308
 ###
-
-PURPLE = "#4F3D63"
 
 DFRM = "[──"
 DFRT = "├──"
@@ -161,186 +140,6 @@ class ReportObj(object):
     def __repr__(self):
         return "\n".join(self.out)
 
-
-def get_ini_model_events(model, pop_ids):
-    events = []
-    if model in set(["DIV", "IM_BA", "IM_AB"]):
-        events += ["J_A_B"]
-    if model in set(["MIG_AB", "IM_AB"]):
-        events += ["M_A_B"]
-    if model in set(["MIG_BA", "IM_BA"]):
-        events += ["M_B_A"]
-    events = ["C_%s" % pop_id for pop_id in pop_ids] + events
-    return events
-
-
-def get_ini_model_params(model):
-    pop_ids = ["A", "B"]
-    if model in set(["DIV", "IM_BA", "IM_AB"]):
-        pop_ids += ["A_B"]
-    pop_ids_sync = sorted(
-        set(
-            [
-                ",".join(combination)
-                for combination in itertools.combinations(pop_ids, 2)
-            ]
-            + [
-                ",".join(pop_ids),
-            ]
-        )
-    )
-    events = get_ini_model_events(model, pop_ids)
-    return pop_ids, pop_ids_sync, events
-
-
-def get_ini_parameter_list(task, events):
-    # [parser.py]
-    l = ["# Model parameters and their values/ranges:"]
-    if task == "simulate":
-        l.append("# A) Fixed : value")
-        # l.append('# B) Range : min, max, steps, lin|log')
-    elif task == "optimize":
-        l.append("# A) Fixed : value")
-        l.append("# B) Range : min, max")
-    elif task == "makegrid":
-        l.append("# A) Fixed : value")
-        l.append("# B) Range : min, max, steps, lin|log")
-    else:
-        raise ValueError("%s is not a supported task." % task)
-    for event in events:
-        event_type, event_name = event[:1], event[2:]
-        if event_type == "C":
-            l.append("# Effective population size of %s" % event_name)
-            l.append("Ne_%s" % event_name)
-        if event_type == "M":
-            source, sink = event_name.split("_")
-            l.append(
-                "# Migration rate (migrants/generation) from %s to %s (backwards in time)"
-                % (source, sink)
-            )
-            l.append("me")
-        if event_type == "J":
-            l.append("# Split time (in generations)")
-            l.append("T")
-    return l
-
-
-def make_ini_configparser(version, task, model, label):
-    # [parser.py]
-    # make configparser
-    config = configparser.ConfigParser(allow_no_value=True)
-    config.optionxform = str  # otherwise keys are lowercase
-    # get variables/strings
-    random_seed, precision = "19", "165"
-    pop_ids, pop_ids_sync, events = get_ini_model_params(model)
-    string_pop_ids = " | ".join(pop_ids)
-    string_pop_ids_sync = " | ".join(pop_ids_sync)
-    parameter_list = get_ini_parameter_list(task, events)
-    # gimble
-    config.add_section("gimble")
-    config.set("gimble", "version", version)
-    config.set("gimble", "label", label)
-    config.set("gimble", "task", task)
-    config.set("gimble", "model", model)
-    config.set("gimble", "random_seed", random_seed)
-    config.set("gimble", "precision", precision)
-    # populations
-    if task == "makegrid" or task == "optimize":
-        config.add_section("populations")
-        config.set("populations", "pop_ids", string_pop_ids)
-        config.set(
-            "populations",
-            "# Link model to data in GimbleStore (see output of gimble info)",
-        )
-        config.set("populations", "A", "")
-        config.set("populations", "B", "")
-        config.set("populations", "# Pick a reference population: %s" % string_pop_ids)
-        config.set("populations", "reference_pop_id", "")
-        config.set(
-            "populations",
-            "# Choose to simplify model by assuming equality of Ne's (optional): %s"
-            % string_pop_ids_sync,
-        )
-        config.set("populations", "sync_pop_ids", "")
-    # kmax
-    if task == "simulate" or task == "makegrid":
-        config.add_section("k_max")
-        config.set("k_max", "# k_max sets limits for mutation-type cardinalities.")
-        config.set("k_max", "# Mutation-types beyond these are calculated as marginals")
-        config.set("k_max", "m_1", "2    # hetB")
-        config.set("k_max", "m_2", "2    # hetA")
-        config.set("k_max", "m_3", "2    # hetAB")
-        config.set("k_max", "m_4", "2    # fixed")
-    if task == "simulate":
-        config.add_section("simulate")
-        config.set("simulate", "pop_ids", string_pop_ids)
-        config.set("simulate", "# Pick a reference population: %s" % string_pop_ids)
-        config.set("simulate", "reference_pop_id", "")
-        config.set("simulate", "# Ploidy of organism")
-        config.set("simulate", "ploidy", "2")
-        config.set("simulate", "# Blocks")
-        config.set("simulate", "blocks", "")
-        config.set("simulate", "block_length", "")
-        config.set("simulate", "windows", "")
-        config.set("simulate", "# Number of replicates")
-        config.set("simulate", "replicates", "")
-        config.set("simulate", "# Number of samples per population")
-        config.set("simulate", "sample_size_A", "1")
-        config.set("simulate", "sample_size_B", "1")
-        config.set(
-            "simulate",
-            "# Mutations at discrete sites (True) or infinite sites model (False)",
-        )
-        config.set("simulate", "discrete_genome", "True")
-        config.set("simulate", "# Set recombination rate (optional)")
-        config.set("simulate", "recombination_rate", "")
-        config.set("simulate", "# Set path to recombination map (optional)")
-        config.set("simulate", "recombination_map", "")
-        config.set(
-            "simulate",
-            "# Number of bins, cutoff, scale (required ONLY IF recombination map set)",
-        )
-        config.set("simulate", "number_bins", "")
-        config.set("simulate", "cutoff", "")
-        config.set("simulate", "scale", "")
-        config.add_section("gridbased")
-        config.set(
-            "gridbased",
-            "# Specify gridsearch key to simulate data based on gridsearch results ",
-        )
-        config.set("gridbased", "grid_label", "")
-        config.set(
-            "gridbased",
-            "# Parameter to fix to global optimum when performing window-wise parametric bootstrap (optional).",
-        )
-        config.set("gridbased", "fixed_parameter", "")
-    # mu
-    config.add_section("mu")
-    config.set("mu", "# mutation rate (in mutations/site/generation, required)")
-    # [To Do] figure out how to deal with 'no mutation-rate' ... no-scaling
-    config.set("mu", "mu", "")
-    if task == "makegrid":
-        config.set("mu", "# block_length")
-        config.set(
-            "mu",
-            "# must be identical to block_length of the data one wants to analyse with grid",
-        )
-        config.set("mu", "block_length", "")
-
-    # parameters
-    config.add_section("parameters")
-    for param in parameter_list:
-        if param.startswith("#"):
-            config.set("parameters", param)
-        else:
-            config.set("parameters", param, "")
-    return config
-
-
-def get_model_name(model_file):
-    return model_file.rstrip(".tsv").split("/")[-1]
-
-
 def fullprint(*args, **kwargs):
     from pprint import pprint
 
@@ -348,29 +147,6 @@ def fullprint(*args, **kwargs):
     np.set_printoptions(threshold=np.inf)
     pprint(*args, **kwargs)
     np.set_printoptions(**opt)
-
-
-def write_config(version, model, task, label):
-    config = make_ini_configparser(version, task, model, label)
-    outfile = "gimble.%s.%s.%s.config.ini" % (task, model, label)
-    with open(outfile, "w") as fh:
-        config.write(fh)
-    print(
-        "[+] Wrote INI file %r. Please fill in values before starting %r."
-        % (str(outfile), task)
-    )
-
-
-def get_validator_error_string(validator_errors):
-    # parameterObj file ...
-    out = []
-    for section, errors in validator_errors.items():
-        out.append("[X] In section %r" % section)
-        for error_dict in errors:
-            for parameter, values in error_dict.items():
-                out.append("[X] \t %s \t %s" % (parameter, " ".join(values)))
-    return "\n".join(out)
-
 
 def DOL_to_LOD(DOL):
     """
@@ -392,349 +168,6 @@ def LOD_to_DOL(LOD):
 
 def _return_np_type(x):
     return np.min_scalar_type((1 if np.min(x) >= 0 else -1) * np.max(np.abs(x)))
-
-
-def get_config_pops(config):
-    # make populations_by_letter
-    if config["gimble"]["task"] != "simulate":
-        config["populations"]["population_by_letter"] = {
-            "A": config["populations"]["A"],
-            "B": config["populations"]["B"],
-        }
-    return config
-
-
-def config_to_meta(config, task):
-    """
-    - Function extracts those fields from 'config' that are meant to be saved as ZARR meta
-    - ZARR does not like np.int64 but np.float64 is ok
-    """
-    meta = {}
-    if task == "windows":
-        meta["window_size"] = config["window_size"]
-        meta["window_step"] = config["window_step"]
-        meta["sample_sets"] = config["sample_sets"]
-        meta["windows_key"] = config["windows_key"]
-        meta["window_count"] = config["window_count"]
-    if task == "blocks":
-        meta["length"] = config["block_length"]
-        meta["span"] = config["block_span"]
-        meta["max_missing"] = config["block_max_missing"]
-        meta["max_multiallelic"] = config["block_max_multiallelic"]
-        meta["count_by_sample_set_idx"] = dict(
-            config["blocks_by_sample_set_idx"]
-        )  # keys are strings
-        meta["count_by_sequence"] = dict(
-            config["blocks_by_sequence"]
-        )  # keys are strings
-        meta["count_raw_by_sample_set_idx"] = dict(
-            config["blocks_raw_by_sample_set_idx"]
-        )  # keys are strings
-        meta["count_total"] = config["count_total"]
-        meta["count_total_raw"] = config["count_total_raw"]
-    if task == "tally":
-        meta["data_ndims"] = config.get("data_ndims", 0)
-        meta["data_key"] = config["data_key"]  # where to find the data that went into tally
-        meta["data_source"] = config["data_source"]  # meas | sims ?
-        meta["data_type"] = config["data_type"]
-        meta["tally_key"] = config["tally_key"]  # where to find the tally
-        meta["max_k"] = (
-            None
-            if config["max_k"] is None
-            else tuple([int(v) for v in config["max_k"]])
-        )
-        meta["sample_sets"] = config.get("sample_sets", "NA")
-        meta["sequences"] = config.get("sequences", [])
-        meta["genome_file"] = config.get("genome_file", None)
-        meta["blocks"] = config.get("blocks", 0)
-        meta["windows"] = config.get("windows", 0)
-        meta["marginality"] = config.get("marginality", "NA")
-        meta["block_length"] = config["block_length"]
-    if task == "simulate":
-        print("config", config)
-        meta["data_ndims"] = config.get("data_ndims", 5)
-        meta['data_source'] = 'sims'
-        meta['data_label'] = config['gimble']['label']
-        meta["max_k"] = tuple([int(v) for v in config["max_k"]])
-        meta["replicates"] = config["replicates"]
-        #meta["parameters_LOD"] = config["parameters_LOD"]
-        # META NEEDS PARAMS IN SERIALIZABLE FORM
-        #meta["parameters"] = [modelObj.get_parameter_dict() for modelObj in config['simulate']['demographies']]
-        #print(meta["parameters"])
-        meta["discrete_genome"] = config["simulate"]["discrete_genome"]
-        meta["grid_label"] = config["gridbased"]["grid_label"]
-        meta['blocks'] = config['simulate']['blocks']
-        meta['block_length'] = config['simulate']['block_length']
-        meta['sequence_length'] = config['simulate']['sequence_length']
-        meta['windows'] = config['simulate']['windows']
-        meta['mu'] = config['mu']['mu']
-        meta["recombination_rate"] = config["simulate"]["recombination_rate"]
-    if task == "simulate_instance":
-        meta["max_k"] = tuple([int(v) for v in config["max_k"]])
-        meta["idx"] = config["idx"]
-        meta["ancestry_seeds"] = tuple(
-            [int(s) for s in config["simulate"]["ancestry_seeds_by_replicate"][config["idx"]]]
-        )
-        meta["mutation_seeds"] = tuple(
-            [int(s) for s in config["simulate"]["mutation_seeds_by_replicate"][config["idx"]]]
-        )
-        meta["parameters"] = {
-            k: (tuple(v.tolist()) if isinstance(v, np.ndarray) else v)
-            for k, v in config["parameters"].items()
-        }
-        meta["discrete_genome"] = config["simulate"]["discrete_genome"]
-    if task == "makegrid":
-        meta["makegrid_key"] = config["key"]
-        meta["makegrid_label"] = config["makegrid_label"]
-        meta["parameters"] = config["parameters"]
-        meta["parameters_fixed"] = config["parameters_fixed"]
-        meta["parameters_gridded"] = config["parameters_gridded"]
-        meta["parameters_grid_points"] = config["parameters_grid_points"]
-        meta["grid_dict"] = {
-            k: list(v) for k, v in config["parameters_expanded"].items()
-        }
-        meta["block_length"] = config["mu"]["block_length"]
-        meta["mu"] = config["mu"]["mu"]
-        meta["label"] = config["gimble"]["label"]
-        meta["model"] = config["gimble"]["model"]
-        meta["reference_pop_id"] = config["populations"]["reference_pop_id"]
-        meta["sync_pop_ids"] = config["populations"]["sync_pop_ids"]
-        meta["population_by_letter"] = config["populations"]["population_by_letter"]
-        meta["max_k"] = list([int(k) for k in config["max_k"]])
-    if task == "gridsearch":
-        meta["makegrid_key"] = config["makegrid_key"]
-        #meta["grid_points"] = config["parameters_grid_points"]
-        meta["makegrid_label"] = config["makegrid_label"]
-        meta["batch_sites"] = config["batch_sites"]
-        meta["data_key"] = config["data_key"]
-        meta["gridsearch_key"] = config["gridsearch_key"]
-        meta["grid_dict"] = config["grid_dict"]
-        meta["block_length"] = config["block_length_data"]
-        meta["data_label"] = config["data_label"]
-        meta["data_source"] = config["data_source"]
-        meta["gridsearch_keys"] = config["gridsearch_keys"]
-        meta["data_ndims"] = config["data_ndims"]
-    if task == "optimize_legacy":
-        meta["optimize_key"] = config["optimize_key"]
-        meta["random_seed"] = config["random_seed"]
-        meta["data_source"] = config["data_source"]
-        meta["data_key"] = config["data_key"]
-        meta["start_point_method"] = config["nlopt_start_point_method"]
-        meta["start_point"] = list([float(k) for k in config["nlopt_start_point"]])
-        meta["optimize_result_keys"] = config["optimize_result_keys"]
-        meta["optimize_time"] = config["optimize_time"]
-        meta["lower_bound"] = config["nlopt_lower_bound"]
-        meta["upper_bound"] = config["nlopt_upper_bound"]
-        meta["max_iterations"] = config["nlopt_maxeval"]
-        meta["xtol_rel"] = config["nlopt_xtol_rel"]
-        meta["ftol_rel"] = config["nlopt_ftol_rel"]
-        meta["nlopt_runs"] = config['nlopt_runs']
-        meta["parameters_fixed"] = config["nlopt_parameters_fixed"]
-        meta["parameters_bounded"] = config["nlopt_parameters_bound"]
-        meta["block_length"] = config["block_length"]
-        meta["mu"] = config["mu"]
-        meta["label"] = config["optimize_label"]
-        meta["model"] = config["model"]
-        meta["reference_pop_id"] = config["ref_pop"]
-        meta["sync_pop_ids"] = config["sync_pops"]
-    if task == 'optimize':
-        meta['optimize_label'] = config['optimize_label'] # : 'optimize_cli', 
-        meta['sim_key'] = config['sim_key'] # : None, 
-        meta['tally_key'] = config['tally_key'] # : 'tally/blocks', 
-        meta['windowsum'] = config['windowsum'] # : False, 
-        meta['Ne_A'] = config['Ne_A'] # : [10000.0, 100000.0], 
-        meta['Ne_B'] = config['Ne_B'] # : [10000.0, 100000.0], 
-        meta['Ne_A_B'] = config['Ne_A_B'] # : [20000.0, 100000.0], 
-        meta['T'] = config['T'] # : [40000.0, 400000.0], 
-        meta['me'] = config['me'] # : [0.0, 1e-07], 
-        meta['model'] = config['model'] # : 'IM_BA', 
-        meta['sync_pops'] = config['sync_pops'] # : ['Ne_B', 'Ne_A'], 
-        meta['ref_pop'] = config['ref_pop'] # : 'Ne_A', 
-        meta['mu'] = config['mu'] # : 2e-09, 
-        meta['max_k'] = list([int(k) for k in config["kmax"]]) # : array([2, 2, 2, 2]), 
-        meta['processes'] = config['processes'] # : 1, 
-        meta['seed'] = config['seed'] # : 20, 
-        meta['overwrite'] = config['overwrite'] # : True, 
-        meta['start_point_method'] = config['start_point_method'] # : 'midpoint', 
-        meta['nlopt_maxeval'] = config['nlopt_maxeval'] # : 100, 
-        meta['nlopt_xtol_rel'] = config['nlopt_xtol_rel'] # : -1.0, 
-        meta['nlopt_ftol_rel'] = config['nlopt_ftol_rel'] # : -1.0, 
-        meta['nlopt_algorithm'] = config['nlopt_algorithm'] # : 'CRS2', 
-        meta['data_key'] = config['data_key'] # : 'tally/blocks', 
-        meta['data_source'] = config['data_source'] # : 'meas', 
-        meta['data_label'] = config['data_label'] # : 'blocks', 
-        meta['optimize_key'] = config['optimize_key'] # : 'optimize/blocks/optimize_cli', 
-        meta['block_length'] = config['block_length'] # : 64, 
-        meta['nlopt_chains'] = config['nlopt_chains'] # : 1, 
-        meta['nlopt_runs'] = config['nlopt_runs'] # : 1, 
-        meta['nlopt_parameters'] = config['nlopt_parameters'] # : ['Ne_A_B', 'Ne_s', 'me', 'T'], 
-        meta['nlopt_parameters_fixed'] = config['nlopt_parameters_fixed'] # : [], 
-        meta['nlopt_parameters_bound'] = config['nlopt_parameters_bound'] # : ['Ne_A_B', 'Ne_A', 'Ne_B', 'me', 'T'], 
-        meta['nlopt_lower_bound'] = config['nlopt_lower_bound'] # : [20000.0, 10000.0, 0.0, 40000.0], 
-        meta['nlopt_upper_bound'] = config['nlopt_upper_bound'] # : [100000.0, 100000.0, 1e-07, 400000.0], 
-        meta['optimize_result_keys'] = config['optimize_result_keys'] # : ['optimize/blocks/optimize_cli/0'], 
-        meta['nlopt_start_point'] = list([float(k) for k in config["nlopt_start_point"]]) # : array([ 60000.        ,  55000.        ,      0.00000005, 220000.        ]), 
-        meta['optimize_time'] = config['optimize_time'] # : '00h:00m:42.680s'}
-        meta['deme'] = config['deme']
-    return meta
-
-
-def get_config_model_parameters(config, module):
-    # Convert parameters to numpy arrays
-    config["parameters_np"] = {}
-    config["parameters_fixed"] = []
-    config["parameters_bounded"] = []  # only first sync'ed pop is added to bounded
-    config["parameters_gridded"] = []
-    sync_flag = False  # only allows one sync'ed pop
-    for parameter, values in config["parameters"].items():
-        if len(values) == 1:
-            config["parameters_fixed"].append(parameter)
-            config["parameters_np"][parameter] = np.array(values)
-        elif len(values) == 2:
-            if module == "makegrid_legacy":
-                sys.exit(
-                    "[X] Module %r only supports FLOAT, or (min, max, steps, lin|log) for parameters. Not %r"
-                    % (module, values)
-                )
-            if parameter.startswith("Ne"):
-                pop_id = parameter.replace("Ne_", "")
-                if pop_id in config["populations"]["sync_pop_ids"]:
-                    if not sync_flag:
-                        parameter_sync = "Ne_s"
-                        config["parameters_bounded"].append(parameter_sync)
-                        config["parameters_np"][parameter_sync] = np.array(values)
-                        sync_flag = True
-                else:
-                    config["parameters_bounded"].append(parameter)
-                    config["parameters_np"][parameter] = np.array(values)
-            else:
-                config["parameters_bounded"].append(parameter)
-                config["parameters_np"][parameter] = np.array(values)
-        elif len(values) == 4:
-            if module == "optimize":
-                sys.exit(
-                    "[X] Module %r only supports FLOAT, or (MIN, MAX) for parameters. Not %r"
-                    % (module, values)
-                )
-            value_min, value_max, value_num, value_scale = values
-            config["parameters_gridded"].append(parameter)
-            if value_scale.startswith("lin"):
-                config["parameters_np"][parameter] = np.linspace(
-                    value_min, value_max, num=value_num, endpoint=True, dtype=np.float64
-                )
-                if not value_min == 0 and parameter == "me":
-                    np.insert(config["parameters_np"][parameter], 0, 0)
-                    # check why it's not added!!!
-            elif value_scale.startswith("log"):
-                if value_min == 0:
-                    error_msg = [
-                        "[X] Min value for log-ranged parameter %r in config file can't be 0."
-                        % parameter
-                    ]
-                    if parameter == "me":
-                        error_msg.append(
-                            "[X] Pick the smallest Non-zero number to include (Zero will be added automatically)"
-                        )
-                    sys.exit("\n".join(error_msg))
-                config["parameters_np"][parameter] = np.geomspace(
-                    value_min, value_max, num=value_num, endpoint=True, dtype=np.float64
-                )
-                if parameter == "me":
-                    config["parameters_np"][parameter] = np.insert(
-                        config["parameters_np"][parameter], 0, 0
-                    )
-            else:
-                sys.exit(
-                    "[X] Config: Scale should either be lin or log. Not %r."
-                    % value_scale
-                )
-        else:
-            # special case for no parameters if gridbased is set
-            if module == "simulate":
-                if not config["gridbased"]["grid_label"]:
-                    sys.exit("[X] Config: Parameters must be FLOAT.")
-            if module == "optimize":
-                sys.exit("[X] Config: Parameters must be FLOAT, or (MIN, MAX).")
-            if module == "makegrid_legacy":
-                sys.exit(
-                    "[X] Config: Parameters must be FLOAT, or (MIN, MAX, STEPS, LIN|LOG)."
-                )
-    return config
-
-
-def get_config_model_events(config):
-    pop_path = "simulate" if config["gimble"]["task"] == "simulate" else "populations"
-    pop_ids = config[pop_path]["pop_ids"]
-    model = config["gimble"]["model"]
-    sync_pops = config[pop_path].get("sync_pop_ids", [])
-    events = get_ini_model_events(model, pop_ids)
-    config["events"] = {}
-    config["events"]["coalescence"] = []
-    # config['events']['p_to_c'] = {}
-    for event in events:
-        if event.startswith("M"):
-            config["events"]["migration"] = [
-                tuple(
-                    pop_ids.index(pop_id)
-                    for pop_id in event.replace("M_", "").split("_")
-                )
-            ]
-        if event.startswith("J"):
-            config["events"]["exodus"] = [
-                (0, 1, 2)
-            ]  # populations are moving to the last element
-        if event.startswith("C"):
-            # pop_size = event.replace('C_', 'Ne_')
-            if event.replace("C_", "") in sync_pops:
-                event = "C_s"
-            config["events"]["coalescence"].append(event)
-        #    config['events']['p_to_c'][pop_size] = event
-    return config
-
-
-def get_config_kmax(config):
-    try:
-        # GB: sorting seems to be the way to go here
-        # mutype_labels, max_k = zip(*sorted(config[k_max].items()))
-        # max_k can set to np.array afterwards
-        config["max_k"] = np.array([config["k_max"][mutype] for mutype in MUTYPES])
-    except KeyError as e:
-        sys.exit("[X] Config: No k-max value found for mutype %r " % e.args[0])
-    return config
-
-
-def expand_parameters(config):
-    '''config should be simplified so that checks are easier'''
-    if "populations" in config and len(config["populations"]["sync_pop_ids"]) > 0:
-        to_sync = ["Ne_%s" % pop for pop in config["populations"]["sync_pop_ids"][1:]]
-        sync_to = "Ne_%s" % config["populations"]["sync_pop_ids"][0]
-        parameters_np = {
-            k: v for k, v in config["parameters_np"].items() if k not in to_sync
-        }
-    else:
-        parameters_np = config["parameters_np"]
-        to_sync, sync_to = None, None
-    cartesian_product = itertools.product(*parameters_np.values())
-    rearranged_product = list(zip(*cartesian_product))
-    config["parameters_grid_points"] = len(rearranged_product[0])
-    config["parameters_expanded"] = {
-        k: np.array(v, dtype=np.float64)
-        for k, v in zip(parameters_np.keys(), rearranged_product)
-    }
-    if to_sync:
-        for pop in to_sync:
-            config["parameters_expanded"][pop] = config["parameters_expanded"][sync_to]
-    return config
-
-def get_config_optimize(config):
-    # bounds
-    config["parameter_combinations_lowest"] = np.array(
-        [config["parameters_np"][k][0] for k in config["parameters_bounded"]]
-    )
-    config["parameter_combinations_highest"] = np.array(
-        [config["parameters_np"][k][1] for k in config["parameters_bounded"]]
-    )
-    return config
 
 class GimbleDemographyInstance(object):
     def __init__(self, model=None, Ne_A=None, Ne_B=None, Ne_A_B=None, me=None, T=None, mu=None, ref_pop=None, sync_pops=None, block_length=None, kmax=None):
@@ -931,556 +364,6 @@ class GimbleDemographyInstance(object):
         demes_graph = self.get_demes_graph()
         return msprime.Demography.from_demes(demes_graph.resolve())
 
-def get_config_simulate(config):
-    def cartesian_product(sample_size_A, sample_size_B):
-        return list(
-            itertools.product(
-                range(sample_size_A),
-                range(sample_size_A, sample_size_A + sample_size_B))
-            )
-    # interpopulation sample pairs
-    config["simulate"]["comparisons"] = cartesian_product(
-        config["simulate"]["sample_size_A"],
-        config["simulate"]["sample_size_B"])
-    # gridsearch result 
-    config["gridbased"]["grid_label"] = config["gridbased"]["grid_label"].strip()
-    config["gridbased"]["fixed_parameter"] = config["gridbased"][
-        "fixed_parameter"
-    ].strip()
-    # old demographies
-    # config["demographies"] = lib.simulate.make_demographies(config)
-    # new demographies 
-
-    #config["demographies"] = [msprime.Demography.from_demes(graph) for graph in config_to_demes_graph(config)]
-    # sequence_length_per_replicate = (
-    #     blocks_per_replicate * config["simulate"]["block_length"]
-    # )
-    # config["simulate"]["blocks_per_replicate"] = blocks_per_replicate
-    #config["simulate"]["blocks_per_replicate"] = np.array([config["simulate"]["blocks"]])
-    # config["simulate"]["sequence_length"] = sequence_length_per_replicate
-    config["simulate"]["sequence_length"] = config["simulate"]["block_length"] * config["simulate"]["blocks"] 
-    # config["replicates"] = blocks_per_replicate.size * config["simulate"]["replicates"]
-    config["replicates"] = config["simulate"]["replicates"]
-    # seeds are integers 1 .. 2**32 shape (grid_points, replicates, 2) 
-    #config["seeds"] = np.random.randint(
-    #    1, 2**32, (config.get("parameters_grid_points", 1), config["replicates"], 2)
-    #)
-    if not config["gridbased"]["grid_label"]:
-        config["parameters_LOD"] = DOL_to_LOD(config["parameters_expanded"])
-        config["parameters"] = {
-            **config["simulate"],
-            **config["mu"],
-        }  # is this necessary?
-
-    return config
-
-
-# def get_blocks_per_replicate(num, part):
-#     """
-#     >>> get_blocks_per_replicate(64, 64)
-#     array([64], dtype=uint64)
-#     >>> get_blocks_per_replicate(64, 63)
-#     array([63,  1], dtype=uint64)
-#     >>> get_blocks_per_replicate(64, 32)
-#     array([32, 32], dtype=uint64)
-#     >>> get_blocks_per_replicate(64, 73)
-#     array([64], dtype=uint64)"""
-#     num_entries = math.ceil(num / part)
-#     result = np.full(num_entries, fill_value=part, dtype=np.uint64)
-#     floor = num // part
-#     if num_entries != floor:
-#         result[-1] = num - floor * part
-#     return result
-
-
-def load_config(config_file, MODULE=None, CWD=None, VERSION=None):
-    parser = configparser.ConfigParser(inline_comment_prefixes="#", allow_no_value=True)
-    parser.optionxform = str  # otherwise keys are lowercase
-    parser.read(config_file)
-    parsee = {s: dict(parser.items(s)) for s in parser.sections()}
-    # BEGIN fallback if executed from tests
-    MODULE = parsee["gimble"]["task"] if MODULE is None else MODULE
-    VERSION = parsee["gimble"]["version"] if VERSION is None else VERSION
-    # END fallback if executed from tests
-    schema = get_config_schema(MODULE)
-    validator = ConfigCustomNormalizer(schema, module=MODULE, purge_unknown=True)
-    validator.validate(parsee)
-    if not validator.validate(parsee):
-        validator_error_string = get_validator_error_string(validator.errors)
-        sys.exit(
-            "[X] Problems were encountered when parsing INI config file:\n%s"
-            % validator_error_string
-        )
-    config = validator.normalized(parsee)
-    ### THIS SETS GLOBAL SEED
-    np.random.seed(config["gimble"]["random_seed"])
-    config = get_config_pops(config)
-    # config = get_config_kmax(config)
-    config = get_config_model_events(config)
-    config = get_config_model_parameters(config, MODULE)
-    if MODULE == "makegrid_legacy":
-        config = expand_parameters(config)
-    if MODULE == "makegrid_legacy" or MODULE == "simulate":
-        config = get_config_kmax(config)  # HAS TO BE CHECKED!
-    if MODULE == "simulate":
-        config = expand_parameters(config)
-        config = get_config_simulate(config)
-    if MODULE == "optimize":
-        config = get_config_optimize(config)
-    config["CWD"] = CWD
-    if not VERSION == config["gimble"]["version"]:
-        print(
-            "[-] Version conflict:\n\tgimble %s\n\t config INI %s"
-            % (VERSION, config["gimble"]["version"])
-        )
-    return config
-
-
-def config_to_demes_graph(config, idxs=None):
-    '''
-    INIs based on
-    - n gridpoints will create generator that will yield n Demography objects 
-    - fixed values will create generator that will yield 1 Demography object
-    if they were not generators than all book keeping could be done through Demography objects
-    ToDo: remove generator logic
-    '''
-    # using demes: all events are defined  forwards in time!
-    pop_path = "simulate" if config["gimble"]["task"] == "simulate" else "populations"
-    if idxs == None:
-        idxs = range(config["parameters_grid_points"])
-    for idx in idxs:
-        b = demes.Builder(time_units="generations")
-        if "exodus" in config["events"]:
-            b.add_deme(
-                "A_B",
-                epochs=[
-                    dict(
-                        end_time=config["parameters_expanded"]["T"][idx],
-                        start_size=config["parameters_expanded"]["Ne_A_B"][idx],
-                        end_size=config["parameters_expanded"]["Ne_A_B"][idx],
-                    )
-                ],
-            )
-            b.add_deme(
-                "A",
-                ancestors=["A_B"],
-                defaults=dict(
-                    epoch=dict(
-                        start_size=config["parameters_expanded"]["Ne_A"][idx],
-                        end_size=config["parameters_expanded"]["Ne_A"][idx],
-                    )
-                ),
-            )
-            b.add_deme(
-                "B",
-                ancestors=["A_B"],
-                defaults=dict(
-                    epoch=dict(
-                        start_size=config["parameters_expanded"]["Ne_B"][idx],
-                        end_size=config["parameters_expanded"]["Ne_B"][idx],
-                    )
-                ),
-            )
-        else:
-            b.add_deme(
-                "A",
-                defaults=dict(
-                    epoch=dict(
-                        start_size=config["parameters_expanded"]["Ne_A"][idx],
-                        end_size=config["parameters_expanded"]["Ne_A"][idx],
-                    )
-                ),
-            )
-            b.add_deme(
-                "B",
-                defaults=dict(
-                    epoch=dict(
-                        start_size=config["parameters_expanded"]["Ne_B"][idx],
-                        end_size=config["parameters_expanded"]["Ne_B"][idx],
-                    )
-                ),
-            )
-        if "migration" in config["events"]:
-            for mig_event in config["events"]["migration"]:
-                destination, source = mig_event
-                b.add_migration(
-                    source=config[pop_path]["pop_ids"][source],
-                    dest=config[pop_path]["pop_ids"][destination],
-                    rate=config["parameters_expanded"]["me"][idx],
-                )
-        yield b.resolve()
-
-
-def config_to_demes_yaml(config, outputfile, idxs=None):
-    CWD = config["CWD"]
-    outputstring = outputfile + "_{}.yaml"
-    graphs = config_to_demes_graph(config, idxs)
-    for idx, graph in enumerate(graphs):
-        with open(os.path.join(CWD, outputstring.format(str(idx))), "w") as file:
-            demes.dump(graph, file, format="yaml")
-
-
-class ConfigCustomNormalizer(cerberus.Validator):
-    def __init__(self, *args, **kwargs):
-        super(ConfigCustomNormalizer, self).__init__(*args, **kwargs)
-        self.module = kwargs["module"]
-
-    def _normalize_coerce_pop_ids(self, value):
-        pop_ids = [v for v in value.replace(" ", "").replace("|", ",").split(",") if v]
-        return pop_ids if pop_ids else None
-
-    def _normalize_coerce_reference_pop_id(self, value):
-        if value in set(self.document["pop_ids"]):
-            return value
-        self._error(
-            "reference_pop_id",
-            "invalid reference_pop_id: %r. Must be one of the following: %s"
-            % (value, ", ".join(self.document["pop_ids"])),
-        )
-        return None
-
-    def _normalize_coerce_int(self, value):
-        try:
-            return int(float(value))
-        except ValueError:
-            return None
-
-    def _normalize_coerce_sync_pop_ids(self, value):
-        if value:
-            sync_pop_ids = frozenset(self._normalize_coerce_pop_ids(value))
-            if sync_pop_ids:
-                sync_pop_ids_valid_sets = set(
-                    [
-                        frozenset(self._normalize_coerce_pop_ids(",".join(pops)))
-                        for pops in list(
-                            itertools.chain.from_iterable(
-                                itertools.combinations(self.document["pop_ids"], r)
-                                for r in range(len(self.document["pop_ids"]) + 1)
-                            )
-                        )[4:]
-                    ]
-                )
-                if sync_pop_ids in sync_pop_ids_valid_sets:
-                    return sorted(sync_pop_ids)
-                else:
-                    sync_pop_ids_valid_strings = " or ".join(
-                        [",".join(sorted(x)) for x in sync_pop_ids_valid_sets]
-                    )
-                    self._error(
-                        "sync_pop_ids",
-                        "invalid sync_pop_ids: %r. Must be one of the following: %s"
-                        % (str(value), sync_pop_ids_valid_strings),
-                    )
-        return []
-
-    def _normalize_coerce_float_or_list(self, value):
-        values = value.strip("()[]").replace(" ", "").split(",")
-        try:
-            if len(values) == 4 and values[-1] in set(["lin", "log", "LIN", "LOG"]):
-                return [float(values[0]), float(values[1]), int(values[2]), values[3]]
-            elif len(values) == 2:
-                return [float(values[0]), float(values[1])]
-            elif len(values) == 1:
-                return [float(values[0])]
-            else:
-                return None
-        except ValueError:
-            return None
-
-    def _normalize_coerce_float_or_empty(self, value):
-        value = value.replace(" ", "")
-        if value:
-            try:
-                return float(value)
-            except ValueError:
-                return None
-        return value
-
-    def _normalize_coerce_int_or_empty(self, value):
-        value = value.replace(" ", "")
-        if value:
-            try:
-                return int(value)
-            except ValueError:
-                return None
-        return value
-
-    def _normalize_coerce_path(self, value):
-        if not value:
-            return ""
-        _path = pathlib.Path(value).resolve()
-        return str(_path)
-        if not _path.exists():
-            if self.module == "model":
-                self._error(
-                    self.module, "Must be a valid path to a model file. Not %r" % value
-                )
-            elif self.module == "simulate":
-                self._error(
-                    self.module,
-                    "Must be a valid path to the recombination map. Not %r" % value,
-                )
-            else:
-                pass
-
-    def _validate_notNoneInt(self, notNoneNumeric, field, value):
-        """{'type':'boolean'}"""
-        if value == None and notNoneNumeric:
-            self._error(field, "Must be an int value or empty")
-
-    def _validate_notNoneFloat(self, notNoneNumeric, field, value):
-        """{'type':'boolean'}"""
-        if value == None and notNoneNumeric:
-            self._error(field, "Must be a float or empty")
-
-    def _validate_notNone(self, notNone, field, value):
-        """{'type':'boolean'}"""
-        if not value and notNone:
-            self._error(
-                field, "Must be FLOAT, or (MIN, MAX), or (MIN, MAX, STEPS, LIN|LOG)."
-            )
-
-    def _validate_isPath(self, isPath, field, value):
-        """{'type':'boolean'}"""
-        if value is None:
-            return None
-        _path = pathlib.Path(value).resolve()
-        return str(_path)
-        if not _path.exists():
-            if field == "model":
-                self._error(
-                    field, "Must be a valid path to a model file. Not %r" % value
-                )
-            else:
-                self._error(
-                    field,
-                    "Must be a valid path to the recombination map. Not %r" % value,
-                )
-
-
-def get_config_schema(module):
-    # [To Do]
-    # move to parameterObj file
-    schema = {}
-    schema["gimble"] = {
-        "type": "dict",
-        "schema": {
-            "version": {"required": True, "empty": False, "type": "string"},
-            "model": {"required": True, "empty": False, "type": "string"},
-            "task": {"required": True, "empty": False, "type": "string"},
-            "label": {"required": True, "empty": False, "type": "string"},
-            "precision": {
-                "required": True,
-                "empty": False,
-                "type": "integer",
-                "coerce": int,
-            },
-            "random_seed": {
-                "required": True,
-                "empty": False,
-                "type": "integer",
-                "coerce": int,
-            },
-        },
-    }
-    if not module == "simulate":
-        schema["populations"] = {
-            "type": "dict",
-            "schema": {
-                "pop_ids": {
-                    "required": True,
-                    "empty": False,
-                    "type": "list",
-                    "coerce": "pop_ids",
-                },
-                "A": {"required": True, "empty": True, "type": "string"},
-                "B": {"required": True, "empty": True, "type": "string"},
-                "reference_pop_id": {
-                    "required": True,
-                    "empty": False,
-                    "type": "string",
-                    "coerce": "reference_pop_id",
-                },
-                "sync_pop_ids": {
-                    "required": False,
-                    "empty": True,
-                    "type": "list",
-                    "coerce": "sync_pop_ids",
-                },
-            },
-        }
-    else:
-        schema["populations"] = {
-            "type": "dict",
-            "schema": {
-                "pop_ids": {
-                    "required": True,
-                    "empty": False,
-                    "type": "list",
-                    "coerce": "pop_ids",
-                },
-                "sync_pop_ids": {
-                    "required": False,
-                    "empty": True,
-                    "type": "list",
-                    "coerce": "sync_pop_ids",
-                },
-            },
-        }
-    schema["k_max"] = {
-        "type": "dict",
-        "valuesrules": {
-            "required": True,
-            "empty": False,
-            "type": "integer",
-            "min": 1,
-            "coerce": int,
-        },
-    }
-    if module == "makegrid_legacy":
-        schema["mu"] = {
-            "type": "dict",
-            "schema": {
-                "mu": {
-                    "required": True,
-                    "empty": False,
-                    "type": "float",
-                    "coerce": float,
-                },
-                "block_length": {
-                    "required": True,
-                    "empty": False,
-                    "min": 1,
-                    "coerce": int,
-                },
-            },
-        }
-    else:
-        schema["mu"] = {
-            "type": "dict",
-            "schema": {
-                "mu": {
-                    "required": True,
-                    "empty": False,
-                    "type": "float",
-                    "coerce": float,
-                },
-            },
-        }
-    schema["parameters"] = {
-        "type": "dict",
-        "required": True,
-        "empty": False,
-        "valuesrules": {"coerce": "float_or_list", "notNone": True},
-    }
-    if module == "simulate":
-        schema["simulate"] = {
-            "type": "dict",
-            "schema": {
-                "pop_ids": {
-                    "required": True,
-                    "empty": False,
-                    "type": "list",
-                    "coerce": "pop_ids",
-                },
-                "sync_pop_ids": {
-                    "required": False,
-                    "empty": True,
-                    "type": "list",
-                    "coerce": "sync_pop_ids",
-                },
-                "reference_pop_id": {
-                    "required": True,
-                    "empty": False,
-                    "type": "string",
-                    "coerce": "reference_pop_id",
-                },
-                "ploidy": {"required": True, "empty": False, "min": 1, "coerce": int},
-                "blocks": {
-                    "required": True,
-                    "empty": False,
-                    "type": "integer",
-                    "min": 1,
-                    "coerce": "int",
-                },
-                "block_length": {
-                    "required": True,
-                    "empty": False,
-                    "min": 1,
-                    "type": "integer",
-                    "coerce": int,
-                },
-                "windows": {
-                    "required": True,
-                    "empty": True,
-                    "min": 1,
-                    "coerce": "int_or_empty",
-                },
-                "replicates": {
-                    "required": True,
-                    "empty": False,
-                    "type": "integer",
-                    "min": 1,
-                    "coerce": int,
-                },
-                "sample_size_A": {
-                    "required": True,
-                    "empty": False,
-                    "type": "integer",
-                    "min": 1,
-                    "coerce": int,
-                },
-                "sample_size_B": {
-                    "required": True,
-                    "empty": False,
-                    "type": "integer",
-                    "min": 1,
-                    "coerce": int,
-                },
-                "discrete_genome": {"empty": True, "type": "boolean", "coerce": bool},
-                "recombination_rate": {
-                    "empty": True,
-                    "notNoneFloat": True,
-                    "coerce": "float_or_empty",
-                    "min": 0.0,
-                },
-                "recombination_map": {
-                    "empty": True,
-                    "type": "string",
-                    "coerce": "path",
-                    "dependencies": ["number_bins", "cutoff", "scale"],
-                },
-                "number_bins": {
-                    "empty": True,
-                    "notNoneInt": True,
-                    "coerce": "int_or_empty",
-                    "min": 1,
-                },
-                "cutoff": {
-                    "empty": True,
-                    "notNoneFloat": True,
-                    "coerce": "float_or_empty",
-                    "min": 0.0,
-                },
-                "scale": {"empty": True, "type": "string", "allowed": ["lin", "log"]},
-            },
-        }
-        schema["gridbased"] = {
-            "type": "dict",
-            "schema": {
-                "grid_label": {"required": False, "empty": True, "type": "string"},
-                "fixed_parameter": {"required": False, "empty": True, "type": "string"},
-            },
-        }
-        schema["parameters"] = {
-            "type": "dict",
-            "required": False,
-            "empty": True,
-            "valuesrules": {"coerce": "float_or_list"},
-        }
-    return schema
-
-
 def _dict_product(parameter_dict):
     cartesian_product = itertools.product(*parameter_dict.values())
     rearranged_product = list(zip(*cartesian_product))
@@ -1565,7 +448,6 @@ def format_time(seconds):
     hours, remainder = divmod(seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
     return "{:0>2}h:{:0>2}m:{:06.3f}s".format(int(hours), int(minutes), seconds)
-
 
 def format_bytes(size, precision=1):
     power = 2**10
@@ -1760,39 +642,6 @@ def get_popgen_metrics(array, sites=0):
         (d_xy - mean_pi), (d_xy + mean_pi), out=f_st, where=((d_xy + mean_pi) > 0)
     )
     return np.vstack([heterozygosity_A, heterozygosity_B, d_xy, f_st])
-
-
-# def pop_metrics_from_bsfs(bsfs, block_length=None, window_size=None):
-#     warnings.warn(
-#         "lib.gimble.pop_metrics_from_bsfs() is deprecated. ...", DeprecationWarning
-#     )
-#     """only works for mutypes=4"""
-#     if not bsfs.ndim == 2:
-#         bsfs = bsfs_to_2d(bsfs)
-#     mutype_array = np.vstack(
-#         [
-#             np.bincount(bsfs[:, 0], weights=bsfs[:, 1] * bsfs[:, (2 + m_idx)])
-#             for m_idx in range(4)
-#         ]
-#     ).T
-#     heterozygosity_A = (mutype_array[:, 1] + mutype_array[:, 2]) / (
-#         block_length * window_size
-#     )
-#     heterozygosity_B = (mutype_array[:, 0] + mutype_array[:, 2]) / (
-#         block_length * window_size
-#     )
-#     d_xy = (
-#         (mutype_array[:, 1] + mutype_array[:, 0] + mutype_array[:, 2]) / 2.0
-#         + mutype_array[:, 3]
-#     ) / (block_length * window_size)
-#     mean_pi = (heterozygosity_A + heterozygosity_B) / 2.0
-#     f_st = np.full(mutype_array.shape[0], np.nan)
-#     np.true_divide(
-#         (d_xy - mean_pi), (d_xy + mean_pi), out=f_st, where=(d_xy + mean_pi) > 0
-#     )
-#     pop_metrics = np.vstack([heterozygosity_A, heterozygosity_B, d_xy, f_st])
-#     return pop_metrics
-
 
 def check_unique_pos(pos_array):
     unique_pos, counts_pos = np.unique(pos_array, return_counts=True)
@@ -2130,12 +979,6 @@ def blocks_to_arrays(blocks, gts, pos):
         variation = np.zeros((blocks.shape[0], 4), dtype=np.int64)
     return (starts, ends, multiallelic, missing, monomorphic, variation)
 
-
-def sum_wbsfs(bsfs_windows):
-    assert bsfs_windows.ndim == 5, "only works for bsfs_windows.ndim = 5"
-    return bsfs_windows.sum(axis=0)
-
-
 def tally_to_bsfs(tally, max_k, data="blocks"):
     if data == "blocks":
         counts = tally[:, 0]
@@ -2223,7 +1066,6 @@ def tally_variation(variation, form="bsfs", max_k=None):
         )
     return out
 
-
 def calculate_marginality_of_variation(data, max_k=None):
     """to be run on variation arrays of ndim = 2 or 3"""
     assert data.shape[-1] == 4 and (
@@ -2234,308 +1076,11 @@ def calculate_marginality_of_variation(data, max_k=None):
     is_above_max_k = np.any((data - max_k) > 0, axis=-1)
     return np.sum(is_above_max_k) / is_above_max_k.flatten().shape[0]
 
-
 def ordered_intersect(a=[], b=[], order="a"):
-    # [GIMBLE] unless used somewhere else
     A, B = a, b
     if order == "b":
         B, A = a, b
     return [_a for _a in A if _a in set(B)]
-
-
-def get_hash_from_dict(d):
-    # probably not needed
-    """returns md5sum hash of str(dict)"""
-    if isinstance(d, dict):
-        return hashlib.md5(str(d).encode()).hexdigest()
-    raise ValueError("must be a dict")
-
-
-def grid_meta_dict_to_value_arrays_by_parameter(grid_meta_dict):
-    # [INPUTLIB]
-    # see function lib.gimble.LOD_to_DOL() -> should be redundant
-    _values_by_parameter = collections.defaultdict(list)
-    for grid_idx, grid_dict in grid_meta_dict.items():
-        for key, value in grid_dict.items():
-            _values_by_parameter[key].append(value)
-    values_by_parameter = {}
-    for key, values in _values_by_parameter.items():
-        values_by_parameter[key] = np.array(values)
-    return values_by_parameter
-
-
-def _optimize_to_csv(results, label, parameterObj, data_type="simulate"):
-    if data_type == "simulate":
-        df = pd.DataFrame(results[1:])
-        df.columns = results[0]
-        df = df.sort_values(by="iterLabel")
-        df.set_index("iterLabel", inplace=True)
-        _optimize_describe_df(df, label)
-    else:
-        headers = results.pop(0)
-        df = pd.DataFrame(results, columns=headers)
-        if parameterObj.trackHistory:
-            df["step_id"] = df["step_id"].astype(int)
-    df_with_scaling = _optimize_scale_output(parameterObj, df)
-    df_with_scaling.to_csv(f"{label}_optimize_result.csv")
-
-
-def _optimize_scale_output(parameterObj, df):
-    parameter_dict = df.to_dict(orient="list")
-    reference_pop_id = parameterObj.config["populations"]["reference_pop_id"]
-    block_length = parameterObj.config["mu"]["blocklength"]
-    mu = parameterObj.config["mu"]["mu"]
-    scaled_result = lib.math.scale_parameters(
-        parameter_dict, reference_pop_id, block_length, mu
-    )
-    scaled_df = pd.DataFrame(scaled_result).astype(float)
-    return pd.concat([df, scaled_df], axis=1)
-
-
-def _optimize_describe_df(df, label):
-    summary = df.drop(labels=["lnCL", "exitcode"], axis=1).describe(
-        percentiles=[0.025, 0.975]
-    )
-    summary.to_csv(f"{label}_summary.csv")
-
-class ParameterObj(object):
-    """Superclass ParameterObj"""
-
-    def __init__(self, params):
-        self._PATH = params["path"]
-        self._VERSION = params["version"]
-        self._MODULE = params["module"]
-        self._CWD = params["cwd"]
-        self.config = None
-
-    def __repr__(self):
-        return "[+] VER := %s\n[+] CWD := %s\n[+] CMD := %s\n" % (
-            self._VERSION,
-            self._CWD,
-            self._get_cmd(),
-        )
-
-    def _dict_product(self, parameter_dict):
-        cartesian_product = itertools.product(*parameter_dict.values())
-        rearranged_product = list(zip(*cartesian_product))
-        return {
-            k: np.array(v, dtype=np.float64)
-            for k, v in zip(parameter_dict.keys(), rearranged_product)
-        }
-
-    def _dict_zip(self, pdict):
-        """DRL: if this is only used once, no need for being separate function"""
-        return [dict(zip(pdict, x)) for x in zip(*pdict.values())]
-
-    def _get_int(self, string, ret_none=False):
-        try:
-            return int(string)
-        except TypeError:
-            if not ret_none:
-                sys.exit("[X] %r can't be converted to integer." % string)
-            return None
-        except ValueError:
-            if not ret_none:
-                sys.exit("[X] %r can't be converted to integer." % string)
-            return None
-
-    def _get_float(self, string, ret_none=False):
-        try:
-            return float(string)
-        except TypeError:
-            if not ret_none:
-                sys.exit("[X] %r can't be converted to float." % string)
-            return None
-
-    def _get_cmd(self):
-        return "%s/gimble %s %s" % (
-            self._PATH,
-            self._MODULE,
-            "".join(
-                [
-                    "--%s " % " ".join((k, str(v)))
-                    for k, v in self.__dict__.items()
-                    if not k.startswith("_")
-                ]
-            ),
-        )
-
-    def _get_fixed_params(self, subgroup=None, as_dict=False):
-        if not as_dict:
-            fixed_params = [
-                param
-                for param, value in self.config["parameters"].items()
-                if isinstance(value, float) or isinstance(value, int)
-            ]
-            if subgroup:
-                fixed_params = [
-                    param for param in fixed_params if param.startswith(subgroup)
-                ]
-            return fixed_params
-        else:
-            fixedParams = {
-                k: next(iter(v))
-                for k, v in self.parameter_combinations.items()
-                if len(set(v)) == 1
-            }
-            fixedParams["mu"] = self.config["mu"]["mu"]
-            if subgroup:
-                fixedParams = {
-                    k: v for k, v in fixedParams.items() if k.startswith(subgroup)
-                }
-            return fixedParams
-
-    def _check_kmax(self, arg):
-        l = arg.split(",")
-        if len(l) == 4:
-            try:
-                return np.array([int(_) for _ in l])
-            except ValueError:
-                pass
-        sys.exit("[X] --kmax must be list of four digits, not: %s" % kmax)
-
-    def _get_max_k(self, kmax_string):
-        # mutypes = ['m_1', 'm_2', 'm_3', 'm_4']
-        error = "[X] Invalid k-max string (must be a list of 4 integers)"
-        if kmax_string == None:
-            return None
-        try:
-            kmax = np.array(ast.literal_eval(kmax_string))
-            return kmax if kmax.shape == (4,) else sys.exit(error)
-        except ValueError:
-            sys.exit(error)
-
-    def _check_model(self, model, ret_none=False):
-        parameters = {'Ne_A': self.Ne_A, 'Ne_B': self.Ne_B, 'Ne_A_B': self.Ne_A_B, 'me': self.me, 'T': self.T}
-        if not model in MODELS:
-            if model is None and ret_none:
-                return model
-            sys.exit("[X] Model %r not supported. Supported models are: %s" % (model, ", ".join(MODELS)))
-        PARAMETERS = PARAMETERS_OF_MODEL[model]
-        missing_parameters = [parameter for parameter in PARAMETERS if parameters[parameter] is None]
-        extra_parameters = [k for k, v in parameters.items() if v is not None and k not in set(PARAMETERS)]
-        if missing_parameters:
-            print('[X] Model %r requires values for the following parameter(s): %s' % (model, ", ".join(missing_parameters)))
-        if extra_parameters:
-            print('[X] Model %r does not need the following parameter(s): %s' % (model, ", ".join(extra_parameters)))
-        if model.startswith("MIG"):
-            if parameters['me'] == 0 or parameters['me'][0] == 0:
-                sys.exit('[X] Model %r only supports non-zero migration rates.' % model)
-        if missing_parameters or extra_parameters:
-            sys.exit(1)
-        return model
-
-    def _get_path(self, infile, path=False):
-        if infile is None:
-            return None
-        _path = pathlib.Path(infile).resolve()
-        if not _path.exists():
-            sys.exit("[X] File not found: %r" % str(infile))
-        if path:
-            return _path
-        return str(_path)
-
-    def _get_prefix(self, prefix):
-        if prefix is None:
-            return None
-        path = pathlib.Path(prefix).resolve()
-        new_path = pathlib.Path(prefix + ".z").resolve()
-        if new_path.exists():
-            sys.exit(
-                "[X] zstore already exists. Specify using -z or provide new prefix."
-            )
-        parent_path = pathlib.Path(prefix).resolve().parent
-        if not parent_path.exists():
-            sys.exit("[X] Path does not exist: %r" % str(parent_path))
-        return str(path)
-
-    def _get_pops_to_sync(self, config=None, valid_sync_pops=None):
-        print("_get_pops_to_sync_old")
-        reference, to_be_synced = None, None
-        print("valid_sync_pops", valid_sync_pops)
-        if config:
-            syncing = config["populations"]["sync_pop_sizes"]
-            reference_pop = config["populations"]["reference_pop"]
-        else:
-            syncing = self.config["populations"]["sync_pop_sizes"]
-        print("reference_pop", reference_pop)
-        print("syncing", syncing)
-        if syncing:
-            if len(syncing) > 0:
-                syncing = syncing.split(",")
-                reference = syncing[0]
-                to_be_synced = syncing[1:]
-                if self.config["populations"]["reference_pop"] in to_be_synced:
-                    sys.exit(f"[X] Set reference pop to {reference}.")
-                reference_size = config["parameters"][f"Ne_{reference}"]
-                tBS_sizes = [config["parameters"][f"Ne_{pop}"] for pop in to_be_synced]
-                reference_size = [
-                    s
-                    for s in tBS_sizes
-                    if s != None and s != reference_size and s != ""
-                ]
-                if len(reference_size) > 0:
-                    sys.exit(
-                        f"[X] Syncing pop sizes: set no value or the same value for Ne_{', Ne_'.join(to_be_synced)} as for Ne_{reference}"
-                    )
-                if self._MODULE == "optimize":
-                    fixed_Nes = self._get_fixed_params(subgroup="Ne")
-                    if len(fixed_Nes) > 0:
-                        if not f"Ne_{reference_pop}" in fixed_Nes:
-                            sys.exit(
-                                "[X] No. No. No. It would make much more sense to set a population with a fixed size as reference."
-                            )
-        print("reference", reference)
-        print("to_be_synced", to_be_synced)
-        return (reference, to_be_synced)
-
-    def _get_pops_to_sync_short(self):
-        syncing_to, to_be_synced = None, []
-        syncing = self.config["populations"]["sync_pop_sizes"]
-        if syncing and syncing.strip(" ") != "":
-            syncing_to, *to_be_synced = syncing.split(",")
-        return (syncing_to, to_be_synced)
-
-    def _expand_params(self, remove=None):
-        if len(self.config["parameters"]) > 0:
-            parameter_combinations = collections.defaultdict(list)
-            if remove is not None:
-                for key in remove:
-                    del self.config["parameters"][f"Ne_{key}"]
-            for key, value in self.config["parameters"].items():
-                if isinstance(value, float) or isinstance(value, int):
-                    parameter_combinations[key] = np.array(
-                        [
-                            value,
-                        ],
-                        dtype=np.float64,
-                    )
-                elif key == "recombination":
-                    pass
-                else:
-                    if len(value) == 4:
-                        if self._MODULE == "optimize":
-                            sys.exit(
-                                f"[X] {self._MODULE} requires a single point or boundary for all parameters."
-                            )
-                        minv, maxv, n, scale = value
-                        sim_range = self._expand_params_scale(scale, minv, maxv, n)
-                        parameter_combinations[key] = sim_range
-                    elif len(value) <= 2:
-                        parameter_combinations[key] = np.unique(value)
-                    else:
-                        raise ValueError("Uncaught error in config file configuration.")
-            return parameter_combinations
-        else:
-            raise ValueError("config parameters does not contain any parameters.")
-
-    def _expand_params_scale(self, scale, minv, maxv, n):
-        if scale.startswith("lin"):
-            return np.linspace(minv, maxv, num=n, endpoint=True, dtype=np.float64)
-        elif scale.startswith("log"):
-            return np.logspace(minv, maxv, num=n, endpoint=True, dtype=np.float64)
-        else:
-            sys.exit("scale in config parameters should either be lin or log")
 
 def gridsearch_dask(tally=None, grid=None, num_cores=1, chunksize=500, desc=None):
     """returns 2d array of likelihoods of shape (windows, grid)"""
@@ -2586,14 +1131,8 @@ class Store(object):
     def has_stage(self, stage):
         return stage in self.data.attrs
 
-    def setup_sim(self, parameterObj):
-        print("[#] Preparing store...")
-        self._init_meta(overwrite=True)
-
-    def validate_key(self, key, category=None):
-        meta = self._get_meta(key)
-        if meta:
-            return key
+    def list_keys(self, category=None):
+        category = category if not category in set(['all', None]) else None
         available_keys_by_category = collections.defaultdict(set)
         max_depth_by_key = {
             "blocks": 1,
@@ -2602,11 +1141,11 @@ class Store(object):
             "makegrid": 2,
             "optimize": 3,
             "gridsearch": 3,
-            "simulate": 3,
+            "simulate": 2,
         }
         category_by_module = {
-            "blocks": "measure",
-            "windows": "measure",
+            "blocks": "parse",
+            "windows": "parse",
             "tally": "tally",
             "makegrid": "makegrid",
             "simulate": "simulate",
@@ -2623,20 +1162,24 @@ class Store(object):
         self.data.visit(data_key_finder)
         if available_keys_by_category:
             if category and category in available_keys_by_category:
-                print(
-                    "[X] %s label %r not found in store. Available labels:" % (category, key)
-                )
-                print("\t%s" % "\n\t".join(sorted(available_keys_by_category[category])))
+                print("[#] %s" % category)
+                print("\t- %s" % "\n\t- ".join(sorted(available_keys_by_category[category])))
             else:
-                print(
-                    "[X] Label %r not found in store. Available labels:" % key
-                )
                 for category, available_keys in available_keys_by_category.items():
-                    print("# %s" % category)
-                    print("- %s" % "\n- ".join(sorted(available_keys)))
+                    if category == "tally":
+                        available_keys = [key for key in available_keys if key not in set(['tally/blocks_raw', 'tally/windows_raw'])]
+                    print("[#] %s" % category)
+                    print("\t- %s" % "\n\t- ".join(sorted(available_keys)))
         else:
-            print("[X] ZARR store %s seems to be empty." % self.path)
+            print("[X] Gimble store %r seems to be empty." % self.path)
         sys.exit(1)
+
+    def validate_key(self, key, category=None):
+        meta = self._get_meta(key)
+        if meta:
+            return key
+        print("[X] Label %r not found in store. Available labels:" % key)
+        self.list_keys(key)
 
     def measure(self, genome_f=None, sample_f=None, bed_f=None, vcf_f=None):
         # measure_key = self._get_key(task='measure')
@@ -2836,7 +1379,7 @@ class Store(object):
 
     def _read_intervals(self, measure_key, bed_f):
         meta = self._get_meta(measure_key)
-        target_sequences, target_samples = set(meta["seq_names"]), set(meta["samples"])
+        target_sequences, target_samples = set(meta["seq_names"]), list(meta["samples"])
         intervals_df = parse_intervals(bed_f, target_sequences, target_samples)
         valid_sequences = intervals_df["sequence"].unique()
         intervals_idx_by_sample = {
@@ -2960,7 +1503,17 @@ class Store(object):
         config = self._make_blocks(config)
         if config["count_total"] == 0:
             sys.exit("[X] No blocks could be generated from data given the parameters.")
-        meta = config_to_meta(config, "blocks")
+        meta = {
+            "length": config["block_length"],
+            "span": config["block_span"],
+            "max_missing": config["block_max_missing"],
+            "max_multiallelic": config["block_max_multiallelic"],
+            "count_by_sample_set_idx": dict(config["blocks_by_sample_set_idx"]),  # keys are strings
+            "count_by_sequence": dict(config["blocks_by_sequence"]),  # keys are strings
+            "count_raw_by_sample_set_idx": dict(config["blocks_raw_by_sample_set_idx"]),  # keys are strings
+            "count_total": config["count_total"],
+            "count_total_raw": config["count_total_raw"],
+        }
         self._set_meta(config["blocks_key"], meta=meta)
         # after making blocks, make tally 'raw' without kmax. This is needed for heterozygosity, d_xy, F_sts metrics, etc
         meta["blocks_raw_tally_key"] = self.tally(
@@ -2972,7 +1525,13 @@ class Store(object):
     def windows(self, window_size=500, window_step=100, overwrite=False):
         config = self._preflight_windows(window_size, window_step, overwrite)
         config = self._make_windows(config)
-        meta = config_to_meta(config, "windows")
+        meta = {
+            "window_size": config["window_size"],
+            "window_step": config["window_step"],
+            "sample_sets": config["sample_sets"],
+            "windows_key": config["windows_key"],
+            "window_count": config["window_count"],
+        }
         self._set_meta(config["windows_key"], meta=meta)
         meta["windows_raw_tally_key"] = self.tally(
             "windows",
@@ -2983,137 +1542,10 @@ class Store(object):
             None,
             overwrite=True,
             verbose=False,
-            #tally_form='tally'
+            tally_form='tally'
         )
         # meta['windowsum_raw_tally_key'] = self.tally('windows', 'windowsum_raw', None, 'X', None, None, overwrite=True, verbose=False)
         self._set_meta(config["windows_key"], meta=meta)
-
-    def _preflight_simulate_legacy(self, config, threads, overwrite):
-        '''
-        --simulate_key
-        [--recombination_map [--bins --cutoff]] | --windows [--recombination_rate]
-        [--gridsearch [--fixed]]
-        --model --Ne_A --Ne_B [--Ne_A_B --T] [--me] [--mu] --seed
-        --max_k --ploidy --blocks --block_length [--replicates] --samples_A --samples_B --discrete_genome
-        NOT SURE
-            - reference_pop_id
-        
-        '''
-        config['num_cores'] = threads
-        config["simulate_key"] = "simulate/%s" % config["gimble"]["label"]
-        if self._has_key(config["simulate_key"]):
-            if not overwrite: 
-                sys.exit(
-                    "[X] Simulated results with label %r already exist. Use '-f' to overwrite or change analysis label in the INI file."
-                    % (config["simulate_key"])
-                )
-            self._del_data_and_meta(config["simulate_key"])
-        def get_demographies_from_gridsearch(gridsearch_label, gridsearch_constraint={}):
-            print("constraint: %s" % gridsearch_constraint)
-            meta_gridsearch = self._get_meta(gridsearch_label)
-            meta_makegrid = self._get_meta(meta_gridsearch["makegrid_key"])
-            model = meta_makegrid['model']
-            modelObjs = []
-            parameter_names = list(meta_gridsearch["grid_dict"].keys())
-            parameter_array = np.array([np.array(v, dtype=np.float64) for k, v in meta_gridsearch["grid_dict"].items()]).T
-            for gridsearch_key in meta_gridsearch["gridsearch_keys"]: # this loop is because data tried to emulate sims (which was stupid) 
-                lncls = np.array(self._get_data(gridsearch_key))  # (w, gridpoints)
-                #print("lncls.shape", lncls.shape)
-                if gridsearch_constraint: 
-                    fixed_param_index = self._get_fixed_param_index(gridsearch_constraint, parameter_names, parameter_array, meta_makegrid) 
-                    lncls_fixed = lncls[:,fixed_param_index]
-                    lncls_fixed_max_idx = np.argmax(lncls_fixed, axis=1)
-                    lncls_max = lncls_fixed[np.arange(lncls_fixed.shape[0]), lncls_fixed_max_idx]
-                    lncls_max_parameters = parameter_array[fixed_param_index][lncls_fixed_max_idx]
-                else:
-                    lncls_max_idx = np.argmax(lncls, axis=1)
-                    lncls_max = lncls[np.arange(lncls.shape[0]), lncls_max_idx]
-                    lncls_max_parameters = parameter_array[lncls_max_idx]
-                for idx in tqdm(range(lncls_max_parameters.shape[0])):
-                    model_dict = {parameter_name: parameter_value for parameter_name, parameter_value in zip(parameter_names, lncls_max_parameters[idx,:])}
-                    modelObj = GimbleDemographyInstance(model=meta_makegrid['model'], **model_dict) # model comes from makegrid
-                    modelObjs.append(modelObj)
-            if len(modelObjs) == 0:
-                sys.exit("[X] get_demographies_from_gridsearch() was unsuccessful...")
-            return modelObjs
-        def get_demographies_from_config(config):
-            '''returns list of N modelObjs, where N = number of windows '''
-            demographies = [GimbleDemographyInstance(model=config['gimble']['model'], **config['parameters_LOD'][0])] * config['simulate']['windows']  
-            #print([demography.get_parameter_dict(nones=True) for demography in demographies])
-            return demographies
-
-        def get_demographies(config):
-            gridsearch_label = config["gridbased"]["grid_label"]
-            print(config["gridbased"])
-            if gridsearch_label:
-                constraint = config["gridbased"].get("fixed_parameter", {})
-                gridsearch_constraint = {constraint.split("=")[0]: float(constraint.split("=")[1])} if constraint else {}
-                gridsearch_label = self.validate_key(gridsearch_label, 'gridsearch')
-                return get_demographies_from_gridsearch(gridsearch_label, gridsearch_constraint)
-            return get_demographies_from_config(config)
-        
-        config['simulate']['demographies'] = get_demographies(config)
-        #print("demographies", len(config['simulate']['demographies']))
-        #print("windows", config['simulate']['windows'])
-        config['simulate']['windows'] = len(config['simulate']['demographies']) if len(config['simulate']['demographies']) > 1 else config['simulate']['windows']
-        #if not config['simulate']['windows'] == len(config['simulate']['demographies']):
-        #    print("[-] Warning: Number of Windows in recombination map (%s) and demographies (%s) don't match. Results will be truncated." % (
-        #        config['simulate']['windows'], len(config['simulate']['demographies'])))
-        #    config['simulate']['demographies'] = config['simulate']['demographies'][0:config['simulate']['windows']]
-                ### recombination
-        if config['simulate']['recombination_map']:
-            # recombination map, number of rows determines number of "Windows" later on ...
-            path = config['simulate']['recombination_map']
-            bins = config["simulate"]["number_bins"]
-            cutoff = config["simulate"]["cutoff"]
-            scale = config["simulate"]["scale"] # should be removed
-            def parse_recombination_bed(path):
-                # format is "chr", "start", "end", "rec" (rec in cM/Mb !!!)
-                recombination_df = pd.read_csv(path, sep="\t", names=["chr", "start", "end", "rec"], header=None)
-                # from cM/Mb to rec/bp (simulator needs rec/b) 
-                recombination_df["rec_scaled"] = recombination_df["rec"] * RECOMBINATION_SCALER
-                return recombination_df
-            def bin_recombination_df(recombination_df, cutoff=90, bins=10, scale='lin'):        
-                recombination_df["rec_binned"] = recombination_df["rec_scaled"].clip(
-                    lower=None, upper=np.percentile(recombination_df["rec_scaled"], cutoff))
-                # binning should be performed without rec_scaled=0, therefore it gets set to np.nan
-                recombination_df["rec_binned"].replace(0, np.nan, inplace=True)
-                bin_edges = np.linspace(
-                    recombination_df["rec_binned"].min(), 
-                    recombination_df["rec_binned"].max(), 
-                    num=bins + 1)
-                labels = [
-                    (bstop + bstart) / 2 for bstart, bstop in zip(bin_edges[:-1], bin_edges[1:])
-                ]
-                recombination_df["rec_binned"] = pd.cut(
-                    recombination_df["rec_binned"], bins, labels=labels
-                    ).astype(float)
-                recombination_df["rec_binned"].replace(np.nan, 0.0, inplace=True)
-                return recombination_df
-            recombination_df = parse_recombination_bed(path)
-            if cutoff and bins and scale:
-                recombination_df = bin_recombination_df(recombination_df, cutoff, bins, scale)
-                recombination_rates = recombination_df['rec_binned']
-            else:
-                recombination_rates = recombination_df['rec_scaled']
-            config['simulate']['recombination_rate'] = tuple(recombination_rates)
-            # windows get overwritten by recombination regions
-            config['simulate']['windows'] = len(config['simulate']['recombination_rate']) 
-        elif config['simulate']['recombination_rate']:
-            # if recombination_rate (instead of recombination_map), then windows define how many
-            config['simulate']['recombination_rate'] = [config['simulate']['recombination_rate'] * RECOMBINATION_SCALER] * config['simulate']['windows']
-        else:
-            # no recombination value: recombination rate is 0
-            config['simulate']['recombination_rate'] = [0] * config['simulate']['windows']
-        print("recombination_rates", len(config['simulate']['recombination_rate']))
-        print("[+] Simulating %s replicates of %s window(s) of %s blocks" % 
-            (config['simulate']['replicates'],
-            config['simulate']['windows'],
-            config['simulate']['blocks'] 
-            ))
-        config['simulate']['ancestry_seeds_by_replicate'] = {replicate_idx: np.random.randint(1, 2**32, config['simulate']['windows']) for replicate_idx in range(config['simulate']['replicates'])}
-        config['simulate']['mutation_seeds_by_replicate'] = {replicate_idx: np.random.randint(1, 2**32, config['simulate']['windows']) for replicate_idx in range(config['simulate']['replicates'])}
-        return config
 
     def _preflight_simulate(self, kwargs):
         kwargs["simulate_key"] = "simulate/%s" % kwargs["simulate_label"]
@@ -3162,35 +1594,6 @@ class Store(object):
         kwargs['ancestry_seeds_by_replicate'] = {replicate_idx: np.random.randint(1, 2**32, kwargs['windows']) for replicate_idx in range(kwargs['replicates'])}
         kwargs['mutation_seeds_by_replicate'] = {replicate_idx: np.random.randint(1, 2**32, kwargs['windows']) for replicate_idx in range(kwargs['replicates'])}
         return kwargs
-
-    def simulate_legacy(self, config, threads, overwrite):
-        config = self._preflight_simulate_legacy(config, threads, overwrite)
-        simulate_jobs_by_replicate_idx = lib.simulate.get_sim_args_by_replicate_idx_legacy(config)
-        # create empty arrays in zarr store
-        print("[+] Running simulations...")
-        with tqdm(total=(config['simulate']['windows'] * config['simulate']['replicates']), desc="[%] Simulating", ncols=100) as pbar:
-            for replicate_idx in range(config['simulate']['replicates']):
-                replicate_key = "%s/%s" % (config['simulate_key'], replicate_idx)
-                replicate_shape = tuple([config['simulate']['windows']] + list(config['max_k'] + 2))
-                #self.data.create_dataset(key, data=zarr.zeros(pileup_shape, chunks=(chunk_size, len(fields)), dtype='i8'), overwrite=True)
-                self.data.create_dataset(replicate_key, data=zarr.zeros(replicate_shape), dtype='i8', overwrite=True)
-                if config['num_cores'] <= 1:
-                    for simulate_job in simulate_jobs_by_replicate_idx[replicate_idx]:
-                        simulate_window = lib.simulate.simulate_call(simulate_job)
-                        self.data[replicate_key][simulate_window['window_idx']] = simulate_window['bsfs']
-                        pbar.update(1)
-                else:
-                    with poolcontext(processes=config['num_cores']) as pool:
-                        for simulate_window in pool.imap_unordered(lib.simulate.simulate_call, simulate_jobs_by_replicate_idx[replicate_idx]):
-                            self.data[replicate_key][simulate_window['window_idx']] = simulate_window['bsfs']
-                            pbar.update(1)
-                config['idx'] = replicate_idx
-                simulate_instance_meta = config_to_meta(config, "simulate_instance")
-                replicate_key = "%s/%s" % (config['simulate_key'], replicate_idx)
-                self.data[replicate_key].attrs.put(simulate_instance_meta)
-        simulate_meta = config_to_meta(config, "simulate")
-        self._set_meta(config["simulate_key"], simulate_meta)
-        print("[+] Simulation saved under %r" % config['simulate_key'])
 
     def get_demographies_from_gridsearch(self, gridsearch_label, gridsearch_constraint={}):
         print("[+] Gridsearch constraint: %s" % (",".join(
@@ -3244,7 +1647,6 @@ class Store(object):
                             self.data[replicate_key][simulate_window['window_idx']] = simulate_window['bsfs']
                             pbar.update(1)
                 kwargs['idx'] = replicate_idx
-                simulate_instance_meta = config_to_meta(kwargs, "simulate_replicate")
                 replicate_key = "%s/%s" % (kwargs['simulate_key'], replicate_idx)
                 replicate_meta = {
                     "idx": kwargs['idx'],
@@ -3284,75 +1686,8 @@ class Store(object):
         self.data[kwargs['simulate_key']].attrs.put(simulate_meta)
         print("[+] Tally of simulation can be accessed with %r" % kwargs['simulate_key'])
 
-    def _save_simulate_meta(self, config):
-        simulate_meta = config_to_meta(config, "simulate")
-        self._set_meta(config["simulate_key"], simulate_meta)
-
-    def _save_simulate_instance(self, config, tally, idx):
-        config['idx'] = idx
-        simulate_instance_key = "%s/%s" % (config['simulate_key'], idx)
-        simulate_instance_meta = config_to_meta(config, "simulate_instance")
-        self._set_meta_and_data(simulate_instance_key, simulate_instance_meta, tally)
-        # print("=>", dict(self._get_meta(simulate_instance_key)))
-        # print("=>", self.data[config['windowsum_key']])
-
     def _preflight_query(self, version, data_key, extended, fixed_param, sliced_param, diss):
-        if diss:
-            config = {
-                "data_key": 'tally/blocks_raw', 
-                "version": version,
-                "data_type": 'diss'
-                }
-            return config
-        if not data_key:
-            """Still needs checking whether keys are found correctly for all modules
-            # blocks √
-            # windows √
-            # tally √
-            # optimize √
-            # makegrid ?
-            # gridsearch ?
-            # simulate ?
-            """
-            available_keys_by_category = collections.defaultdict(set)
-            max_depth_by_key = {
-                "blocks": 1,
-                "windows": 1,
-                "tally": 2,
-                "makegrid": 2,
-                "optimize": 3,
-                "gridsearch": 3,
-                "simulate": 3,
-            }
-            category_by_module = {
-                "blocks": "measure",
-                "windows": "measure",
-                "tally": "tally",
-                "makegrid": "makegrid",
-                "simulate": "simulate",
-                "optimize": "optimize",
-                "gridsearch": "gridsearch",
-            }
-
-            def data_key_finder(path):
-                key_list = str(path).split("/")
-                module = key_list[0]
-                if len(key_list) == max_depth_by_key.get(module, None):
-                    available_keys_by_category[category_by_module[module]].add(
-                        "/".join(key_list[0 : max_depth_by_key.get(key_list[0], 0)])
-                    )
-
-            self.data.visit(data_key_finder)
-            if available_keys_by_category:
-                print(
-                    "[X] Please specify a label (-l) for which data to query. Available labels:"
-                )
-                for category, available_keys in available_keys_by_category.items():
-                    print("# %s" % category)
-                    print("- %s" % "\n- ".join(sorted(available_keys)))
-            else:
-                print("[X] ZARR store %s seems to be empty." % self.path)
-            sys.exit(1)
+        data_key = self.validate_key(data_key)
         config = {"data_key": data_key, "version": version}
         if not self._has_key(data_key):
             sys.exit(
@@ -3401,41 +1736,6 @@ class Store(object):
             self._write_diss_tsv(config)
         else:
             sys.exit("[X] Not implemented.")
-
-    #def _write_makegrid(self, config):
-    #    '''should create folder with TSVs of each gridpoint'''
-    #    def make_grid_2d(grid):
-    #        idxs = np.nonzero(grid>-10) # should capture all values..
-    #        idxs_array = np.array(idxs).T
-    #        rows = idxs_array.shape[0] # number of rows in array (based on gridpoints and kmax)
-    #        first = idxs_array[:,0].reshape(rows, 1) # gridpoint idx
-    #        second = grid[idxs].reshape(rows, 1) # float in grid
-    #        third = idxs_array[:,1:] # mutuple
-    #        return np.concatenate([first, second, third], axis=1)
-    #    meta_makegrid = self._get_meta(config["data_key"])
-    #    print(dict(meta_makegrid))
-    #    parameter_dicts = get_parameter_dicts_from_user_parameters(
-    #        Ne_A=meta_makegrid.get('Ne_A', None), 
-    #        Ne_B=meta_makegrid.get('Ne_B', None),  
-    #        Ne_A_B=meta_makegrid.get('Ne_A_B', None),  
-    #        T=meta_makegrid.get('T', None),  
-    #        me=meta_makegrid.get('me', None),
-    #        )
-    #    #print(self._format_grid(meta_makegrid))
-    #    grid = np.array(self._get_data(meta_makegrid['makegrid_key']))
-    #    grid_2d = make_grid_2d(grid)
-    #    #parameter_names = list(meta_makegrid["grid_dict"].keys())
-    #    #parameter_array = np.array([np.array(v, dtype=np.float64) for k, v in meta_makegrid["grid_dict"].items()]).T
-    #    dtypes = {"grid_idx": "int64","P": "float64","m1": "int64","m2": "int64","m3": "int64","m4": "int64"}
-    #    columns = ["grid_idx", "P", "m1", "m2", "m3", "m4"]
-    #    #for idx in range(parameter_array.shape[0]):
-    #    #    fn = "%s.%s.tsv" % (meta_makegrid['makegrid_label'], ".".join(["%s=%s" % (name, float(value)) for name, value in zip(parameter_names, parameter_array[idx])]))
-    #    #    pd.DataFrame(data=grid_2d[grid_2d[:,0]==idx], columns=columns).astype(dtype=dtypes).to_csv(fn, header=True, index=False, sep="\t")
-    #    #    print("[#] Wrote file %r." % fn)
-    #    for idx, parameter_dict in enumerate(parameter_dicts):
-    #        fn = "%s.%s.tsv" % (meta_makegrid['makegrid_label'], ".".join(["%s=%s" % (name, float(value)) for name, value in parameter_dict.items()]))
-    #        pd.DataFrame(data=grid_2d[grid_2d[:,0]==idx], columns=columns).astype(dtype=dtypes).to_csv(fn, header=True, index=False, sep="\t")
-    #        print("[#] Wrote file %r." % fn)
 
     def _write_makegrid(self, config):
         '''should create folder with TSVs of each gridpoint'''
@@ -3662,52 +1962,6 @@ class Store(object):
         )
         return out_f
 
-    # def dump_lncls(self, parameterObj):
-    #     unique_hash = parameterObj._get_unique_hash()
-    #     grids, grid_meta_dict = self._get_grid(unique_hash)
-    #     lncls_global, lncls_windows = self._get_lncls(unique_hash)
-    #     if isinstance(grid_meta_dict, list):
-    #         values_by_parameter = LOD_to_DOL(grid_meta_dict)
-    #         #values_by_parameter = grid_meta_dict_to_value_arrays_by_parameter(grid_meta_dict)
-    #     else:
-    #         values_by_parameter = grid_meta_dict #once everything works, values_by_parameter should be simply renamed
-    #     sequences, starts, ends, index = self._get_window_bed_columns()
-    #     parameter_names = [name for name in values_by_parameter.keys() if name != 'mu']
-    #     grid_meta_dict.pop('mu', None) #remove mu from grid_meta_dict
-    #     column_headers = ['sequence', 'start', 'end', 'index', 'lnCL'] + parameter_names + ['fixed']
-    #     dtypes = {'start': 'int64', 'end': 'int64', 'index': 'int64', 'lnCL': 'float64'}
-    #     for param in parameter_names:
-    #         dtypes[param] = 'float64'
-    #     MAX_PARAM_LENGTH = max([len(param) for param in parameter_names])
-    #     for parameter in tqdm(parameter_names, total=len(parameter_names), desc="[%] Writing output...", ncols=100, unit_scale=True):
-    #         bed_dfs = []
-    #         out_f = '%s.%s.gridsearch.lnCls.%s_fixed.tsv' % (self.prefix, parameterObj.data_type, parameter)
-    #         fixed = np.full_like(lncls_windows.shape[0], parameter, dtype='<U%s' % MAX_PARAM_LENGTH)
-    #         for grid_meta_idxs in get_slice_grid_meta_idxs(grid_meta_dict=grid_meta_dict, lncls=lncls_windows, fixed_parameter=parameter, parameter_value=None):
-    #             best_likelihoods = lncls_windows[np.arange(lncls_windows.shape[0]), grid_meta_idxs]
-    #             best_params = np.array(list(zip(*grid_meta_dict.values())))[grid_meta_idxs]
-    #             #line above replaces code until best_params =
-    #             #meta_dicts = list(np.vectorize(grid_meta_dict.__getitem__)(grid_meta_idxs.astype(str)))
-    #             #columns = []
-    #             #for param in parameter_names:
-    #             #    column = []
-    #             #    for meta_dict in meta_dicts:
-    #             #        column.append(meta_dict[param])
-    #             #    columns.append(column)
-    #             #best_params = np.vstack(columns).T
-    #             int_bed = np.vstack([starts, ends, index, best_likelihoods, best_params.T]).T
-    #             header = ["# %s" % parameterObj._VERSION]
-    #             header += ["# %s" % "\t".join(column_headers)]
-    #             with open(out_f, 'w') as out_fh:
-    #                 out_fh.write("\n".join(header) + "\n")
-    #             bed_df = pd.DataFrame(data=int_bed, columns=column_headers[1:-1]).astype(dtype=dtypes)
-    #             bed_df['sequence'] = sequences
-    #             bed_df['fixed'] = fixed
-    #             # MUST be mode='a' otherwise header gets wiped ...
-    #             bed_dfs.append(bed_df)
-    #         df = pd.concat(bed_dfs, ignore_index=True, axis=0)
-    #         df.sort_values(['index'], ascending=[True]).to_csv(out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=column_headers)
-
     def _get_window_bed_columns(self):
         meta_seqs = self._get_meta("seqs")
         meta_windows = self._get_meta("windows")
@@ -3736,61 +1990,6 @@ class Store(object):
                 offset += window_count
         index = np.arange(meta_windows["window_count"], dtype=np.int64)
         return (sequences, starts, ends, index)
-
-    # def _get_fixed_param_array(lncls):
-    #     # find indices that address the different levels of fixed_param
-    #     def get_lists_of_indices(fixed_param_array):
-    #         idx_sort = np.argsort(fixed_param_array)
-    #         sorted_fixed_param_array = fixed_param_array[idx_sort]
-    #         vals, idx_start, count = np.unique(
-    #             sorted_fixed_param_array, return_counts=True, return_index=True
-    #         )
-    #         res = np.split(idx_sort, idx_start[1:])
-    #         return dict(zip(vals, res))
-
-    #     indices_by_fixed_param_value = get_lists_of_indices(
-    #         parameter_array[:, fixed_param_idx]
-    #     )
-    #     fixed_param_columns += [
-    #         "%s_%s" % (config["fixed_param"], fixed_param_value)
-    #         for fixed_param_value in indices_by_fixed_param_value.keys()
-    #     ]
-    #     dtypes = {
-    #         field: dtypes_by_field.get(field, "float64")
-    #         for field in fixed_param_columns
-    #     }
-    #     header = ["# %s" % config["version"]]
-    #     header += ["# %s" % "\t".join(["sequence"] + fixed_param_columns)]
-    #     # determine max lncls for these indices
-    #     max_lncls = np.zeros((windows_count, len(indices_by_fixed_param_value.keys())))
-    #     for fixed_param_idx, (fixed_param_value, fixed_param_indices) in enumerate(
-    #         indices_by_fixed_param_value.items()
-    #     ):
-    #         max_lncls[:, fixed_param_idx] = np.max(
-    #             lncls[:, fixed_param_indices], axis=1
-    #         )
-    #     fixed_param_int_array = np.column_stack((starts, ends, index, max_lncls))
-    #     fixed_param_int_df = pd.DataFrame(
-    #         data=fixed_param_int_array, columns=fixed_param_columns
-    #     ).astype(dtype=dtypes)
-    #     fixed_param_int_df["sequence"] = sequences
-    #     fixed_param_out_f = "%s.%s.fixed_param.%s.bed" % (
-    #         self.prefix,
-    #         "_".join(gridsearch_key.split("/")),
-    #         config["fixed_param"],
-    #     )
-    #     with open(fixed_param_out_f, "w") as fixed_param_out_fh:
-    #         fixed_param_out_fh.write("\n".join(header) + "\n")
-    #     fixed_param_int_df.to_csv(
-    #         fixed_param_out_f,
-    #         na_rep="NA",
-    #         mode="a",
-    #         sep="\t",
-    #         index=False,
-    #         header=False,
-    #         columns=["sequence"] + fixed_param_columns,
-    #     )
-    #     print("[+] \tWrote %r ..." % fixed_param_out_f)
 
     def _get_indices_by_sliced_param_value(self, config, parameter_names, parameter_array):
         try:
@@ -4182,878 +2381,6 @@ class Store(object):
                 )
                 print("[+] \tWrote %s ..." % lncls_max_out_f)
         
-        # if meta_tally["data_ndims"] == 4:  # blocks/windowsum
-        #     dtypes_by_field = {}
-        #     for gridsearch_key in meta_gridsearch["gridsearch_keys"]:
-        #         lncls = np.array(self._get_data(gridsearch_key))  # (w, gridpoints)
-        #         print("lncls", lncls.shape, lncls)
-
-        #     gridsearch_result_df = self._get_4d_gridsearch_result()
-        #     header = ["# %s" % config["version"]]
-        #     header += ["# %s" % "\t".join(["sequence"] + columns)]
-        #     for gridsearch_key in meta_gridsearch["gridsearch_keys"]:
-        #         lncls = np.array(self._get_data(gridsearch_key))  # (w, gridpoints)
-
-        # elif meta_tally["data_ndims"] == 5:  # windows/simulations
-        #     dtypes_by_field = {
-        #         "sequence": "category",
-        #         "start": "int64",
-        #         "end": "int64",
-        #         "index": "int64",
-        #         "pos_mean": "float64",
-        #         "pos_median": "float64",
-        #         "balance": "float64",
-        #         "mse_sample_set_cov": "float64",
-        #         "lnCL": "float64",
-        #     }
-        #     # definition of columns
-        #     # definition of column dtypes
-        #     # getting of bed columns
-
-        #     # columns += ['sequence', 'start', 'end', 'index', 'pos_mean', 'pos_median', 'balance', 'mse_sample_set_cov']
-        #     columns += ["start", "end", "index"]
-        #     fixed_param_columns += ["start", "end", "index"]
-        #     (
-        #         sequences,
-        #         starts,
-        #         ends,
-        #         index,
-        #         pos_mean,
-        #         pos_median,
-        #         balance,
-        #         mse_sample_set_cov,
-        #     ) = self._get_window_bed()
-
-        #     for gridsearch_key in meta_gridsearch["gridsearch_keys"]:
-        #         lncls = np.array(self._get_data(gridsearch_key))  # (w, gridpoints)
-        #         print("lncls", lncls.shape, lncls)
-        #         if config["fixed_param"]:
-        #             print("indices_by_sliced_param_value", indices_by_sliced_param_value)
-        #             fixed_param_columns += [
-        #                 "%s_%s" % (config["fixed_param"], fixed_param_value)
-        #                 for fixed_param_value in indices_by_sliced_param_value.keys()
-        #             ]
-        #             print("fixed_param_columns", fixed_param_columns)
-        #             dtypes = {
-        #                 field: dtypes_by_field.get(field, "float64")
-        #                 for field in fixed_param_columns
-        #             }
-        #             header = ["# %s" % config["version"]]
-        #             header += ["# %s" % "\t".join(["sequence"] + fixed_param_columns)]
-        #             # determine max lncls for these indices
-        #             max_lncls = np.zeros(
-        #                 (lncls.shape[0], len(indices_by_sliced_param_value.keys()))
-        #             )
-        #             print("lncls", lncls.shape, lncls)
-        #             for fixed_param_idx, (
-        #                 fixed_param_value,
-        #                 fixed_param_indices,
-        #             ) in enumerate(indices_by_sliced_param_value.items()):
-        #                 # print(fixed_param_idx, (fixed_param_value, fixed_param_indices))
-        #                 max_lncls[:, fixed_param_idx] = np.max(
-        #                     lncls[:, fixed_param_indices], axis=-1
-        #                 )
-
-        #             # print('max_lncls', max_lncls.shape, fullprint(max_lncls[0:10,:]))
-        #             fixed_param_int_array = np.column_stack(
-        #                 (starts, ends, index, max_lncls)
-        #             )
-        #             fixed_param_int_df = pd.DataFrame(
-        #                 data=fixed_param_int_array, columns=fixed_param_columns
-        #             ).astype(dtype=dtypes)
-        #             fixed_param_int_df["sequence"] = sequences
-        #             fixed_param_out_f = "%s.%s.fixed_param.%s.bed" % (
-        #                 self.prefix,
-        #                 "_".join(gridsearch_key.split("/")),
-        #                 config["fixed_param"],
-        #             )
-        #             with open(fixed_param_out_f, "w") as fixed_param_out_fh:
-        #                 fixed_param_out_fh.write("\n".join(header) + "\n")
-        #             fixed_param_int_df.to_csv(
-        #                 fixed_param_out_f,
-        #                 na_rep="NA",
-        #                 mode="a",
-        #                 sep="\t",
-        #                 index=False,
-        #                 header=False,
-        #                 columns=["sequence"] + fixed_param_columns,
-        #             )
-        #             print("[+] \tWrote %r ..." % fixed_param_out_f)
-        #         columns += parameter_names + ["lnCl"]
-        #         dtypes = {
-        #             field: dtypes_by_field.get(field, "float64") for field in columns
-        #         }
-        #         header = ["# %s" % config["version"]]
-        #         header += ["# %s" % "\t".join(["sequence"] + columns)]
-        #         if config["extended"]:
-        #             gridsearch_result_array = np.column_stack(
-        #                 (
-        #                     np.tile(parameter_array, (lncls.shape[0], 1)),
-        #                     lncls.ravel()[:, np.newaxis],
-        #                 )
-        #             )
-        #             extended_int_array = np.column_stack(
-        #                 (
-        #                     np.repeat(
-        #                         np.column_stack((starts, ends, index)),
-        #                         grid_points,
-        #                         axis=0,
-        #                     ),
-        #                     gridsearch_result_array,
-        #                 )
-        #             )
-        #             extended_int_df = pd.DataFrame(
-        #                 data=extended_int_array, columns=columns
-        #             ).astype(dtype=dtypes)
-        #             extended_int_df["sequence"] = np.repeat(
-        #                 sequences, grid_points, axis=0
-        #             )
-        #             out_f = "%s.%s.extended.bed" % (
-        #                 self.prefix,
-        #                 "_".join(gridsearch_key.split("/")),
-        #             )
-        #             with open(out_f, "w") as out_fh:
-        #                 out_fh.write("\n".join(header) + "\n")
-        #             extended_int_df.to_csv(
-        #                 out_f,
-        #                 na_rep="NA",
-        #                 sep="\t",
-        #                 index=False,
-        #                 mode="a",
-        #                 header=False,
-        #                 columns=["sequence"] + columns,
-        #             )
-        #             print("[+] \tWrote %r ..." % out_f)
-        #         lncls = np.array(self._get_data(gridsearch_key))  # (w, gridpoints)
-        #         print("lncls", lncls.shape, lncls[0:10, :])
-        #         lncl_best_idx = np.argmax(lncls, axis=1)
-        #         print("lncl_best_idx", lncl_best_idx.shape, lncl_best_idx)
-        #         # best_lncls = np.take(lncls, lncl_best_idx)
-        #         best_lncls = lncls[np.arange(lncls.shape[0]), lncl_best_idx]
-        #         print("best_lncls", best_lncls.shape, best_lncls[0:10])
-        #         print(
-        #             "parameter_array[lncl_best_idx]",
-        #             parameter_array[lncl_best_idx].shape,
-        #             parameter_array[lncl_best_idx],
-        #         )
-        #         gridsearch_result_array = np.column_stack(
-        #             (parameter_array[lncl_best_idx], best_lncls)
-        #         )
-        #         print(
-        #             "gridsearch_result_array",
-        #             gridsearch_result_array.shape,
-        #             gridsearch_result_array,
-        #         )
-        #         # lncl_best_idx = np.argmax(lncls, axis=1)
-        #         # gridsearch_result_array = np.column_stack((parameter_array[lncl_best_idx], lncls[-1 ,lncl_best_idx, np.newaxis]))
-        #         print("starts", starts.shape, starts)
-        #         print("ends", ends.shape, ends)
-        #         print("index", index.shape, index)
-        #         int_array = np.column_stack(
-        #             (starts, ends, index, gridsearch_result_array)
-        #         )
-        #         int_df = pd.DataFrame(data=int_array, columns=columns).astype(
-        #             dtype=dtypes
-        #         )
-        #         int_df["sequence"] = sequences
-        #         best_out_f = "%s.%s.best.bed" % (
-        #             self.prefix,
-        #             "_".join(gridsearch_key.split("/")),
-        #         )
-        #         with open(best_out_f, "w") as best_out_fh:
-        #             best_out_fh.write("\n".join(header) + "\n")
-        #         # best_idx = int_df.groupby(['index'])['lnCl'].transform(max) == int_df['lnCl']
-        #         # int_df[best_idx].to_csv(best_out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=['sequence'] + columns)
-        #         int_df.to_csv(
-        #             best_out_f,
-        #             na_rep="NA",
-        #             mode="a",
-        #             sep="\t",
-        #             index=False,
-        #             header=False,
-        #             columns=["sequence"] + columns,
-        #         )
-        #         print("[+] \tWrote %r ..." % best_out_f)
-        # else:
-        #     pass
-
-    # def _write_gridsearch_results(self, config):
-    #     """
-    #     # 5d
-    #     gridsearch/windows_kmax2/grid_debug
-    #     # 4d
-    #     gridsearch/blocks.kmax2/grid_debug
-    #     gridsearch/windowsum.kmax2/grid_debug
-    #     """
-    #     meta_gridsearch = self._get_meta(config["data_key"])
-    #     meta_tally = self._get_meta(meta_gridsearch["data_key"])
-    #     data_ndims = meta_tally.get("data_ndims")
-    #     windows_count = meta_tally["windows"]
-
-    #     # parameter array := 2D : (gridpoints, parameters)
-
-    #     parameter_names = list(meta_gridsearch["grid_dict"].keys())
-    #     parameter_array = np.array(
-    #         [
-    #             np.array(v, dtype=np.float64) for k, v in meta_gridsearch["grid_dict"].items()
-    #         ]
-    #     ).T
-    #     grid_points = meta_gridsearch.get("grid_points", parameter_array.shape[0])
-    #     # print('parameter_names', parameter_names)
-    #     # print('parameter_array', parameter_array.shape)
-    #     out_fs = []
-    #     columns = []
-    #     fixed_param_columns = []
-
-    #     # deal with fixed param if it exists
-
-    #     if meta_tally["data_ndims"] == 4:  # blocks/windowsum
-    #         dtypes_by_field = {}
-    #         # for gridsearch_key in meta_gridsearch['gridsearch_keys']:
-    #         print("here... 4d.")
-    #         gridsearch_result_df = self._get_4d_gridsearch_result()
-    #         header = ["# %s" % config["version"]]
-    #         header += ["# %s" % "\t".join(["sequence"] + columns)]
-    #         for gridsearch_key in meta_gridsearch["gridsearch_keys"]:
-    #             lncls = np.array(self._get_data(gridsearch_key))  # (w, gridpoints)
-
-    #     elif meta_tally["data_ndims"] == 5:  # windows/simulations
-    #         dtypes_by_field = {
-    #             "sequence": "category",
-    #             "start": "int64",
-    #             "end": "int64",
-    #             "index": "int64",
-    #             "pos_mean": "float64",
-    #             "pos_median": "float64",
-    #             "balance": "float64",
-    #             "mse_sample_set_cov": "float64",
-    #             "lnCL": "float64",
-    #         }
-    #         # definition of columns
-    #         # definition of column dtypes
-    #         # getting of bed columns
-
-    #         # columns += ['sequence', 'start', 'end', 'index', 'pos_mean', 'pos_median', 'balance', 'mse_sample_set_cov']
-    #         columns += ["start", "end", "index"]
-    #         fixed_param_columns += ["start", "end", "index"]
-    #         (
-    #             sequences,
-    #             starts,
-    #             ends,
-    #             index,
-    #             pos_mean,
-    #             pos_median,
-    #             balance,
-    #             mse_sample_set_cov,
-    #         ) = self._get_window_bed()
-
-    #         for gridsearch_key in meta_gridsearch["gridsearch_keys"]:
-    #             lncls = np.array(self._get_data(gridsearch_key))  # (w, gridpoints)
-    #             #print("lncls", lncls.shape, lncls)
-    #             config["fixed_param"] = config["sliced_param"]
-    #             if config["fixed_param"]:
-    #                 if not config["fixed_param"] in set(parameter_names):
-    #                     sys.exit(
-    #                         "[X] Parameter %r is not part of the grid %r\n\tAvailable parameters are: %s"
-    #                         % (
-    #                             config["fixed_param"],
-    #                             config["data_key"],
-    #                             ", ".join(parameter_names),
-    #                         )
-    #                     )
-    #                 # find index of fixed_param
-    #                 fixed_param_idx = parameter_names.index(config["fixed_param"])
-    #                 #print(
-    #                 #    "fixed_param_idx",
-    #                 #    parameter_names[fixed_param_idx],
-    #                 #    fixed_param_idx,
-    #                 #)
-    #                 # find indices that address the different levels of fixed_param
-    #                 def get_lists_of_indices(fixed_param_array):
-    #                     idx_sort = np.argsort(fixed_param_array)
-    #                     sorted_fixed_param_array = fixed_param_array[idx_sort]
-    #                     vals, idx_start, count = np.unique(
-    #                         sorted_fixed_param_array,
-    #                         return_counts=True,
-    #                         return_index=True,
-    #                     )
-    #                     res = np.split(idx_sort, idx_start[1:])
-    #                     return dict(zip(vals, res))
-
-    #                 indices_by_fixed_param_value = get_lists_of_indices(
-    #                     parameter_array[:, fixed_param_idx]
-    #                 )
-    #                 #print("indices_by_fixed_param_value", indices_by_fixed_param_value)
-    #                 fixed_param_columns += [
-    #                     "%s_%s" % (config["fixed_param"], fixed_param_value)
-    #                     for fixed_param_value in indices_by_fixed_param_value.keys()
-    #                 ]
-    #                 #print("fixed_param_columns", fixed_param_columns)
-    #                 dtypes = {
-    #                     field: dtypes_by_field.get(field, "float64")
-    #                     for field in fixed_param_columns
-    #                 }
-    #                 header = ["# %s" % config["version"]]
-    #                 header += ["# %s" % "\t".join(["sequence"] + fixed_param_columns)]
-    #                 # determine max lncls for these indices
-    #                 max_lncls = np.zeros(
-    #                     (windows_count, len(indices_by_fixed_param_value.keys()))
-    #                 )
-    #                 #print("lncls", lncls.shape, lncls)
-    #                 for fixed_param_idx, (
-    #                     fixed_param_value,
-    #                     fixed_param_indices,
-    #                 ) in enumerate(indices_by_fixed_param_value.items()):
-    #                     # print(fixed_param_idx, (fixed_param_value, fixed_param_indices))
-    #                     #fullprint(lncls[0:10, fixed_param_indices])
-    #                     max_lncls[:, fixed_param_idx] = np.max(
-    #                         lncls[:, fixed_param_indices], axis=-1
-    #                     )
-
-    #                 # print('max_lncls', max_lncls.shape, fullprint(max_lncls[0:10,:]))
-    #                 fixed_param_int_array = np.column_stack(
-    #                     (starts, ends, index, max_lncls)
-    #                 )
-    #                 fixed_param_int_df = pd.DataFrame(
-    #                     data=fixed_param_int_array, columns=fixed_param_columns
-    #                 ).astype(dtype=dtypes)
-    #                 fixed_param_int_df["sequence"] = sequences
-    #                 fixed_param_out_f = "%s.%s.fixed_param.%s.bed" % (
-    #                     self.prefix,
-    #                     "_".join(gridsearch_key.split("/")),
-    #                     config["fixed_param"],
-    #                 )
-    #                 with open(fixed_param_out_f, "w") as fixed_param_out_fh:
-    #                     fixed_param_out_fh.write("\n".join(header) + "\n")
-    #                 fixed_param_int_df.to_csv(
-    #                     fixed_param_out_f,
-    #                     na_rep="NA",
-    #                     mode="a",
-    #                     sep="\t",
-    #                     index=False,
-    #                     header=False,
-    #                     columns=["sequence"] + fixed_param_columns,
-    #                 )
-    #                 print("[+] \tWrote %r ..." % fixed_param_out_f)
-    #             columns += parameter_names + ["lnCl"]
-    #             dtypes = {
-    #                 field: dtypes_by_field.get(field, "float64") for field in columns
-    #             }
-    #             header = ["# %s" % config["version"]]
-    #             header += ["# %s" % "\t".join(["sequence"] + columns)]
-    #             if config["extended"]:
-    #                 gridsearch_result_array = np.column_stack(
-    #                     (
-    #                         np.tile(parameter_array, (windows_count, 1)),
-    #                         lncls.ravel()[:, np.newaxis],
-    #                     )
-    #                 )
-    #                 extended_int_array = np.column_stack(
-    #                     (
-    #                         np.repeat(
-    #                             np.column_stack((starts, ends, index)),
-    #                             grid_points,
-    #                             axis=0,
-    #                         ),
-    #                         gridsearch_result_array,
-    #                     )
-    #                 )
-    #                 extended_int_df = pd.DataFrame(
-    #                     data=extended_int_array, columns=columns
-    #                 ).astype(dtype=dtypes)
-    #                 extended_int_df["sequence"] = np.repeat(
-    #                     sequences, grid_points, axis=0
-    #                 )
-    #                 out_f = "%s.%s.extended.bed" % (
-    #                     self.prefix,
-    #                     "_".join(gridsearch_key.split("/")),
-    #                 )
-    #                 with open(out_f, "w") as out_fh:
-    #                     out_fh.write("\n".join(header) + "\n")
-    #                 extended_int_df.to_csv(
-    #                     out_f,
-    #                     na_rep="NA",
-    #                     sep="\t",
-    #                     index=False,
-    #                     mode="a",
-    #                     header=False,
-    #                     columns=["sequence"] + columns,
-    #                 )
-    #                 print("[+] \tWrote %r ..." % out_f)
-    #             lncls = np.array(self._get_data(gridsearch_key))  # (w, gridpoints)
-    #             #print("lncls", lncls.shape, lncls[0:10, :])
-    #             lncl_best_idx = np.argmax(lncls, axis=1)
-    #             #print("lncl_best_idx", lncl_best_idx.shape, lncl_best_idx)
-    #             # best_lncls = np.take(lncls, lncl_best_idx)
-    #             best_lncls = lncls[np.arange(lncls.shape[0]), lncl_best_idx]
-    #             #print("best_lncls", best_lncls.shape, best_lncls[0:10])
-    #             #print(
-    #             #    "parameter_array[lncl_best_idx]",
-    #             #    parameter_array[lncl_best_idx].shape,
-    #             #    parameter_array[lncl_best_idx],
-    #             #)
-    #             gridsearch_result_array = np.column_stack(
-    #                 (parameter_array[lncl_best_idx], best_lncls)
-    #             )
-    #             #print(
-    #             #    "gridsearch_result_array",
-    #             #    gridsearch_result_array.shape,
-    #             #    gridsearch_result_array,
-    #             #)
-    #             # lncl_best_idx = np.argmax(lncls, axis=1)
-    #             # gridsearch_result_array = np.column_stack((parameter_array[lncl_best_idx], lncls[-1 ,lncl_best_idx, np.newaxis]))
-    #             #print("starts", starts.shape, starts)
-    #             #print("ends", ends.shape, ends)
-    #             #print("index", index.shape, index)
-    #             int_array = np.column_stack(
-    #                 (starts, ends, index, gridsearch_result_array)
-    #             )
-    #             int_df = pd.DataFrame(data=int_array, columns=columns).astype(
-    #                 dtype=dtypes
-    #             )
-    #             int_df["sequence"] = sequences
-    #             best_out_f = "%s.%s.best.bed" % (
-    #                 self.prefix,
-    #                 "_".join(gridsearch_key.split("/")),
-    #             )
-    #             with open(best_out_f, "w") as best_out_fh:
-    #                 best_out_fh.write("\n".join(header) + "\n")
-    #             # best_idx = int_df.groupby(['index'])['lnCl'].transform(max) == int_df['lnCl']
-    #             # int_df[best_idx].to_csv(best_out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=['sequence'] + columns)
-    #             int_df.to_csv(
-    #                 best_out_f,
-    #                 na_rep="NA",
-    #                 mode="a",
-    #                 sep="\t",
-    #                 index=False,
-    #                 header=False,
-    #                 columns=["sequence"] + columns,
-    #             )
-    #             print("[+] \tWrote %r ..." % best_out_f)
-    #     else:
-    #         pass
-
-    #     sys.exit()
-    #     out_fs = []
-    #     dtypes_by_field = {
-    #         "sequence": "category",
-    #         "start": "int64",
-    #         "end": "int64",
-    #         "index": "int64",
-    #         "pos_mean": "float64",
-    #         "pos_median": "float64",
-    #         "balance": "float64",
-    #         "mse_sample_set_cov": "float64",
-    #         "lnCL": "float64",
-    #     }
-    #     grid_points = meta_gridsearch.get("grid_points", parameter_array.shape[0])
-    #     data_ndims = meta_tally.get("data_ndims")
-    #     windows_count = meta_tally["windows"]
-    #     columns = []
-    #     fixed_param_columns = []
-    #     if (
-    #         meta_tally["data_type"] == "windows"
-    #         and meta_tally["data_source"] == "windows"
-    #     ):
-    #         # columns += ['sequence', 'start', 'end', 'index', 'pos_mean', 'pos_median', 'balance', 'mse_sample_set_cov']
-    #         columns += ["start", "end", "index"]
-    #         fixed_param_columns += ["start", "end", "index"]
-    #         (
-    #             sequences,
-    #             starts,
-    #             ends,
-    #             index,
-    #             pos_mean,
-    #             pos_median,
-    #             balance,
-    #             mse_sample_set_cov,
-    #         ) = self._get_window_bed()
-
-    #     for gridsearch_key in meta_gridsearch["gridsearch_keys"]:
-    #         lncls = np.array(self._get_data(gridsearch_key))  # (w, gridpoints)
-    #         print("lncls", lncls.shape, lncls)
-    #         if config["fixed_param"]:
-    #             # find indices that address the different levels of fixed_param
-    #             def get_lists_of_indices(fixed_param_array):
-    #                 idx_sort = np.argsort(fixed_param_array)
-    #                 sorted_fixed_param_array = fixed_param_array[idx_sort]
-    #                 vals, idx_start, count = np.unique(
-    #                     sorted_fixed_param_array, return_counts=True, return_index=True
-    #                 )
-    #                 res = np.split(idx_sort, idx_start[1:])
-    #                 return dict(zip(vals, res))
-
-    #             indices_by_fixed_param_value = get_lists_of_indices(
-    #                 parameter_array[:, fixed_param_idx]
-    #             )
-    #             fixed_param_columns += [
-    #                 "%s_%s" % (config["fixed_param"], fixed_param_value)
-    #                 for fixed_param_value in indices_by_fixed_param_value.keys()
-    #             ]
-    #             dtypes = {
-    #                 field: dtypes_by_field.get(field, "float64")
-    #                 for field in fixed_param_columns
-    #             }
-    #             header = ["# %s" % config["version"]]
-    #             header += ["# %s" % "\t".join(["sequence"] + fixed_param_columns)]
-    #             # determine max lncls for these indices
-    #             max_lncls = np.zeros(
-    #                 (windows_count, len(indices_by_fixed_param_value.keys()))
-    #             )
-    #             for fixed_param_idx, (
-    #                 fixed_param_value,
-    #                 fixed_param_indices,
-    #             ) in enumerate(indices_by_fixed_param_value.items()):
-    #                 max_lncls[:, fixed_param_idx] = np.max(
-    #                     lncls[:, fixed_param_indices], axis=1
-    #                 )
-    #             fixed_param_int_array = np.column_stack(
-    #                 (starts, ends, index, max_lncls)
-    #             )
-    #             fixed_param_int_df = pd.DataFrame(
-    #                 data=fixed_param_int_array, columns=fixed_param_columns
-    #             ).astype(dtype=dtypes)
-    #             fixed_param_int_df["sequence"] = sequences
-    #             fixed_param_out_f = "%s.%s.fixed_param.%s.bed" % (
-    #                 self.prefix,
-    #                 "_".join(gridsearch_key.split("/")),
-    #                 config["fixed_param"],
-    #             )
-    #             with open(fixed_param_out_f, "w") as fixed_param_out_fh:
-    #                 fixed_param_out_fh.write("\n".join(header) + "\n")
-    #             fixed_param_int_df.to_csv(
-    #                 fixed_param_out_f,
-    #                 na_rep="NA",
-    #                 mode="a",
-    #                 sep="\t",
-    #                 index=False,
-    #                 header=False,
-    #                 columns=["sequence"] + fixed_param_columns,
-    #             )
-    #             print("[+] \tWrote %r ..." % fixed_param_out_f)
-    #         columns += parameter_names + ["lnCl"]
-    #         dtypes = {field: dtypes_by_field.get(field, "float64") for field in columns}
-    #         header = ["# %s" % config["version"]]
-    #         header += ["# %s" % "\t".join(["sequence"] + columns)]
-    #         if config["extended"]:
-    #             gridsearch_result_array = np.column_stack(
-    #                 (
-    #                     np.tile(parameter_array, (windows_count, 1)),
-    #                     lncls.ravel()[:, np.newaxis],
-    #                 )
-    #             )
-    #             extended_int_array = np.column_stack(
-    #                 (
-    #                     np.repeat(
-    #                         np.column_stack((starts, ends, index)), grid_points, axis=0
-    #                     ),
-    #                     gridsearch_result_array,
-    #                 )
-    #             )
-    #             extended_int_df = pd.DataFrame(
-    #                 data=extended_int_array, columns=columns
-    #             ).astype(dtype=dtypes)
-    #             extended_int_df["sequence"] = np.repeat(sequences, grid_points, axis=0)
-    #             out_f = "%s.%s.extended.bed" % (
-    #                 self.prefix,
-    #                 "_".join(gridsearch_key.split("/")),
-    #             )
-    #             with open(out_f, "w") as out_fh:
-    #                 out_fh.write("\n".join(header) + "\n")
-    #             extended_int_df.to_csv(
-    #                 out_f,
-    #                 na_rep="NA",
-    #                 sep="\t",
-    #                 index=False,
-    #                 mode="a",
-    #                 header=False,
-    #                 columns=["sequence"] + columns,
-    #             )
-    #             print("[+] \tWrote %r ..." % out_f)
-    #         print("lncls", lncls.shape, lncls)
-    #         lncl_best_idx = np.argmax(lncls, axis=-1)
-    #         print("lncl_best_idx", lncl_best_idx.shape, lncl_best_idx)
-    #         best_lncls = np.take(lncls, lncl_best_idx)
-    #         print("best_lncls", best_lncls.shape, best_lncls)
-    #         # THIS ABOVE WORKS, BUT SHOULD NOT BE INDEXED AGAIN BASED ON PANDAS !!!!!!!!!!!!!!!!!!
-    #         gridsearch_result_array = np.column_stack(
-    #             (parameter_array[lncl_best_idx], best_lncls)
-    #         )
-    #         # gridsearch_result_array = np.column_stack((parameter_array[lncl_best_idx], lncls[: ,lncl_best_idx, np.newaxis]))
-    #         print(gridsearch_result_array)
-    #         int_array = np.column_stack((starts, ends, index, gridsearch_result_array))
-    #         int_df = pd.DataFrame(data=int_array, columns=columns).astype(dtype=dtypes)
-    #         int_df["sequence"] = sequences
-    #         best_out_f = "%s.%s.best.bed" % (
-    #             self.prefix,
-    #             "_".join(gridsearch_key.split("/")),
-    #         )
-    #         with open(best_out_f, "w") as best_out_fh:
-    #             best_out_fh.write("\n".join(header) + "\n")
-    #         best_idx = (
-    #             int_df.groupby(["index"])["lnCl"].transform(max) == int_df["lnCl"]
-    #         )
-    #         int_df[best_idx].to_csv(
-    #             best_out_f,
-    #             na_rep="NA",
-    #             mode="a",
-    #             sep="\t",
-    #             index=False,
-    #             header=False,
-    #             columns=["sequence"] + columns,
-    #         )
-    #         print("[+] \tWrote %r ..." % best_out_f)
-
-            ## np.tile is defined by (window_count, 1))
-            # gridsearch_result_array = np.column_stack((np.tile(parameter_array, (windows_count, 1)), lncls.ravel()[:,np.newaxis]))
-            #
-            # columns += parameter_names + ['lnCl']
-            # dtypes = {field: dtypes_by_field.get(field, 'float64') for field in columns}
-            # header = ["# %s" % config['version']]
-            # header += ["# %s" % "\t".join(['sequence'] + columns)]
-            ## distinction between basic and --extended
-            ## basic: slice best early before adding window data
-            ## for loop over gridpoints
-            # int_array = np.column_stack((np.repeat(np.column_stack((starts, ends, index)), grid_points, axis=0), gridsearch_result_array))
-            # int_df = pd.DataFrame(data=int_array, columns=columns).astype(dtype=dtypes)
-            # int_df['sequence'] = np.repeat(sequences, grid_points, axis=0)
-
-    #
-    # if config['extended']:
-    #    # out_f = '%s.%s.extended.bed.gz' % (self.prefix, "_".join(gridsearch_key.split("/")))
-    #    out_f = '%s.%s.extended.bed' % (self.prefix, "_".join(gridsearch_key.split("/")))
-    #    with open(out_f, 'w') as out_fh:
-    #        out_fh.write("\n".join(header) + "\n")
-    #    # int_df.to_csv(out_f, na_rep='NA', sep='\t', index=False, header=False, columns=['sequence'] + columns, compression='gzip')
-    #    int_df.to_csv(out_f, na_rep='NA', sep='\t', index=False, header=False, columns=['sequence'] + columns)
-    #    print("[+] \tWrote %r ..." % out_f)
-    # best_out_f = '%s.%s.best.bed' % (self.prefix, "_".join(gridsearch_key.split("/")))
-    # with open(best_out_f, 'w') as best_out_fh:
-    #    best_out_fh.write("\n".join(header) + "\n")
-    # best_idx = int_df.groupby(['index'])['lnCl'].transform(max) == int_df['lnCl']
-    # int_df[best_idx].to_csv(best_out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=['sequence'] + columns)
-    # print("[+] \tWrote %r ..." % best_out_f)
-
-    # def _write_gridsearch_results_old(self, config):
-    #     """
-    #     how should it work for sims? probably needs an additional output format
-
-    #     - windows vs blocks
-    #     - extended
-    #     - fixed+param
-    #     """
-    #     meta_gridsearch = self._get_meta(config["data_key"])
-    #     # parameter array := 2D : (gridpoints, parameters)
-    #     parameter_array = np.array(
-    #         [
-    #             np.array(v, dtype=np.float64)
-    #             for k, v in meta_gridsearch["grid_dict"].items()
-    #         ]
-    #     ).T
-    #     meta_tally = self._get_meta(meta_gridsearch["data_key"])
-    #     # parameter_names := order of parameters in array
-    #     parameter_names = list(meta_gridsearch["grid_dict"].keys())
-    #     if config["fixed_param"]:
-    #         if not config["fixed_param"] in set(parameter_names):
-    #             sys.exit(
-    #                 "[X] Parameter %r is not part of the grid %r\n\tAvailable parameters are: %s"
-    #                 % (
-    #                     config["fixed_param"],
-    #                     config["data_key"],
-    #                     ", ".join(parameter_names),
-    #                 )
-    #             )
-    #         # find index of fixed_param
-    #         fixed_param_idx = parameter_names.index(config["fixed_param"])
-    #     out_fs = []
-    #     dtypes_by_field = {
-    #         "sequence": "category",
-    #         "start": "int64",
-    #         "end": "int64",
-    #         "index": "int64",
-    #         "pos_mean": "float64",
-    #         "pos_median": "float64",
-    #         "balance": "float64",
-    #         "mse_sample_set_cov": "float64",
-    #         "lnCL": "float64",
-    #     }
-    #     grid_points = meta_gridsearch.get("grid_points", parameter_array.shape[0])
-    #     data_ndims = meta_tally.get("data_ndims")
-    #     windows_count = meta_tally["windows"]
-    #     columns = []
-    #     fixed_param_columns = []
-    #     if meta_tally["data_type"] == "windows":
-    #         # columns += ['sequence', 'start', 'end', 'index', 'pos_mean', 'pos_median', 'balance', 'mse_sample_set_cov']
-    #         columns += ["start", "end", "index"]
-    #         fixed_param_columns += ["start", "end", "index"]
-    #         (
-    #             sequences,
-    #             starts,
-    #             ends,
-    #             index,
-    #             pos_mean,
-    #             pos_median,
-    #             balance,
-    #             mse_sample_set_cov,
-    #         ) = self._get_window_bed()
-    #     for gridsearch_key in meta_gridsearch["gridsearch_keys"]:
-    #         lncls = np.array(self._get_data(gridsearch_key))  # (w, gridpoints)
-    #         if config["fixed_param"]:
-    #             # find indices that address the different levels of fixed_param
-    #             def get_lists_of_indices(fixed_param_array):
-    #                 idx_sort = np.argsort(fixed_param_array)
-    #                 sorted_fixed_param_array = fixed_param_array[idx_sort]
-    #                 vals, idx_start, count = np.unique(
-    #                     sorted_fixed_param_array, return_counts=True, return_index=True
-    #                 )
-    #                 res = np.split(idx_sort, idx_start[1:])
-    #                 return dict(zip(vals, res))
-
-    #             indices_by_fixed_param_value = get_lists_of_indices(
-    #                 parameter_array[:, fixed_param_idx]
-    #             )
-    #             fixed_param_columns += [
-    #                 "%s_%s" % (config["fixed_param"], fixed_param_value)
-    #                 for fixed_param_value in indices_by_fixed_param_value.keys()
-    #             ]
-    #             dtypes = {
-    #                 field: dtypes_by_field.get(field, "float64")
-    #                 for field in fixed_param_columns
-    #             }
-    #             header = ["# %s" % config["version"]]
-    #             header += ["# %s" % "\t".join(["sequence"] + fixed_param_columns)]
-    #             # determine max lncls for these indices
-    #             max_lncls = np.zeros(
-    #                 (windows_count, len(indices_by_fixed_param_value.keys()))
-    #             )
-    #             for fixed_param_idx, (
-    #                 fixed_param_value,
-    #                 fixed_param_indices,
-    #             ) in enumerate(indices_by_fixed_param_value.items()):
-    #                 max_lncls[:, fixed_param_idx] = np.max(
-    #                     lncls[:, fixed_param_indices], axis=1
-    #                 )
-    #             fixed_param_int_array = np.column_stack(
-    #                 (starts, ends, index, max_lncls)
-    #             )
-    #             fixed_param_int_df = pd.DataFrame(
-    #                 data=fixed_param_int_array, columns=fixed_param_columns
-    #             ).astype(dtype=dtypes)
-    #             fixed_param_int_df["sequence"] = sequences
-    #             fixed_param_out_f = "%s.%s.fixed_param.%s.bed" % (
-    #                 self.prefix,
-    #                 "_".join(gridsearch_key.split("/")),
-    #                 config["fixed_param"],
-    #             )
-    #             with open(fixed_param_out_f, "w") as fixed_param_out_fh:
-    #                 fixed_param_out_fh.write("\n".join(header) + "\n")
-    #             fixed_param_int_df.to_csv(
-    #                 fixed_param_out_f,
-    #                 na_rep="NA",
-    #                 mode="a",
-    #                 sep="\t",
-    #                 index=False,
-    #                 header=False,
-    #                 columns=["sequence"] + fixed_param_columns,
-    #             )
-    #             print("[+] \tWrote %r ..." % fixed_param_out_f)
-    #         columns += parameter_names + ["lnCl"]
-    #         dtypes = {field: dtypes_by_field.get(field, "float64") for field in columns}
-    #         header = ["# %s" % config["version"]]
-    #         header += ["# %s" % "\t".join(["sequence"] + columns)]
-    #         if config["extended"]:
-    #             gridsearch_result_array = np.column_stack(
-    #                 (
-    #                     np.tile(parameter_array, (windows_count, 1)),
-    #                     lncls.ravel()[:, np.newaxis],
-    #                 )
-    #             )
-    #             extended_int_array = np.column_stack(
-    #                 (
-    #                     np.repeat(
-    #                         np.column_stack((starts, ends, index)), grid_points, axis=0
-    #                     ),
-    #                     gridsearch_result_array,
-    #                 )
-    #             )
-    #             extended_int_df = pd.DataFrame(
-    #                 data=extended_int_array, columns=columns
-    #             ).astype(dtype=dtypes)
-    #             extended_int_df["sequence"] = np.repeat(sequences, grid_points, axis=0)
-    #             out_f = "%s.%s.extended.bed" % (
-    #                 self.prefix,
-    #                 "_".join(gridsearch_key.split("/")),
-    #             )
-    #             with open(out_f, "w") as out_fh:
-    #                 out_fh.write("\n".join(header) + "\n")
-    #             extended_int_df.to_csv(
-    #                 out_f,
-    #                 na_rep="NA",
-    #                 sep="\t",
-    #                 index=False,
-    #                 mode="a",
-    #                 header=False,
-    #                 columns=["sequence"] + columns,
-    #             )
-    #             print("[+] \tWrote %r ..." % out_f)
-    #         lncl_best_idx = np.argmax(lncls, axis=1)
-    #         gridsearch_result_array = np.column_stack(
-    #             (parameter_array[lncl_best_idx], lncls[-1, lncl_best_idx, np.newaxis])
-    #         )
-    #         int_array = np.column_stack((starts, ends, index, gridsearch_result_array))
-    #         int_df = pd.DataFrame(data=int_array, columns=columns).astype(dtype=dtypes)
-    #         int_df["sequence"] = sequences
-    #         best_out_f = "%s.%s.best.bed" % (
-    #             self.prefix,
-    #             "_".join(gridsearch_key.split("/")),
-    #         )
-    #         with open(best_out_f, "w") as best_out_fh:
-    #             best_out_fh.write("\n".join(header) + "\n")
-    #         best_idx = (
-    #             int_df.groupby(["index"])["lnCl"].transform(max) == int_df["lnCl"]
-    #         )
-    #         int_df[best_idx].to_csv(
-    #             best_out_f,
-    #             na_rep="NA",
-    #             mode="a",
-    #             sep="\t",
-    #             index=False,
-    #             header=False,
-    #             columns=["sequence"] + columns,
-    #         )
-    #         print("[+] \tWrote %r ..." % best_out_f)
-
-            ## np.tile is defined by (window_count, 1))
-            # gridsearch_result_array = np.column_stack((np.tile(parameter_array, (windows_count, 1)), lncls.ravel()[:,np.newaxis]))
-            #
-            # columns += parameter_names + ['lnCl']
-            # dtypes = {field: dtypes_by_field.get(field, 'float64') for field in columns}
-            # header = ["# %s" % config['version']]
-            # header += ["# %s" % "\t".join(['sequence'] + columns)]
-            ## distinction between basic and --extended
-            ## basic: slice best early before adding window data
-            ## for loop over gridpoints
-            # int_array = np.column_stack((np.repeat(np.column_stack((starts, ends, index)), grid_points, axis=0), gridsearch_result_array))
-            # int_df = pd.DataFrame(data=int_array, columns=columns).astype(dtype=dtypes)
-            # int_df['sequence'] = np.repeat(sequences, grid_points, axis=0)
-
-    #
-    # if config['extended']:
-    #    # out_f = '%s.%s.extended.bed.gz' % (self.prefix, "_".join(gridsearch_key.split("/")))
-    #    out_f = '%s.%s.extended.bed' % (self.prefix, "_".join(gridsearch_key.split("/")))
-    #    with open(out_f, 'w') as out_fh:
-    #        out_fh.write("\n".join(header) + "\n")
-    #    # int_df.to_csv(out_f, na_rep='NA', sep='\t', index=False, header=False, columns=['sequence'] + columns, compression='gzip')
-    #    int_df.to_csv(out_f, na_rep='NA', sep='\t', index=False, header=False, columns=['sequence'] + columns)
-    #    print("[+] \tWrote %r ..." % out_f)
-    # best_out_f = '%s.%s.best.bed' % (self.prefix, "_".join(gridsearch_key.split("/")))
-    # with open(best_out_f, 'w') as best_out_fh:
-    #    best_out_fh.write("\n".join(header) + "\n")
-    # best_idx = int_df.groupby(['index'])['lnCl'].transform(max) == int_df['lnCl']
-    # int_df[best_idx].to_csv(best_out_f, na_rep='NA', mode='a', sep='\t', index=False, header=False, columns=['sequence'] + columns)
-    # print("[+] \tWrote %r ..." % best_out_f)
-
-    #def gridsearch_preflight(self, tally_key, sim_key, grid_key, windowsum, overwrite):
     def gridsearch_preflight(self, data_key, grid_key, windowsum, overwrite):
         config = {'gridsearch_time': "None"}
         if not self._has_key(grid_key):
@@ -5192,174 +2519,6 @@ class Store(object):
         self._set_meta(config["gridsearch_key"], gridsearch_meta)
         print("[+] Gridsearch can be accessed with %r" % config["gridsearch_key"])
 
-    # def save_gridsearch(self, config, gridsearch_4D_result, gridsearch_5D_result):
-    #    gridsearch_meta = config_to_meta(config, 'gridsearch')
-    #    self._set_meta_and_data(config['gridsearch_key_4D'], gridsearch_meta, gridsearch_4D_result)
-    #    if not gridsearch_5D_result is None:
-    #        self._set_meta_and_data(config['gridsearch_key_5D'], gridsearch_meta, gridsearch_5D_result)
-    #    print("[+] Saved gridsearch results.")
-
-    def _preflight_agemo_optimize(
-        self,
-        config,
-        sim_key,
-        windowsum,
-        tally_key,
-        num_cores,
-        start_point,
-        max_iterations,
-        xtol_rel,
-        ftol_rel,
-        overwrite,
-    ):
-        print("[config]", config)
-    
-        # emulating args ...
-        agemo_config = {
-            'model': config['gimble']['model'],
-            'random_seed': config['gimble']['random_seed'],
-            'Ne_A': list(config['parameters']['Ne_A']),
-            'Ne_B': list(config['parameters']['Ne_B']),
-            'Ne_A_B': list(config['parameters']['Ne_A_B']),
-            'me': list(config['parameters']['me']),
-            'T': list(config['parameters']['T']),
-            'mu': config['mu']['mu'],
-            'ref_pop': "Ne_%s" % config['populations']['reference_pop_id'],
-            'sync_pops': ["Ne_%s" % pop for pop in config['populations']['sync_pop_ids']],
-            'nlopt_start_point_method': start_point,
-            'nlopt_maxeval': max_iterations,
-            'nlopt_xtol_rel': xtol_rel,
-            'nlopt_ftol_rel': ftol_rel,
-            'nlopt_processes': num_cores,
-            'optimize_time' : None,
-            'optimize_label': config["gimble"]["label"],
-            'optimize_result_keys': [],
-        }
-        
-        # labels/keys
-        agemo_config["data_key"] = (sim_key or tally_key)
-        agemo_config["data_source"] = "sims" if sim_key else "meas"
-        agemo_config["data_label"] = agemo_config["data_key"].split("/")[1] if not windowsum else "%s.windowsum" % agemo_config["data_key"].split("/")[1]
-        if not self._has_key(agemo_config["data_key"]):
-            sys.exit("[X] No data found with label %r." % agemo_config["data_label"])
-        agemo_config["optimize_key"] = "optimize/%s/%s" % (agemo_config["data_label"], agemo_config["optimize_label"])
-        if self._has_key(agemo_config["optimize_key"]):
-            if not overwrite: 
-                sys.exit(
-                    "[X] Analysis with label %r on data %r already exist. Specify '-f' to overwrite."
-                    % (agemo_config["optimize_label"],  agemo_config["data_key"])
-                )
-            self._del_data_and_meta(agemo_config["optimize_key"])
-        # data
-        # data should be partitioned into jobs immediately
-        data_meta = self._get_meta(agemo_config["data_key"])
-        agemo_config["max_k"] = np.array(data_meta["max_k"])
-        agemo_config["block_length"] = data_meta["block_length"]
-        if agemo_config["data_source"] == "meas":
-            #data = ((0, self._get_data(agemo_config["data_key"])) for _ in (0,))
-            #data = [(idx, tally) if not windowsum else (idx, np.sum(tally, axis=0)) for idx, tally in self.data[agemo_config["data_key"]].arrays()]
-            data = [(0, self.data[agemo_config["data_key"]]) if not windowsum else (0, np.sum(self.data[agemo_config["data_key"]], axis=0))]
-            agemo_config["nlopt_chains"] = data_meta['windows'] if data_meta['data_ndims'] == 5 else 1 # blocks/windowsum => 1, windows => n
-            agemo_config["nlopt_runs"] = 1
-        else:
-            data = [(idx, tally) if not windowsum else (idx, np.sum(tally, axis=0)) for idx, tally in self.data[agemo_config["data_key"]].arrays()]
-            agemo_config["nlopt_chains"] = data_meta['windows'] if not windowsum else 1
-            agemo_config["nlopt_runs"] = data_meta['replicates'] 
-        #print("len(data)", len(data))
-        # demography
-        gimbleDemographyInstance = GimbleDemographyInstance(
-                model=agemo_config['model'], 
-                mu=agemo_config['mu'], 
-                ref_pop=agemo_config['ref_pop'], 
-                block_length=agemo_config['block_length'], 
-                sync_pops=agemo_config['sync_pops'],
-                Ne_A=agemo_config['Ne_A'][0] if len(agemo_config['Ne_A']) == 1 else None,
-                Ne_B=agemo_config['Ne_B'][0] if len(agemo_config['Ne_B']) == 1 else None,
-                Ne_A_B=agemo_config['Ne_A_B'][0] if len(agemo_config['Ne_A_B']) == 1 else None,
-                me=agemo_config['me'][0] if len(agemo_config['me']) == 1 else None,
-                T=agemo_config['T'][0] if len(agemo_config['T']) == 1 else None,
-                kmax=agemo_config['max_k'])
-        #print('gimbleDemographyInstance', gimbleDemographyInstance)
-        agemo_config['gimbleDemographyInstance'] = gimbleDemographyInstance
-        # NLOPT parameters
-        agemo_config['nlopt_parameters'] = []
-        agemo_config['nlopt_parameters_fixed'] = list(gimbleDemographyInstance.fixed_parameters)
-        agemo_config['nlopt_parameters_bound'] = []
-        agemo_config['nlopt_lower_bound'] = []
-        agemo_config['nlopt_upper_bound'] = []
-        sync_done = False
-        for parameter in gimbleDemographyInstance.order_of_parameters:
-            if len(agemo_config[parameter]) == 2:
-                agemo_config['nlopt_parameters_bound'].append(parameter)
-                if parameter in gimbleDemographyInstance.sync_pops:
-                    if not sync_done:
-                        agemo_config['nlopt_parameters'].append('Ne_s')
-                        agemo_config['nlopt_lower_bound'].append(min(agemo_config[parameter]))
-                        agemo_config['nlopt_upper_bound'].append(max(agemo_config[parameter]))
-                        sync_done = True
-                else:
-                    agemo_config['nlopt_parameters'].append(parameter)
-                    agemo_config['nlopt_lower_bound'].append(min(agemo_config[parameter]))
-                    agemo_config['nlopt_upper_bound'].append(max(agemo_config[parameter]))
-        startpoints = {
-            'midpoint' : np.mean(np.vstack((agemo_config['nlopt_lower_bound'], agemo_config['nlopt_upper_bound'])), axis=0),
-            'random': np.random.uniform(low=agemo_config['nlopt_lower_bound'], high=agemo_config['nlopt_upper_bound'])
-        }
-        agemo_config['nlopt_start_point'] = startpoints[agemo_config['nlopt_start_point_method']]
-        
-        #print("[agemo_config]", agemo_config)
-        return (data, agemo_config)
-
-    def _preflight_optimize_gf(
-        self,
-        config,
-        sim_key,
-        windowsum,
-        tally_key,
-        num_cores,
-        start_point,
-        max_iterations,
-        xtol_rel,
-        ftol_rel,
-        overwrite,
-    ):
-
-        config["num_cores"] = num_cores
-        config["max_iterations"] = max_iterations
-        config["xtol_rel"] = xtol_rel
-        config["ftol_rel"] = ftol_rel
-        config["optimize_time"] = "None"  # just so that it initialised for later
-        ### modelObjs are not created here but when they come out of NLOPT!!!!!!!!!!!!!
-
-        # Error if no data
-        config["data_key"] = sim_key if sim_key else tally_key
-        config["data_source"] = "sims" if sim_key else "meas"
-        config["data_label"] = config["data_key"].split("/")[1] if not windowsum else "%s.windowsum" % config["data_key"].split("/")[1]
-        if not self._has_key(config["data_key"]):
-            sys.exit("[X] No data found with label %r." % config["data_label"])
-        config["optimize_label"] = config["gimble"]["label"]
-        config["optimize_key"] = "optimize/%s/%s" % (config["data_label"], config["optimize_label"])
-        if not overwrite and self._has_key(config["optimize_key"]):
-            sys.exit(
-                "[X] Analysis with label %r on data %r already exist. Specify '-f' to overwrite."
-                % (config["optimize_label"],  config["data_key"])
-            )
-        data_meta = self._get_meta(config["data_key"])
-        config["max_k"] = np.array(data_meta["max_k"])  # INI values get overwritten by data ...
-        config["block_length"] = data_meta["block_length"]
-        if config["data_source"] == "meas":
-            data = ((0, self._get_data(config["data_key"])) for _ in (0,))
-        else:
-            data = self._get_sims_bsfs(config["data_key"])  # data is an iterator across parameter combos
-        # start point
-        STARTPOINT = {
-            'midpoint' : np.mean(np.vstack((config["parameter_combinations_lowest"], config["parameter_combinations_highest"])), axis=0),
-            'random': np.random.uniform(low=config["parameter_combinations_lowest"], high=config["parameter_combinations_highest"])
-        }
-        config["start_point_method"] = start_point
-        config["start_point"] = STARTPOINT[start_point]
-        return (data, config)
-
     def _preflight_optimize(self, kwargs):
         '''
         '''
@@ -5369,7 +2528,7 @@ class Store(object):
         data_meta = self._get_meta(kwargs['data_key'])
 
         kwargs['data_source'] = data_meta['data_source']
-        print(dict(data_meta))
+        #print(dict(data_meta))
         if kwargs['data_source'] == 'meas' and data_meta['data_type'] == 'blocks' and kwargs['windowsum']:
             sys.exit("[X] '--windowsum' not a valid option for data under %r" % kwargs['data_key'])
         kwargs['data_label'] = "%s%s" % (kwargs['data_key'].split("/")[1], "" if not kwargs['windowsum'] else ".windowsum")
@@ -5391,7 +2550,7 @@ class Store(object):
             data = [(replicate_idx, tally) if not kwargs['windowsum'] else (replicate_idx, np.sum(tally, axis=0)) for replicate_idx, tally in self.data[kwargs["data_key"]].arrays()]
             kwargs["nlopt_chains"] = data_meta['windows'] if not kwargs['windowsum'] else 1
             kwargs["nlopt_runs"] = data_meta['replicates'] 
-        print("len(data)", len(data), data[0][1].shape)
+        #print("len(data)", len(data), data[0][1].shape)
         # demography
         def float_or_none(_dict, _parameter):
             return None if _dict[_parameter] is None or len(_dict[_parameter]) == 2 else _dict[_parameter][0]
@@ -5505,112 +2664,6 @@ class Store(object):
             'deme': config.get('deme', 'N/A'),
         }
         self._set_meta(config["optimize_key"], meta=optimize_meta)
-        print("[+] Optimization results saved under label %r" % config["optimize_key"])
-
-    def optimize_legacy(
-        self,
-        config,
-        sim_label,
-        windowsum,
-        tally_label,
-        num_cores,
-        start_point,
-        max_iterations,
-        xtol_rel,
-        ftol_rel,
-        overwrite,
-    ):
-        data, config = self._preflight_agemo_optimize(
-            config,
-            sim_label,
-            windowsum,
-            tally_label,
-            num_cores,
-            start_point,
-            max_iterations,
-            xtol_rel,
-            ftol_rel,
-            overwrite,
-        )
-        optimize_analysis_start_time = timer()  # used for saving elapsed time in meta
-        print("[+] Constructing GeneratingFunction...")
-        print("[+] Agemo ...")
-        evaluator_agemo = self.get_agemo_evaluator(
-            model=config['model'], 
-            kmax=config["max_k"])
-        # fallback_evaluator gets created if IM
-        fallback_evaluator_agemo=self.get_agemo_evaluator(
-            model='DIV', 
-            kmax=config["max_k"]) if config['model'].startswith('IM') else None
-        print("[+] Starting %s NLOPT optimization(s) with %s chain(s)..." % (config["nlopt_runs"], config["nlopt_chains"]))
-        for data_idx, dataset in data:
-            optimize_instance_start_time = timer()
-            optimize_result = lib.optimize.agemo_optimize(
-                evaluator_agemo, data_idx, dataset, config, fallback_evaluator=fallback_evaluator_agemo
-            )
-            optimize_time = format_time(timer() - optimize_instance_start_time)
-            optimize_result_key = self.save_optimize_instance(
-                data_idx, config, optimize_result, optimize_time, overwrite
-            )
-            config['optimize_result_keys'].append(optimize_result_key)
-        config["optimize_time"] = format_time(timer() - optimize_analysis_start_time)
-        self._set_meta(config["optimize_key"], meta=config_to_meta(config, "optimize"))
-        print("[+] Optimization results saved under label %r" % config["optimize_key"])
-
-    def optimize_gf(
-        self,
-        config,
-        sim_label,
-        windowsum,
-        tally_label,
-        num_cores,
-        start_point,
-        max_iterations,
-        xtol_rel,
-        ftol_rel,
-        overwrite,
-    ):
-        data, config = self._preflight_optimize_gf(
-            config,
-            sim_label,
-            windowsum,
-            tally_label,
-            num_cores,
-            start_point,
-            max_iterations,
-            xtol_rel,
-            ftol_rel,
-            overwrite,
-        )
-        print("[config]", config)
-        optimize_analysis_start_time = timer()  # used for saving elapsed time in meta
-        print("[+] Constructing GeneratingFunction...")
-        gf = lib.math.config_to_gf(config)
-        gfEvaluatorObj = togimble.gfEvaluator(
-            gf,
-            config["max_k"],
-            MUTYPES,
-            config["gimble"]["precision"],
-            exclude=[
-                (2, 3),
-            ],
-        )
-        print(
-            "[+] GeneratingFunctions for model %r have been generated."
-            % config["gimble"]["model"]
-        )
-        for data_idx, dataset in data:
-            optimize_instance_start_time = timer()
-            optimize_result = lib.math.optimize(
-                gfEvaluatorObj, data_idx, dataset, config
-            )
-            optimize_time = format_time(timer() - optimize_instance_start_time)
-            self.save_optimize_instance(
-                data_idx, config, optimize_result, optimize_time, overwrite
-            )
-        config["optimize_time"] = format_time(timer() - optimize_analysis_start_time)
-        self._set_meta(config["optimize_key"], meta=config_to_meta(config, "optimize"))
-
         print("[+] Optimization results saved under label %r" % config["optimize_key"])
 
     def save_optimize_instance(
@@ -5840,6 +2893,23 @@ class Store(object):
         self.data.create_dataset(key, data=array, overwrite=overwrite)
         self.data[key].attrs.put(meta)
 
+    def delete_key(self, data_key):
+        if self._has_key(data_key):
+            size = format_bytes(recursive_get_size("%s/%s" % (self.path, data_key)))
+            while True:
+                sys.stdout.write("[?] Delete %r of size %s ? [y/N] " % (data_key, size))
+                choice = input().lower()
+                if choice in set(["", "n", "no"]):
+                    print("[+] Deletion cancelled.")
+                    return 1
+                elif choice in set(["y", "yes", "ye"]):
+                    del self.data[data_key]
+                    print("[+] %r deleted." % data_key)
+                    return 1
+                else:
+                    sys.stdout.write("Please respond with 'y' or 'n'\n")            
+        print("[+] %r not found." % data_key)
+
     def _del_data_and_meta(self, key):
         if self._has_key(key):
             del self.data[key]
@@ -5864,69 +2934,6 @@ class Store(object):
     def _set_meta(self, key, meta={}):
         self.data.require_group(key)
         self.data[key].attrs.put(meta)
-
-    def _preflight_makegrid_old(self, config, overwrite):
-        key = self._get_key(task="makegrid", analysis_label=config["gimble"]["label"])
-        if self._has_key(key):
-            if not overwrite:
-                sys.exit(
-                    "[X] Grid with label %r already exist. Specify '-f' to overwrite."
-                    % config["gimble"]["label"]
-                )
-            self._del_data_and_meta(config["tally_key"])
-        config["key"] = key
-        config["makegrid_label"] = config["gimble"]["label"]
-        print(config)
-        ### DOL_to_LOD will determine the ORDER of gridpoints!!! (be sure to keep)
-        parameter_LOD = DOL_to_LOD(config['parameters_expanded'])
-        print(parameter_LOD)
-        model_instances = []
-        for model_dict in parameter_LOD:
-            model_instance = GimbleDemographyInstance(
-                model=config['gimble']['model'], 
-                Ne_A=model_dict.get('Ne_A', None), 
-                Ne_B=model_dict.get('Ne_B', None), 
-                Ne_A_B=model_dict.get('Ne_A_B', None), 
-                me=model_dict.get('me', None), 
-                T=model_dict.get('T', None),
-                mu=config['mu']['mu'], 
-                ref_pop="Ne_%s" % config['populations']['reference_pop_id'], 
-                block_length=config['mu']['block_length'], 
-                kmax=config['max_k']) 
-            model_instances.append(model_instance)
-        config['model_instances'] = model_instances
-        config['agemo_parameters'] = [model_instance.get_agemo_values(fallback=True) for model_instance in model_instances]
-        return config
-
-    def makegrid_old(self, config, num_cores, overwrite, agemo=True):
-        config = self._preflight_makegrid_old(config, overwrite)
-        print(
-            "[+] Grid of %s parameter-grid-points will be prepared..."
-            % config["parameters_grid_points"]
-        )
-        if agemo:
-            print("[+] Agemo ...")
-            evaluator_agemo = self.get_agemo_evaluator(
-                model=config['gimble']['model'], 
-                kmax=config["max_k"])
-            # fallback_evaluator gets created if IM
-            fallback_evaluator_agemo=self.get_agemo_evaluator(
-                model='DIV', 
-                kmax=config["max_k"]) if config['gimble']['model'].startswith('IM') else None
-            grid = self.evaluate_grid(evaluator_agemo, config['agemo_parameters'], processes=num_cores, fallback_evaluator=fallback_evaluator_agemo)
-        else:
-            print("[+] GF ...")
-            evaluator_gf = self.get_gf_evaluator(config)
-            grid = lib.math.new_calculate_all_ETPs(
-                evaluator_gf,
-                config["parameters_expanded"],
-                config["populations"]["reference_pop_id"],
-                config["mu"]["block_length"],
-                config["mu"]["mu"],
-                processes=num_cores,
-                verbose=False,
-            )
-        self.save_grid(config, grid)
 
     def _preflight_makegrid(self, config, overwrite):
         key = self._get_key(task="makegrid", analysis_label=config["gimble"]["label"])
@@ -6061,19 +3068,6 @@ class Store(object):
         #theta_branch, var, time, fallback_flag = agemo_parameter
         evaluator = EVALUATOR if not fallback_flag else FALLBACK_EVALUATOR
         return evaluator.evaluate(theta_branch, var, time=time) 
-
-    def get_gf_evaluator(self, config):
-        gf = lib.math.config_to_gf(config)
-        gfEvaluatorObj = togimble.gfEvaluator(
-            gf,
-            config["max_k"],
-            MUTYPES,
-            config["gimble"]["precision"],
-            exclude=[
-                (2, 3),
-            ],
-        )
-        return gfEvaluatorObj
 
     def get_agemo_evaluator(self, model=None, kmax=None):
         mutation_shape = tuple(kmax + 2)
@@ -6240,13 +3234,6 @@ class Store(object):
         if polarise_true:
             variation[..., [0, 1]] = variation[..., [1, 0]]
         return variation
-
-    def _get_sims_bsfs(self, key, generator=True):
-        if self._has_key(key):
-            if generator:
-                return self.data[key].arrays()
-            return self.data[key]
-        return None
 
     def _init_store(self, create, overwrite):
         if create:
@@ -6667,17 +3654,6 @@ class Store(object):
         )
         return window_variation.shape[0]
 
-    # def _set_windows_meta(self, config):
-    #    meta_windows = self._get_meta(config['windows_key'])
-    #    print(meta_window)
-    #    meta_windows['size_user'] = int(window_size / len(sample_set_idxs))
-    #    meta_windows['step_user'] = int(window_step / len(sample_set_idxs))
-    #    meta_windows['size'] = window_size
-    #    meta_windows['step'] = window_step
-    #    meta_windows['count'] = window_count
-    #    self._set_meta(config['optimize_key'], meta=config_to_meta(config, 'optimize'))
-    #    print("[+] Made %s window(s)" % format_count(meta_windows['count']))
-
     ####################### REPORTS ######################
 
     def _get_parse_report(self, width):
@@ -6886,7 +3862,7 @@ class Store(object):
             column_just = 14
             meta_blocks = self._get_meta("blocks")
             BRMs = self._get_blocks_report_metrics()
-            reportObj.add_line(prefix="[+]", left="blocks")
+            reportObj.add_line(prefix="[+]", left="blocks/")
             reportObj.add_line(
                 prefix="[+]",
                 branch="T",
@@ -6957,13 +3933,13 @@ class Store(object):
             window_count = meta_windows.get(
                 "window_count", meta_windows.get("count", "N/A")
             )  # fallback for previous metas
-            reportObj.add_line(prefix="[+]", left="windows")
+            reportObj.add_line(prefix="[+]", left="windows/")
             reportObj.add_line(
                 prefix="[+]",
                 branch="F",
                 fill=".",
                 left="'-w %s -s %s'" % (window_size, window_step),
-                right=" %s windows of inter-population (X) blocks"
+                right="%s windows of inter-population (X) blocks"
                 % (format_count(window_count)),
             )
         return reportObj
@@ -6973,16 +3949,18 @@ class Store(object):
         reportObj.add_line(
             prefix="[+]", left="[", center="Tallies", right="]", fill="="
         )
-        reportObj.add_line(prefix="[+]", left="Tally")
+        reportObj.add_line(prefix="[+]", left="tally/")
         if "tally/" in self.data:
-            for tally_label, tally_array in self.data["tally/"].arrays():
+            shape_by_tally = {tally_label: tally.shape for tally_label, tally in self.data["tally/"].arrays() if not tally_label in set(['blocks_raw', 'windows_raw'])}
+            for idx, (tally_label, tally_shape) in enumerate(shape_by_tally.items()):
+                branch = "F" if idx == (len(shape_by_tally)-1) else "T"
                 reportObj.add_line(
-                    prefix="[+]",
-                    branch="F",
-                    fill=".",
-                    left="'tally/%s'" % (tally_label),
-                    right=" shape %s " % (str(tally_array.shape)),
-                )
+                        prefix="[+]",
+                        branch=branch,
+                        fill=".",
+                        left="'tally/%s'" % (tally_label),
+                        right=" shape %s " % (str(tally_shape)),
+                    )
         return reportObj
 
     def info(self, version=None, tree=False):
@@ -6999,8 +3977,8 @@ class Store(object):
         report += self._get_windows_report(width)
         print("[+] \t Getting tally info...")
         report += self._get_tally_report(width)
-        # print("[+] \t Getting sims info...")
-        # report += self._get_sims_report(width)
+        print("[+] \t Getting simulate info...")
+        report += self._get_sims_report(width)
         # report += self._get_optimize_report(width)
         # report += self._get_grids_report(width)
         # report += self._get_lncls_report(width)
@@ -7035,57 +4013,30 @@ class Store(object):
                 )
         return reportObj
 
-    def _get_lncls_report(self, width):
+    def _get_sims_report(self, width):
         reportObj = ReportObj(width=width)
-        reportObj.add_line(prefix="[+]", left="[", center="lnCLs", right="]", fill="=")
-        legacy = True if "global" in self.data["lncls/"] else False
-        lncls_path = "lncls/global" if legacy else "lncls/"
-        for grid_id in self.data[lncls_path]:
-
-            shape = self.data["%s/%s" % (lncls_path, grid_id)].shape
-            reportObj.add_line(
-                prefix="[+]", branch="S", fill=".", left=grid_id, right="NA"
-            )
-
-            # grid_dict = self.data[grid_path].attrs.asdict()
-            # reportObj.add_line(prefix="[+]", branch='W', fill=".", left=grid_id, right=' %s grid points' % format_count(len(grid_dict)))
-            # table = []
-            # for grid_point, grid_params in grid_dict.items():
-            #     table.append([grid_point] + list(grid_params.values()))
-            # rows = tabulate.tabulate(table, numalign="right", headers=['i'] + list(grid_params.keys())).split("\n")
-            # for i, row in enumerate(rows):
-            #     branch = 'F' if (i + 1) == len(rows) else 'P'
-            #     reportObj.add_line(prefix="[+]", branch=branch, fill="", left=row, right='')
-        return reportObj
-
-    def _get_sims_report(self, width, label):
-        simulate_key = self._get_key(task="simulate", analysis_label=label)
-        meta_sims = self._get_meta("sims")
-        reportObj = ReportObj(width=width)
-        reportObj.add_line(prefix="[+]", left="[", center="Sims", right="]", fill="=")
-        column_just = 14
-        if self.has_stage("simulate"):
-            for name, array in self.get_bsfs(
-                data_type="simulate", label=label
-            ):  # returns an iterator over parametercombination names and arrays
-                bsfs_X = bsfs_to_2d(np.array(array))
-                fgv_blocks_X = (
-                    np.sum(bsfs_X[(bsfs_X[:, 4] > 0) & (bsfs_X[:, 5] > 0)][:, 0])
-                    / np.sum(bsfs_X[:, 1])
-                    if np.any(bsfs_X)
-                    else "N/A"
-                )
+        reportObj.add_line(
+            prefix="[+]", left="[", center="Simulations", right="]", fill="="
+        )
+        reportObj.add_line(prefix="[+]", left="simulate/")
+        if "simulate/" in self.data:
+            simulate_labels = list(self.data["simulate"].group_keys())
+            for idx, simulate_label in enumerate(simulate_labels):
+                branch = "F" if idx == (len(simulate_labels)-1) else "T"
+                simulate_key = "simulate/%s" % (simulate_label)
+                simulate_meta = self._get_meta(simulate_key)
                 reportObj.add_line(
                     prefix="[+]",
-                    branch="T",
-                    left=f"four-gamete-violation {name}",
-                    right="".join(
-                        [
-                            format_percentage(c, precision=2).rjust(column_just)
-                            for c in [
-                                fgv_blocks_X,
-                            ]
-                        ]
-                    ),
-                )
+                    branch=branch,
+                    fill=".",
+                    left="%r" % (simulate_key),
+                    right="-a %s -b %s -r %s -w %s -b %s -l %s" % (
+                        simulate_meta['samples_A'],
+                        simulate_meta['samples_B'],
+                        simulate_meta['replicates'],
+                        simulate_meta['windows'],
+                        simulate_meta['blocks'],
+                        simulate_meta['block_length'],
+                        ),
+                )    
         return reportObj

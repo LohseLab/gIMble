@@ -13,9 +13,9 @@ usage: gimble windows                    -z <z> [-w <w> -s <s>] [-f] [-h]
 from docopt import docopt
 from timeit import default_timer as timer
 import sys
-import lib.gimble
+import lib.runargs
 
-class WindowsParameterObj(lib.gimble.ParameterObj):
+class WindowsParameterObj(lib.runargs.RunArgs):
     '''Sanitises command line arguments and stores parameters'''
     def __init__(self, params, args):
         super().__init__(params)
@@ -33,16 +33,17 @@ class WindowsParameterObj(lib.gimble.ParameterObj):
 def main(params):
     try:
         start_time = timer()
-        print("[+] Running 'gimble windows' ...")
         args = docopt(__doc__)
+        print("[+] Running 'gimble windows' ...")
         parameterObj = WindowsParameterObj(params, args)
+        import lib.gimble
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
         gimbleStore.windows(
             window_size=parameterObj.window_size, 
             window_step=parameterObj.window_step, 
             overwrite=parameterObj.overwrite)
         gimbleStore.log_action(module=parameterObj._MODULE, command=parameterObj._get_cmd())
-        print("[*] Total runtime was %s" % (lib.gimble.format_time(timer() - start_time)))
+        print("[*] Total runtime was %s" % (lib.runargs.format_time(timer() - start_time)))
     except KeyboardInterrupt:
-        print("\n[X] Interrupted by user after %s !\n" % (lib.gimble.format_time(timer() - start_time)))
+        print("\n[X] Interrupted by user after %s !\n" % (lib.runargs.format_time(timer() - start_time)))
         exit(-1)

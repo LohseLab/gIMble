@@ -14,9 +14,9 @@ usage: gimble blocks                      -z <z> [-l <l> -m <m> -u <u> -i <i>] [
 import sys
 from timeit import default_timer as timer
 from docopt import docopt
-import lib.gimble
+import lib.runargs
 
-class BlockParameterObj(lib.gimble.ParameterObj):
+class BlockParameterObj(lib.runargs.RunArgs):
     '''Sanitises command line arguments and stores parameters'''
 
     def __init__(self, params, args):
@@ -47,6 +47,7 @@ def main(params):
         print("[+] Running 'gimble blocks' ...")
         args = docopt(__doc__)
         parameterObj = BlockParameterObj(params, args)
+        import lib.gimble
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore)
         gimbleStore.blocks(
             block_length=parameterObj.block_length,
@@ -55,7 +56,7 @@ def main(params):
             block_max_missing=parameterObj.block_max_missing,
             overwrite=parameterObj.overwrite)
         gimbleStore.log_action(module=parameterObj._MODULE, command=parameterObj._get_cmd())
-        print("[*] Total runtime was %s" % (lib.gimble.format_time(timer() - start_time)))
+        print("[*] Total runtime was %s" % (lib.runargs.format_time(timer() - start_time)))
     except KeyboardInterrupt:
-        print("\n[X] Interrupted by user after %s !\n" % (lib.gimble.format_time(timer() - start_time)))
+        print("\n[X] Interrupted by user after %s !\n" % (lib.runargs.format_time(timer() - start_time)))
         exit(-1)

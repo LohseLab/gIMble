@@ -59,10 +59,10 @@ usage: gimble simulate                          (-z <z> | -o <o>) (-s <s>) (-a <
 
 from timeit import default_timer as timer
 from docopt import docopt
-import lib.gimble 
+import lib.runargs 
 import sys              
 
-class SimulateParameterObj(lib.gimble.ParameterObj):
+class SimulateParameterObj(lib.runargs.RunArgs):
     """Sanitises command line arguments and stores parameters."""
 
     def __init__(self, params, args):
@@ -98,7 +98,7 @@ class SimulateParameterObj(lib.gimble.ParameterObj):
         if invalid_chars:
             sys.exit("[X] --simulate_label contains invalid characters (%r). Should only contain alphanumericals and -_." % "".join(invalid_chars))
         return label
-        
+
     def _get_constraint(self, constraint):
         if not constraint:
             return {}
@@ -113,16 +113,11 @@ def main(params):
         args = docopt(__doc__)
         print("[+] Running 'gimble simulate' ...")
         parameterObj = SimulateParameterObj(params, args)
-        #if parameterObj.zstore:
-        #    gimble_store = lib.gimble.Store(path=parameterObj.zstore)
-        #elif parameterObj.prefix:
+        import lib.gimble
         gimble_store = lib.gimble.Store(
             path=parameterObj.zstore, 
             prefix=parameterObj.prefix, 
             create=(True if parameterObj.prefix else False))
-        #else:
-        #    sys.exit("[X] ...")
-        #perform recmap checks
         gimble_store.simulate(
             zstore=parameterObj.zstore,
             prefix=parameterObj.prefix,
@@ -150,7 +145,7 @@ def main(params):
             rec_rate=parameterObj.rec_rate,
             rec_map=parameterObj.rec_map
             )
-        print("[*] Total runtime: %.3fs" % (timer() - start_time))
+        print("[*] Total runtime: %s" % lib.runargs.format_time(timer() - start_time))
     except KeyboardInterrupt:
-        print("\n[X] Interrupted by user after %s seconds!\n" % (timer() - start_time))
+        print("\n[X] Interrupted by user after %s !\n" % lib.runargs.format_time(timer() - start_time))
         exit(-1)
