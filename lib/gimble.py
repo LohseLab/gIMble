@@ -1200,13 +1200,16 @@ class Store(object):
         meta["genome_f"] = genome_f
 
     def _read_samples(self, measure_key, sample_f):
-        samples_df = parse_csv(
-            csv_f=sample_f,
-            sep=",",
-            usecols=[0, 1],
-            dtype={"samples": "object", "populations": "category"},
-            header=None,
-        )
+        try:
+            samples_df = parse_csv(
+                csv_f=sample_f,
+                sep=",",
+                usecols=[0, 1],
+                dtype={"samples": "object", "populations": "category"},
+                header=None,
+            )
+        except pd.errors.ParserError:
+            sys.exit("[X] --sample_f %r can't be parsed. Make sure it is a CSV file composed of two columns (sample ID and population ID)." % sample_f)
         # meta = self._get_meta(measure_key)
         meta = self._get_meta("seqs")
         meta["samples"] = [
