@@ -35,14 +35,6 @@ class RunArgs(object):
             self._get_cmd(),
         )
 
-    def _dict_product(self, parameter_dict):
-        cartesian_product = itertools.product(*parameter_dict.values())
-        rearranged_product = list(zip(*cartesian_product))
-        return {
-            k: np.array(v, dtype=np.float64)
-            for k, v in zip(parameter_dict.keys(), rearranged_product)
-        }
-
     def _get_int(self, string, ret_none=False):
         try:
             return int(string)
