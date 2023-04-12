@@ -39,8 +39,6 @@ def main(params):
         import lib.gimble
         gimbleStore = lib.gimble.Store(path=parameterObj.zstore, create=False)
         gimbleStore.gridsearch(
-            #tally_key=parameterObj.tally_key,
-            #sim_key=parameterObj.sim_key,
             data_key=parameterObj.data_key,
             grid_key=parameterObj.grid_key,
             windowsum=parameterObj.windowsum,

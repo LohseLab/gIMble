@@ -1,15 +1,13 @@
-#import traceback
+import traceback
 import contextlib
 import datetime
 import itertools
 import multiprocessing
 import nlopt
 import numpy as np
-#import pandas as pd
-import sys, os
+import sys
 import functools
 import copy
-from functools import partial
 from timeit import default_timer as timer
 from tqdm import tqdm
 
@@ -164,16 +162,11 @@ def agemo_likelihood_function(nlopt_values, grad, gimbleDemographyInstance, data
     scaled_values_by_parameter, unscaled_values_by_parameter = gimbleDemographyInstance.scale_parameters(nlopt_values_by_parameter)
     #print('[+] scaled_values_by_parameter', scaled_values_by_parameter)
     #print('[+] unscaled_values_by_parameter', unscaled_values_by_parameter)
-
     theta_branch, var, time, fallback_flag = gimbleDemographyInstance.get_agemo_values(scaled_values_by_parameter, fallback=True)
-    #ETPs = EVALUATOR.evaluate(theta_branch, np.positive(var), time=time)
-    #print('[+] scaled_values_by_parameter', scaled_values_by_parameter)
-    #print('[+] unscaled_values_by_parameter', unscaled_values_by_parameter)
     #print('[+] me=%s ; fallback=%s; EVALUATOR.evaluate(%s, np.array(%s), time=%s)' % (str(unscaled_values_by_parameter['me']), fallback_flag, str(theta_branch), str([v for v in var]), str(time)), end="")
     evaluator = EVALUATOR if not fallback_flag else FALLBACK_EVALUATOR
     #_var = str([str(x) for x in var])
     ETPs = evaluator.evaluate(theta_branch, var, time=time)
-    
     #if ETPs[(ETPs[:,2] > 0) & (ETPs[:,3] > 0)] > 0:
     #    df = pd.DataFrame(bsfs_to_2d(ETPs))
     #    problematic = df.loc[(df[3] >= 1) & (df[4] >= 1)]
@@ -181,31 +174,16 @@ def agemo_likelihood_function(nlopt_values, grad, gimbleDemographyInstance, data
     ETP_sum = np.sum(ETPs)
     #if not np.isclose(ETP_sum, 1, rtol=1e-05):
     #    print('np.sum(ETPs)=%s fallback=%s scaled_values=%s' % (np.sum(ETPs), fallback_flag, scaled_values_by_parameter))
-    
-
-    likelihood = agemo_calculate_composite_likelihood(ETPs, dataset)
-    
-    # scaled_values_by_symbol, scaled_values_by_parameter, unscaled_values_by_parameter, block_length = scale_nlopt_values(nlopt_values, config)
-    # try:
-    #     gimbleDemographyInstance.set_parameters_from_array(nlopt_values)
-    #     theta_branch, var, time = gimbleDemographyInstance.get_agemo_values()
-    #     ETPs = EVALUATOR.evaluate(theta_branch, var, time=time)
-    #      = agemo_calculate_composite_likelihood(ETPs, dataset)
-    # except Exception as exception:
-    #     nlopt_log_iteration_tuple = get_nlopt_log_iteration_tuple(windows_idx, nlopt_iterations[windows_idx], gimbleDemographyInstance.block_length, 'N/A', scaled_values_by_parameter, unscaled_values_by_parameter)
-    #     nlopt_traceback = traceback.format_exc(exception)
-    #     NLOPT_LOG_QUEUE.put((nlopt_log_iteration_tuple, nlopt_traceback))
-    
-
     windows_flag = False if config['nlopt_chains'] == 1 else True # for status bar/log
+    try:
+        likelihood = agemo_calculate_composite_likelihood(ETPs, dataset)
+    except Exception as exception:
+        windows_flag = False if config['nlopt_chains'] == 1 else True # for status bar/log
+        nlopt_log_iteration_tuple = get_nlopt_log_iteration_tuple(windows_idx, nlopt_iterations[windows_idx], gimbleDemographyInstance.block_length, likelihood, scaled_values_by_parameter, unscaled_values_by_parameter, windows_flag)
+        nlopt_traceback = traceback.format_exc(exception)
+        NLOPT_LOG_QUEUE.put((nlopt_log_iteration_tuple, nlopt_traceback))
     nlopt_log_iteration_tuple = get_nlopt_log_iteration_tuple(windows_idx, nlopt_iterations[windows_idx], gimbleDemographyInstance.block_length, likelihood, scaled_values_by_parameter, unscaled_values_by_parameter, windows_flag)
     NLOPT_LOG_QUEUE.put((nlopt_log_iteration_tuple, nlopt_traceback))
-    
-    #if verbose:
-    #    elapsed = lib.gimble.format_time(timer() - start_time)
-    #    #process_idx = multiprocessing.current_process()._identity
-    #    #print_nlopt_line(windows_idx, nlopt_iterations[windows_idx], likelihood, unscaled_values_by_parameter, elapsed, process_idx)
-    #    print_nlopt_line(windows_idx, nlopt_iterations[windows_idx], likelihood, unscaled_values_by_parameter, elapsed)
     return likelihood
 
 def agemo_optimize(evaluator_agemo, replicate_idx, data, config, fallback_evaluator=None):

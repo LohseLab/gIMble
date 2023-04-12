@@ -364,15 +364,6 @@ class GimbleDemographyInstance(object):
         demes_graph = self.get_demes_graph()
         return msprime.Demography.from_demes(demes_graph.resolve())
 
-def _dict_product(parameter_dict):
-    cartesian_product = itertools.product(*parameter_dict.values())
-    rearranged_product = list(zip(*cartesian_product))
-    return {
-        k: np.array(v, dtype=np.float64)
-        for k, v in zip(parameter_dict.keys(), rearranged_product)
-    }
-
-
 def recursive_get_size(path):
     """Gets size in bytes of the given path, recursing into directories."""
     if os.path.isfile(path):
@@ -3943,12 +3934,12 @@ class Store(object):
                     fill=".",
                     left="%r" % (simulate_key),
                     right="-a %s -b %s -r %s -w %s -b %s -l %s" % (
-                        simulate_meta['samples_A'],
-                        simulate_meta['samples_B'],
-                        simulate_meta['replicates'],
-                        simulate_meta['windows'],
-                        simulate_meta['blocks'],
-                        simulate_meta['block_length'],
+                        simulate_meta.get('samples_A', "?"),
+                        simulate_meta.get('samples_B', "?"),
+                        simulate_meta.get('replicates', "?"),
+                        simulate_meta.get('windows', "?"),
+                        simulate_meta.get('blocks', "?"),
+                        simulate_meta.get('block_length', "?"),
                         ),
                 )    
         return reportObj
