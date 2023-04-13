@@ -142,7 +142,7 @@ class OptimizeParameterObj(lib.runargs.RunArgs):
     def _get_optimize_parameter(self, parameter, arg):
         if arg is None:
             return arg
-        l = arg.split(",")
+        l = arg.replace("=","").split(",")
         if len(l) == 1:
             try:
                 return [float(l[0])]
@@ -159,7 +159,7 @@ class OptimizeParameterObj(lib.runargs.RunArgs):
                 pass
         else:
             pass
-        sys.exit("[X] Parameter %r must be a single float OR boundaries for optimization in the format [min,max], not: %s" (parameter, ",".join(l)))
+        sys.exit("[X] Parameter %r must be a single float OR boundaries for optimization in the format [min,max], not: %s" % (parameter, ",".join(l)))
 
     def _check_start_point(self, start_point_string):
         if start_point_string in set(['random', 'midpoint']):

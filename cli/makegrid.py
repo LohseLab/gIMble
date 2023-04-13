@@ -86,7 +86,7 @@ class MakeGridParameterObj(lib.runargs.RunArgs):
     def _get_makegrid_parameters(self, parameter, arg):
         if arg is None:
             return arg
-        l = arg.split(",")
+        l = arg.replace("=","").split(",")
         if len(l) == 1:
             try:
                 return [float(l[0])]
