@@ -68,11 +68,22 @@ def poolcontext(*args, **kwargs):
     yield pool
     pool.terminate()
 
+def get_fgv_idxs(kmax):
+    # - get indices of FGVs (hetAB>0 & fixed>0) in bsfs based on kmax
+    # - assumes kmax := np.array([hetB, hetA, hetAB, fixed])
+    # - used for setting FGVs in data bsfs to 0 
+    shape = kmax + 2
+    hetAB_idxs, fixed_idx = zip(*[
+        (hetAB_idx, fixed_idx) for 
+            hetAB_idx, fixed_idx in list(itertools.product(np.arange(shape[-2]), np.arange(shape[-1]))) 
+                if hetAB_idx > 0 and fixed_idx >0])
+    fgv_idxs = (..., np.array(hetAB_idxs), np.array(fixed_idx))
+    return fgv_idxs
+
 def get_parameter_dicts_from_user_parameters(**kwargs):
     # order is determined by input : Ne_A, Ne_B, Ne_A_B, T, me
     # replaces parameters_expanded and only returns the combinations of parameters needed for the GDIs
     # NOT the array of all values by parameter name (ie. parameters_expanded) 
-    # if value_list is None 
     def value_list_to_array(value_list=[]):
         if len(value_list) == 1:
             value_array = np.array(value_list)
@@ -164,7 +175,6 @@ def LOD_to_DOL(LOD):
     return {
         k: np.array(v, dtype=np.float64) for k, v in zip(LOD[0].keys(), reshape_LOD)
     }
-
 
 def _return_np_type(x):
     return np.min_scalar_type((1 if np.min(x) >= 0 else -1) * np.max(np.abs(x)))
@@ -374,7 +384,6 @@ def recursive_get_size(path):
         recursive_get_size(os.path.join(path, name)) for name in os.listdir(path)
     )
 
-
 def parse_csv(csv_f="", dtype=[], usecols=[], sep=",", header=None):
     '''dtypes := "object", "int64", "float64", "bool", "datetime64", "timedelta", "category"'''
     df = pd.read_csv(
@@ -388,10 +397,6 @@ def parse_csv(csv_f="", dtype=[], usecols=[], sep=",", header=None):
     if df.isnull().values.any():
         sys.exit("[X] Bad file format %r." % csv_f)
     return df
-
-
-# all formats should be in another file
-
 
 def format_query_meta(meta, ignore_long=False):
     LONG_THRESHOLD = 80
@@ -410,30 +415,25 @@ def format_query_meta(meta, ignore_long=False):
             lines.append("[+]\t%s: %s" % (key, formatted_value))
     return "\n".join(lines)
 
-
 def format_bases(bases):
     if bases in set(["-", "N/A"]):
         return bases
     return "%s b" % format(bases, ",d")
-
 
 def format_percentage(fraction, precision=2):
     if fraction in set(["-", "N/A"]):
         return fraction
     return "{:.{}%}".format(fraction, precision)
 
-
 def format_proportion(fraction, precision=2):
     if fraction in set(["-", "N/A"]):
         return fraction
     return "{:.{}f}".format(fraction, precision)
 
-
 def format_count(count):
     if count in set(["-", "N/A"]):
         return count
     return "%s" % str(format(count, ",d"))
-
 
 def format_time(seconds):
     hours, remainder = divmod(seconds, 3600)
@@ -449,7 +449,6 @@ def format_bytes(size, precision=1):
         n += 1
     return "{:.{}f} {}".format(size, precision, power_labels[n])
 
-
 def get_n50_from_lengths(lengths):
     length_sorted = sorted(lengths, reverse=True)
     cum_sum = np.cumsum(length_sorted)
@@ -457,7 +456,6 @@ def get_n50_from_lengths(lengths):
     cum_sum_2 = min(cum_sum[cum_sum >= half])
     n50_idx = np.where(cum_sum == cum_sum_2)
     return length_sorted[int(n50_idx[0][0])]
-
 
 def parse_intervals(bed_f, target_sequences, target_samples):
     intervals_df = parse_csv(
@@ -503,7 +501,6 @@ def parse_intervals(bed_f, target_sequences, target_samples):
     intervals_df["length"] = intervals_df["end"] - intervals_df["start"]
     return intervals_df
 
-
 def bsfs_to_2d(bsfs):
     """Converts 4D bsfs to 2D array with counts, mutuples.
        Converts 5D bsfs to 2D array with window_idx, counts, mutuples.
@@ -536,7 +533,6 @@ def bsfs_to_2d(bsfs):
     else:
         raise ValueError("bsfs_to_2d: bsfs.ndim must be 4 (blocks) or 5 (windows)")
 
-
 def calculate_blocks_report_metrics(
     tally, sample_sets_count, block_length, intervals_span
 ):
@@ -565,9 +561,8 @@ def calculate_blocks_report_metrics(
         # BRM['heterozygosity_B'] = BRM['heterozygosity_A'] # this is how it was before...
         BRM["dxy"] = ((hetA + hetB + hetAB) / 2.0 + fixed) / effective_length
         mean_pi = (BRM["heterozygosity_A"] + BRM["heterozygosity_B"]) / 2.0
-        total_pi = (BRM["dxy"] + mean_pi) / 2.0
         BRM["fst"] = (
-            (BRM["dxy"] - mean_pi) / (BRM["dxy"] + mean_pi) if (total_pi) else "N/A"
+            (BRM["dxy"] - mean_pi) / (BRM["dxy"] + mean_pi) if (BRM["dxy"] + mean_pi) else "N/A"
         )
         total_segregating = np.sum(tally[:, 0, None] * tally[:, 1:])
         BRM["pi"] = (
@@ -582,7 +577,6 @@ def calculate_blocks_report_metrics(
         )
     return BRM
 
-
 def write_info_report(version, report, prefix):
     # OUTPUTLIB
     txt = ["# %s" % version, str(report)]
@@ -591,7 +585,6 @@ def write_info_report(version, report, prefix):
     with open(out_f, "w") as out_fh:
         out_fh.write("\n".join(txt) + "\n")
     return out_f
-
 
 def get_popgen_metrics(array, sites=0):
     """only works for mutypes=4
@@ -645,7 +638,6 @@ def check_unique_pos(pos_array):
         pos_array = fix_pos_array(pos_array)
     return pos_array
 
-
 def fix_pos_array(pos_array):
     """
     De-duplicates array by shifting values forward until there aren't any collisions
@@ -664,7 +656,6 @@ def fix_pos_array(pos_array):
     # if there are no duplicated values
     return pos_array
 
-
 def szudzik_pairing(folded_minor_allele_counts):
     # adapted from: https://drhagen.com/blog/superior-pairing-function/
     return np.where(
@@ -680,13 +671,11 @@ def szudzik_pairing(folded_minor_allele_counts):
         ),
     )
 
-
 def _harmonic(a, b):
     if b - a == 1:
         return fractions.Fraction(1, a)
     m = (a + b) // 2
     return _harmonic(a, m) + _harmonic(m, b)
-
 
 def harmonic(n):
     """https://fredrik-j.blogspot.com/2009/02/how-not-to-compute-harmonic-numbers.html"""
@@ -1168,7 +1157,7 @@ class Store(object):
         meta = self._get_meta(key)
         if meta:
             return key
-        print("[X] Label %r not found in store. Available labels:" % key)
+        print("[X] Label %r not found in store. Available labels:" % str(key))
         self.list_keys(key)
 
     def measure(self, genome_f=None, sample_f=None, bed_f=None, vcf_f=None):
@@ -2530,10 +2519,12 @@ class Store(object):
                     % (kwargs["optimize_label"],  kwargs['data_key']))
             self._del_data_and_meta(kwargs['optimize_key'])
         
-        # data should be partitioned into jobs immediately
+        # [ToDo] data should be partitioned into jobs immediately
+        # lib.optimize.get_agemo_nlopt_args()
         kwargs["block_length"] = data_meta["block_length"]
         if kwargs["data_source"] == "meas":
             data = [(0, self.data[kwargs["data_key"]]) if not kwargs['windowsum'] else (0, np.sum(self.data[kwargs["data_key"]], axis=0))]
+            
             kwargs["nlopt_chains"] = data_meta['windows'] if (data_meta['data_ndims'] == 5 and not kwargs['windowsum']) else 1 # blocks/windowsum => 1, windows => n
             kwargs["nlopt_runs"] = 1
         else:
@@ -2584,6 +2575,7 @@ class Store(object):
             'random': np.random.uniform(low=kwargs['nlopt_lower_bound'], high=kwargs['nlopt_upper_bound'])
         }
         kwargs['nlopt_start_point'] = startpoints[kwargs['start_point_method']]
+        kwargs['nlopt_seed'] = kwargs['seed']
         return (data, kwargs)
 
     def optimize(self, **kwargs):
@@ -2592,11 +2584,13 @@ class Store(object):
         print("[+] Building agemo evaluators ...")
         evaluator_agemo = self.get_agemo_evaluator(
             model=config['model'], 
-            kmax=config["kmax"])
+            kmax=config["kmax"],
+            seed=config["seed"])
         # fallback_evaluator gets created if IM
         fallback_evaluator_agemo=self.get_agemo_evaluator(
             model='DIV', 
-            kmax=config["kmax"]) if config['model'].startswith('IM') else None
+            kmax=config["kmax"],
+            seed=config["seed"]) if config['model'].startswith('IM') else None
         print("[+] Searching parameter space ...")
         for replicate_idx, dataset in data:
             optimize_instance_start_time = timer()
@@ -2668,15 +2662,10 @@ class Store(object):
         optimize_meta["optimize_results"] = []
         for windows_idx in range(optimize_result["dataset_count"]):
             result = optimize_result["nlopt_values_by_windows_idx"][windows_idx]
-            result["nlopt_iterations"] = optimize_result["nlopt_evals_by_windows_idx"][
-                windows_idx
-            ]
-            result["nlopt_exit_code"] = optimize_result["nlopt_status_by_windows_idx"][
-                windows_idx
-            ]
-            result["likelihood"] = optimize_result["nlopt_optimum_by_windows_idx"][
-                windows_idx
-            ]
+            result["nlopt_iterations"] = optimize_result["nlopt_evals_by_windows_idx"][windows_idx]
+            result["nlopt_exit_code"] = optimize_result["nlopt_status_by_windows_idx"][windows_idx]
+            result["likelihood"] = optimize_result["nlopt_optimum_by_windows_idx"][windows_idx]
+            result["anomaly_count"] = optimize_result["nlopt_anomalies_by_windows_idx"][windows_idx]
             result["nlopt_time"] = optimize_time
             optimize_meta["optimize_results"].append(result)
         self._set_meta_and_data(
@@ -2880,8 +2869,8 @@ class Store(object):
             if not overwrite:
                 sys.exit("[X] Grid with label %r already exist. Specify '-f' to overwrite." % makegrid_label)
             self._del_data_and_meta(makegrid_key)
-        def get_agemo_parameters(model, Ne_A, Ne_B, Ne_A_B, T, me, block_length, ref_pop, mu, kmax):
-            parameter_dicts = get_parameter_dicts_from_user_parameters(Ne_A=Ne_A, Ne_B=Ne_B, Ne_A_B=Ne_A_B, T=T, me=me)
+        parameter_dicts = get_parameter_dicts_from_user_parameters(Ne_A=Ne_A, Ne_B=Ne_B, Ne_A_B=Ne_A_B, T=T, me=me)
+        def get_agemo_parameters(parameter_dicts, model, block_length, ref_pop, mu, kmax):
             agemo_parameters = []
             for parameter_dict in parameter_dicts:
                 model_instance = GimbleDemographyInstance(
@@ -2897,7 +2886,7 @@ class Store(object):
                     kmax=kmax) 
                 agemo_parameters.append(model_instance.get_agemo_values(fallback=True))
             return agemo_parameters
-        agemo_parameters = get_agemo_parameters(model, Ne_A, Ne_B, Ne_A_B, T, me, block_length, ref_pop, mu, kmax)
+        agemo_parameters = get_agemo_parameters(parameter_dicts, model, block_length, ref_pop, mu, kmax)
         print(
             "[+] Grid of %s parameter-grid-points will be prepared..."
             % len(agemo_parameters)
@@ -2905,12 +2894,14 @@ class Store(object):
         print("[+] Agemo ...")
         evaluator_agemo = self.get_agemo_evaluator(
             model=model, 
-            kmax=kmax)
+            kmax=kmax,
+            seed=seed)
         # fallback_evaluator gets created if IM
         fallback_evaluator_agemo=self.get_agemo_evaluator(
             model='DIV', 
-            kmax=kmax) if model.startswith('IM') else None
-        grid = self.evaluate_grid(evaluator_agemo, agemo_parameters, processes=processes, fallback_evaluator=fallback_evaluator_agemo)
+            kmax=kmax,
+            seed=seed) if model.startswith('IM') else None
+        grid = self.evaluate_grid(evaluator_agemo, agemo_parameters, parameter_dicts, processes=processes, fallback_evaluator=fallback_evaluator_agemo)
         
         # ToDo:
         # remove grid_dict: is still required in gridsearch and query ... needs to be removed there
@@ -2950,7 +2941,7 @@ class Store(object):
             % grid_meta["makegrid_key"]
         )
 
-    def evaluate_grid(self, evaluator_agemo, agemo_parameters, processes=1, fallback_evaluator=None, verbose=False):
+    def evaluate_grid(self, evaluator_agemo, agemo_parameters, parameter_dicts, processes=1, fallback_evaluator=None, verbose=False, agemo_anomaly_tol=1e-5):
         if verbose:
             for parameter in agemo_parameters:
                 print(float(parameter[0]), [float(x) for x in parameter[1]], float(parameter[2]), parameter[3])
@@ -2960,7 +2951,7 @@ class Store(object):
             for agemo_parameter in tqdm(agemo_parameters, desc="[%] Progress", ncols=100):
                 theta_branch, var, time, fallback_flag = agemo_parameter
                 evaluator = evaluator_agemo if not fallback_flag else fallback_evaluator
-                result = evaluator.evaluate(theta_branch, var, time=time) 
+                result = evaluator.evaluate(theta_branch, var, time=time)
                 all_ETPs.append(result)
         else:
             global EVALUATOR
@@ -2970,6 +2961,16 @@ class Store(object):
             with multiprocessing.Pool(processes=processes) as pool:
                 for ETP in pool.starmap(self.multi_eval, tqdm(agemo_parameters, ncols=100, desc="[%] Progress")):
                     all_ETPs.append(ETP)
+        print("[+] Checking gridpoints for anomalies ...")
+        anomaly_count = 0
+        for idx, etps in enumerate(all_ETPs):
+            if (not np.isclose(np.sum(etps), 1, rtol=agemo_anomaly_tol)):
+                anomaly_count += 1
+                print("[-] Anomaly found: %s" % (", ".join(["%s=%s" % (k, v) for k, v in parameter_dicts[idx].items()])))
+        if anomaly_count:
+            print("[X] %s anomalies detected. Please consider changing the parameter space as this grid might behave strangely." % anomaly_count)
+        else:
+            print("[+] No anomalies found. All good.")
         return np.array(all_ETPs, dtype=np.float64)
 
     def multi_eval(self, theta_branch, var, time, fallback_flag):
@@ -2977,7 +2978,7 @@ class Store(object):
         evaluator = EVALUATOR if not fallback_flag else FALLBACK_EVALUATOR
         return evaluator.evaluate(theta_branch, var, time=time) 
 
-    def get_agemo_evaluator(self, model=None, kmax=None):
+    def get_agemo_evaluator(self, model=None, kmax=None, seed=None):
         mutation_shape = tuple(kmax + 2)
         if model == "DIV":
             sample_configuration = [(), ('a', 'a'), ('b', 'b')]
@@ -3006,13 +3007,13 @@ class Store(object):
         # - agemo : [hetA, hetB, fixed, hetAB]
         #       branchtype_dict = {'a': 0, 'abb': 0, 'b': 1, 'aab': 1, 'aa': 2, 'bb': 2, 'ab': 3} 
         # - gimble : [hetB, hetA, hetAB, fixed]
-        #       branchtype_dict = {'a': 1, 'abb': 1, 'b': 0, 'aab': 0, 'aa': 2, 'bb': 2, 'ab': 3}
+        #       branchtype_dict = {'a': 1, 'abb': 1, 'b': 0, 'aab': 0, 'aa': 3, 'bb': 3, 'ab': 2}
         branchtype_dict = {'a': 1, 'abb': 1, 'b': 0, 'aab': 0, 'aa': 3, 'bb': 3, 'ab': 2}
         branch_type_object = agemo.BranchTypeCounter(sample_configuration, branchtype_dict=branchtype_dict)
-        num_branchtypes = len(branch_type_object)
+        #num_branchtypes = len(branch_type_object)
         mutation_type_object = agemo.MutationTypeCounter(branch_type_object, mutation_shape)
         gf = agemo.GfMatrixObject(branch_type_object, events)
-        evaluator = agemo.BSFSEvaluator(gf, mutation_type_object)
+        evaluator = agemo.BSFSEvaluator(gf, mutation_type_object, seed=seed)
         return evaluator
 
     def _validate_seq_names(self, sequences=None):

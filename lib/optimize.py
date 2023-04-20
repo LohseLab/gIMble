@@ -10,6 +10,8 @@ import functools
 import copy
 from timeit import default_timer as timer
 from tqdm import tqdm
+import pandas as pd
+import collections
 
 def bsfs_to_2d(bsfs):
     '''needed for testing that tally-arrays and bsfs are identical'''
@@ -48,11 +50,10 @@ def poolcontext(*args, **kwargs):
     pool.terminate()     
 
 def get_nlopt_log_iteration_tuple(
-    windows_idx, iteration, block_length, likelihood, scaled_values_by_parameter, unscaled_values_by_parameter, windows_flag):
+    windows_idx, iteration, block_length, likelihood, scaled_values_by_parameter, unscaled_values_by_parameter, windows_flag, is_anomaly):
+    nlopt_log_iteration = [iteration, block_length, likelihood, is_anomaly]
     if windows_flag:
-        nlopt_log_iteration = [windows_idx, iteration, block_length, likelihood]
-    else:
-        nlopt_log_iteration = [iteration, block_length, likelihood]
+        nlopt_log_iteration = [windows_idx] + nlopt_log_iteration
     for parameter, scaled_value in scaled_values_by_parameter.items():
         if not parameter.startswith("theta"):
             nlopt_log_iteration.append(float(scaled_value)) 
@@ -62,8 +63,7 @@ def get_nlopt_log_iteration_tuple(
     return tuple(nlopt_log_iteration)
 
 def setup_nlopt_log(replicate_idx, config):
-    #nlopt_log_header = ['windows_idx', 'iteration', 'block_length', 'likelihood']
-    nlopt_log_header = ['iteration', 'block_length', 'likelihood']
+    nlopt_log_header = ['iteration', 'block_length', 'likelihood', 'anomaly']
     if config['nlopt_chains'] > 1: # multiple windows
         nlopt_log_header = ["windows_idx"] + nlopt_log_header
     nlopt_log_header += ['%s_scaled' % parameter for parameter in config['gimbleDemographyInstance'].order_of_parameters]
@@ -76,6 +76,7 @@ def setup_nlopt_log(replicate_idx, config):
 
 NLOPT_LOG_QUEUE = multiprocessing.Queue()
 NLOPT_LOG_ITERATIONS_MANAGER = multiprocessing.Manager()
+NLOPT_ANOMALY_COUNTS = collections.Counter()
 
 def nlopt_logger(nlopt_log_fn, nlopt_log_header, nlopt_log_iterations, nlopt_call_count):
     global NLOPT_LOG_QUEUE
@@ -98,7 +99,7 @@ def nlopt_logger(nlopt_log_fn, nlopt_log_header, nlopt_log_iterations, nlopt_cal
                     # log file
                     nlopt_log_fh.write("%s\n" % ",".join(map(str, msg[0])))
                     nlopt_log_fh.flush()
-                    # progress bar
+                    # progress bar values depend on nlopt_log_header (since they also should be written to log)
                     nlopt_log_iteration_values_by_key = {k: v for k, v in zip(nlopt_log_header, msg[0])}
                     #print('nlopt_log_iteration_values_by_key', nlopt_log_iteration_values_by_key)
                     pbar.write(format_nlopt_log_iteration_values(nlopt_log_iteration_values_by_key))
@@ -114,21 +115,19 @@ def format_nlopt_result(result_dict):
         boundary_collisions.append("%s (upper)" % ", ".join(result_dict['nlopt_upper_boundary_collision']))
     status_str = result_dict['nlopt_status']
     boundary_str = "--> [BOUNDARY_COLLISION] : %s" % ("; ".join(boundary_collisions)) if boundary_collisions else ""
-    if result_dict['windows_flag']:
-        windows_string = str(int(result_dict['windows_idx']))
-        return "[+] [COMPLETED] windows_idx=%s --------- [%s] %s" % (windows_string, status_str, boundary_str)
-    return "[+] [COMPLETED] --------- [%s] %s" % (status_str, boundary_str)
+    windows_str = "windows_idx=%s" % str(int(result_dict['windows_idx'])) if result_dict['windows_flag'] else ""
+    anomaly_str = "ANOMALIES=%s" % result_dict['anomaly_count']
+    return "[+] [COMPLETED] %s --------- [%s] [%s] %s" % (windows_str, status_str, anomaly_str, boundary_str)
 
 def format_nlopt_log_iteration_values(nlopt_log_iteration_values_by_key):
-    '''determines how log and screen prints work ... and i know ... this is a mess'''
+    '''determines how screen prints work... and i know... this is a mess... sorry.'''
     value_suffix = '_unscaled' # '_unscaled'
     iteration_str = str(int(nlopt_log_iteration_values_by_key['iteration'])).ljust(4)
     parameter_str = " ".join(["%s=%s" % (k.replace(value_suffix, ''), '{:.5e}'.format(float(v))) for k, v in nlopt_log_iteration_values_by_key.items() if k.endswith(value_suffix)])
-    likelihood_str = '{:.5f}'.format(float(nlopt_log_iteration_values_by_key['likelihood']))
-    if 'windows_idx' in nlopt_log_iteration_values_by_key:
-        windows_str = str(int(nlopt_log_iteration_values_by_key['windows_idx']))
-        return "[+] windows_idx=%s i=%s -- {%s} -- L=%s" % (windows_str, iteration_str, parameter_str, likelihood_str)
-    return "[+] i=%s -- {%s} -- L=%s" % (iteration_str, parameter_str, likelihood_str)
+    anomaly_str = "[ANOMALY]" if nlopt_log_iteration_values_by_key['anomaly'] else ""
+    likelihood_str = "%s %s" % ('{:.5f}'.format(float(nlopt_log_iteration_values_by_key['likelihood'])), anomaly_str)
+    windows_str = " windows_idx=%s" % str(int(nlopt_log_iteration_values_by_key['windows_idx'])) if 'windows_idx' in nlopt_log_iteration_values_by_key else ""
+    return "[+]%s i=%s -- {%s} -- L=%s" % (windows_str, iteration_str, parameter_str, likelihood_str)
 
 def get_agemo_nlopt_args(dataset, config):
     nlopt_params = {k: v for k, v in config.items() if k.startswith("nlopt")}
@@ -152,44 +151,44 @@ def agemo_calculate_composite_likelihood(ETPs, data):
     return np.sum(ETP_log * data)
 
 #def agemo_likelihood_function(nlopt_values, grad, gfEvaluatorObj, dataset, windows_idx, config, nlopt_iterations, verbose):
-def agemo_likelihood_function(nlopt_values, grad, gimbleDemographyInstance, dataset, windows_idx, config, nlopt_iterations, verbose):
+def agemo_likelihood_function(nlopt_values, grad, gimbleDemographyInstance, dataset, windows_idx, config, nlopt_iterations, verbose, nlopt_anomaly_tol=1e-5, nlopt_anomaly_skip=True):
     global NLOPT_LOG_QUEUE
+    global NLOPT_ANOMALY_COUNTS
     #print('[--------------------------------------------------------] nlopt_iterations', nlopt_iterations)
     nlopt_traceback = None
     nlopt_iterations[windows_idx] += 1
     nlopt_values_by_parameter = {parameter: value for parameter, value in zip(config['nlopt_parameters'], nlopt_values)}
-    #print('[+] nlopt_values_by_parameter', nlopt_values_by_parameter)
-    scaled_values_by_parameter, unscaled_values_by_parameter = gimbleDemographyInstance.scale_parameters(nlopt_values_by_parameter)
-    #print('[+] scaled_values_by_parameter', scaled_values_by_parameter)
-    #print('[+] unscaled_values_by_parameter', unscaled_values_by_parameter)
-    theta_branch, var, time, fallback_flag = gimbleDemographyInstance.get_agemo_values(scaled_values_by_parameter, fallback=True)
-    #print('[+] me=%s ; fallback=%s; EVALUATOR.evaluate(%s, np.array(%s), time=%s)' % (str(unscaled_values_by_parameter['me']), fallback_flag, str(theta_branch), str([v for v in var]), str(time)), end="")
-    evaluator = EVALUATOR if not fallback_flag else FALLBACK_EVALUATOR
-    #_var = str([str(x) for x in var])
-    ETPs = evaluator.evaluate(theta_branch, var, time=time)
-    #if ETPs[(ETPs[:,2] > 0) & (ETPs[:,3] > 0)] > 0:
-    #    df = pd.DataFrame(bsfs_to_2d(ETPs))
-    #    problematic = df.loc[(df[3] >= 1) & (df[4] >= 1)]
-    #    print(problematic.to_markdown())
-    ETP_sum = np.sum(ETPs)
-    #if not np.isclose(ETP_sum, 1, rtol=1e-05):
-    #    print('np.sum(ETPs)=%s fallback=%s scaled_values=%s' % (np.sum(ETPs), fallback_flag, scaled_values_by_parameter))
     windows_flag = False if config['nlopt_chains'] == 1 else True # for status bar/log
+    scaled_values_by_parameter, unscaled_values_by_parameter = gimbleDemographyInstance.scale_parameters(nlopt_values_by_parameter)
+    theta_branch, var, time, fallback_flag = gimbleDemographyInstance.get_agemo_values(scaled_values_by_parameter, fallback=True)
+    evaluator = EVALUATOR if not fallback_flag else FALLBACK_EVALUATOR
+    ETPs = evaluator.evaluate(theta_branch, var, time=time)
+    # df = pd.DataFrame(bsfs_to_2d(ETPs))
+    # problematic = df.loc[(df[3] >= 1) & (df[4] >= 1)]
+    # print(problematic.to_markdown())
+    #print('[+] np.sum(ETPs)=%s me=%s ; fallback=%s; EVALUATOR.evaluate(%s, np.array(%s), time=%s)' % (np.sum(ETPs), str(unscaled_values_by_parameter['me']), fallback_flag, str(theta_branch), str([v for v in var]), str(time)))
+    #print('[+] nlopt_values_by_parameter', nlopt_values_by_parameter)
+    #print('[+] scaled_values_by_parameter', scaled_values_by_parameter)
+    # print("[+] Fixing ETPs ...")
+    # ETPs[(ETPs[:,2] > 0) & (ETPs[:,3] > 0)] = 0
+    # print('\nnp.sum(ETPs)=%s' % np.sum(ETPs))
+    is_anomaly = (not np.isclose(np.sum(ETPs), 1, rtol=nlopt_anomaly_tol))
+    if is_anomaly:
+        NLOPT_ANOMALY_COUNTS[windows_idx] += 1
     try:
-        likelihood = agemo_calculate_composite_likelihood(ETPs, dataset)
+        likelihood = agemo_calculate_composite_likelihood(ETPs, dataset) if not (is_anomaly and nlopt_anomaly_skip) else -np.inf
     except Exception as exception:
-        windows_flag = False if config['nlopt_chains'] == 1 else True # for status bar/log
-        nlopt_log_iteration_tuple = get_nlopt_log_iteration_tuple(windows_idx, nlopt_iterations[windows_idx], gimbleDemographyInstance.block_length, likelihood, scaled_values_by_parameter, unscaled_values_by_parameter, windows_flag)
+        nlopt_log_iteration_tuple = get_nlopt_log_iteration_tuple(windows_idx, nlopt_iterations[windows_idx], gimbleDemographyInstance.block_length, likelihood, scaled_values_by_parameter, unscaled_values_by_parameter, windows_flag, is_anomaly)
         nlopt_traceback = traceback.format_exc(exception)
         NLOPT_LOG_QUEUE.put((nlopt_log_iteration_tuple, nlopt_traceback))
-    nlopt_log_iteration_tuple = get_nlopt_log_iteration_tuple(windows_idx, nlopt_iterations[windows_idx], gimbleDemographyInstance.block_length, likelihood, scaled_values_by_parameter, unscaled_values_by_parameter, windows_flag)
+    nlopt_log_iteration_tuple = get_nlopt_log_iteration_tuple(windows_idx, nlopt_iterations[windows_idx], gimbleDemographyInstance.block_length, likelihood, scaled_values_by_parameter, unscaled_values_by_parameter, windows_flag, is_anomaly)
     NLOPT_LOG_QUEUE.put((nlopt_log_iteration_tuple, nlopt_traceback))
     return likelihood
 
 def agemo_optimize(evaluator_agemo, replicate_idx, data, config, fallback_evaluator=None):
     global EVALUATOR
     global FALLBACK_EVALUATOR
-    np.set_printoptions(precision=19, suppress = True)
+    #np.set_printoptions(precision=19, suppress = True)
     EVALUATOR = evaluator_agemo
     FALLBACK_EVALUATOR = fallback_evaluator
     nlopt_runs = get_agemo_nlopt_args(data, config)
@@ -219,14 +218,17 @@ def agemo_optimize(evaluator_agemo, replicate_idx, data, config, fallback_evalua
 
 def agemo_nlopt_call(args):
     global NLOPT_LOG_QUEUE
+    global NLOPT_ANOMALY_COUNT
     NLOPT_ALGORITHMS = {
         'neldermead' : nlopt.LN_NELDERMEAD,
         'sbplx': nlopt.LN_SBPLX,
         'CRS2': nlopt.GN_CRS2_LM,}
 
     nlopt_params, windows_idx, agemo_likelihood_function, windows_flag = args
+    #print(nlopt_params)
     num_optimization_parameters = len(nlopt_params['nlopt_start_point'])
     nlopt_algorithm = NLOPT_ALGORITHMS[nlopt_params.get('nlopt_algorithm', 'CRS2')]
+    nlopt.srand(nlopt_params['nlopt_seed'])
     opt = nlopt.opt(nlopt_algorithm, num_optimization_parameters)
     opt.set_lower_bounds(nlopt_params['nlopt_lower_bound'])
     opt.set_upper_bounds(nlopt_params['nlopt_upper_bound'])
@@ -250,7 +252,8 @@ def agemo_nlopt_call(args):
         'nlopt_status': NLOPT_EXIT_CODE[opt.last_optimize_result()],
         'nlopt_lower_boundary_collision': [nlopt_params['nlopt_parameters'][i] for i, value in enumerate(optimum) if value == nlopt_params['nlopt_lower_bound'][i]],
         'nlopt_upper_boundary_collision': [nlopt_params['nlopt_parameters'][i] for i, value in enumerate(optimum) if value == nlopt_params['nlopt_upper_bound'][i]],
-        'windows_flag': windows_flag}
+        'windows_flag': windows_flag,
+        'anomaly_count': NLOPT_ANOMALY_COUNTS[windows_idx]}
     #print("nlopt_result", nlopt_result)
     NLOPT_LOG_QUEUE.put(nlopt_result)
     return nlopt_result
@@ -266,6 +269,7 @@ def get_agemo_optimize_result(config, nlopt_results, nlopt_log_header, nlopt_log
         'nlopt_optimum_by_windows_idx': {},
         'nlopt_evals_by_windows_idx': {},
         'nlopt_status_by_windows_idx': {},
+        'nlopt_anomalies_by_windows_idx': {},
         'nlopt_lower_boundary_collision_by_windows_idx': {},
         'nlopt_upper_boundary_collision_by_windows_idx': {},
         'windows_flag': windows_flag
@@ -280,22 +284,5 @@ def get_agemo_optimize_result(config, nlopt_results, nlopt_log_header, nlopt_log
         optimize_result['nlopt_status_by_windows_idx'][windows_idx] = nlopt_result['nlopt_status']
         optimize_result['nlopt_lower_boundary_collision_by_windows_idx'][windows_idx] = nlopt_result['nlopt_lower_boundary_collision']
         optimize_result['nlopt_upper_boundary_collision_by_windows_idx'][windows_idx] = nlopt_result['nlopt_upper_boundary_collision']
+        optimize_result['nlopt_anomalies_by_windows_idx'][windows_idx] = nlopt_result['anomaly_count']
     return optimize_result
-
-def fp_map(f, *args):
-    return f(*args)
-
-def calculate_probabilities(evaluator, modelObjs):
-    list_of_parameters_arrays = get_parameter_arrays(modelObjs)
-    print("[+] Calculating probabilities for %s points in parameter space" % len(scaled_parameter_combinations))
-    if processes==1:
-        for parameter_combination in tqdm(scaled_parameter_combinations, desc="[%]", ncols=100, disable=True):
-            result = gfEvaluatorObj.evaluate_gf(parameter_combination, parameter_combination[sage.all.SR.var('theta')]) 
-            all_ETPs.append(result)
-                
-    else:
-        args = ((param_combo, param_combo[sage.all.SR.var('theta')]) for param_combo in scaled_parameter_combinations)
-        with multiprocessing.Pool(processes=processes) as pool:
-            for ETP in pool.starmap(gfEvaluatorObj.evaluate_gf, tqdm(args, total=len(scaled_parameter_combinations), ncols=100, desc="[%]")):
-                all_ETPs.append(ETP)
-    return np.array(all_ETPs, dtype=np.float64)

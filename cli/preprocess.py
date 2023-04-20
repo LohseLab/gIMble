@@ -10,7 +10,7 @@ usage: gimble preprocess                 -f <f> -v <v> -b <b> [-g <g> -m <m> -M 
         -m, --min_depth=<m>              Min read depth [default: 8]
         -M, --max_depth=<M>              Max read depth (as multiple of mean coverage of each BAM) [default: 2]
         -t, --threads=<t>                Threads [default: 1]
-        -o, --outprefix<o>               Outprefix [default: gimble]
+        -o, --outprefix=<o>              Outprefix [default: gimble]
         -k, --keep_tmp                   Do not delete temporary files [default: False]
         -h, --help                       Show this
 """
@@ -291,6 +291,7 @@ def main(params):
     try:
         start_time = timer()
         args = docopt(__doc__)
+        print(args)
         parameterObj = PreprocessParameterObj(params, args)
         print("[+] Running 'gimble preprocess'...")
         preprocess(parameterObj)

@@ -73,7 +73,7 @@ installation_steps = """[========================= Missing dependencies ========
 def main(gimble_dir):
     try:
         start_time = timer()
-        __version__ = '1.0.0'
+        __version__ = '1.0.1'
         version = "gimble v%s" % __version__
         args = docopt(__doc__, version=version, options_first=True)
         if '--version' in args['<args>'] or '-V' in args['<args>']:

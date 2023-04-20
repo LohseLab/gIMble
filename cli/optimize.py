@@ -62,6 +62,12 @@ usage: gimble optimize                      -z <z> -l <l> -d <d> [-w]
         -h,--help                           show this
 """
 
+'''
+--keep_anomalies                    During NLOPT optimizations certain parameter combinations can yield anomalous 
+                                    behaviour of the likelihood function. By default, these likelihood-anomalies
+                                    are detected and set to -inf to avoid polluting the optimization. This option
+                                    will turn this behaviour off.  
+'''
 from timeit import default_timer as timer
 from docopt import docopt
 import lib.runargs
@@ -95,6 +101,7 @@ class OptimizeParameterObj(lib.runargs.RunArgs):
         self.max_iterations = self._get_int(args['--max_iterations'])
         self.xtol_rel = self._get_float(args['--xtol'])
         self.ftol_rel = self._get_float(args['--ftol'])
+        #self.keep_anomalies = args['--keep_anomalies']
 
     def _get_nlopt_algorithm_name(self, algorithm):
         ALGORITHMS = {'neldermead', 'sbplx', 'CRS2'}
