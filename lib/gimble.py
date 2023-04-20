@@ -2523,8 +2523,12 @@ class Store(object):
         # lib.optimize.get_agemo_nlopt_args()
         kwargs["block_length"] = data_meta["block_length"]
         if kwargs["data_source"] == "meas":
-            data = [(0, self.data[kwargs["data_key"]]) if not kwargs['windowsum'] else (0, np.sum(self.data[kwargs["data_key"]], axis=0))]
-            
+            # set FGVs to 0
+            fgv_idxs = get_fgv_idxs(np.array(data_meta['max_k']))
+            tally = self.data[kwargs["data_key"]] if not kwargs['windowsum'] else np.sum(self.data[kwargs["data_key"]], axis=0)
+            tally[fgv_idxs] = 0
+            data = [(0, tally)]
+            #data = [(0, self.data[kwargs["data_key"]]) if not kwargs['windowsum'] else (0, np.sum(self.data[kwargs["data_key"]], axis=0))]
             kwargs["nlopt_chains"] = data_meta['windows'] if (data_meta['data_ndims'] == 5 and not kwargs['windowsum']) else 1 # blocks/windowsum => 1, windows => n
             kwargs["nlopt_runs"] = 1
         else:
