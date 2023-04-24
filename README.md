@@ -9,19 +9,6 @@ gimble
 - [Usage](#usage)
 - [Workflow](#workflow)
 - [Gimble modules](#gimble-modules)
-  * [preprocess](#preprocess)
-    + [VCF processing details](#vcf-processing-details)
-    + [BAM processing details](#bam-processing-details)
-    + [Manually modify preprocessed files](#manually-modify-preprocessed-files)
-  * [parse](#parse)
-  * [blocks](#blocks)
-  * [windows](#windows)
-  * [info](#info)
-  * [tally](#tally)
-  * [optimize](#optimize)
-  * [makegrid](#makegrid)
-  * [gridsearch](#gridsearch)
-  * [simulate](#simulate)
 
 # Installation
 ```
@@ -75,6 +62,20 @@ usage: gimble <module> [<args>...] [-V -h]
 # Workflow
 
 # Gimble modules
+  * [preprocess](#preprocess)
+    + [VCF processing details](#vcf-processing-details)
+    + [BAM processing details](#bam-processing-details)
+    + [Manually modify preprocessed files](#manually-modify-preprocessed-files)
+  * [parse](#parse)
+  * [blocks](#blocks)
+  * [windows](#windows)
+  * [info](#info)
+  * [tally](#tally)
+  * [optimize](#optimize)
+  * [makegrid](#makegrid)
+  * [gridsearch](#gridsearch)
+  * [simulate](#simulate)
+
 
 ## preprocess
 
