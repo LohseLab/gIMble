@@ -4,7 +4,6 @@ gimble
 [![DOI](https://zenodo.org/badge/176883840.svg)](https://zenodo.org/badge/latestdoi/176883840)
 
 # Installation
-------------
 ```
 0. clone repository
 >>> git clone https://github.com/DRL/gimble.git
@@ -25,8 +24,6 @@ gimble
 ```
 
 # Usage
------
-
 ```
 usage: gimble <module> [<args>...] [-V -h]
 
@@ -60,9 +57,7 @@ usage: gimble <module> [<args>...] [-V -h]
 ```
 
 # Workflow
-
-#### 0. `gimble preprocess`
---------------
+## 0. `gimble preprocess`
 
 A. generates **genome file** (sequence_id, length) based on FASTA file
 
@@ -100,7 +95,7 @@ F. logs all executed commands
 `gimble.log.txt`                # F)
 ```
 
-#### 0.1 Modify input files (manually)
+### 0.1 Modify input files (manually)
 --------------
 + `gimble.genomefile`:
     + [OPTIONAL] remove sequence IDs to ignore them in the analyses
@@ -113,14 +108,14 @@ F. logs all executed commands
     bedtools intersect -a gimble.bed -b my_intergenic_regions.bed > gimble.intergenic.bed
     ``` 
 
-#### 1. `gimble parse`
+## 1. `gimble parse`
 --------------
 + will parse input data into GimbleStore 
 ```
 ./gimble parse -v gimble.vcf.gz -b gimble.intergenic.bed -g gimble.genomefile -s gimble.samples.csv -o analysis
 ```
 
-#### 2. `gimble blocks`
+## 2. `gimble blocks`
 --------------
 + infers bSFs for a given block length `'-l'` 
 + block span (`end - start`) can be adjusted (default is `2 * '-l'`)
@@ -128,21 +123,21 @@ F. logs all executed commands
 ./gimble blocks -z analysis.z -l 64
 ```
 
-#### 3. `gimble windows`
+## 3. `gimble windows`
 --------------
 + constructs windows of blocks along the genome
 ```
 ./gimble windows -z analysis.z -w 500 -s 100 -z analysis.z
 ```
 
-#### 4. `gimble info`
+## 4. `gimble info`
 --------------
 + lists basic metrics about the GimbleStore
 ```
 ./gimble info -z analysis.z
 ```
 
-#### 5. `gimble tally`
+## 5. `gimble tally`
 --------------
 + tallies variation in blocks
 + parameter k-max, max count per mutation type beyond which counts are treated 
@@ -152,19 +147,19 @@ F. logs all executed commands
 ./gimble tally -z analysis.z -k 2,2,2,2 -l windows_kmax2 -t windows
 ```
 
-#### 6. `gimble optimize`
+## 6. `gimble optimize`
 ------------
 + Searches parameter space for a tally or simulation under a given model
 
-#### 7. `gimble makegrid`
+## 7. `gimble makegrid`
 ------------
 + Computes a grid of parameter combinations for a list of parameters under a given model
 
-#### 8. `gimble gridsearch`
+## 8. `gimble gridsearch`
 --------------
 + Searches a tally or simulation against a grid made with makegrid
 
-#### 9. `gimble simulate`
+## 9. `gimble simulate`
 ------------
 + Simulates tallies based on fixed parameters under a model
 + Simulates tallies based on results of gridsearches
