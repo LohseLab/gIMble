@@ -100,7 +100,7 @@ the module produces the following output files:
 - **gimble BED file** (see [BAM processing details](#bam-processing-details))
 - log of executed commands
 
-After running, output files require manual user input. See [Manually modify files](#manually-modify-preprocessed-files))
+After running, output files require manual user input (see [Manually modify files](#manually-modify-preprocessed-files))
 
 ---
 
