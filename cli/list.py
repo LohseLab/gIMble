@@ -1,4 +1,5 @@
-"""usage: gimble list                  -z <z> [-m <m>] [-h]
+"""
+usage: gimble list                  -z <z> [-m <m>] [-h]
 
     [Options]
         -z, --zarr=<z>                   Prefix to use for GimbleStore
