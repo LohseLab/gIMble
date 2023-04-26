@@ -68,7 +68,7 @@ def setup_nlopt_log(replicate_idx, config):
         nlopt_log_header = ["windows_idx"] + nlopt_log_header
     nlopt_log_header += ['%s_scaled' % parameter for parameter in config['gimbleDemographyInstance'].order_of_parameters]
     nlopt_log_header += ['%s_unscaled' % parameter for parameter in config['gimbleDemographyInstance'].order_of_parameters]
-    nlopt_log_fn = "gimble.optimize.%s.%s.%s.log" % (config['optimize_label'], replicate_idx, datetime.datetime.now().strftime("%Y%m%d_%H%M%S"))
+    nlopt_log_fn = "%s.%s.%s.log" % (config['nlopt_log_prefix'], replicate_idx, datetime.datetime.now().strftime("%Y%m%d_%H%M%S"))
     print("[+] Trajectories of optimization(s) are written to %r" % nlopt_log_fn)
     with open(nlopt_log_fn, 'w') as nlopt_log_fh:
         nlopt_log_fh.write("%s\n" % ",".join(nlopt_log_header)), nlopt_log_fh.flush()

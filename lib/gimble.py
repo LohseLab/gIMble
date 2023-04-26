@@ -26,6 +26,8 @@ from timeit import default_timer as timer
 import agemo
 import lib.optimize
 import msprime
+import pkg_resources
+
 # np.set_printoptions(threshold=sys.maxsize)
 #from lib.GeneratingFunction.gf import togimble
 
@@ -43,7 +45,8 @@ RECOMBINATION_SCALER = 1e-8
 MUTYPES = ["m_1", "m_2", "m_3", "m_4"]
 SPACING = 16
 GRIDSEARCH_DTYPE = np.float32  # -3.4028235e+38 ... 3.4028235e+38
-
+AGEMO_VERSION = pkg_resources.get_distribution("agemo").version
+MIN_AGEMO_VERSION = '0.0.2'
 # GRIDSEARCH_DTYPE=np.float64 # -1.7976931348623157e+308 ... 1.7976931348623157e+308
 ###
 
@@ -69,6 +72,7 @@ def poolcontext(*args, **kwargs):
     pool.terminate()
 
 def get_fgv_idxs(kmax):
+    # DOES NOT WORK FOR ndim=4 (only for ndim=(5 or 6)) !!! needs to be extended!
     # - get indices of FGVs (hetAB>0 & fixed>0) in bsfs based on kmax
     # - assumes kmax := np.array([hetB, hetA, hetAB, fixed])
     # - used for setting FGVs in data bsfs to 0 
@@ -1504,27 +1508,30 @@ class Store(object):
     def windows(self, window_size=500, window_step=100, overwrite=False):
         config = self._preflight_windows(window_size, window_step, overwrite)
         config = self._make_windows(config)
-        meta = {
-            "window_size": config["window_size"],
-            "window_step": config["window_step"],
-            "sample_sets": config["sample_sets"],
-            "windows_key": config["windows_key"],
-            "window_count": config["window_count"],
-        }
-        self._set_meta(config["windows_key"], meta=meta)
-        meta["windows_raw_tally_key"] = self.tally(
-            "windows",
-            "windows_raw",
-            None,
-            "X",
-            None,
-            None,
-            overwrite=True,
-            verbose=False,
-            tally_form='tally'
-        )
-        # meta['windowsum_raw_tally_key'] = self.tally('windows', 'windowsum_raw', None, 'X', None, None, overwrite=True, verbose=False)
-        self._set_meta(config["windows_key"], meta=meta)
+        if config["window_count"] == 0:
+            sys.exit("[X] No windows could be made.")
+        else:
+            meta = {
+                "window_size": config["window_size"],
+                "window_step": config["window_step"],
+                "sample_sets": config["sample_sets"],
+                "windows_key": config["windows_key"],
+                "window_count": config["window_count"],
+            }
+            self._set_meta(config["windows_key"], meta=meta)
+            meta["windows_raw_tally_key"] = self.tally(
+                "windows",
+                "windows_raw",
+                None,
+                "X",
+                None,
+                None,
+                overwrite=True,
+                verbose=False,
+                tally_form='tally'
+            )
+            # meta['windowsum_raw_tally_key'] = self.tally('windows', 'windowsum_raw', None, 'X', None, None, overwrite=True, verbose=False)
+            self._set_meta(config["windows_key"], meta=meta)
 
     def _preflight_simulate(self, kwargs):
         kwargs["simulate_key"] = "simulate/%s" % kwargs["simulate_label"]
@@ -2394,6 +2401,11 @@ class Store(object):
         if config["data_source"] == "sims":
             data = [(replicate_idx, tally) if not windowsum else (replicate_idx, np.sum(tally, axis=0)) for replicate_idx, tally in self.data[config["data_key"]].arrays()]
         else:
+            # set FGVs to 0 (needs to be fixed for blocks, not important since FGVs don't come out of agemo unless anomaly)
+            # fgv_idxs = get_fgv_idxs(np.array(data_meta['max_k']))
+            # tally = self.data[config["data_key"]] if not windowsum else np.sum(self.data[config["data_key"]], axis=0)
+            # tally[fgv_idxs] = 0
+            # data = [(0, tally)]
             data = [(0, self.data[config["data_key"]]) if not windowsum else (0, np.sum(self.data[config["data_key"]], axis=0))]
         #if sim_key:
         #    sim_meta = self._get_meta(sim_key)
@@ -2523,8 +2535,12 @@ class Store(object):
         # lib.optimize.get_agemo_nlopt_args()
         kwargs["block_length"] = data_meta["block_length"]
         if kwargs["data_source"] == "meas":
+            # set FGVs to 0 (needs to be fixed for blocks, not important since FGVs don't come out of agemo unless anomaly)
+            # fgv_idxs = get_fgv_idxs(np.array(data_meta['max_k']))
+            # tally = self.data[kwargs["data_key"]] if not kwargs['windowsum'] else np.sum(self.data[kwargs["data_key"]], axis=0)
+            # tally[fgv_idxs] = 0
+            # data = [(0, tally)]
             data = [(0, self.data[kwargs["data_key"]]) if not kwargs['windowsum'] else (0, np.sum(self.data[kwargs["data_key"]], axis=0))]
-            
             kwargs["nlopt_chains"] = data_meta['windows'] if (data_meta['data_ndims'] == 5 and not kwargs['windowsum']) else 1 # blocks/windowsum => 1, windows => n
             kwargs["nlopt_runs"] = 1
         else:
@@ -2576,6 +2592,7 @@ class Store(object):
         }
         kwargs['nlopt_start_point'] = startpoints[kwargs['start_point_method']]
         kwargs['nlopt_seed'] = kwargs['seed']
+        kwargs['nlopt_log_prefix'] = "%s.%s" % (self.prefix, kwargs['optimize_key'].replace("/", "_"))
         return (data, kwargs)
 
     def optimize(self, **kwargs):
@@ -2891,16 +2908,19 @@ class Store(object):
             "[+] Grid of %s parameter-grid-points will be prepared..."
             % len(agemo_parameters)
         )
-        print("[+] Agemo ...")
-        evaluator_agemo = self.get_agemo_evaluator(
-            model=model, 
-            kmax=kmax,
-            seed=seed)
-        # fallback_evaluator gets created if IM
-        fallback_evaluator_agemo=self.get_agemo_evaluator(
-            model='DIV', 
-            kmax=kmax,
-            seed=seed) if model.startswith('IM') else None
+        print("[+] Using 'agemo v%s'" % (AGEMO_VERSION))
+        try:
+            evaluator_agemo = self.get_agemo_evaluator(
+                model=model, 
+                kmax=kmax,
+                seed=seed)
+            # fallback_evaluator gets created if IM
+            fallback_evaluator_agemo=self.get_agemo_evaluator(
+                model='DIV', 
+                kmax=kmax,
+                seed=seed) if model.startswith('IM') else None
+        except TypeError:
+            sys.exit("[X] Agemo version is outdated. Please upgrade to 'agemo v%s'\n\tpip install agemo -U" % MIN_AGEMO_VERSION)
         grid = self.evaluate_grid(evaluator_agemo, agemo_parameters, parameter_dicts, processes=processes, fallback_evaluator=fallback_evaluator_agemo)
         
         # ToDo:
@@ -2946,7 +2966,7 @@ class Store(object):
             for parameter in agemo_parameters:
                 print(float(parameter[0]), [float(x) for x in parameter[1]], float(parameter[2]), parameter[3])
         all_ETPs = []
-        print("[+] Calculating probabilities of mutation configurations for %s gridpoints" % len(agemo_parameters))
+        print("[+] Calculating probabilities of mutation configurations under %s parameter combinations" % len(agemo_parameters))
         if processes==1:
             for agemo_parameter in tqdm(agemo_parameters, desc="[%] Progress", ncols=100):
                 theta_branch, var, time, fallback_flag = agemo_parameter
@@ -2961,7 +2981,7 @@ class Store(object):
             with multiprocessing.Pool(processes=processes) as pool:
                 for ETP in pool.starmap(self.multi_eval, tqdm(agemo_parameters, ncols=100, desc="[%] Progress")):
                     all_ETPs.append(ETP)
-        print("[+] Checking gridpoints for anomalies ...")
+        print("[+] Checking probabilities for anomalies ...")
         anomaly_count = 0
         for idx, etps in enumerate(all_ETPs):
             if (not np.isclose(np.sum(etps), 1, rtol=agemo_anomaly_tol)):
@@ -2970,7 +2990,7 @@ class Store(object):
         if anomaly_count:
             print("[X] %s anomalies detected. Please consider changing the parameter space as this grid might behave strangely." % anomaly_count)
         else:
-            print("[+] No anomalies found. All good.")
+            print("[+] No anomalies found. All is well.")
         return np.array(all_ETPs, dtype=np.float64)
 
     def multi_eval(self, theta_branch, var, time, fallback_flag):
@@ -3464,7 +3484,9 @@ class Store(object):
         )
         blockable_seqs, unblockable_seqs = [], []
         for seq_name in meta_seqs["seq_names"]:
-            if meta_blocks["count_by_sequence"][seq_name] >= config["window_size"]:
+            # problem here is that meta_blocks["count_by_sequence"] contains ALL blocks ... 
+            # should contain only blocks from inter-pop sample-sets
+            if meta_blocks["count_by_sequence"].get(seq_name, 0) >= config["window_size"]:
                 blockable_seqs.append(seq_name)
             else:
                 unblockable_seqs.append(seq_name)
@@ -3480,48 +3502,49 @@ class Store(object):
         for seq_name in tqdm(
             blockable_seqs, total=len(blockable_seqs), desc="[%] Progress", ncols=100,
         ):
-            block_variation = self._get_variation(
-                data_type="blocks",
-                sample_sets=config["sample_sets"],
-                sequences=[seq_name],
-            )
-            block_starts, block_ends = self._get_block_coordinates(
-                sample_sets=config["sample_sets"], sequences=[seq_name]
-            )
             block_sample_set_idxs = self._get_block_sample_set_idxs(
                 sample_sets=config["sample_sets"], sequences=[seq_name]
             )
-            windows = blocks_to_windows(
-                sample_set_idxs,
-                block_variation,
-                block_starts,
-                block_ends,
-                block_sample_set_idxs,
-                config["window_size"],
-                config["window_step"],
-            )
-            (
-                window_variation,
-                window_starts,
-                window_ends,
-                window_pos_mean,
-                window_pos_median,
-                balance,
-                mse_sample_set_cov,
-            ) = windows
-            config["window_count"] += self._set_windows(
-                seq_name,
-                window_variation,
-                window_starts,
-                window_ends,
-                window_pos_mean,
-                window_pos_median,
-                balance,
-                mse_sample_set_cov,
-            )
+            if block_sample_set_idxs.size >= config["window_size"]:
+
+                block_variation = self._get_variation(
+                    data_type="blocks",
+                    sample_sets=config["sample_sets"],
+                    sequences=[seq_name],
+                )
+                block_starts, block_ends = self._get_block_coordinates(
+                    sample_sets=config["sample_sets"], sequences=[seq_name]
+                )
+                windows = blocks_to_windows(
+                    sample_set_idxs,
+                    block_variation,
+                    block_starts,
+                    block_ends,
+                    block_sample_set_idxs,
+                    config["window_size"],
+                    config["window_step"],
+                )
+                (
+                    window_variation,
+                    window_starts,
+                    window_ends,
+                    window_pos_mean,
+                    window_pos_median,
+                    balance,
+                    mse_sample_set_cov,
+                ) = windows
+                config["window_count"] += self._set_windows(
+                    seq_name,
+                    window_variation,
+                    window_starts,
+                    window_ends,
+                    window_pos_mean,
+                    window_pos_median,
+                    balance,
+                    mse_sample_set_cov,
+                )
         print(
-            "[+] Made %s window(s). Saving results ..."
-            % format_count(config["window_count"])
+            "[+] Made %s window(s)." % format_count(config["window_count"])
         )
         return config
 

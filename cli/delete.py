@@ -1,4 +1,5 @@
-"""usage: gimble delete                  -z <z> -d <d> [-h]
+"""
+usage: gimble delete                  -z <z> -d <d> [-h]
 
     [Options]
         -z, --zarr=<z>                   Prefix to use for GimbleStore
