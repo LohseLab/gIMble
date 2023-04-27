@@ -1,9 +1,7 @@
 """
 usage: gimble gridsearch               -z <z> -g <g> -d <d> [-w] [-p <p> -c <c> -f] [-h|--help]
-                                                                                    
-                                            
-    Options:
-        
+                                                                                                                   
+    [Options]
         -z, --zarr_file=<z>            Path to existing GimbleStore
         -g, --grid_key=<g>             Makegrid key run in GimbleStore
         -d, --data_key=<d>             Dataset key ('tally/...' or 'simulate/...')
