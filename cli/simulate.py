@@ -1,7 +1,7 @@
 """
 usage: gimble simulate                          (-z <z> | -o <o>) (-s <s>) (-a <a> -b <b>)
                                                 [-r <r> -w <w> -n <n> -l <l>] [-k <k>] [--continuous_genome]
-                                                ((-m <m> -A <A> -B <B> -C <C> -T <T> -M <M> -u <u>) | (-g <g> [-t <t>]))
+                                                ((-m <m> -A <A> -B <B> [-C <C> -T <T> -M <M>] -u <u>) | (-g <g> [-t <t>]))
                                                 [--rec_rate <rate> | --rec_map <bed>]
                                                 [-e <e> -p <p> -f] [-h|--help]
                                             
@@ -15,10 +15,12 @@ usage: gimble simulate                          (-z <z> | -o <o>) (-s <s>) (-a <
 
     [Simulation]                                
         -a, --samples_A=<a>                     Number of diploid individuals in population A 
-        -b, --samples_B=<a>                     Number of diploid individuals in population B 
+        -b, --samples_B=<b>                     Number of diploid individuals in population B 
         -r, --replicates=<r>                    Number of replicates [default: 1]
         -w, --windows=<w>                       Number of windows per replicate [default: 1]
-        -n, --blocks=<n>                        Number of blocks per window [default: 1]
+        -n, --blocks=<n>                        Number of blocks per window 
+                                                    n blocks will yield n*(a*b) pair-blocks
+                                                    [default: 1]
         -l, --block_length=<l>                  Number of sites per block [default: 64]
         --continuous_genome                     By default, mutations are simulated under a finite-site 
                                                 mutation model. Use this option to use an infinite-site 
