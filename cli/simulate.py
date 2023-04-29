@@ -1,7 +1,7 @@
 """
 usage: gimble simulate                          (-z <z> | -o <o>) (-s <s>) (-a <a> -b <b>)
-                                                [-r <r> -w <w> -n <n> -l <l>] [-k <k>] [--continuous_genome]
-                                                ((-m <m> -A <A> -B <B> [-C <C> -T <T> -M <M>] -u <u>) | (-g <g> [-t <t>]))
+                                                [-r <r> -w <w> -n <n> -l <l>] [-u <u> -k <k>] [--continuous_genome]
+                                                ((-m <m> -A <A> -B <B> [-C <C> -T <T> -M <M>]) | (-g <g> [-t <t>]))
                                                 [--rec_rate <rate> | --rec_map <bed>]
                                                 [-e <e> -p <p> -f] [-h|--help]
                                             
@@ -25,6 +25,7 @@ usage: gimble simulate                          (-z <z> | -o <o>) (-s <s>) (-a <
         --continuous_genome                     By default, mutations are simulated under a finite-site 
                                                 mutation model. Use this option to use an infinite-site 
                                                 mutation model [default: False]
+        -u, --mu=<u>                            Mutation rate (in mutations/site/generation)
         -k, --kmax=<k>                          Max count per mutation type beyond which counts 
                                                 are treated as marginals. Order of mutation 
                                                 types is (hetB, hetA, hetAB, fixed)
@@ -40,7 +41,6 @@ usage: gimble simulate                          (-z <z> | -o <o>) (-s <s>) (-a <
                                                 **backwards** in time with direction determined by model name: 
                                                 - MIG_AB and IM_AB: A->B 
                                                 - MIG_BA and IM_BA: B->A
-        -u, --mu=<u>                            Mutation rate (in mutations/site/generation)
 
     [Gridsearch based simulation]
         -g, --gridsearch_key=<g>                Key of gridsearch stored in gimble store ('gridsearch/...'). 
