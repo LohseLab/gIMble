@@ -1,6 +1,6 @@
 """
 usage: gimble simulate                          (-z <z> | -o <o>) (-s <s>) (-a <a> -b <b>)
-                                                [-r <r> -w <w> -n <n> -l <l>] [-u <u> -k <k>] [--continuous_genome]
+                                                [-r <r> -w <w> -n <n> -l <l>] -u <u> [-k <k>] [--continuous_genome]
                                                 ((-m <m> -A <A> -B <B> [-C <C> -T <T> -M <M>]) | (-g <g> [-t <t>]))
                                                 [--rec_rate <rate> | --rec_map <bed>]
                                                 [-e <e> -p <p> -f] [-h|--help]
