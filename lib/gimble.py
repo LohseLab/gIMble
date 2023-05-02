@@ -1714,6 +1714,7 @@ class Store(object):
             self._write_window_bed(config)
         elif config["data_type"] == "gridsearch":
             self._write_gridsearch_results(config)
+            #self._write_gridsearch_results_old(config)
         elif config["data_type"] == "makegrid":
             self._write_makegrid(config)
         elif config["data_type"] == "simulate":
@@ -2274,12 +2275,153 @@ class Store(object):
                 print("[+] \tWrote %s ..." % lncls_max_out_f)
 
     def _write_gridsearch_results(self, config):
+        tally_key = config["data_key"] 
         meta_gridsearch = self._get_meta(config["data_key"])
-        if meta_gridsearch['data_source'] == 'sims':
-            self._write_gridsearch_results_sims(config)
         meta_makegrid = self._get_meta(meta_gridsearch["makegrid_key"])
         meta_tally = self._get_meta(meta_gridsearch["data_key"])
-        data_ndims = meta_tally.get("data_ndims", None)
+        data_ndims = meta_gridsearch.get("data_ndims", None)
+        tally_ndims = meta_tally.get("data_ndims", None)
+        data_source = meta_gridsearch.get("data_source", None)
+        if not all([data_ndims, data_source]):
+            # check whether these fields are set
+            sys.exit("[X] The gridsearch result was made with an old version of gIMble. Please re-do the gridsearch.")
+        parameter_names = list(meta_gridsearch["grid_dict"].keys())
+        parameter_array = np.array([np.array(v, dtype=np.float64) for k, v in meta_gridsearch["grid_dict"].items()]).T
+        parameter_columns = parameter_names + ["lnCl"]
+        columns = []
+        header = ["# %s" % config["version"]]
+        if config["sliced_param"]:
+            indices_by_sliced_param_value = self._get_indices_by_sliced_param_value(config, parameter_names, parameter_array)     
+        if config["fixed_param"]:
+            fixed_param_index = self._get_fixed_param_index(config["fixed_param"], parameter_names, parameter_array, meta_makegrid)
+        # prepare base_df (on which the remaining part of query gets concatenated onto)
+        if data_ndims == 4:
+            if data_source == 'meas':
+                if tally_ndims == 5: # windows.windowsum
+                    columns = ["tally_key", "total_windows_count", "total_blocks_count", 'block_length']
+                    base_df = pd.DataFrame({
+                        'tally_key': [tally_key],
+                        'total_windows_count': [meta_tally['windows']],
+                        'total_blocks_count': [meta_tally['blocks']],
+                        'block_length': [meta_tally['block_length']],
+                        })
+                if tally_ndims == 4: # blocks
+                    columns = ["tally_key", 'total_blocks_count', 'block_length'] 
+                    base_df = pd.DataFrame({
+                        'tally_key': [tally_key],
+                        'total_blocks_count': [meta_tally['blocks']],
+                        'block_length': [meta_tally['block_length']],
+                        })
+            if data_source == 'sims': # simulate.windowsum
+                windows_count = meta_tally['windows']
+                row_count = 1
+                columns = ["replicate_idx", "total_windows_count", 'total_blocks_count', 'block_length'] 
+                replicate_count = meta_tally['replicates']
+                base_df = pd.DataFrame({
+                        'replicate_idx': np.zeros(row_count),
+                        'total_windows_count': np.repeat(meta_tally['windows'], row_count),
+                        'total_blocks_count': np.repeat(meta_tally['blocks'], row_count),
+                        'block_length': np.repeat(meta_tally['block_length'], row_count)
+                        })
+        if data_ndims == 5:
+            windows_count = meta_tally['windows']
+            row_count = windows_count
+            window_idx_array = np.arange(windows_count)
+            if data_source == 'meas': # windows
+                columns = ["sequence", "start", "end", "window_idx"]
+                sequence_array, start_array, end_array, index_array = self._get_window_bed_columns()
+                base_df = pd.DataFrame({
+                    'sequence': sequence_array,
+                    'start': start_array,
+                    'end': end_array,
+                    'window_idx': index_array})
+            if data_source == 'sims': # simulate
+                columns = ["window_idx", "recombination_rate"]
+                recombination_rate_array = np.array(meta_tally['recombination_rate'])
+                base_df = pd.DataFrame({
+                    'replicate_idx': np.zeros(row_count), 
+                    'window_idx': window_idx_array,
+                    'recombination_rate': recombination_rate_array})
+        # sort out query
+        for replicate_idx, gridsearch_key in enumerate(meta_gridsearch["gridsearch_keys"]):
+            base_fn = "%s.%s" % (self.prefix, "_".join(gridsearch_key.split("/")))
+            lncls = np.array(self._get_data(gridsearch_key))  # (w, gridpoints)
+            if data_source == 'sims':
+                base_df['replicate_idx'] = np.repeat(replicate_idx, row_count)
+            if config["sliced_param"]:
+                def _get_sliced_df(lncls, indices_by_sliced_param_value):
+                    sliced_columns = list(indices_by_sliced_param_value.keys())
+                    sliced_lncls = np.zeros((lncls.shape[0], len(sliced_columns)))
+                    for sliced_param_idx, (sliced_param_value, sliced_param_indices) in enumerate(indices_by_sliced_param_value.items()):
+                        sliced_lncls[:, sliced_param_idx] = np.max(lncls[:, sliced_param_indices], axis=-1)
+                    sliced_df = pd.DataFrame(data=np.vstack([sliced_lncls.T]).T, columns=sliced_columns)
+                    return sliced_df
+                sliced_fn = "%s.sliced_param.%s.bed" % (base_fn, config["sliced_param"])
+                sliced_df = pd.concat([base_df, _get_sliced_df(lncls, indices_by_sliced_param_value)], axis=1)
+                with open(sliced_fn, "w") as sliced_fh:
+                    sliced_header = header + ["# %s" % "\t".join(list(sliced_df.columns))]
+                    sliced_fh.write("\n".join(sliced_header) + "\n")
+                sliced_df.to_csv(sliced_fn, na_rep="NA", mode="a", sep="\t", index=False, header=False)
+                print("[+] \tWrote %r" % sliced_fn)
+            if config["fixed_param"]:
+                def _get_fixed_df(lncls, parameter_columns, fixed_param_index):
+                    lncls_fixed = lncls[:,fixed_param_index]
+                    lncls_fixed_max_idx = np.argmax(lncls_fixed, axis=1)
+                    lncls_fixed_max = lncls_fixed[np.arange(lncls_fixed.shape[0]), lncls_fixed_max_idx]
+                    lncls_fixed_max_parameters = parameter_array[fixed_param_index][lncls_fixed_max_idx]
+                    fixed_df = pd.DataFrame(
+                        data=np.vstack([
+                            lncls_fixed_max_parameters.T, 
+                            lncls_fixed_max]).T, columns=parameter_columns)
+                    return fixed_df
+                fixed_fn = "%s.fixed_param.%s.bed" % (base_fn, ".".join(["%s_%s" % (param, str(value).replace(".", "_")) for param, value in config["fixed_param"].items()]))
+                fixed_df = pd.concat([base_df, _get_fixed_df(lncls, parameter_columns, fixed_param_index)], axis=1)
+                with open(fixed_fn, "w") as fixed_fh:
+                    fixed_header = header + ["# --fixed_param %s" % ",".join(["%s=%s" % (param, value) for param, value in config["fixed_param"].items()])] + ["# %s" % "\t".join(list(fixed_df.columns))]
+                    fixed_fh.write("\n".join(fixed_header) + "\n")
+                fixed_df.to_csv(
+                    fixed_fn,
+                    na_rep="NA",
+                    mode="a",
+                    sep="\t",
+                    index=False,
+                    header=False,
+                )
+                print("[+] \tWrote %r" % fixed_fn)
+            def _get_lncls_max_df(lncls, parameter_array):  
+                lncls_max_idx = np.argmax(lncls, axis=1)
+                lncls_max = lncls[np.arange(lncls.shape[0]), lncls_max_idx]
+                lncls_max_parameters = parameter_array[lncls_max_idx]
+                lncls_max_df = pd.DataFrame(
+                    data=np.vstack([
+                        lncls_max_parameters.T, 
+                        lncls_max]).T, columns=parameter_columns)
+                return lncls_max_df
+            lncls_max_fn = "%s.best.bed" % base_fn
+            lncls_max_df = pd.concat([base_df, _get_lncls_max_df(lncls, parameter_array)], axis=1)
+            with open(lncls_max_fn, "w") as lncls_max_fh:
+                lncls_max_header = header + ["# %s" % "\t".join(list(lncls_max_df.columns))]
+                lncls_max_fh.write("\n".join(lncls_max_header) + "\n")
+            lncls_max_df.to_csv(
+                lncls_max_fn,
+                na_rep="NA",
+                mode="a",
+                sep="\t",
+                index=False,
+                header=False,
+            )
+            print("[+] \tWrote %r" % lncls_max_fn)
+
+    def _write_gridsearch_results_old(self, config):
+        meta_gridsearch = self._get_meta(config["data_key"])
+        #print('dict(meta_gridsearch)', dict(meta_gridsearch))
+        meta_makegrid = self._get_meta(meta_gridsearch["makegrid_key"])
+        #print('dict(meta_makegrid)', dict(meta_makegrid))
+        meta_tally = self._get_meta(meta_gridsearch["data_key"])
+        #print('dict(meta_tally)', dict(meta_tally))
+        data_ndims = meta_gridsearch.get("data_ndims", None)
+        if meta_gridsearch['data_source'] == 'sims':
+            self._write_gridsearch_results_sims(config)
         parameter_names = list(meta_gridsearch["grid_dict"].keys())
         parameter_array = np.array(
             [
@@ -2296,6 +2438,7 @@ class Store(object):
             # uses same columns as overall 'best' ...
             fixed_param_index = self._get_fixed_param_index(config["fixed_param"], parameter_names, parameter_array, meta_makegrid)
         parameter_columns = parameter_names + ["lnCl"]
+
         if data_ndims == 5:
             sequence_array, start_array, end_array, index_array = self._get_window_bed_columns()
             bed_columns = ["sequence", "start", "end", "index"]
@@ -2383,11 +2526,12 @@ class Store(object):
         config["makegrid_model"] = grid_meta["model"]
         config["parameters_grid_points"] = grid_meta.get("parameters_grid_points", grid.shape[0])
         # Error if no data
-        #if not self._has_key((sim_key or tally_key)):
         if not self._has_key(data_key):
-        #    sys.exit("[X] No data found with key %r." % (sim_key or tally_key))
             sys.exit("[X] No data found with key %r." % data_key)
         data_meta = self._get_meta(data_key)
+        # Error if windowsum on blocks (should eventually be changed to work on ndim's)
+        if data_meta['data_type'] == 'blocks' and windowsum:
+            sys.exit("[X] '--windowsum' is only applicable to data in windows. Tally in %r consists of blocks." % data_key)
         config["data_key"] = data_key
         config["data_source"] = data_meta['data_source']
         config["data_label"] = "%s%s" % (data_key.split("/")[1], (".windowsum" if windowsum else ""))
