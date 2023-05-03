@@ -1759,18 +1759,18 @@ class Store(object):
     def _write_optimize_tsv(self, config):
         optimize_meta = self._get_meta(config["data_key"])
         single_file_flag = len(optimize_meta["optimize_key"]) == 1
-        #print('optimize_meta', optimize_meta)
         for idx in range(optimize_meta["nlopt_runs"]):
             instance_key = "%s/%s" % (optimize_meta["optimize_key"], idx)
-            #print('instance_key', instance_key)
             instance_meta = dict(self._get_meta(instance_key))
-            # optima = pd.DataFrame(instance_meta['optimize_results'])
+            df = pd.DataFrame(data=instance_meta["optimize_results"])
             if single_file_flag:
                 fn_tsv = "%s.%s.optimize.tsv" % (
                     self.prefix,
                     config["data_key"].replace("/", "_"),
                 )
             else:
+                if optimize_meta['data_source'] == 'sims':
+                    df.insert(0, 'replicate_idx', idx)
                 fn_tsv = "%s.%s.optimize.%s.tsv" % (
                     self.prefix,
                     config["data_key"].replace("/", "_"),
@@ -1779,9 +1779,16 @@ class Store(object):
             with open(fn_tsv, "w") as fh_tsv:
                 header = ["# %s" % config["version"]]
                 fh_tsv.write("\n".join(header) + "\n")
-            pd.DataFrame(data=instance_meta["optimize_results"]).to_csv(
-                fn_tsv, index=True, mode='a', index_label="window_idx", sep="\t"
-            )
+            if single_file_flag:
+                df.to_csv(
+                    fn_tsv, index=True, mode='a', index_label="window_idx", sep="\t"
+                )
+            else:
+                if len(df) > 1:
+                    df.insert(1, 'window_idx', np.arange(len(df)))
+                df.to_csv(
+                    fn_tsv, index=False, mode='a', sep="\t"
+                )
             print("[#] Wrote file %r." % fn_tsv)
 
     def _write_diss_tsv(self, config):
