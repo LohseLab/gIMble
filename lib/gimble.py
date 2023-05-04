@@ -2537,7 +2537,7 @@ class Store(object):
             sys.exit("[X] No data found with key %r." % data_key)
         data_meta = self._get_meta(data_key)
         # Error if windowsum on blocks (should eventually be changed to work on ndim's)
-        if data_meta['data_type'] == 'blocks' and windowsum:
+        if not data_meta['data_source'] == 'sims' and data_meta['data_type'] == 'blocks' and windowsum:
             sys.exit("[X] '--windowsum' is only applicable to data in windows. Tally in %r consists of blocks." % data_key)
         config["data_key"] = data_key
         config["data_source"] = data_meta['data_source']
