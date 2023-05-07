@@ -90,6 +90,7 @@ class RunArgs(object):
             print('[X] Model %r requires values for the following parameter(s): %s' % (model, ", ".join(missing_parameters)))
         if extra_parameters:
             print('[X] Model %r does not need the following parameter(s): %s' % (model, ", ".join(extra_parameters)))
+        is_me_zero = False
         if model.startswith("MIG"):
             #print('parameters', parameters)
             if isinstance(parameters['me'], list):
