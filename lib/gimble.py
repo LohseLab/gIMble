@@ -2832,7 +2832,7 @@ class Store(object):
             result = optimize_result["nlopt_values_by_windows_idx"][windows_idx]
             result["nlopt_iterations"] = optimize_result["nlopt_evals_by_windows_idx"][windows_idx]
             result["nlopt_exit_code"] = optimize_result["nlopt_status_by_windows_idx"][windows_idx]
-            result["likelihood"] = optimize_result["nlopt_optimum_by_windows_idx"][windows_idx]
+            result["lnCL"] = optimize_result["nlopt_optimum_by_windows_idx"][windows_idx]
             result["anomaly_count"] = optimize_result["nlopt_anomalies_by_windows_idx"][windows_idx]
             result["nlopt_time"] = optimize_time
             optimize_meta["optimize_results"].append(result)
