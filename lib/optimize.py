@@ -63,7 +63,7 @@ def get_nlopt_log_iteration_tuple(
     return tuple(nlopt_log_iteration)
 
 def setup_nlopt_log(replicate_idx, config):
-    nlopt_log_header = ['iteration', 'block_length', 'likelihood', 'anomaly']
+    nlopt_log_header = ['iteration', 'block_length', 'lnCL', 'anomaly']
     if config['nlopt_chains'] > 1: # multiple windows
         nlopt_log_header = ["windows_idx"] + nlopt_log_header
     nlopt_log_header += ['%s_scaled' % parameter for parameter in config['gimbleDemographyInstance'].order_of_parameters]
@@ -125,9 +125,9 @@ def format_nlopt_log_iteration_values(nlopt_log_iteration_values_by_key):
     iteration_str = str(int(nlopt_log_iteration_values_by_key['iteration'])).ljust(4)
     parameter_str = " ".join(["%s=%s" % (k.replace(value_suffix, ''), '{:.5e}'.format(float(v))) for k, v in nlopt_log_iteration_values_by_key.items() if k.endswith(value_suffix)])
     anomaly_str = "[ANOMALY]" if nlopt_log_iteration_values_by_key['anomaly'] else ""
-    likelihood_str = "%s %s" % ('{:.5f}'.format(float(nlopt_log_iteration_values_by_key['likelihood'])), anomaly_str)
+    likelihood_str = "%s %s" % ('{:.5f}'.format(float(nlopt_log_iteration_values_by_key['lnCL'])), anomaly_str)
     windows_str = " windows_idx=%s" % str(int(nlopt_log_iteration_values_by_key['windows_idx'])) if 'windows_idx' in nlopt_log_iteration_values_by_key else ""
-    return "[+]%s i=%s -- {%s} -- L=%s" % (windows_str, iteration_str, parameter_str, likelihood_str)
+    return "[+]%s i=%s -- {%s} -- lnCL=%s" % (windows_str, iteration_str, parameter_str, likelihood_str)
 
 def get_agemo_nlopt_args(dataset, config):
     nlopt_params = {k: v for k, v in config.items() if k.startswith("nlopt")}
