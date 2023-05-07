@@ -91,9 +91,14 @@ class RunArgs(object):
         if extra_parameters:
             print('[X] Model %r does not need the following parameter(s): %s' % (model, ", ".join(extra_parameters)))
         if model.startswith("MIG"):
-            if parameters['me'] == 0 or parameters['me'][0] == 0:
-                sys.exit('[X] Model %r only supports non-zero migration rates.' % model)
-        if missing_parameters or extra_parameters:
+            #print('parameters', parameters)
+            if isinstance(parameters['me'], list):
+                is_me_zero = (parameters['me'][0] == 0)
+            else: 
+                is_me_zero = (parameters['me'] == 0)
+            if is_me_zero:
+                print('[X] Model %r only supports non-zero migration rates.' % model)
+        if missing_parameters or extra_parameters or is_me_zero:
             sys.exit(1)
         return model
 
