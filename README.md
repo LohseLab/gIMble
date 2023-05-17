@@ -202,7 +202,9 @@ Resulting BED file
 + Optimizations finalize after user-defined stopping criteria are met
 + The user can assess convergence of optimizations by consulting the log-file. 
 ```
-./gimble optimize -z analysis.z -l IM_BA_optimize -d tally/windows_kmax2 -w -m IM_BA -r A -u 2.9e-09 -A 10_000,2_500_000 -B 10_000,1_000_000 -C 1_000_000,5_000_000 -M 0,1e-5 -T 0,5_000_000 -g CRS2 -p 1 -e 19 -f -i 10_000
+./gimble optimize -z analysis.z -l IM_BA_optimize -d tally/windows_kmax2 \
+    -w -m IM_BA -r A -u 2.9e-09 -A 10_000,2_500_000 -B 10_000,1_000_000 \
+    -C 1_000_000,5_000_000 -M 0,1e-5 -T 0,5_000_000 -g CRS2 -p 1 -e 19 -i 10_000
 ```
 
 ## makegrid
