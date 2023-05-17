@@ -1,6 +1,6 @@
 """
 usage: gimble optimize                      -z <z> -l <l> -d <d> [-w] 
-                                            [-y <y>] [-k <k>] -m <m> -r <r> -u <u>
+                                            [-y <y>] -m <m> -r <r> -u <u>
                                             [-T <T>] [-M <M>] -A <A> -B <B> [-C <C>] 
                                             [-g <g>] [-p <p>] [-s <s>] [-i <i>] [--xtol <xtol>] [--ftol <ftol>] 
                                             [-e <e>] [-f] [-h|--help]
@@ -21,10 +21,6 @@ usage: gimble optimize                      -z <z> -l <l> -d <d> [-w]
         -y, --sync_pops=<y>                 Synchronization of Ne parameters during optimization. Optional.
                                                 - A,B or A,A_B or B,A_B or A,B,A_B (for models DIV, IM_AB, IM_BA)
                                                 - A,B (for models MIG_AB, MIG_BA)
-        -k, --kmax=<k>                      Max count per mutation type beyond which counts 
-                                                are treated as marginals. Order of mutation 
-                                                types is (hetB, hetA, hetAB, fixed)
-                                                [default: 2,2,2,2]
 
     [Parameters]                            Single floats OR boundaries for optimization in the format [min,max]. 
                                                 example 1: --T=100000 for fixed parameter T = 100000
@@ -92,7 +88,6 @@ class OptimizeParameterObj(lib.runargs.RunArgs):
         self.sync_pops = self._get_sync_pops(args['--sync_pops'])
         self.ref_pop = self._get_ref_pop(args['--ref_pop'])
         self.mu = self._get_float(args['--mu']) 
-        self.kmax = self._check_kmax(args['--kmax']) 
         self.processes = self._get_int(args['--processes']) 
         self.seed = self._get_int(args['--seed']) 
         self.overwrite = args['--force']
@@ -101,7 +96,6 @@ class OptimizeParameterObj(lib.runargs.RunArgs):
         self.max_iterations = self._get_int(args['--max_iterations'])
         self.xtol_rel = self._get_float(args['--xtol'])
         self.ftol_rel = self._get_float(args['--ftol'])
-        #self.keep_anomalies = args['--keep_anomalies']
 
     def _get_nlopt_algorithm_name(self, algorithm):
         ALGORITHMS = {'neldermead', 'sbplx', 'CRS2'}
@@ -194,7 +188,6 @@ def main(params):
             sync_pops=parameterObj.sync_pops,
             ref_pop=parameterObj.ref_pop,
             mu=parameterObj.mu,
-            kmax=parameterObj.kmax,
             processes=parameterObj.processes,
             seed=parameterObj.seed,
             overwrite=parameterObj.overwrite,
