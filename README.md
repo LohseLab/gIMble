@@ -30,8 +30,7 @@ gimble
 # Workflow
 
 ![gIMble workflow](/docs/gIMble.workflow.jpg?raw=true "gIMble workflow")
-Numbers correspond to the order of steps in the Heliconius analysis:
-`preprocess` (**0**) assures input data conforms to requirements; `parse` (**1**) reads data into a `gIMble`
+**gIMble workflow**. `preprocess` (**0**) assures input data conforms to requirements; `parse` (**1**) reads data into a `gIMble`
 store, the central data structure that holds all subsequent analysis. The modules `blocks` (**2**) and
 `windows` (**3**) partition the data which is summarised as a tally (**4**) of blockwise mutation
 configurations (bSFSs) either across all pair-blocks (blocks tally) or for pair-blocks in windows
