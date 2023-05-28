@@ -1577,8 +1577,9 @@ class Store(object):
             kwargs['windows'],
             kwargs['blocks'] 
             ))
-        kwargs['ancestry_seeds_by_replicate'] = {replicate_idx: np.random.randint(1, 2**32, kwargs['windows']) for replicate_idx in range(kwargs['replicates'])}
-        kwargs['mutation_seeds_by_replicate'] = {replicate_idx: np.random.randint(1, 2**32, kwargs['windows']) for replicate_idx in range(kwargs['replicates'])}
+        rng = np.random.default_rng(kwargs['seed'])
+        kwargs['ancestry_seeds_by_replicate'] = {replicate_idx: rng.integers(1, 2**32, kwargs['windows']) for replicate_idx in range(kwargs['replicates'])}
+        kwargs['mutation_seeds_by_replicate'] = {replicate_idx: rng.integers(1, 2**32, kwargs['windows']) for replicate_idx in range(kwargs['replicates'])}
         return kwargs
 
     def get_demographies_from_gridsearch(self, gridsearch_label, gridsearch_constraint={}):
