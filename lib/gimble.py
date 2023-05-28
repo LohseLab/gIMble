@@ -2669,7 +2669,7 @@ class Store(object):
         if not self._has_key(kwargs['data_key']):
             sys.exit("[X] No data found under key %r." % kwargs['data_key'])
         data_meta = self._get_meta(kwargs['data_key'])
-
+        kwargs['kmax'] = np.array(data_meta['max_k'])
         kwargs['data_source'] = data_meta['data_source']
         #print(dict(data_meta))
         if kwargs['data_source'] == 'meas' and data_meta['data_type'] == 'blocks' and kwargs['windowsum']:

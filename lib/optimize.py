@@ -145,7 +145,6 @@ def get_agemo_nlopt_args(dataset, config):
         ) for i in range(config['nlopt_chains'])]
 
 def agemo_calculate_composite_likelihood(ETPs, data):
-    assert ETPs.shape == data.shape, "[X] Incompatible shapes in calculate_composite_likelihood(): ETPs (%s) vs data (%s)" % (ETPs.shape, data.shape)
     ETP_log = np.zeros(ETPs.shape, dtype=np.float64)
     np.log(ETPs, where=ETPs>0, out=ETP_log)
     return np.sum(ETP_log * data)
@@ -153,7 +152,7 @@ def agemo_calculate_composite_likelihood(ETPs, data):
 #def agemo_likelihood_function(nlopt_values, grad, gfEvaluatorObj, dataset, windows_idx, config, nlopt_iterations, verbose):
 def agemo_likelihood_function(nlopt_values, grad, gimbleDemographyInstance, dataset, windows_idx, config, nlopt_iterations, verbose, nlopt_anomaly_tol=1e-5, nlopt_anomaly_skip=True):
     global NLOPT_LOG_QUEUE
-    global NLOPT_ANOMALY_COUNTS
+    #global NLOPT_ANOMALY_COUNTS
     #print('[--------------------------------------------------------] nlopt_iterations', nlopt_iterations)
     nlopt_traceback = None
     nlopt_iterations[windows_idx] += 1
@@ -172,6 +171,8 @@ def agemo_likelihood_function(nlopt_values, grad, gimbleDemographyInstance, data
     # print("[+] Fixing ETPs ...")
     # ETPs[(ETPs[:,2] > 0) & (ETPs[:,3] > 0)] = 0
     # print('\nnp.sum(ETPs)=%s' % np.sum(ETPs))
+
+    # Determine anomaly
     is_anomaly = (not np.isclose(np.sum(ETPs), 1, rtol=nlopt_anomaly_tol))
     if is_anomaly:
         NLOPT_ANOMALY_COUNTS[windows_idx] += 1
