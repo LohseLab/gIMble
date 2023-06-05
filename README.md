@@ -13,17 +13,15 @@ gimble
 # Installation
 
 ```
-# clone repository
+# 1. clone repository
 >>> git clone https://github.com/DRL/gimble.git
-# Install miniconda from https://conda.io/miniconda.html
+# 2. Install miniconda from https://conda.io/miniconda.html
 # ...
-# Create the following conda environment 
->>> conda create -n gimble python=3.7.12 bedtools bcftools samtools vcflib mosdepth=0.3.2 pysam numpy docopt tqdm pandas tabulate zarr scikit-allel parallel matplotlib msprime demes dask numcodecs python-newick nlopt -c conda-forge -c bioconda -y
-# Load the environment (needs to be activated when using gimble)
+# 3. Create the following conda environment 
+>>> conda create -n gimble python=3.7.12 agemo bedtools bcftools samtools vcflib mosdepth=0.3.2 pysam numpy docopt tqdm pandas tabulate zarr scikit-allel parallel matplotlib msprime demes dask numcodecs python-newick nlopt -c conda-forge -c bioconda
+# 4. Load the environment (needs to be activated when using gimble)
 >>> conda activate gimble
-# Install agemo (make sure you have the conda environment activated)
->>> (gimble) pip install agemo
-# Start gimble'ing ...
+# 5. Start gimble'ing ...
 >>> (gimble) gIMble/gimble --help
 ```
 
