@@ -60,6 +60,7 @@ def write_df(df, out_f='', sep='\t', header=True, status=True):
         print("[+] \t=> Wrote %r" % str(out_f))
 
 def fix_permissions(path):
+    os.chmod(path, 0o775)
     for root, dirs, files in os.walk(path, topdown=True):
         for _d in [os.path.join(root, d) for d in dirs]:
             os.chmod(_d, 0o775)
@@ -79,10 +80,10 @@ class PreprocessParameterObj(lib.runargs.RunArgs):
         self.min_depth = self._get_int(args['--min_depth'])
         self.max_depth = self._get_float(args['--max_depth'])
         self.min_qual = self._get_int(args['--min_qual'])
-        self.tmp_dir = tempfile.mkdtemp(prefix='.tmp_gimble_', dir=".")
+        self.outprefix = args['--outprefix']
+        self.tmp_dir = tempfile.mkdtemp(prefix='tmp_gimble_', dir=".")
         #fix_permissions(self.tmp_dir)
         self.threads = self._get_int(args['--threads'])
-        self.outprefix = args['--outprefix']
         self.keep_tmp = args['--keep_tmp']
         self.gimble_genome_file = pathlib.Path('%s.genomefile' % self.outprefix)
         self.gimble_coverage_summary_file = pathlib.Path('%s.coverage_summary.csv' % self.outprefix)
@@ -92,13 +93,6 @@ class PreprocessParameterObj(lib.runargs.RunArgs):
         self.bed_multi_callable_file =  self.tmp_dir / pathlib.Path('multi_callable.bed')
         self.coverage_data = []
         self.commands = []
-
-    def check_outprefix():
-        path_way = path.parent if path.is_file() else path
-        print('path_way', path_way)
-        #path_way.mkdir(parents=True, exist_ok=True)
-        #if not path.exists():
-        #    path.touch()
 
     def clean_up(self):        
         if self.keep_tmp:
@@ -132,12 +126,20 @@ def generate_genome_file(parameterObj):
     print("[+] \t=> Wrote %r" % str(parameterObj.gimble_genome_file))
     return parameterObj
 
+def get_readgroup(bam_header):
+    for line in str(bam_header).split("\n"):
+        if line.startswith("@RG") or line.startswith("@rg"):
+            rg_dict = dict(item.split(':') if ":" in item else (item, None) for item in line.split("\t"))
+            return rg_dict.get("SM", rg_dict.get("ID", None)) # fallback on ID, if SM is not there ...
+    return None
+
 def get_coverage_data_from_bam(parameterObj):
     print("[+] Parsing BAM files...")
     for bam_file in tqdm(parameterObj.bam_files, desc="[%] Infer coverage levels from BAM files...", ncols=100):
         try:
             with pysam.AlignmentFile(bam_file, require_index=True) as bam:
-                readgroup_id = [line.split("\t")[2] for line in str(bam.header).split("\n") if line.startswith("@RG")][0].replace("SM:", "")
+                readgroup_id = get_readgroup(bam.header)
+                #readgroup_id = [line.split("\t")[2] for line in str(bam.header).split("\n") if line.startswith("@RG")][0].replace("SM:", "")
                 if not readgroup_id:
                     sys.exit("[X] BAM file %r has no readgroup sample_id set.")
                 tmp_prefix = pathlib.Path(pathlib.Path(parameterObj.tmp_dir), pathlib.Path(bam_file.stem))
