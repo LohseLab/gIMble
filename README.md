@@ -156,7 +156,7 @@ Resulting BED file
 ## parse
 + reads input data into GimbleStore 
 ```
-./gimble parse -v gimble.vcf.gz -b gimble.intergenic.bed -g gimble.genomefile -s gimble.samples.csv -o analysis
+./gimble parse -v gimble.vcf.gz -b gimble.intergenic.bed -g gimble.genomefile -s gimble.samples.csv -z analysis
 ```
 
 ## blocks
