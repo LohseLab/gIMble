@@ -174,7 +174,7 @@ Resulting BED file
 + The parameter `--blocks` controls how many blocks are incorporated into each window and the parameter `--steps` by how many blocks the next window is shifted
 + `--blocks` should be chosen so that, given the number of interspecific pairs, enough blocks from each pair can be placed in a window. 
 ```
-./gimble windows -z analysis.z -w 500 -s 100 -z analysis.z
+./gimble windows -z analysis.z -w 500 -s 100
 ```
 
 ## info
