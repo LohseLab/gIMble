@@ -3303,6 +3303,8 @@ class Store(object):
             # variations.append(np.array(self.data[key], dtype=np.int64))
             if self._has_key(key):
                 variations.append(self.data[key])
+        if not variations:
+            sys.exit("[X] Not enough blocks in Gimble datastore.")
         variation = np.concatenate(variations, axis=0)
         polarise_true = (
             (
@@ -3630,6 +3632,8 @@ class Store(object):
     def _make_windows(self, config):
         ### meta_seqs['seq_names'] => order
         meta_blocks = self._get_meta("blocks")
+        if not meta_blocks:
+            sys.exit("[X] No blocks found.")
         meta_seqs = self._get_meta("seqs")
         sample_set_idxs = np.array(
             self._get_sample_set_idxs(query=config["sample_sets"]), dtype=np.int64
