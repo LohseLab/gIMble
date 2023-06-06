@@ -1454,7 +1454,7 @@ class Store(object):
                 self._del_data_and_meta("windows")
                 if "windows_raw_tally_key" in windows_meta:
                     self._del_data_and_meta(windows_meta["windows_raw_tally_key"])
-                    self._del_data_and_meta(windows_meta["windowsum_raw_tally_key"])
+                    #self._del_data_and_meta(windows_meta["windowsum_raw_tally_key"])
         config = {
             "blocks_key": "blocks",
             "block_length": block_length,
