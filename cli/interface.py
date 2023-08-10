@@ -91,7 +91,8 @@ def main(gimble_dir):
             try:
                 runner = importlib.import_module(RUNNER_BY_MODULE[params['module']])
                 runner.main(params)
-            except ImportError:
+            except ImportError as error:
+                print("[X] ImportError: %s" % error)
                 print(installation_steps)
     except KeyboardInterrupt:
         sys.stderr.write("\n[X] Interrupted by user after %i seconds!\n" % (timer() - start_time))
