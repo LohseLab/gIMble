@@ -30,6 +30,7 @@ lib64/
 parts/
 sdist/
 var/
+*.tar.gz
 #doc*
 docs/build
 giac/
