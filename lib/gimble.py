@@ -1741,8 +1741,8 @@ class Store(object):
         grid_2d = make_grid_2d(grid)
         parameter_names = list(meta_makegrid["grid_dict"].keys())
         parameter_array = np.array([np.array(v, dtype=np.float64) for k, v in meta_makegrid["grid_dict"].items()]).T
-        dtypes = {"grid_idx": "int64","P": "float64","m1": "int64","m2": "int64","m3": "int64","m4": "int64"}
-        columns = ["grid_idx", "P", "m1", "m2", "m3", "m4"]
+        dtypes = {"grid_idx": "int64","P": "float64","het_b": "int64","het_a": "int64","het_ab": "int64","fixed_diff": "int64"}
+        columns = ["grid_idx", "P", "het_b", "het_a", "het_ab", "fixed_diff"]
         for idx in range(parameter_array.shape[0]):
             fn = "%s.%s.tsv" % (meta_makegrid['makegrid_label'], ".".join(["%s=%s" % (name, float(value)) for name, value in zip(parameter_names, parameter_array[idx])]))
             pd.DataFrame(data=grid_2d[grid_2d[:,0]==idx], columns=columns).astype(dtype=dtypes).to_csv(fn, header=True, index=False, sep="\t")
@@ -1857,7 +1857,7 @@ class Store(object):
         config["meta"] = dict(self._get_meta(config["data_key"]))
         print("[+] Tally ...")
         print(format_query_meta(config["meta"]))
-        config["header"] = ["count", "m_1", "m_2", "m_3", "m_4"]
+        config["header"] = ["count", "het_b", "het_a", "het_ab", "fixed_diff"]
         if config["data"].ndim == 5:
             config["header"] = ["window_idx"] + config["header"]
             #if config["data_type"] == "tally":
