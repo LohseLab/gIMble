@@ -13,15 +13,19 @@ gimble
 # Installation
 
 ```
-# 1. clone repository
->>> git clone https://github.com/DRL/gimble.git
+# 1a. clone gimble repository
+>>> git clone https://github.com/LohseLab/gimble.git
+# 1b. clone gimbleprep repository
+>>> git clone https://github.com/LohseLab/gimbleprep.git
 # 2. Install miniconda from https://conda.io/miniconda.html
 # ...
 # 3. Create the following conda environment 
 >>> conda create -n gimble python=3.7.12 agemo bedtools bcftools samtools vcflib mosdepth=0.3.2 pysam numpy docopt tqdm pandas tabulate zarr scikit-allel parallel matplotlib msprime demes dask numcodecs python-newick nlopt -c conda-forge -c bioconda
 # 4. Load the environment (needs to be activated when using gimble)
 >>> conda activate gimble
-# 5. Start gimble'ing ...
+# 5a. Start gimbleprep'ing ...
+>>> (gimble) gimbleprep/gimbleprep --help
+# 5b. Start gimble'ing ...
 >>> (gimble) gIMble/gimble --help
 ```
 
@@ -46,7 +50,7 @@ can be described, written to column-based output files or removed using the modu
 usage: gimble <module> [<args>...] [-V -h]
 
   [Input]
-    preprocess            Preprocess input files
+    preprocess            Install gimbleprep instead
     parse                 Parse files into GimbleStore
     blocks                Generate blocks from parsed data in GimbleStore (requires 'parse')
     windows               Generate windows from blocks in GimbleStore (requires 'blocks')
@@ -91,11 +95,12 @@ usage: gimble <module> [<args>...] [-V -h]
 
 
 ## preprocess
+Note: The `preprocess` module has been replaced by `gimbleprep`. Everything else is identical.
 The `preprocess` module assures that input files are adequately filtered and processed so that the `gimble` workflow can be completed successfully. 
 While this processing of input files could be done more efficiently with other means, it has the advantage of generating a VCF file complies with `gimble` data requirements but which can also be used in alternative downstream analyses.
 
 ```
-./gimble preprocess -f FASTA -b BAM_DIR/ -v RAW.vcf.gz -k
+./gimbleprep -f FASTA -b BAM_DIR/ -v RAW.vcf.gz -k
 ```
 
 Based on the supplied input files:

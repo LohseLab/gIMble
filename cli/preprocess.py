@@ -9,4 +9,4 @@ import os
 from docopt import docopt
 
 def main(params):
-    sys.exit("[X] gimble preprocess has been replaced by gimble-preprocess available on bioconda.")
+    sys.exit("[X] gimble preprocess has been replaced by gimbleprep available on bioconda.")
