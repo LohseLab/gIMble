@@ -1,7 +1,7 @@
 """usage: gimble <module> [<args>...] [-V -h]
 
   [Input]
-    preprocess            Install gimble-preprocess instead
+    preprocess            Install gimbleprep instead
     parse                 Parse files into GimbleStore
     blocks                Generate blocks from parsed data in GimbleStore (requires 'parse')
     windows               Generate windows from blocks in GimbleStore (requires 'blocks')
