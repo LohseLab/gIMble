@@ -70,7 +70,9 @@ installation_steps = """[========================= Missing dependencies ========
 5. Rock'n'roll ...
 [========================================================================]
 """
-def main(gimble_dir):
+def main(gimble_dir=None):
+    if gimble_dir is None:
+        gimble_dir = os.path.dirname(os.path.join(os.path.realpath(__file__), '..'))
     try:
         start_time = timer()
         __version__ = '1.0.3'
