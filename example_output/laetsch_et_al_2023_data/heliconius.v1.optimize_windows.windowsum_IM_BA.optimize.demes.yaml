@@ -1,0 +1,16 @@
+time_units: generations
+generation_time: 1
+demes:
+- name: ancestor
+  epochs:
+  - {end_time: 4214353.5876705935, start_size: 927925.7029830748}
+- name: H_cydno
+  ancestors: [ancestor]
+  epochs:
+  - {end_time: 0, start_size: 1415373.7117400472}
+- name: H_melpomene
+  ancestors: [ancestor]
+  epochs:
+  - {end_time: 0, start_size: 549442.9947701187}
+migrations:
+- {source: H_cydno, dest: H_melpomene, rate: 7.412269110652557e-07}
