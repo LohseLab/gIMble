@@ -13,20 +13,7 @@ gimble
 # Installation
 
 ```
-# 1a. clone gimble repository
->>> git clone https://github.com/LohseLab/gimble.git
-# 1b. clone gimbleprep repository
->>> git clone https://github.com/LohseLab/gimbleprep.git
-# 2. Install miniconda from https://conda.io/miniconda.html
-# ...
-# 3. Create the following conda environment 
->>> conda create -n gimble python=3.7.12 agemo bedtools bcftools samtools vcflib mosdepth=0.3.2 pysam numpy docopt tqdm pandas tabulate zarr scikit-allel parallel matplotlib msprime demes dask numcodecs python-newick nlopt -c conda-forge -c bioconda
-# 4. Load the environment (needs to be activated when using gimble)
->>> conda activate gimble
-# 5a. Start gimbleprep'ing ...
->>> (gimble) gimbleprep/gimbleprep --help
-# 5b. Start gimble'ing ...
->>> (gimble) gIMble/gimble --help
+conda install -c conda-forge gimble
 ```
 
 # Workflow
@@ -100,7 +87,8 @@ The `preprocess` module assures that input files are adequately filtered and pro
 While this processing of input files could be done more efficiently with other means, it has the advantage of generating a VCF file complies with `gimble` data requirements but which can also be used in alternative downstream analyses.
 
 ```
-./gimbleprep -f FASTA -b BAM_DIR/ -v RAW.vcf.gz -k
+conda install -c bioconda gimbleprep
+gimbleprep -f FASTA -b BAM_DIR/ -v RAW.vcf.gz -k
 ```
 
 Based on the supplied input files:
@@ -161,7 +149,7 @@ Resulting BED file
 ## parse
 + reads input data into GimbleStore 
 ```
-./gimble parse -v gimble.vcf.gz -b gimble.intergenic.bed -g gimble.genomefile -s gimble.samples.csv -z analysis
+gimble parse -v gimble.vcf.gz -b gimble.intergenic.bed -g gimble.genomefile -s gimble.samples.csv -z analysis
 ```
 
 ## blocks
@@ -171,7 +159,7 @@ Resulting BED file
 + Blocks are constructed independently for each sample pair, which ameliorates the asymmetry in coverage profiles among the samples due to stochastic variation in sequencing depth between samples and/or reference bias.
 + Optimal block length will be different for each dataset. The user is encouraged to explore parameter space. 
 ```
-./gimble blocks -z analysis.z -l 64
+gimble blocks -z analysis.z -l 64
 ```
 
 ## windows
@@ -179,14 +167,14 @@ Resulting BED file
 + The parameter `--blocks` controls how many blocks are incorporated into each window and the parameter `--steps` by how many blocks the next window is shifted
 + `--blocks` should be chosen so that, given the number of interspecific pairs, enough blocks from each pair can be placed in a window. 
 ```
-./gimble windows -z analysis.z -w 500 -s 100
+gimble windows -z analysis.z -w 500 -s 100
 ```
 
 ## info
 + Lists basic metrics about the GimbleStore
 + Computes standard population genetic summary statistics ($\pi$, $d_{xy}$ and $H$ mean heterozygosity) based on blocks sampled between (X) and within species/populations (A and B). For for details see [gIMble_info.pdf](/docs/gIMble_info.pdf)
 ```
-./gimble info -z analysis.z
+gimble info -z analysis.z
 ```
 
 ## tally
@@ -194,8 +182,8 @@ Resulting BED file
 + The bSFS is a tally of the mutation configurations of blocks which are themselves described by vectors of the form $`\underline{k}_i`$, which count the four possible mutation types found within a pair-block $i$.
 + parameter k-max is the max count per mutation type beyond which counts are treated as marginals. Order of mutation types is (hetB, hetA, hetAB, fixed)
 ```
-./gimble tally -z analysis.z -k 2,2,2,2 -l blocks_kmax2 -t blocks
-./gimble tally -z analysis.z -k 2,2,2,2 -l windows_kmax2 -t windows
+gimble tally -z analysis.z -k 2,2,2,2 -l blocks_kmax2 -t blocks
+gimble tally -z analysis.z -k 2,2,2,2 -l windows_kmax2 -t windows
 ```
 
 ## optimize
@@ -204,7 +192,7 @@ Resulting BED file
 + Optimizations finalize after user-defined stopping criteria are met
 + The user can assess convergence of optimizations by consulting the log-file. 
 ```
-./gimble optimize -z analysis.z -l IM_BA_optimize -d tally/windows_kmax2 \
+gimble optimize -z analysis.z -l IM_BA_optimize -d tally/windows_kmax2 \
     -w -m IM_BA -r A -u 2.9e-09 -A 10_000,2_500_000 -B 10_000,1_000_000 \
     -C 1_000_000,5_000_000 -M 0,1e-5 -T 0,5_000_000 -g CRS2 -p 1 -e 19 -i 10_000
 ```
@@ -214,7 +202,7 @@ Resulting BED file
 + Pre-computing the probabilities of bSFS configurations in a grid across parameter space is computationally efficient (relative to using an optimization algorithm) and therefore useful when we wish to interrogate data in replicate, i.e. across windows or simulation replicates.
 + Grid searches may be used either for an initial exploration of the likelihood surface (i.e. prior to defining the parameter space across which to run `optimize`), or to fit models to window-wise data.
 ```
-./gimble makegrid -z analysis.z -m IM_AB \
+gimble makegrid -z analysis.z -m IM_AB \
     -b 64 -r A -u 2.9e-9 -k 2,2,2,2 \
     -A=200_000,3_000_000,12,lin \
     -B=100_000,2_000_000,12,lin \
@@ -235,14 +223,14 @@ gimble gridsearch -z analysis.z \
 + Simulates tallies based on results of gridsearches
 ```
 # based on fixed parameters
-./gimble simulate -z analysis.z \
+gimble simulate -z analysis.z \
     --seed 19 --replicates 100 --windows 11217 --blocks 500 \
     --block_length 64 -a 10 -b 10 \
     -k 2,2,2,2 -s IM_BA_sims_100reps -p 55 -m IM_BA \
     -A 1_407_027 -B 545_041 -C 923_309 -M 7.3778010583E-07 -u 2.9e-9 -T 4_256_034 
 
 # based on gridsearch result
-./gimble simulate -z analysis.z \
+gimble simulate -z analysis.z \
     --seed 19 --replicates 100 --windows 11217 --blocks 500 \
     --block_length 64 -a 10 -b 10 \
     --gridsearch_key gridsearch/windows_kmax2/IM_BA_grid \
