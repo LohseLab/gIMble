@@ -18,7 +18,7 @@ conda install -c conda-forge gimble
 
 # Workflow
 
-![gIMble workflow](/docs/gimble.workflow.jpg?raw=true "gIMble workflow")
+![gIMble workflow](/docs/gIMble.workflow.jpg?raw=true "gIMble workflow")
 **gIMble workflow**. `gimbleprep` (**0**) assures input data conforms to requirements; `parse` (**1**) reads data into a `gIMble`
 store, the central data structure that holds all subsequent analysis. The modules `blocks` (**2**) and
 `windows` (**3**) partition the data which is summarised as a tally (**4**) of blockwise mutation
