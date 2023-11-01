@@ -194,7 +194,7 @@ gimble tally -z analysis.z -k 2,2,2,2 -l windows_kmax2 -t windows
 ```
 gimble optimize -z analysis.z -l IM_BA_optimize -d tally/windows_kmax2 \
     -w -m IM_BA -r A -u 2.9e-09 -A 10_000,2_500_000 -B 10_000,1_000_000 \
-    -C 1_000_000,5_000_000 -M 0,1e-5 -T 0,5_000_000 -g CRS2 -p 1 -e 19 -i 10_000
+    -C 1_000_000,5_000_000 -M 0,1e-5 -T 0,5_000_000 -g CRS2 -e 19 -i 10_000
 ```
 
 ## makegrid
@@ -208,7 +208,7 @@ gimble makegrid -z analysis.z -m IM_AB \
     -B=100_000,2_000_000,12,lin \
     -C 100_000,2_000_000,12,lin \
     -T 4_256_034 -M 0,2.21E-06,16,lin \
-    -p 48 -e 19 -l IM_BA_grid
+    -e 19 -l IM_BA_grid
 ```
 
 ## gridsearch
