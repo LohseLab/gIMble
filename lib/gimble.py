@@ -3119,20 +3119,21 @@ class Store(object):
                 print(float(parameter[0]), [float(x) for x in parameter[1]], float(parameter[2]), parameter[3])
         all_ETPs = []
         print("[+] Calculating probabilities of mutation configurations under %s parameter combinations" % len(agemo_parameters))
-        if processes==1:
-            for agemo_parameter in tqdm(agemo_parameters, desc="[%] Progress", ncols=100):
-                theta_branch, var, time, fallback_flag = agemo_parameter
-                evaluator = evaluator_agemo if not fallback_flag else fallback_evaluator
-                result = evaluator.evaluate(theta_branch, var, time=time)
-                all_ETPs.append(result)
-        else:
-            global EVALUATOR
-            global FALLBACK_EVALUATOR
-            EVALUATOR = evaluator_agemo
-            FALLBACK_EVALUATOR = fallback_evaluator
-            with multiprocessing.Pool(processes=processes) as pool:
-                for ETP in pool.starmap(self.multi_eval, tqdm(agemo_parameters, ncols=100, desc="[%] Progress")):
-                    all_ETPs.append(ETP)
+        #if processes==1:
+        for agemo_parameter in tqdm(agemo_parameters, desc="[%] Progress", ncols=100):
+            theta_branch, var, time, fallback_flag = agemo_parameter
+            evaluator = evaluator_agemo if not fallback_flag else fallback_evaluator
+            result = evaluator.evaluate(theta_branch, var, time=time)
+            all_ETPs.append(result)
+        # parallelisation does not work since agemo_evaluator.evaluate() can't be pickled ...
+        #else:
+        #    global EVALUATOR
+        #    global FALLBACK_EVALUATOR
+        #    EVALUATOR = evaluator_agemo
+        #    FALLBACK_EVALUATOR = fallback_evaluator
+        #    with multiprocessing.Pool(processes=processes) as pool:
+        #        for ETP in pool.starmap(self.multi_eval, tqdm(agemo_parameters, ncols=100, desc="[%] Progress")):
+        #            all_ETPs.append(ETP)
         print("[+] Checking probabilities for anomalies ...")
         anomaly_count = 0
         for idx, etps in enumerate(all_ETPs):
@@ -3145,10 +3146,10 @@ class Store(object):
             print("[+] No anomalies found. All is well.")
         return np.array(all_ETPs, dtype=np.float64)
 
-    def multi_eval(self, theta_branch, var, time, fallback_flag):
-        #theta_branch, var, time, fallback_flag = agemo_parameter
-        evaluator = EVALUATOR if not fallback_flag else FALLBACK_EVALUATOR
-        return evaluator.evaluate(theta_branch, var, time=time) 
+    #def multi_eval(self, theta_branch, var, time, fallback_flag):
+    #    #theta_branch, var, time, fallback_flag = agemo_parameter
+    #    evaluator = EVALUATOR if not fallback_flag else FALLBACK_EVALUATOR
+    #    return evaluator.evaluate(theta_branch, var, time=time) 
 
     def get_agemo_evaluator(self, model=None, kmax=None, seed=None):
         mutation_shape = tuple(kmax + 2)

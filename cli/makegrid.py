@@ -1,7 +1,7 @@
 """
 usage: gimble makegrid                  (-z <z> | -o <o>) -l <l> -m <m> -b <b> -r <r> -u <o> 
                                         [-k <k>] -A <A> -B <B> [-C <C>] [-T <T>] [-M <M>] 
-                                        [-p <p> -e <e>] [-f] [-h|--help]
+                                        [-e <e>] [-f] [-h|--help]
                                                  
         -z, --zarr_file=<z>             Path to existing GimbleStore 
         -o, --outprefix=<o>             Prefix to use for GimbleStore [default: gimble]
@@ -33,7 +33,6 @@ usage: gimble makegrid                  (-z <z> | -o <o>) -l <l> -m <m> -b <b> -
                                             - MIG_AB and IM_AB: A->B 
                                             - MIG_BA and IM_BA: B->A
     [Options]
-        -p, --processes=<p>             Number of processes [default: 1] 
         -e, --seed=<e>                  Seed used for randomness [default: 19]
         -f, --force                     Force overwrite of existing grid in GimbleStore
         -h --help                       Show this
@@ -62,7 +61,7 @@ class MakeGridParameterObj(lib.runargs.RunArgs):
         self.ref_pop = self._get_ref_pop(args['--ref_pop'])
         self.mu = self._get_float(args['--mu']) 
         self.kmax = self._check_kmax(args['--kmax']) 
-        self.processes = self._get_int(args['--processes']) 
+        self.processes = 1 #self._get_int(args['--processes']) 
         self.seed = self._get_int(args['--seed']) 
         self.overwrite = args['--force']
     
