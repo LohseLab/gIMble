@@ -74,12 +74,12 @@ def setup_nlopt_log(replicate_idx, config):
         nlopt_log_fh.write("%s\n" % ",".join(nlopt_log_header)), nlopt_log_fh.flush()
     return (nlopt_log_fn, nlopt_log_header)
 
-NLOPT_LOG_QUEUE = multiprocessing.Queue()
-NLOPT_LOG_ITERATIONS_MANAGER = multiprocessing.Manager()
+#NLOPT_LOG_QUEUE = multiprocessing.Queue()
+#NLOPT_LOG_ITERATIONS_MANAGER = multiprocessing.Manager()
 NLOPT_ANOMALY_COUNTS = collections.Counter()
 
-def nlopt_logger(nlopt_log_fn, nlopt_log_header, nlopt_log_iterations, nlopt_call_count):
-    global NLOPT_LOG_QUEUE
+def nlopt_logger(NLOPT_LOG_QUEUE, nlopt_log_fn, nlopt_log_header, nlopt_log_iterations, nlopt_call_count):
+    #global NLOPT_LOG_QUEUE
     progress_bar_disable_bool = (True if nlopt_call_count == 1 else False) # disable if only one dataset (i.e. blocks)
     pbar = tqdm(desc="[%] Progress", total=nlopt_call_count, position=0, disable=progress_bar_disable_bool, ncols=100)
     with open(nlopt_log_fn, 'a') as nlopt_log_fh:
@@ -131,18 +131,21 @@ def format_nlopt_log_iteration_values(nlopt_log_iteration_values_by_key):
 
 def get_agemo_nlopt_args(dataset, config):
     nlopt_params = {k: v for k, v in config.items() if k.startswith("nlopt")}
-    return [(
+    NLOPT_LOG_QUEUE = multiprocessing.Queue()
+    return (NLOPT_LOG_QUEUE, [(
+        NLOPT_LOG_QUEUE,
         nlopt_params, 
         i, 
         functools.partial(
             agemo_likelihood_function,
+            nlopt_log_queue=NLOPT_LOG_QUEUE,
             dataset=(dataset if config['nlopt_chains'] == 1 else dataset[i]),
             windows_idx=i, 
             config=config, 
             gimbleDemographyInstance=copy.deepcopy(config['gimbleDemographyInstance']), 
             nlopt_iterations=np.zeros(config['nlopt_chains'], dtype=np.uint16), verbose=True),
         (False if config['nlopt_chains'] == 1 else True)
-        ) for i in range(config['nlopt_chains'])]
+        ) for i in range(config['nlopt_chains'])])
 
 def agemo_calculate_composite_likelihood(ETPs, data):
     ETP_log = np.zeros(ETPs.shape, dtype=np.float64)
@@ -150,8 +153,7 @@ def agemo_calculate_composite_likelihood(ETPs, data):
     return np.sum(ETP_log * data)
 
 #def agemo_likelihood_function(nlopt_values, grad, gfEvaluatorObj, dataset, windows_idx, config, nlopt_iterations, verbose):
-def agemo_likelihood_function(nlopt_values, grad, gimbleDemographyInstance, dataset, windows_idx, config, nlopt_iterations, verbose, nlopt_anomaly_tol=1e-5, nlopt_anomaly_skip=True):
-    global NLOPT_LOG_QUEUE
+def agemo_likelihood_function(nlopt_values, grad, nlopt_log_queue, gimbleDemographyInstance, dataset, windows_idx, config, nlopt_iterations, verbose, nlopt_anomaly_tol=1e-5, nlopt_anomaly_skip=True):
     #global NLOPT_ANOMALY_COUNTS
     #print('[--------------------------------------------------------] nlopt_iterations', nlopt_iterations)
     nlopt_traceback = None
@@ -183,7 +185,7 @@ def agemo_likelihood_function(nlopt_values, grad, gimbleDemographyInstance, data
         nlopt_traceback = traceback.format_exc(exception)
         NLOPT_LOG_QUEUE.put((nlopt_log_iteration_tuple, nlopt_traceback))
     nlopt_log_iteration_tuple = get_nlopt_log_iteration_tuple(windows_idx, nlopt_iterations[windows_idx], gimbleDemographyInstance.block_length, likelihood, scaled_values_by_parameter, unscaled_values_by_parameter, windows_flag, is_anomaly)
-    NLOPT_LOG_QUEUE.put((nlopt_log_iteration_tuple, nlopt_traceback))
+    nlopt_log_queue.put((nlopt_log_iteration_tuple, nlopt_traceback))
     return likelihood
 
 def agemo_optimize(evaluator_agemo, replicate_idx, data, config, fallback_evaluator=None):
@@ -192,7 +194,7 @@ def agemo_optimize(evaluator_agemo, replicate_idx, data, config, fallback_evalua
     #np.set_printoptions(precision=19, suppress = True)
     EVALUATOR = evaluator_agemo
     FALLBACK_EVALUATOR = fallback_evaluator
-    nlopt_runs = get_agemo_nlopt_args(data, config)
+    NLOPT_LOG_QUEUE, nlopt_runs = get_agemo_nlopt_args(data, config)
     #print('nlopt_runs', nlopt_runs)
     nlopt_results = []
     # Setup nlopt_logger/tqdm
@@ -200,8 +202,9 @@ def agemo_optimize(evaluator_agemo, replicate_idx, data, config, fallback_evalua
     #print('### nlopt_runs', nlopt_runs)
     nlopt_log_fn, nlopt_log_header = setup_nlopt_log(replicate_idx, config)
     #
-    nlopt_log_iteration_tuples = NLOPT_LOG_ITERATIONS_MANAGER.list()
-    nlopt_log_process = multiprocessing.Process(target=nlopt_logger, args=(nlopt_log_fn, nlopt_log_header, nlopt_log_iteration_tuples, len(nlopt_runs)))
+    #nlopt_log_iteration_tuples = NLOPT_LOG_ITERATIONS_MANAGER.list()
+    nlopt_log_iteration_tuples = []
+    nlopt_log_process = multiprocessing.Process(target=nlopt_logger, args=(NLOPT_LOG_QUEUE, nlopt_log_fn, nlopt_log_header, nlopt_log_iteration_tuples, len(nlopt_runs)))
     nlopt_log_process.start()
     if config['processes'] <= 1:
         for nlopt_run in nlopt_runs:
@@ -218,14 +221,13 @@ def agemo_optimize(evaluator_agemo, replicate_idx, data, config, fallback_evalua
     return optimize_result
 
 def agemo_nlopt_call(args):
-    global NLOPT_LOG_QUEUE
     global NLOPT_ANOMALY_COUNT
     NLOPT_ALGORITHMS = {
         'neldermead' : nlopt.LN_NELDERMEAD,
         'sbplx': nlopt.LN_SBPLX,
         'CRS2': nlopt.GN_CRS2_LM,}
 
-    nlopt_params, windows_idx, agemo_likelihood_function, windows_flag = args
+    NLOPT_LOG_QUEUE, nlopt_params, windows_idx, agemo_likelihood_function, windows_flag = args
     #print(nlopt_params)
     num_optimization_parameters = len(nlopt_params['nlopt_start_point'])
     nlopt_algorithm = NLOPT_ALGORITHMS[nlopt_params.get('nlopt_algorithm', 'CRS2')]

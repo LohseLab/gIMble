@@ -2,7 +2,7 @@
 usage: gimble optimize                      -z <z> -l <l> -d <d> [-w] 
                                             [-y <y>] -m <m> -r <r> -u <u>
                                             [-T <T>] [-M <M>] -A <A> -B <B> [-C <C>] 
-                                            [-g <g>] [-p <p>] [-s <s>] [-i <i>] [--xtol <xtol>] [--ftol <ftol>] 
+                                            [-g <g>] [-s <s>] [-i <i>] [--xtol <xtol>] [--ftol <ftol>] 
                                             [-e <e>] [-f] [-h|--help]
 
         -z, --zarr_file=<z>                 Path to existing GimbleStore 
@@ -40,7 +40,6 @@ usage: gimble optimize                      -z <z> -l <l> -d <d> [-w]
                                                 - CRS2
                                                 - sbplx
                                                 - neldermead
-        -p, --processes=<p>                 Number of processes. Only relevant for optimization of windows [default: 1] 
         -s, --start_point=<s>               Point from which to start optimization [default: midpoint]
                                                 - 'midpoint' : midpoint between all boundary values
                                                 - 'random': based on random seed in INI file
@@ -88,7 +87,7 @@ class OptimizeParameterObj(lib.runargs.RunArgs):
         self.sync_pops = self._get_sync_pops(args['--sync_pops'])
         self.ref_pop = self._get_ref_pop(args['--ref_pop'])
         self.mu = self._get_float(args['--mu']) 
-        self.processes = self._get_int(args['--processes']) 
+        self.processes = 1 #self._get_int(args['--processes']) 
         self.seed = self._get_int(args['--seed']) 
         self.overwrite = args['--force']
         self.algorithm = self._get_nlopt_algorithm_name(args['--algorithm'])
