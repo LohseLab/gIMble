@@ -75,7 +75,7 @@ def main(gimble_dir=None):
         gimble_dir = os.path.dirname(os.path.join(os.path.realpath(__file__), '..'))
     try:
         start_time = timer()
-        __version__ = '1.0.3'
+        __version__ = '1.1.1a'
         version = "gimble v%s" % __version__
         args = docopt(__doc__, version=version, options_first=True)
         if '--version' in args['<args>'] or '-V' in args['<args>']:

@@ -1997,7 +1997,8 @@ class Store(object):
                     config["data_key"],
                     ", ".join(parameter_names),
                 )
-            ) 
+            )
+
         def get_lists_of_indices(sliced_param_array):
             idx_sort = np.argsort(sliced_param_array)
             sorted_sliced_param_array = sliced_param_array[idx_sort]
@@ -2014,19 +2015,24 @@ class Store(object):
 
     def _get_fixed_param_index(self, fixed_params_dict, parameter_names, parameter_array, meta_makegrid):
         fixed_param_mask = np.zeros(parameter_array.shape, dtype=bool)
-        for param, value in fixed_params_dict.items(): 
-            try:
-                fixed_param_idx = parameter_names.index(param)
-                fixed_param_mask[:,fixed_param_idx] = (parameter_array[:,fixed_param_idx]==value)
-            except ValueError:
-                print("[X] --fixed_param %r not part of grid %r." % (param, meta_makegrid['makegrid_label']))
+        for param, value in fixed_params_dict.items():
+            if isinstance(value, str):  # relational constraint
+                Ne_1_idx = parameter_names.index(param)
+                Ne_2_idx = parameter_names.index(value)
+                fixed_param_mask[:, Ne_1_idx] = (parameter_array[:, Ne_1_idx] == parameter_array[:, Ne_2_idx])
+            else:
+                try:
+                    fixed_param_idx = parameter_names.index(param)
+                    fixed_param_mask[:, fixed_param_idx] = (parameter_array[:, fixed_param_idx] == value)
+                except ValueError:
+                    print("[X] --fixed_param %r not part of grid %r." % (param, meta_makegrid['makegrid_label']))
         fixed_param_index = np.zeros(parameter_array.shape[0], dtype=bool)
-        # only those rows which have as many "True" values as parameters were specified... 
-        fixed_param_index = np.sum(fixed_param_mask,axis=1)==len(fixed_params_dict)
+        # only those rows which have as many "True" values as parameters were specified...
+        fixed_param_index = np.sum(fixed_param_mask, axis=1) == len(fixed_params_dict)
         if not np.any(fixed_param_index):
             sys.exit(
                 "[X] Specified constraint %r not found in grid:\n%s" % (
-                    ", ".join(["%s=%s" % (param, value) for param, value in fixed_params_dict.items()]), 
+                    ", ".join(["%s=%s" % (param, value) for param, value in fixed_params_dict.items()]),
                     self._format_grid(meta_makegrid))
             )
         return fixed_param_index
@@ -2283,7 +2289,7 @@ class Store(object):
                 print("[+] \tWrote %s ..." % lncls_max_out_f)
 
     def _write_gridsearch_results(self, config):
-        tally_key = config["data_key"] 
+        tally_key = config["data_key"]
         meta_gridsearch = self._get_meta(config["data_key"])
         meta_makegrid = self._get_meta(meta_gridsearch["makegrid_key"])
         meta_tally = self._get_meta(meta_gridsearch["data_key"])
@@ -2299,38 +2305,40 @@ class Store(object):
         columns = []
         header = ["# %s" % config["version"]]
         if config["sliced_param"]:
-            indices_by_sliced_param_value = self._get_indices_by_sliced_param_value(config, parameter_names, parameter_array)     
+            indices_by_sliced_param_value = self._get_indices_by_sliced_param_value(config, parameter_names, parameter_array)
         if config["fixed_param"]:
             fixed_param_index = self._get_fixed_param_index(config["fixed_param"], parameter_names, parameter_array, meta_makegrid)
         # prepare base_df (on which the remaining part of query gets concatenated onto)
         if data_ndims == 4:
             if data_source == 'meas':
-                if tally_ndims == 5: # windows.windowsum
+                if tally_ndims == 5:  # windows.windowsum
                     columns = ["tally_key", "total_windows_count", "total_blocks_count", 'block_length']
                     base_df = pd.DataFrame({
                         'tally_key': [tally_key],
                         'total_windows_count': [meta_tally['windows']],
                         'total_blocks_count': [meta_tally['blocks']],
                         'block_length': [meta_tally['block_length']],
-                        })
-                if tally_ndims == 4: # blocks
-                    columns = ["tally_key", 'total_blocks_count', 'block_length'] 
+                    })
+                if tally_ndims == 4:  # blocks
+                    columns = ["tally_key", 'total_blocks_count', 'block_length']
                     base_df = pd.DataFrame({
                         'tally_key': [tally_key],
                         'total_blocks_count': [meta_tally['blocks']],
                         'block_length': [meta_tally['block_length']],
-                        })
-            if data_source == 'sims': # simulate.windowsum
+                    })
+            if data_source == 'sims':  # simulate.windowsum
                 windows_count = meta_tally['windows']
                 row_count = 1
-                columns = ["replicate_idx", "total_windows_count", 'total_blocks_count', 'block_length'] 
+                columns = ["replicate_idx", "total_windows_count", 'total_blocks_count', 'block_length']
                 replicate_count = meta_tally['replicates']
-                base_df = pd.DataFrame({
+                base_df = pd.DataFrame(
+                    {
                         'replicate_idx': np.zeros(row_count),
                         'total_windows_count': np.repeat(meta_tally['windows'], row_count),
                         'total_blocks_count': np.repeat(meta_tally['blocks'], row_count),
                         'block_length': np.repeat(meta_tally['block_length'], row_count)
-                        })
+                    }
+                )
         if data_ndims == 5:
             windows_count = meta_tally['windows']
             row_count = windows_count
@@ -2373,16 +2381,15 @@ class Store(object):
                 print("[+] \tWrote %r" % sliced_fn)
             if config["fixed_param"]:
                 def _get_fixed_df(lncls, parameter_columns, fixed_param_index):
-                    lncls_fixed = lncls[:,fixed_param_index]
+                    lncls_fixed = lncls[:, fixed_param_index]
                     lncls_fixed_max_idx = np.argmax(lncls_fixed, axis=1)
                     lncls_fixed_max = lncls_fixed[np.arange(lncls_fixed.shape[0]), lncls_fixed_max_idx]
                     lncls_fixed_max_parameters = parameter_array[fixed_param_index][lncls_fixed_max_idx]
                     fixed_df = pd.DataFrame(
-                        data=np.vstack([
-                            lncls_fixed_max_parameters.T, 
-                            lncls_fixed_max]).T, columns=parameter_columns)
+                        data=np.vstack([lncls_fixed_max_parameters.T, lncls_fixed_max]).T, columns=parameter_columns
+                    )
                     return fixed_df
-                fixed_fn = "%s.fixed_param.%s.bed" % (base_fn, ".".join(["%s_%s" % (param, str(value).replace(".", "_")) for param, value in config["fixed_param"].items()]))
+                fixed_fn = "%s.constrained.%s.bed" % (base_fn, ".".join(["%s_%s" % (param, str(value).replace(".", "_")) if isinstance(value, float) else "%s__%s" % (param, value) for param, value in sorted(config["fixed_param"].items())]))
                 fixed_df = pd.concat([base_df, _get_fixed_df(lncls, parameter_columns, fixed_param_index)], axis=1)
                 with open(fixed_fn, "w") as fixed_fh:
                     fixed_header = header + ["# --fixed_param %s" % ",".join(["%s=%s" % (param, value) for param, value in config["fixed_param"].items()])] + ["# %s" % "\t".join(list(fixed_df.columns))]
@@ -2396,14 +2403,13 @@ class Store(object):
                     header=False,
                 )
                 print("[+] \tWrote %r" % fixed_fn)
-            def _get_lncls_max_df(lncls, parameter_array):  
+            def _get_lncls_max_df(lncls, parameter_array):
                 lncls_max_idx = np.argmax(lncls, axis=1)
                 lncls_max = lncls[np.arange(lncls.shape[0]), lncls_max_idx]
                 lncls_max_parameters = parameter_array[lncls_max_idx]
                 lncls_max_df = pd.DataFrame(
-                    data=np.vstack([
-                        lncls_max_parameters.T, 
-                        lncls_max]).T, columns=parameter_columns)
+                    data=np.vstack([lncls_max_parameters.T, lncls_max]).T, columns=parameter_columns
+                )
                 return lncls_max_df
             lncls_max_fn = "%s.best.bed" % base_fn
             lncls_max_df = pd.concat([base_df, _get_lncls_max_df(lncls, parameter_array)], axis=1)
